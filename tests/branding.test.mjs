@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+const sha256 = (path) =>
+  createHash("sha256").update(readFileSync(new URL(`../${path}`, import.meta.url))).digest("hex");
 
 const forbiddenBrand = /\b(?:Faceclaw|OpenClaw)\b/i;
 
@@ -110,4 +113,15 @@ test("README and privacy lead with Hermes while preserving upstream and GPL attr
   assert.match(privacy, /^# Hermes G2 Privacy Policy/);
   assert.match(privacy, /Hermes Agent bridge/);
   assert.match(privacy, /direct-provider fallback/i);
+});
+
+test("Android launcher assets no longer contain the legacy Faceclaw icon", () => {
+  assert.notEqual(
+    sha256("App_Resources/Android/src/main/res/mipmap-xxxhdpi/ic_launcher.png"),
+    "01b6be7d5d399cac9594e8e48653d83616caa96223e6181ec4c4955cfd2ace01",
+  );
+  assert.notEqual(
+    sha256("App_Resources/Android/src/main/res/drawable/ic_launcher_foreground.xml"),
+    "ae4577fa18556a350ce11bee71ca9c1fbff5bb3e444b1b0c9e573af321ba9c8a",
+  );
 });
