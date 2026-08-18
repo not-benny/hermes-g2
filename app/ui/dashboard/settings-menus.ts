@@ -266,9 +266,9 @@ function renderAbout(args: { image: GrayImage; x: number; y: number; width: numb
     image.bitBlt(logo, x, y + 4, { transparentZero: true });
   }
   const textX = logo ? x + logo.width + 12 : x;
-  image.drawText(font, textX, y + 8, "Faceclaw", 220);
-  image.drawText(font, textX, y + 24, "v0.3.0", 170);
-  const blurb = "By James Babcock. Distributed under the GNU General Public License, version 3.";
+  image.drawText(font, textX, y + 8, "Hermes G2", 220);
+  image.drawText(font, textX, y + 24, "v1.0.0", 170);
+  const blurb = "Based on the work of James Babcock and contributors. GNU General Public License, version 3.";
   const blurbY = y + Math.max(64, logo ? logo.height + 12 : 0);
   const blurbLines = wrapText(font, blurb, width);
   for (let i = 0; i < blurbLines.length; i++) {

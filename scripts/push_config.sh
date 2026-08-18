@@ -1,13 +1,13 @@
 #!/bin/bash
-# Push a shared-preferences file to faceclaw on the attached device.
-# Usage: push_config.sh [input-file]   (default: faceclaw_settings.xml)
+# Push a shared-preferences file to Hermes G2 on the attached device.
+# Usage: push_config.sh [input-file]   (default: hermes_g2_settings.xml)
 # Validates the XML, force-stops the app (so a running instance doesn't
 # overwrite the pushed file from its in-memory prefs), then installs it.
 set -euo pipefail
 
 PACKAGE=com.faceclaw.app
 PREFS=shared_prefs/faceclaw_settings.xml
-IN="${1:-faceclaw_settings.xml}"
+IN="${1:-hermes_g2_settings.xml}"
 STAGE=/data/local/tmp/faceclaw_settings_push.xml
 
 if [ ! -f "$IN" ]; then

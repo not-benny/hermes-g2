@@ -4,7 +4,7 @@
             <StackLayout>
                 <Label text="Disconnect the Even App" class="h1 text-center m-t-24" textWrap="true" />
                 <Label
-                    text="Faceclaw and the official Even Realities app can't both be connected to the glasses at once. Before continuing, open the Even app, go to Home, select your glasses, open the Connection submenu, and press Disconnect (or turn off the Even app's Bluetooth)."
+                    text="Hermes G2 and the official Even Realities app can't both be connected to the glasses at once. Before continuing, open the Even app, go to Home, select your glasses, open the Connection submenu, and press Disconnect (or turn off the Even app's Bluetooth)."
                     class="m-t-24" textWrap="true" />
                 <Button text="Open Even App Settings" tap="{{ onOpenEvenAppSettingsTap }}" class="-primary m-t-24" />
             </StackLayout>

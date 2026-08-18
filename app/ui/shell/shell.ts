@@ -800,7 +800,7 @@ class Shell {
     if (!session) {
       this.showAlert(
         assistantBackendSetting.get() === "external"
-          ? "Configure the agent bridge host and token in Settings."
+          ? "Configure the Hermes Agent bridge host and token in Settings."
           : "Set an API key or download the on-phone model in Settings.",
       );
       return;

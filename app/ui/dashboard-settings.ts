@@ -49,7 +49,7 @@ type ConfigSettingOptions<TValue, TId extends string> = {
 };
 
 // Fired after any setting changes, in any isolate (storage lives in the Java
-// FaceclawSettings store and broadcasts to every isolate). Lets phone-side UI
+// legacy Java settings store and broadcasts to every isolate). Lets phone-side UI
 // that depends on settings toggled from the glasses (e.g. the text-setting
 // editor) update without waiting for an unrelated snapshot emit. Delivery is
 // asynchronous: one message-loop tick after the set().
@@ -368,60 +368,60 @@ export const assistantSkipConfirmationSetting = new ConfigSettingBoolean({
 export type AssistantBackendKind = "direct" | "external";
 
 const assistantBackendLabels: Record<AssistantBackendKind, string> = {
-  direct: "On-phone",
-  external: "My own agent (bridge)",
+  direct: "Direct provider (fallback)",
+  external: "Hermes Agent (bridge)",
 };
 
 export const assistantBackendSetting = new ConfigSettingEnum<AssistantBackendKind>({
   id: "assistant-backend",
   label: "Assistant backend",
   storageKey: "assistant.backend",
-  defaultValue: "direct",
-  values: ["direct", "external"],
+  defaultValue: "external",
+  values: ["external", "direct"],
   formatValue: (value) => assistantBackendLabels[value] ?? value,
   description:
-    "Who answers assistant queries: an LLM called from the phone (a cloud API with your key, or the downloaded on-phone model), or your own long-running agent (e.g. OpenClaw) reached through the faceclaw-agent-bridge plugin.",
+    "Hermes Agent is the preferred assistant and connects through the bridge. Direct provider mode is the fallback: it calls a cloud model with your API key or uses the downloaded on-phone model.",
 });
 
 export const assistantBridgeHostSetting = new ConfigSettingString({
   id: "assistant-bridge-host",
-  label: "Bridge host",
+  label: "Hermes Agent host",
   storageKey: "assistant.bridgeHost",
   defaultValue: "",
-  editorTitle: "Agent bridge host (tailscale IP)",
-  glassesEditTitle: "Edit bridge host",
+  editorTitle: "Hermes Agent bridge host (Tailscale IP)",
+  glassesEditTitle: "Edit Hermes host",
   description:
-    "Hostname or IP address (e.g. a Tailscale address) of the machine running the agent bridge.",
+    "Hostname or IP address (for example, a Tailscale address) of the machine running the Hermes Agent bridge.",
 });
 
 export const assistantBridgePortSetting = new ConfigSettingString({
   id: "assistant-bridge-port",
-  label: "Bridge port",
+  label: "Hermes Agent port",
   storageKey: "assistant.bridgePort",
   defaultValue: "8790",
-  editorTitle: "Agent bridge port",
-  glassesEditTitle: "Edit bridge port",
-  description: "TCP port the agent bridge listens on. The default is 8790.",
+  editorTitle: "Hermes Agent bridge port",
+  glassesEditTitle: "Edit Hermes port",
+  description: "TCP port the Hermes Agent bridge listens on. The default is 8790.",
 });
 
 export const assistantBridgeTokenSetting = new ConfigSettingString({
   id: "assistant-bridge-token",
-  label: "Bridge token",
+  label: "Hermes Agent token",
   storageKey: "assistant.bridgeToken",
   defaultValue: "",
-  editorTitle: "Agent bridge auth token",
-  glassesEditTitle: "Edit bridge token",
+  editorTitle: "Hermes Agent bridge auth token",
+  glassesEditTitle: "Edit Hermes token",
   formatValue: (value) => (value ? `${value.slice(0, 6)}...` : "(not set)"),
-  description: "Shared secret that must match the bridge's configured token.",
+  description: "Shared secret that must match the Hermes Agent bridge token.",
 });
 
 export const assistantAllowProactiveSetting = new ConfigSettingBoolean({
   id: "assistant-allow-proactive",
-  label: "Allow proactive agent actions",
+  label: "Allow proactive Hermes actions",
   storageKey: "assistant.allowProactive",
   defaultValue: true,
   description:
-    "Let the external agent use glasses tools outside of a conversation, e.g. showing an alert when a long-running job finishes. Rate-limited; only tools marked proactive-safe are allowed.",
+    "Let Hermes Agent use glasses tools outside a conversation, for example to show an alert when a long-running job finishes. Rate-limited; only tools marked proactive-safe are allowed.",
 });
 
 export const elevenLabsApiKeySetting = new ConfigSettingString({

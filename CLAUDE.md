@@ -1,5 +1,5 @@
-This is Faceclaw, an Android program that provides user interface on the Even
-Realities G2 smart glasses. It is written in a mix of Typescript/NativeScript
+This is Hermes G2, an Android program based on Faceclaw that provides a user
+interface on the Even Realities G2 smart glasses. It is written in a mix of Typescript/NativeScript
 (for the user interface parts) and Java (for the low-level bluetooth parts and
 for interfacing with Android SDK).
 

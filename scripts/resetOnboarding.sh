@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# resetOnboarding.sh — reset Faceclaw on an attached phone back to its
+# resetOnboarding.sh — reset Hermes G2 on an attached phone back to its
 # pre-onboarding state, for testing the onboarding flow repeatedly.
 #
 # By default this only clears the onboarding-related preference keys
@@ -14,14 +14,15 @@
 #   scripts/resetOnboarding.sh --all           # full `pm clear` (wipes everything)
 #   scripts/resetOnboarding.sh -s <device-id>  # target a specific adb device
 #
-# The device id defaults to $FACECLAW_DEVICE_ID, then to the id used by
+# The device id defaults to $HERMES_G2_DEVICE_ID, then the legacy
+# $FACECLAW_DEVICE_ID, then to the id used by
 # build_and_run.sh. adb is located the same way build.sh finds its tools.
 
 set -euo pipefail
 
 PACKAGE="com.faceclaw.app"
 PREF_KEY_PREFIX="onboarding."
-DEVICE_ID="${FACECLAW_DEVICE_ID:-3A101JEHN12330}"
+DEVICE_ID="${HERMES_G2_DEVICE_ID:-${FACECLAW_DEVICE_ID:-3A101JEHN12330}}"
 WIPE_ALL=0
 
 # Match build.sh's tool locations so adb is on PATH even from a bare shell.
@@ -102,7 +103,7 @@ for f in $FILES; do
 done
 
 if [ "$CHANGED" -eq 1 ]; then
-  echo "Done. Relaunch Faceclaw to go through onboarding again."
+  echo "Done. Relaunch Hermes G2 to go through onboarding again."
 else
   echo "No onboarding keys were set. App is already in pre-onboarding state."
 fi

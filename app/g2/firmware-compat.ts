@@ -1,5 +1,5 @@
 /**
- * Compatibility check for the glasses firmware. Faceclaw requires the custom
+ * Compatibility check for the glasses firmware. Hermes G2 requires the custom
  * firmware: version >= 2.2.4.34 with the required direct-framebuffer and wear
  * notification tokens in the CFW capability string. Stock firmware sends no
  * capability string at all.
@@ -10,7 +10,7 @@ import { type FirmwareInfo } from "../native/faceclaw-communicator";
 const MIN_FIRMWARE_VERSION = [2, 2, 4, 34];
 const REQUIRED_FIRMWARE_EXTENSIONS = ["img640", "fbguard", "wearnotify"] as const;
 
-// The stock firmware release Faceclaw's custom image is built from. Stock at or
+// The stock firmware release the Hermes G2 custom image is built from. Stock at or
 // below this can be flashed with our patched image; a newer stock version is
 // unrecognized (its layout may differ from what our patch set targets).
 export const FLASHABLE_STOCK_VERSION = [2, 2, 6, 10];
@@ -37,7 +37,7 @@ function compareVersions(a: number[], b: number[]): number {
 }
 
 /**
- * Human-readable explanation of why this firmware cannot run Faceclaw, or
+ * Human-readable explanation of why this firmware cannot run Hermes G2, or
  * null if it is compatible. Returns null when no version was reported at all
  * (no data is not evidence of incompatibility).
  */
@@ -50,7 +50,7 @@ export function firmwareIncompatibilityMessage(info: FirmwareInfo): string | nul
 
   if (reportedVersions.some((v) => compareVersions(parseDottedVersion(v), MIN_FIRMWARE_VERSION) < 0)) {
     return (
-      `The glasses report firmware ${versionsText}, but Faceclaw requires the modified firmware, ` +
+      `The glasses report firmware ${versionsText}, but Hermes G2 requires the modified firmware, ` +
       `version ${minVersionText} or newer. Displaying images will not work until the glasses firmware is updated.`
     );
   }
@@ -65,14 +65,14 @@ export function firmwareIncompatibilityMessage(info: FirmwareInfo): string | nul
       `${missingExtensions.map((extension) => `"${extension}"`).join(" and ")} extension` +
       `${missingExtensions.length === 1 ? "" : "s"}` +
       `${info.capabilities.trim() ? ` (reported: ${info.capabilities.trim()})` : ", which suggests stock firmware"}. ` +
-      `Faceclaw requires the modified firmware with the guarded 640x480 direct-framebuffer path and wear notifications.`
+      `Hermes G2 requires the modified firmware with the guarded 640x480 direct-framebuffer path and wear notifications.`
     );
   }
 
   return null;
 }
 
-/** True when the glasses advertise every custom-firmware extension Faceclaw needs. */
+/** True when the glasses advertise every custom-firmware extension Hermes G2 needs. */
 export function hasCustomFirmware(info: FirmwareInfo): boolean {
   const tokens = info.capabilities.trim().split(/\s+/);
   return REQUIRED_FIRMWARE_EXTENSIONS.every((extension) => tokens.includes(extension));
@@ -89,7 +89,7 @@ export function reportedFirmwareVersion(info: FirmwareInfo): string {
 
 /**
  * How the pre-flash firmware check should treat the connected glasses:
- * - "custom": Faceclaw's firmware is already installed — nothing to flash.
+ * - "custom": Hermes G2 firmware is already installed — nothing to flash.
  * - "flashable-stock": stock firmware at or below the version we build from.
  * - "newer-stock": stock firmware newer than we recognize — flash only on override.
  * - "unknown": no version could be read (treated as a probe/connection failure).

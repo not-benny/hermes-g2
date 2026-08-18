@@ -1,122 +1,103 @@
-# Faceclaw - An unofficial user interface for the Even Realities G2 smart glasses
+# Hermes G2 — Hermes Agent for Even Realities G2 glasses
 
-This is an unofficial user interface for the Even Realities G2 smart glasses.
-It is entirely unofficial, and comes with no support or warranty from Even
-Realities or from anyone.
+Hermes G2 is an unofficial Android interface for the Even Realities G2 smart
+glasses, built around Hermes Agent. It provides a multitasking glasses UI,
+voice interaction, notifications, media controls, navigation, terminal mirroring,
+and other utilities.
 
-This app runs on Android, and requires installing custom firmware on the
-glasses. The Android app itself can install and uninstall the custom firmware;
-it downloads the stock firmware from Even and applies patches generated from
-https://github.com/jimrandomh/g2flash.
+This project is not created, endorsed, or supported by Even Realities. It is
+development software with no warranty. Using its custom glasses firmware may
+void your hardware warranty and carries the normal risks of firmware flashing.
 
+## Assistant backends
 
-## Screenshots
+**Hermes Agent bridge is the preferred and default backend.** The phone dials
+out to a Hermes Agent bridge over a websocket, streams assistant turns, and
+serves the glasses' dynamic tools over MCP. This lets Hermes Agent answer voice
+queries, operate glasses tools during a turn, and—when the user setting allows
+it—perform rate-limited proactive actions such as showing an alert.
 
-![App launcher](screenshots/launcher.png)
-![Music player](screenshots/music-player.png)
-![Assistant settings](screenshots/settings-assistant.png)
-![Display settings](screenshots/settings-display.png)
+Configure the connection under **Settings > Assistant**:
 
-## Installation
+- **Assistant backend:** `Hermes Agent (bridge)` (default)
+- **Hermes Agent host:** hostname or IP address reachable by the phone
+- **Hermes Agent port:** `8790` by default
+- **Hermes Agent token:** the shared bridge token
+- **Allow proactive Hermes actions:** optional master gate
 
-To compile, you will need an Android SDK environment with SDK version 35
-installed and licenses accepted, and the ANDROID_HOME pointing to the install.
-You will need Nativescript installed, and a JDK environment (v21), with the
-JAVA_HOME environment variable pointed at it. You will also need a reasonably
-up to date npm and nodejs installed.
+The companion `hermes-g2-bridge` uses the existing websocket v1 protocol. A
+server compatible with that protocol can also be used; the app retains the v1
+`ctl`, `chat`, and `mcp` channels for interoperability with upstream bridge
+implementations.
 
-To install a version that you compiled, you will need `adb` connected. Go to
-Settings>About phone and tap the "Build number" field seven times. Then plug
-the phone's USB-C port into your computer, authorize access on the phone, then
-run `nativescript run android 
-
-The compile, run
-  'npm run build'
-To install, run
-  `nativescript run android --juslaunch`
+**Direct provider mode remains available as a fallback.** Select
+`Direct provider (fallback)` to call Anthropic or OpenAI with your own API key,
+or to use the downloaded on-phone model. Direct-provider settings do not affect
+the Hermes Agent bridge.
 
 ## Features
 
- * A voice assistant that wakes up when you say "Hey Even", transcribes text
-   with an on-device model, OpenAI Whisper, ElevenLabs, or Soniox API, and responds
-   to queries and commands using an Anthropic or OpenAI model (requires an API
-   key), or using your own long-running OpenClaw agent (see "Connecting an
-   external agent" below).
- * Multitasking, with an app-switcher sidebar and app launcher
- * A lock screen; glasses lock automatically when you take them off and unlock
-   when you unlock your phone
- * Full-screen apps can use  the full 640x480 display area (rather than the
-   576x288 that EvenHub apps can use)
- * Integration with Android notifications: A top-bar that shows the
-   same icons your phone does, popups when notifications arrive, and menu
-   items to dismiss or use Android-app-provided custom actions like mark as
-   read or quick reply.
- * Mirror terminal apps such as Claude Code or Codex CLI with g2mirror
-   (https://github.com/jimrandomh/g2mirror), view them on the glasses, and
-   send them inputs with the voice assistant
- * Media player controls including playlist and media library navigation,
-   compatible with most Android media players
- * Turn-by-turn directions (requires a Mapbox API token)
- * Nightscout, an app for viewing blood-glucose data (requires a cloud server
-   and API token)
- * Power management: the glasses go to sleep properly when the screen is off,
-   and wake when you double-tap the ring or speak the wakeword, allowing
-   battery life similar to the stock Even app.
- * Connection management with auto-reconnect, and autodetection of conflict
-   with the official Even Realities app
- * On-phone screen mirroring and simulated ring input
- * Dual-language NativeScript architecture with Java for the multithreaded
-   Android API and bluetooth stack bits, Typescript for the bits you want to
-   hack on
+- Voice input triggered by “Hey Even,” with on-device transcription by default
+  and optional OpenAI Whisper, ElevenLabs, or Soniox transcription.
+- Hermes Agent integration with streamed replies, MCP glasses tools, and
+  optional proactive actions.
+- Direct Anthropic/OpenAI and downloaded on-phone model fallback.
+- Multitasking with an app launcher, switcher sidebar, and lock screen.
+- Android notification mirroring, actions, dismissal, and quick reply.
+- Media playback controls and media-library navigation.
+- Terminal mirroring through
+  [g2mirror](https://github.com/jimrandomh/g2mirror), including voice input.
+- Turn-by-turn navigation with a user-provided Mapbox token.
+- Weather, calendar, timers, Nightscout, games, and other glasses apps.
+- Phone-side display preview, simulated ring input, screenshots, and recording.
+- Connection management, power management, and official-app conflict detection.
 
-## Connecting an external agent (OpenClaw)
+## Firmware warning
 
-Instead of calling an LLM API directly from the phone, the voice assistant
-can route queries to your own long-running agent, which also gets access to
-the glasses' tools (show alerts, read notifications, control media, type
-into apps including terminals) both during conversations and proactively. This
-works through the faceclaw-agent-bridge OpenClaw plugin
-(https://github.com/jimrandomh/faceclaw-agent-bridge): the phone dials out to
-it over a websocket (typically across a tailnet).
+Hermes G2 currently requires the project's custom firmware for full 640×480
+framebuffer access and wear/wake integration. The Android app can install or
+restore firmware, but flashing can fail or brick a device. Read every in-app
+warning, keep the glasses powered, and disconnect the official Even app first.
+Preview Only mode explores the interface without writing to the glasses.
 
-Setup lives in the faceclaw-agent-bridge repository's README. It covers
-both the OpenClaw-host side (plugin install and configuration) and the
-phone side, which can be configured either by hand in Settings > Assistant
-on the glasses, or over adb using scripts/pull_config.sh and
-scripts/push_config.sh from this repo; the instructions are written so an
-OpenClaw agent with the phone plugged into its host can perform the whole
-setup itself. Note that a pulled settings file contains your API keys, so
-treat it as a secret (the default output path is gitignored here).
+## Building
 
-## Additional Caveats
+Requirements:
 
-Some permissions are used, but may not reliably prompted for. Go to Android
-Settings > Apps > Faceclaw to ensure permissions are available or things may
-not work.
+- Android SDK 35 with licenses accepted
+- JDK 21
+- A current Node.js/npm toolchain
+- NativeScript CLI and the Android build prerequisites
+- Android NDK and CMake packages used by the native audio/model components
 
-Being a background app on a locked Android phone is fraught, and there may be
-issues with manufacturer-psecific battery optimization software that lead to
-it getting paused, throttled to low CPU usage, etc.
+Install dependencies, run tests and typechecking, then build:
 
-## Contributing
+```bash
+npm ci
+npm test
+npm run typecheck
+npm run build
+```
 
-Be bold. Modify Faceclaw into the app that you want it to be for yourself,
-without worrying about whether other people will like your version. Then if you
-think your changes might be useful to others, make a pull request at 
-https://github.com/jimrandomh/faceclaw.
+To install a build, connect an authorized Android device with `adb` and use the
+NativeScript Android run command. No phone is needed for tests or compilation.
 
-The Typescript and Java code in this repository runs on your phone, not on the
-glasses themselves, and (with the narrow exception of the firmware-updating
-tool), can't hurt your hardware. For changes to the glasses firmware, refer to
-[g2flash](https://github.com/jimrandomh/faceclaw); changes there require more
-caution.
+## Privacy
 
-Faceclaw is Free Software (GPLv3). Please only contribute code that you wrote
-(or prompted an agent to write), hold the copyright to, and have tested on
-physical hardware under real-world conditions. If you make any changes that
-involve integration with a third party's API or services, modify PRIVACY to
-mention them and link to that provider's privacy policy. For services that
-involve a user-provided API key, we assume that the user agreed to any terms
-associated with that service when they generated the key. For services that
-don't involve API keys, more caution may be required.
+See [PRIVACY](PRIVACY). The bridge and direct-provider fallback have different
+data paths, and the selected transcription provider has its own policy. Bridge
+tokens and API keys are secrets. The configuration helper scripts read and
+write Android shared preferences; never commit or share a pulled settings file.
 
+## Upstream and license
+
+Hermes G2 is based on [Faceclaw](https://github.com/jimrandomh/faceclaw), created
+by James Babcock and its contributors. The fork intentionally retains the
+upstream architecture, websocket v1 compatibility, internal Java package and
+class names, firmware compatibility identifiers, and project history in this
+initial rebrand. See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for additional
+third-party credits.
+
+Hermes G2 remains Free Software distributed under the **GNU General Public
+License, version 3 (GPLv3)**. See [LICENSE](LICENSE). Changes must continue to
+comply with the GPL and retain applicable copyright and attribution notices.

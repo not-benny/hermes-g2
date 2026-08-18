@@ -69,10 +69,10 @@ public class FaceclawForegroundService extends Service {
 
         NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
-                "Faceclaw dashboard",
+                "Hermes G2 dashboard",
                 NotificationManager.IMPORTANCE_LOW
         );
-        channel.setDescription("Keeps the Faceclaw dashboard connected to the glasses.");
+        channel.setDescription("Keeps the Hermes G2 dashboard connected to the glasses.");
 
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) {
@@ -96,7 +96,7 @@ public class FaceclawForegroundService extends Service {
                 : new Notification.Builder(this);
 
         return builder
-                .setContentTitle("faceclaw dashboard")
+                .setContentTitle("Hermes G2 dashboard")
                 .setContentText(text)
                 .setSmallIcon(getApplicationInfo().icon)
                 .setContentIntent(contentIntent)

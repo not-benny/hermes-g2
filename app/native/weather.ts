@@ -87,7 +87,7 @@ type NwsMeasure = {
 const NWS_API_ROOT = "https://api.weather.gov";
 const NWS_HEADERS = {
   Accept: "application/geo+json",
-  "User-Agent": "Faceclaw/1.0 (https://github.com/jimrandomh/faceclaw)",
+  "User-Agent": "Hermes-G2/1.0 (based on https://github.com/jimrandomh/faceclaw)",
 };
 const WEATHER_REFRESH_MS = 30 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 20_000;

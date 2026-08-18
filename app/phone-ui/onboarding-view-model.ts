@@ -17,8 +17,8 @@ type StepContent = {
 
 const STEP_CONTENT: Record<OnboardingStep, StepContent> = {
   1: {
-    headline: "Faceclaw",
-    tagline: "Perching on the faces of giants",
+    headline: "Hermes G2",
+    tagline: "Hermes Agent on your Even G2",
     body: "",
     primaryLabel: "Next",
     secondaryLabel: "",
@@ -41,7 +41,7 @@ const STEP_CONTENT: Record<OnboardingStep, StepContent> = {
     headline: "Custom Firmware Required",
     tagline: "",
     body:
-      "Faceclaw only runs on Even Realities G2 glasses that have Faceclaw's custom firmware installed. You have two choices:\n\n• Preview Only — explore Faceclaw's interface on your phone's screen without pairing any glasses. Nothing is written to a headset.\n\n• Flash Firmware — install the custom firmware on your glasses now, then use Faceclaw for real. This connects to your glasses, asks for confirmation on the lens, then downloads and prepares the firmware.\n\nFlashing replaces the official firmware. It may void your warranty and, like any firmware update, carries a risk of bricking the device. You can only be connected to one app at a time, so disconnect the official Even app before flashing (open it, go to Home, select your glasses, open Connection, and press Disconnect).",
+      "Hermes G2 only runs on Even Realities G2 glasses that have Hermes G2 custom firmware installed. You have two choices:\n\n• Preview Only — explore the Hermes G2 interface on your phone's screen without pairing any glasses. Nothing is written to a headset.\n\n• Flash Firmware — install the custom firmware on your glasses now, then use Hermes G2 for real. This connects to your glasses, asks for confirmation on the lens, then downloads and prepares the firmware.\n\nFlashing replaces the official firmware. It may void your warranty and, like any firmware update, carries a risk of bricking the device. You can only be connected to one app at a time, so disconnect the official Even app before flashing (open it, go to Home, select your glasses, open Connection, and press Disconnect).",
     primaryLabel: "Flash Firmware",
     secondaryLabel: "Preview Only",
     showLogo: false,

@@ -169,7 +169,7 @@ export class OnboardingFirmwareCheckViewModel extends Observable {
         this.setPhase("custom");
         this.headline = "Custom Firmware Detected";
         this.status =
-          `Your glasses already run Faceclaw's custom firmware${version ? ` (version ${version})` : ""}` +
+          `Your glasses already run Hermes G2 custom firmware${version ? ` (version ${version})` : ""}` +
           `${capabilities ? `, extensions: ${capabilities}` : ""}. No flashing needed — you're all set.`;
         break;
       case "flashable":
@@ -177,14 +177,14 @@ export class OnboardingFirmwareCheckViewModel extends Observable {
         this.headline = "Ready to Install";
         this.status =
           `Your glasses run stock firmware ${version}. This is compatible — tap Install Firmware to flash ` +
-          "Faceclaw's custom firmware.";
+          "Hermes G2 custom firmware.";
         break;
       case "newer":
         this.setPhase("newer");
         this.headline = "Unrecognized Firmware";
         this.status =
           `Your glasses run stock firmware ${version}, which is newer than the ${FLASHABLE_STOCK_VERSION_TEXT} ` +
-          "release Faceclaw's custom image is built from. Flashing may not work correctly and carries extra risk. " +
+          "release the Hermes G2 custom image is built from. Flashing may not work correctly and carries extra risk. " +
           "You can proceed anyway, or go back.";
         break;
       default:

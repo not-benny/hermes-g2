@@ -79,7 +79,7 @@ const CONNECTED_PREVIEW_MIN_UPDATE_MS = 1_000;
 // Below this, a disconnect is more likely a flat battery than a BLE problem.
 const LOW_BATTERY_PERCENT = 5;
 const EVEN_APP_DETECTED_MESSAGE =
-  "The Even Realities app appears to be running. If Faceclaw has trouble connecting, open its app settings and force stop it.";
+  "The Even Realities app appears to be running. If Hermes G2 has trouble connecting, open its app settings and force stop it.";
 
 // The launcher grid's app list; also fixes the app ids apps.launch accepts.
 const LAUNCHABLE_APPS = ALL_APPS.filter((app) => app.showInLauncher !== false);
@@ -300,7 +300,7 @@ class DashboardController {
       host,
       port: parseInt(assistantBridgePortSetting.get(), 10) || 8790,
       token,
-      deviceName: "faceclaw",
+      deviceName: "hermes-g2",
       allowProactive: () => assistantAllowProactiveSetting.get(),
     });
   }

@@ -1,3 +1,7 @@
+Hermes G2 is based on Faceclaw by James Babcock and contributors:
+https://github.com/jimrandomh/faceclaw. Their architecture, protocol work,
+firmware integration, and GPL-licensed implementation made this fork possible.
+
 Many thanks to g2-kit-unofficial: https://github.com/Commute773/g2-kit-unofficial/,
 evenRealities-openCFW https://github.com/kalanihelekunihi/evenRealities-openCFW/,
 and others who contributed to documenting the G2's bluetooth protocol and firmware.

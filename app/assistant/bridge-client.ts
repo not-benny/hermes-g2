@@ -5,8 +5,8 @@ import type { AssistantContext, AssistantTurnCallbacks, AssistantTurnHandle } fr
 declare const com: any;
 
 /**
- * Dial-out websocket client for the external assistant bridge (an OpenClaw
- * plugin or compatible server on the user's machine; see
+ * Dial-out websocket client for the Hermes Agent bridge (or another compatible
+ * server on the user's machine; see
  * notes/voice-assistant-design.md "External mode"). One JSON object per text
  * frame, three multiplexed channels:
  *
@@ -128,7 +128,7 @@ export class AssistantBridgeClient {
     callbacks: AssistantTurnCallbacks,
   ): AssistantTurnHandle {
     if (this.phase !== "connected") {
-      callbacks.onError(`Agent bridge is not connected (${this.status})`);
+      callbacks.onError(`Hermes Agent bridge is not connected (${this.status})`);
       return { cancel: () => {} };
     }
     this.failActiveTurn("Superseded by a new request");

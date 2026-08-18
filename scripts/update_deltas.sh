@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Build and verify the sibling g2flash custom firmware, then update Faceclaw's
+# Build and verify the sibling g2flash custom firmware, then update Hermes G2's
 # embedded copy of its byte-patch set.
 #
 # Usage:
@@ -64,7 +64,7 @@ version = base_name.removeprefix("g2_").removesuffix(".bin")
 serialized = json.dumps(patch_set, indent=2, ensure_ascii=False)
 generated = f"""// AUTO-GENERATED from g2flash/patches/cfw_patches.json — do not edit by hand.
 // Regenerate with scripts/update_deltas.sh.
-// Turns the stock G2 {version} image into the Faceclaw custom firmware.
+// Turns the stock G2 {version} image into the Hermes G2 custom firmware.
 
 export type FirmwarePatchOp = {{
   offset: number;

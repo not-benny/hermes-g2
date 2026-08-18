@@ -88,7 +88,7 @@ const VIEW_GRID = {
   cols: Math.floor(VIEW_VIEWPORT.width / CELL_WIDTH),
   rows: Math.floor(VIEW_VIEWPORT.height / CELL_HEIGHT),
 };
-const DEVICE_NAME = "Faceclaw G2";
+const DEVICE_NAME = "Hermes G2";
 const HUB_ROW_HEIGHT = 20;
 const RENDER_COALESCE_MS = 33;
 const HISTORY_PAGE = 200;

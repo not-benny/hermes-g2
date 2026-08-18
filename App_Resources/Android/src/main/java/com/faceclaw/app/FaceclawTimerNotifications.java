@@ -144,7 +144,7 @@ public final class FaceclawTimerNotifications {
                 "Timers",
                 NotificationManager.IMPORTANCE_HIGH
         );
-        channel.setDescription("Alerts when a Faceclaw timer finishes.");
+        channel.setDescription("Alerts when a Hermes G2 timer finishes.");
         channel.enableVibration(true);
         NotificationManager manager =
                 (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);

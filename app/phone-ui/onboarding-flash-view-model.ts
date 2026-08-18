@@ -50,15 +50,15 @@ export class OnboardingFlashViewModel extends Observable {
     this._status =
       this.mode === "uninstall"
         ? "This connects to your glasses, asks for confirmation on the lens, then downloads and reflashes the " +
-          "official firmware — removing Faceclaw's custom features."
+          "official firmware — removing Hermes G2 custom features."
         : "This connects to your glasses, asks for confirmation on the lens, then downloads, verifies, and flashes " +
-          "Faceclaw's custom firmware.";
+          "Hermes G2 custom firmware.";
   }
 
   // Kept short to fit the glasses' ~50-column text grid.
   private get glassesWarning(): string {
     return this.mode === "uninstall"
-      ? "Reinstalling the official firmware removes Faceclaw's custom features. Continue?"
+      ? "Reinstalling the official firmware removes Hermes G2 custom features. Continue?"
       : "Flashing custom firmware will void your warranty and carries some risk of bricking the glasses. Continue?";
   }
 
@@ -435,7 +435,7 @@ export class OnboardingFlashViewModel extends Observable {
         detail ||
         (this.mode === "uninstall"
           ? "Official firmware reinstalled. Your glasses are rebooting into the stock firmware."
-          : "Firmware installed. Your glasses are rebooting into Faceclaw's custom firmware.");
+          : "Firmware installed. Your glasses are rebooting into Hermes G2 custom firmware.");
       return;
     }
     this.toError(detail || "Flashing failed.", () => this.startFlashing());

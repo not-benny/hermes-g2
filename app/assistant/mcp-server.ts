@@ -51,7 +51,7 @@ export class AssistantMcpServer {
               ? msg.params.protocolVersion
               : MCP_PROTOCOL_VERSION,
           capabilities: { tools: { listChanged: true } },
-          serverInfo: { name: "faceclaw", version: "0.3.0" },
+          serverInfo: { name: "hermes-g2", version: "1.0.0" },
         });
         return;
       case "notifications/initialized":

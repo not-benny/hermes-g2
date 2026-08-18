@@ -8,7 +8,7 @@ export function getDashboardLogo(): GrayImage | null {
     return cachedDashboardLogo;
   }
   try {
-    cachedDashboardLogo = loadPngAsGrayImage("images/faceclaw-logo-dashboard.png");
+    cachedDashboardLogo = loadPngAsGrayImage("images/hermes-g2-logo-dashboard.png");
   } catch {
     cachedDashboardLogo = null;
   }

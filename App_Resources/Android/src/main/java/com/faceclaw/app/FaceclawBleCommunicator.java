@@ -2835,7 +2835,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             return;
         }
         lastEvenAppConflictAtMs = now;
-        emitEvenAppConflict("The Even Realities app still appears to be running. It can hold the glasses BLE link and cause Faceclaw write failures. Open its app settings and force stop it, then reconnect Faceclaw.");
+        emitEvenAppConflict("The Even Realities app still appears to be running. It can hold the glasses BLE link and cause Hermes G2 write failures. Open its app settings and force stop it, then reconnect Hermes G2.");
     }
 
     private void emitEvenAppConflict(String message) {

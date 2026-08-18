@@ -1,65 +1,85 @@
-# Faceclaw Privacy Policy
+# Hermes G2 Privacy Policy
 
-Faceclaw is a privacy-conscious app.
+Hermes G2 is a privacy-conscious app. It does not operate a user account or
+billing service. The data path depends on the transcription and assistant
+backends selected by the user.
 
-## Audio
+## Audio and transcription
 
-Faceclaw allows users to transcribe audio (for use with the voice assistant,
-the Transcribe app, typing into Terminal, and other apps). The default setting
-is that this is done using an on-device model running on your phone. If an
-on-device model is selected, audio never leaves your device, and is not stored
-after it is processed.
+Hermes G2 captures audio for the voice assistant, Transcribe, voice typing into
+Terminal, and other user-invoked voice features. On-device transcription is the
+default. When it is selected, audio stays on the phone and is not retained
+after processing unless the developer setting to save voice recordings is
+enabled.
 
-Users can also provide their own API key for a third-party transcription
-service such as OpenAI Whisper, ElevenLabs, or Soniox, which may offer better
-accuracy.
-Faceclaw never transmits audio to any party other than a user-selected
-transcription service. If a third-party transcription service is selected,
-audio will be sent to that third party, is linked to the account with which
-that API key was created, and is subject to that party's privacy and retention
-policies:
+Users may instead provide their own API key and select OpenAI Whisper,
+ElevenLabs, or Soniox. Audio is then sent to the selected service, associated
+with the account that issued the key, and handled under that provider's terms
+and retention policy. Hermes G2 does not transmit audio to an unselected
+transcription provider.
 
-  OpenAI: https://openai.com/policies/row-privacy-policy/
-  ElevenLabs: https://elevenlabs.io/privacy-policy
-  Soniox: https://soniox.com/policies/privacy-policy
+- OpenAI: https://openai.com/policies/row-privacy-policy/
+- ElevenLabs: https://elevenlabs.io/privacy-policy
+- Soniox: https://soniox.com/policies/privacy-policy
 
-Third party data retention and privacy policies may differ based on the API
-key provided. API keys are part of a relationship between the user and the API
-provider; Faceclaw does not manage accounts or process billing information.
+## Hermes Agent bridge
 
+The Hermes Agent bridge is the preferred/default assistant backend. After
+transcription, Hermes G2 sends the utterance text and limited turn context to
+the bridge host configured by the user. Context can include the foreground app
+and title, local time, screen state, and headset battery. The phone also exposes
+its current glasses tools to that bridge over MCP. Tool results can contain data
+such as screen descriptions, notifications, calendar events, media state,
+location-derived information, or text from an open app when a requested tool
+has access to it.
 
-## AI Assistant Transcripts
+The bridge host and its Hermes Agent may process, retain, or forward this data
+according to the user's own Hermes Agent configuration, model provider, tools,
+and host security. Hermes G2 cannot control retention after data reaches that
+host. The user supplies the host and shared token. The bridge connection uses
+plain websocket transport and is intended for a trusted private network such as
+a tailnet; the user is responsible for network access controls.
 
-Faceclaw has a builtin AI voice assistant. Using the voice assistant requires
-providing an API key for a model provider such as Anthropic or OpenAI. Prompts
-and responses are subject to that model provider's privacy policy:
+If proactive Hermes actions are enabled, Hermes Agent can call eligible glasses
+tools outside a voice conversation. Hermes G2 enforces the local setting,
+proactive-safe tool flags, and a rate limit. The assistant can still take
+consequential actions or share information available to its tools; users are
+responsible for the instructions and access they grant it.
 
-  OpenAI: https://openai.com/policies/row-privacy-policy/
-  Anthropic: https://www.anthropic.com/legal/privacy
+## Direct-provider fallback
 
-AI conversation histories and memory files may be stored on your phone.
-Faceclaw does not transmit voice-assistant prompts or responses to any party
-other than a user-selected AI model provider. The voice assistant is given
-tools with which it is able to access most things on the user's phone,
-including all content displayed on the glasses, location, notifications, and
-content accessible through the Terminal app.
+When the user selects the direct-provider fallback, Hermes G2 sends assistant
+prompts, responses, tool results, and relevant turn context directly from the
+phone to the selected Anthropic or OpenAI service using the user's API key. If
+the downloaded on-phone model is selected instead, that assistant inference
+stays on the phone. Conversation history and memory data may be stored locally.
 
-The AI assistant can take actions on the user's behalf, including sharing any
-information it has access to. The user is responsible for any instructions
-they give it.
+- OpenAI: https://openai.com/policies/row-privacy-policy/
+- Anthropic: https://www.anthropic.com/legal/privacy
 
+## Notifications, calendar, media, and files
+
+Hermes G2 can read Android notifications, calendar events, media metadata, and
+user-accessible files when the user grants the corresponding Android access.
+The app uses this data to render glasses interfaces and fulfill assistant tool
+calls. Data returned through an assistant tool follows the selected assistant
+backend's path described above.
 
 ## Location
 
-Faceclaw has a builtin Navigate app, which provides turn-by-turn directions.
-Using the Navigate app requires providing an API key for Mapbox. While the
-Navigate app is active, the user's exact location and selected destination are
-transmitted to Mapbox, and are subject to Mapbox's privacy policy.
+The Navigate app uses precise location and a user-provided Mapbox token for
+maps, geocoding, and directions. While Navigate is active, location and the
+selected destination are sent to Mapbox under its privacy policy:
 
-  Mapbox: https://www.mapbox.com/legal/privacy
+- Mapbox: https://www.mapbox.com/legal/privacy
 
-The Weather app will retrieve the user's coarse location, and will use it to
-query a third-party weather information provider.
+The Weather app obtains coarse location and queries a third-party weather data
+provider. Location may also be available to an explicitly invoked assistant
+tool.
 
+## Secrets and local storage
 
-
+API keys, bridge tokens, connection settings, conversation state, and app
+preferences are stored on the phone. Configuration helper scripts can extract
+these values in plain text for development; their output must be treated as a
+secret and must not be committed, logged, or shared.
