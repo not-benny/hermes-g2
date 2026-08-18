@@ -47,6 +47,17 @@ test("package and Android labels identify Hermes G2 without changing the interna
   assert.match(strings, /<string name="title_activity_kimera">Hermes G2<\/string>/);
 });
 
+test("Android builds pin the CLI version and use an audited serializer override", () => {
+  const pkg = JSON.parse(read("package.json"));
+  const lock = JSON.parse(read("package-lock.json"));
+  assert.equal(pkg.devDependencies.nativescript, undefined);
+  assert.equal(pkg.engines.node, ">=20.0.0");
+  assert.equal(pkg.overrides["serialize-javascript"], "7.1.0");
+  assert.equal(lock.packages["node_modules/nativescript"], undefined);
+  assert.equal(lock.packages["node_modules/serialize-javascript"].version, "7.1.0");
+  assert.match(lock.packages["node_modules/serialize-javascript"].integrity, /^sha512-/);
+});
+
 test("onboarding, assistant UI, settings, and phone chrome contain only Hermes branding", () => {
   for (const path of [
     "app/phone-ui/onboarding-view-model.ts",

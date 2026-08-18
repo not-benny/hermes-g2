@@ -73,7 +73,7 @@ Requirements:
 
 - Android SDK 35 with licenses accepted
 - JDK 21
-- A current Node.js/npm toolchain
+- Node.js 20 or newer with npm
 - NativeScript CLI and the Android build prerequisites
 - Android NDK and CMake packages used by the native audio/model components
 
