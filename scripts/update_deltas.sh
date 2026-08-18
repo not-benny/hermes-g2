@@ -1,70 +1,58 @@
 #!/usr/bin/env bash
-#
-# Build and verify the sibling g2flash custom firmware, then update Hermes G2's
-# embedded copy of its byte-patch set.
-#
-# Usage:
-#   scripts/update_deltas.sh
-#
-# Set G2FLASH_DIR to use a g2flash checkout somewhere other than ../g2flash.
-
+# Verify the reviewed 2.2.8.4 firmware package, then regenerate the app's
+# embedded offset/old/new patch set from its cross-compiled source.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-FACECLAW_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-G2FLASH_DIR="${G2FLASH_DIR:-"$FACECLAW_DIR/../g2flash"}"
-PATCH_JSON="$G2FLASH_DIR/patches/cfw_patches.json"
-OUTPUT_TS="$FACECLAW_DIR/app/g2/firmware/cfw-patches.ts"
+APP_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+FW_DIR="${G2_FIRMWARE_DIR:-"$APP_DIR/../even-g2-cfw-8.4-verification"}"
+PATCHER="$FW_DIR/sources/patch_compress.py"
+STOCK="$FW_DIR/firmware/g2_2.2.8.4_stock.bin"
+FIXED="$FW_DIR/firmware/g2_2.2.8.4_cfw_FIXED.bin"
+OUTPUT_TS="$APP_DIR/app/g2/firmware/cfw-patches.ts"
 
-if [ ! -x "$G2FLASH_DIR/build_cfw.sh" ]; then
-  echo "error: g2flash build script not found or not executable: $G2FLASH_DIR/build_cfw.sh" >&2
-  exit 1
-fi
-if [ ! -f "$PATCH_JSON" ]; then
-  echo "error: g2flash patch set not found: $PATCH_JSON" >&2
-  exit 1
-fi
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "error: python3 is required" >&2
-  exit 1
-fi
+for required in "$PATCHER" "$STOCK" "$FIXED" "$FW_DIR/scripts/verify_package.py"; do
+  if [ ! -f "$required" ]; then
+    printf 'error: missing firmware input: %s\n' "$required" >&2
+    exit 1
+  fi
+done
 
-echo "Building and verifying custom firmware in $G2FLASH_DIR..."
 (
-  cd "$G2FLASH_DIR"
-  ./build_cfw.sh --skip-venv
+  cd "$FW_DIR"
+  python3 scripts/verify_package.py
 )
 
-python3 - "$PATCH_JSON" "$OUTPUT_TS" <<'PY'
+python3 - "$PATCHER" "$STOCK" "$FIXED" "$OUTPUT_TS" <<'PY'
+import hashlib
+import importlib.util
 import json
-import os
 from pathlib import Path
 import sys
-import tempfile
 
-source_path = Path(sys.argv[1])
-output_path = Path(sys.argv[2])
-
-try:
-    source = json.loads(source_path.read_text(encoding="utf-8"))
-    patch_set = {
-        "base": source["base"],
-        "baseSha256": source["base_sha256"],
-        "outputSha256": source["output_sha256"],
-        "patches": source["patches"],
-    }
-except (OSError, json.JSONDecodeError, KeyError) as error:
-    raise SystemExit(f"error: cannot read g2flash patch set: {error}")
-
-if not isinstance(patch_set["base"], str) or not isinstance(patch_set["patches"], list):
-    raise SystemExit("error: g2flash patch set has invalid base or patches fields")
-
-base_name = patch_set["base"]
-version = base_name.removeprefix("g2_").removesuffix(".bin")
+patcher_path, stock_path, fixed_path, output_path = map(Path, sys.argv[1:])
+spec = importlib.util.spec_from_file_location("hermes_g2_patch_compress", patcher_path)
+if spec is None or spec.loader is None:
+    raise SystemExit("error: cannot import firmware patcher")
+module = importlib.util.module_from_spec(spec)
+sys.path.insert(0, str(patcher_path.parent))
+spec.loader.exec_module(module)
+stock = stock_path.read_bytes()
+fixed = fixed_path.read_bytes()
+generated, operations = module.build_patch_ops(stock)
+if generated != fixed:
+    raise SystemExit("error: source rebuild does not match reviewed fixed artifact")
+patch_set = {
+    "base": "g2_2.2.8.4_stock.bin",
+    "baseSha256": hashlib.sha256(stock).hexdigest(),
+    "outputSha256": hashlib.sha256(fixed).hexdigest(),
+    "patches": operations,
+}
 serialized = json.dumps(patch_set, indent=2, ensure_ascii=False)
-generated = f"""// AUTO-GENERATED from g2flash/patches/cfw_patches.json — do not edit by hand.
+content = f"""// AUTO-GENERATED from the reviewed Even G2 2.2.8.4 verification package.
 // Regenerate with scripts/update_deltas.sh.
-// Turns the stock G2 {version} image into the Hermes G2 custom firmware.
+// Turns stock G2 2.2.8.4 into the statically verified Hermes G2 candidate.
+// Hardware installation remains disabled until recovery validation is complete.
 
 export type FirmwarePatchOp = {{
   offset: number;
@@ -82,38 +70,11 @@ export type FirmwarePatchSet = {{
 
 export const CFW_PATCH_SET: FirmwarePatchSet = {serialized};
 """
-
-try:
-    current = output_path.read_text(encoding="utf-8")
-except FileNotFoundError:
-    current = None
-
-if current == generated:
-    print(f"Embedded patch set is already current ({len(patch_set['patches'])} patches).")
-    raise SystemExit
-
-output_path.parent.mkdir(parents=True, exist_ok=True)
-mode = output_path.stat().st_mode & 0o777 if output_path.exists() else 0o644
-temporary_name = None
-try:
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=output_path.parent,
-        prefix=f".{output_path.name}.",
-        delete=False,
-    ) as temporary:
-        temporary.write(generated)
-        temporary_name = temporary.name
-    os.chmod(temporary_name, mode)
-    os.replace(temporary_name, output_path)
-except OSError as error:
-    if temporary_name is not None:
-        try:
-            os.unlink(temporary_name)
-        except FileNotFoundError:
-            pass
-    raise SystemExit(f"error: cannot update embedded patch set: {error}")
-
-print(f"Updated {output_path} from {source_path} ({len(patch_set['patches'])} patches).")
+old = output_path.read_text(encoding="utf-8") if output_path.exists() else None
+if old != content:
+    output_path.write_text(content, encoding="utf-8")
+print(
+    f"Embedded {len(operations)} reviewed 2.2.8.4 patch operations; "
+    f"output SHA-256 {patch_set['outputSha256']}"
+)
 PY

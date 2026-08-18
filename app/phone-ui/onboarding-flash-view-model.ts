@@ -12,6 +12,10 @@ import {
   FirmwareBuildError,
   FirmwareProgress,
 } from "../g2/firmware-builder";
+import {
+  FIRMWARE_FLASHING_DISABLED_MESSAGE,
+  isFirmwareFlashingEnabled,
+} from "../g2/firmware-compat";
 import { buildAddressSet, DeviceDiscoveryBridge } from "../native/device-discovery";
 import { FirmwareFlasher, FlashProgress, FlashState } from "../native/firmware-flasher";
 import { FlashPromptCommunicator, FlashPromptState } from "../native/flash-prompt-communicator";
@@ -211,9 +215,17 @@ export class OnboardingFlashViewModel extends Observable {
     this.leave();
   }
 
+  /** Reject every UI path to a headset write while the candidate is still NO-GO. */
+  private requireFlashingEnabled(): boolean {
+    if (isFirmwareFlashingEnabled()) return true;
+    this.toError(FIRMWARE_FLASHING_DISABLED_MESSAGE, () => this.leave());
+    return false;
+  }
+
   // --- prompt flow -----------------------------------------------------------
 
   private async beginPrompt(): Promise<void> {
+    if (!this.requireFlashingEnabled()) return;
     if (!global.isAndroid) {
       this.toError("Flashing is only available on Android.", () => this.beginPrompt());
       return;
@@ -317,6 +329,7 @@ export class OnboardingFlashViewModel extends Observable {
   // --- firmware build flow ---------------------------------------------------
 
   private async buildFirmware(): Promise<void> {
+    if (!this.requireFlashingEnabled()) return;
     this.setPhase("building");
     this.headline = "Preparing Firmware";
     this.busy = true;
@@ -368,6 +381,7 @@ export class OnboardingFlashViewModel extends Observable {
   // --- flashing flow ---------------------------------------------------------
 
   private startFlashing(): void {
+    if (!this.requireFlashingEnabled()) return;
     if (!this.addresses || !this.firmwarePath) {
       this.toError("Missing glasses addresses or firmware; start over.", () => this.beginPrompt());
       return;

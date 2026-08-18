@@ -8,13 +8,22 @@
 import { type FirmwareInfo } from "../native/faceclaw-communicator";
 
 const MIN_FIRMWARE_VERSION = [2, 2, 4, 34];
+const REQUIRED_CFW_CONTRACT = "EVENCFW/9";
 const REQUIRED_FIRMWARE_EXTENSIONS = ["img640", "fbguard", "wearnotify"] as const;
 
-// The stock firmware release the Hermes G2 custom image is built from. Stock at or
-// below this can be flashed with our patched image; a newer stock version is
-// unrecognized (its layout may differ from what our patch set targets).
-export const FLASHABLE_STOCK_VERSION = [2, 2, 6, 10];
+// The stock firmware release the Hermes G2 candidate image is built from. The
+// candidate is embedded for deterministic review, but installation stays
+// fail-closed until hardware and recovery validation are complete.
+export const FLASHABLE_STOCK_VERSION = [2, 2, 8, 4];
 export const FLASHABLE_STOCK_VERSION_TEXT = FLASHABLE_STOCK_VERSION.join(".");
+export const EXPERIMENTAL_FIRMWARE_INSTALL_ENABLED = false;
+export const FIRMWARE_FLASHING_DISABLED_MESSAGE =
+  "Firmware flashing is disabled until hardware testing and recovery validation are complete.";
+
+/** A single fail-closed policy gate for every headset firmware write path. */
+export function isFirmwareFlashingEnabled(): boolean {
+  return EXPERIMENTAL_FIRMWARE_INSTALL_ENABLED;
+}
 
 function parseDottedVersion(version: string): number[] {
   return version
@@ -56,6 +65,12 @@ export function firmwareIncompatibilityMessage(info: FirmwareInfo): string | nul
   }
 
   const tokens = info.capabilities.trim().split(/\s+/);
+  if (!tokens.includes(REQUIRED_CFW_CONTRACT)) {
+    return (
+      `The glasses firmware (${versionsText}) does not advertise the required ${REQUIRED_CFW_CONTRACT} ` +
+      "safety contract. Hermes G2 will not use an older custom-firmware build."
+    );
+  }
   const missingExtensions = REQUIRED_FIRMWARE_EXTENSIONS.filter(
     (extension) => !tokens.includes(extension),
   );
@@ -75,7 +90,10 @@ export function firmwareIncompatibilityMessage(info: FirmwareInfo): string | nul
 /** True when the glasses advertise every custom-firmware extension Hermes G2 needs. */
 export function hasCustomFirmware(info: FirmwareInfo): boolean {
   const tokens = info.capabilities.trim().split(/\s+/);
-  return REQUIRED_FIRMWARE_EXTENSIONS.every((extension) => tokens.includes(extension));
+  return (
+    tokens.includes(REQUIRED_CFW_CONTRACT) &&
+    REQUIRED_FIRMWARE_EXTENSIONS.every((extension) => tokens.includes(extension))
+  );
 }
 
 /** The higher of the two arms' reported versions, or "" if none reported. */

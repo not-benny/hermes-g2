@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "private": false,
   "scripts": {
-    "build": "nativescript build android",
+    "build": "npm exec --yes --package=nativescript@9.0.7 -- ns build android",
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit"
   },

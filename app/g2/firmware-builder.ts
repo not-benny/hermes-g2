@@ -1,6 +1,6 @@
 /**
- * Builds the Faceclaw custom firmware on-device: downloads the stock Even
- * Realities G2 2.2.6.10 image from Even's CDN, verifies its SHA-256, applies
+ * Builds the Hermes G2 candidate firmware on-device: downloads the stock Even
+ * Realities G2 2.2.8.4 image from Even's CDN, verifies its SHA-256, applies
  * the committed byte-patch set (cfw-patches.ts), verifies the patched SHA-256,
  * and writes the result to app storage.
  *
@@ -12,12 +12,16 @@
 import { knownFolders } from "@nativescript/core";
 
 import { CFW_PATCH_SET, FirmwarePatchOp } from "./firmware/cfw-patches";
+import {
+  FIRMWARE_FLASHING_DISABLED_MESSAGE,
+  isFirmwareFlashingEnabled,
+} from "./firmware-compat";
 
 declare const com: any;
 
-const FIRMWARE_URL = "https://cdn.evenreal.co/firmware/e28738432d7b612d625331b00383149b.bin";
-const CFW_OUTPUT_FILENAME = "g2_2.2.6.10_cfw.bin";
-const STOCK_OUTPUT_FILENAME = "g2_2.2.6.10.bin";
+const FIRMWARE_URL = "https://cdn.evenreal.co/firmware/d495a1dffb919795e95135e144345f04.bin";
+const CFW_OUTPUT_FILENAME = "g2_2.2.8.4_cfw.bin";
+const STOCK_OUTPUT_FILENAME = "g2_2.2.8.4_stock.bin";
 
 export type FirmwareProgress =
   | { phase: "downloading" }
@@ -43,6 +47,7 @@ export class FirmwareBuildError extends Error {}
 export async function buildCustomFirmware(
   onProgress?: (progress: FirmwareProgress) => void,
 ): Promise<BuiltFirmware> {
+  if (!isFirmwareFlashingEnabled()) throw new FirmwareBuildError(FIRMWARE_FLASHING_DISABLED_MESSAGE);
   const report = (progress: FirmwareProgress) => {
     try {
       onProgress?.(progress);
@@ -82,6 +87,7 @@ export async function buildCustomFirmware(
 export async function buildStockFirmware(
   onProgress?: (progress: FirmwareProgress) => void,
 ): Promise<BuiltFirmware> {
+  if (!isFirmwareFlashingEnabled()) throw new FirmwareBuildError(FIRMWARE_FLASHING_DISABLED_MESSAGE);
   const report = (progress: FirmwareProgress) => {
     try {
       onProgress?.(progress);

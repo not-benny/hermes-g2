@@ -2,11 +2,15 @@ import { Frame, Observable } from "@nativescript/core";
 
 import { ensureBlePermissions } from "../g2/android-permissions";
 import { isValidMacAddress, loadDeviceAddresses } from "../g2/device-addresses";
-import { classifyOnboardingFirmware, FLASHABLE_STOCK_VERSION_TEXT } from "../g2/firmware-compat";
+import {
+  classifyOnboardingFirmware,
+  EXPERIMENTAL_FIRMWARE_INSTALL_ENABLED,
+  FLASHABLE_STOCK_VERSION_TEXT,
+} from "../g2/firmware-compat";
 import { DeviceInfoProbe, DeviceInfoState } from "../native/device-info-probe";
 import { setOnboardingCompleted, setPreviewOnlyMode } from "./onboarding-state";
 
-type CheckPhase = "checking" | "custom" | "flashable" | "newer" | "error";
+type CheckPhase = "checking" | "custom" | "flashable" | "newer" | "blocked" | "error";
 
 export class OnboardingFirmwareCheckViewModel extends Observable {
   private _phase: CheckPhase = "checking";
@@ -69,6 +73,8 @@ export class OnboardingFirmwareCheckViewModel extends Observable {
         return "Install Firmware";
       case "newer":
         return "Proceed Anyway";
+      case "blocked":
+        return "Use Preview Only";
       case "error":
         return "Retry";
       default:
@@ -99,6 +105,9 @@ export class OnboardingFirmwareCheckViewModel extends Observable {
       case "flashable":
       case "newer":
         this.goToFlashing();
+        return;
+      case "blocked":
+        this.finishPreview();
         return;
       case "error":
         void this.check();
@@ -164,6 +173,17 @@ export class OnboardingFirmwareCheckViewModel extends Observable {
 
   private applyClassification(kind: string, version: string, capabilities: string): void {
     this.busy = false;
+    if (
+      !EXPERIMENTAL_FIRMWARE_INSTALL_ENABLED &&
+      (kind === "flashable-stock" || kind === "newer-stock")
+    ) {
+      this.setPhase("blocked");
+      this.headline = "Firmware Testing Required";
+      this.status =
+        `The reviewed Hermes G2 candidate targets stock firmware ${FLASHABLE_STOCK_VERSION_TEXT}, but hardware testing and recovery validation are not complete. ` +
+        "Flashing is disabled in this build. You can continue in Preview Only mode.";
+      return;
+    }
     switch (kind) {
       case "custom":
         this.setPhase("custom");
@@ -172,14 +192,14 @@ export class OnboardingFirmwareCheckViewModel extends Observable {
           `Your glasses already run Hermes G2 custom firmware${version ? ` (version ${version})` : ""}` +
           `${capabilities ? `, extensions: ${capabilities}` : ""}. No flashing needed — you're all set.`;
         break;
-      case "flashable":
+      case "flashable-stock":
         this.setPhase("flashable");
         this.headline = "Ready to Install";
         this.status =
           `Your glasses run stock firmware ${version}. This is compatible — tap Install Firmware to flash ` +
           "Hermes G2 custom firmware.";
         break;
-      case "newer":
+      case "newer-stock":
         this.setPhase("newer");
         this.headline = "Unrecognized Firmware";
         this.status =
@@ -209,6 +229,16 @@ export class OnboardingFirmwareCheckViewModel extends Observable {
 
   private finish(): void {
     setPreviewOnlyMode(false);
+    setOnboardingCompleted(true);
+    this.disposeProbe();
+    Frame.topmost()?.navigate({
+      moduleName: "phone-ui/main-page",
+      clearHistory: true,
+    });
+  }
+
+  private finishPreview(): void {
+    setPreviewOnlyMode(true);
     setOnboardingCompleted(true);
     this.disposeProbe();
     Frame.topmost()?.navigate({
