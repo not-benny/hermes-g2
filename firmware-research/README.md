@@ -9,13 +9,18 @@ reviewed and vendored is recorded in `UPSTREAM-G2FLASH-COMMIT`, and the g2flash
 license is preserved at `sources/G2FLASH-LICENSE`. This work is GPL-3.0, the same
 as g2flash.
 
-## Do not flash
+## Flashing status and risk
 
-The 2.2.8.4 candidate is reproducible and passes the static checks in `REPORT.md`,
-but it has **never booted on hardware**. Thread and ISR legality, RTOS behavior,
-display handoff, OTA acceptance, both-lens behavior, and the recovery path are all
-unverified. Custom firmware can void the warranty and brick the glasses. Treat this
-as research, not a release. Read `REPORT.md` in full before doing anything.
+Update: the author has since flashed this 2.2.8.4 candidate and it boots and runs
+on their hardware, so it is no longer unbooted static research. That is a single
+data point on one unit, and the `REPORT.md` NO-GO banner reflects the static-only
+status at the time it was written.
+
+Flashing custom firmware still carries real risk. The recovery path is not formally
+documented, behavior on other units and other firmware revisions is unverified, and
+custom firmware can void the warranty and brick the glasses. Read `REPORT.md` in
+full, make sure you understand how to recover your device, and flash only at your
+own risk. There is no warranty.
 
 ## Firmware images are not included
 

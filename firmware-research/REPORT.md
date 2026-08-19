@@ -5,10 +5,15 @@
 **Current candidate:** `firmware/g2_2.2.8.4_cfw_FIXED.bin`
 **Candidate SHA-256:** `bf143aa220d634969fc7ea856716bfccd6cf197fe93f41bec2b87ebd8add7584`
 
-> **NO-GO: DO NOT FLASH.** The current artifact is reproducible and passes the
-> static checks described below, but it has never booted on hardware and the
-> thread/ISR legality, RTOS behavior, display handoff, OTA acceptance, both-lens
-> behavior, and recovery path remain unverified.
+> **UPDATE (post-report):** the author has since flashed this candidate and it
+> boots and runs on their hardware. The NO-GO below was the static-only status at
+> the time of writing. Flashing custom firmware still carries brick risk with no
+> documented recovery path, so flash at your own risk and with no warranty.
+>
+> **NO-GO (as written): DO NOT FLASH.** The current artifact is reproducible and
+> passes the static checks described below, but at the time of this report it had
+> never booted on hardware and the thread/ISR legality, RTOS behavior, display
+> handoff, OTA acceptance, both-lens behavior, and recovery path remained unverified.
 
 Upstream itself warns that custom firmware can void the warranty and brick the
 glasses.[1] Static verification is not a substitute for a known recovery path.

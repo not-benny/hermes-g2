@@ -118,9 +118,11 @@ answered at all. Bug reports and fixes are welcome, but please do not expect
 commercial support or a fast response. Running the app, using the cloud and voice
 integrations, and especially flashing custom firmware are entirely at your own risk.
 
-The firmware research under [firmware-research](firmware-research) is static
-research only. Nothing there has been validated on hardware, and it must not be
-flashed. See its README and DO NOT FLASH warning.
+The firmware research under [firmware-research](firmware-research) documents porting
+g2flash to 2.2.8.4. The author has flashed the candidate and it runs on their
+hardware, but flashing custom firmware still risks bricking the glasses, the
+recovery path is not documented, and there is no warranty. Read its README before
+flashing anything.
 
 ## Upstream and license
 
