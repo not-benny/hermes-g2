@@ -5,6 +5,7 @@ import { truncateText } from "../graphics/textwrap";
 import { GrayImage } from "../graphics/image";
 import { wrapText } from "../graphics/textwrap";
 import { GESTURE_DOUBLE_CLICK } from "./gestures";
+import { EdgeBounce, EdgeWrapScroller } from "./edge-scroll";
 import {
   dismissNotification,
   invokeNotificationAction,
@@ -66,6 +67,8 @@ type SingleNotificationLayerOptions = {
  */
 export class NotificationsListLayer implements Layer {
   private selectedKey = "";
+  private readonly scroller = new EdgeWrapScroller(undefined, "notifications-list");
+  private readonly bounce = new EdgeBounce();
 
   paint(ctx: LayerContext): GrayImage {
     const font = getDefaultSmallFont();
@@ -97,7 +100,7 @@ export class NotificationsListLayer implements Layer {
     const focused = ctx.stack.isFocused();
     const listBottom = height;
     const scrollY = scrollForSelected(layouts, selectedIndex, listBottom - LIST_TOP);
-    let cursorY = LIST_TOP - scrollY;
+    let cursorY = LIST_TOP - scrollY + this.bounce.offsetPx();
     for (let index = 0; index < layouts.length; index++) {
       const layout = layouts[index]!;
       if (cursorY + layout.height >= LIST_TOP && cursorY <= listBottom) {
@@ -124,12 +127,14 @@ export class NotificationsListLayer implements Layer {
     }
     if (!notifications.length) return;
 
-    if (event.type === "scroll-up") {
-      this.selectedKey = notifications[Math.max(0, selectedIndex - 1)]!.key;
-      return;
-    }
-    if (event.type === "scroll-down") {
-      this.selectedKey = notifications[Math.min(notifications.length - 1, selectedIndex + 1)]!.key;
+    if (event.type === "scroll-up" || event.type === "scroll-down") {
+      const dir = event.type === "scroll-down" ? 1 : -1;
+      const step = this.scroller.step(selectedIndex, notifications.length, dir, Date.now());
+      if (step.atEdge) {
+        this.bounce.trigger(dir, () => ctx.actions.requestRender());
+        return;
+      }
+      this.selectedKey = notifications[step.index]!.key;
       return;
     }
     if (event.type === "click") {
@@ -160,6 +165,9 @@ export class NotificationsListLayer implements Layer {
  */
 export class SingleNotificationLayer implements Layer {
   private selectedMenuIndex = 0;
+  // Deliberately NO edge-detent here: this tiny action menu (Back / Reply /
+  // Dismiss) wraps instantly so a swipe-up jumps straight to Dismiss to dismiss
+  // fast. The detent stays on the scrollable notifications LIST above.
 
   constructor(
     private readonly notificationKey: string,
@@ -196,11 +204,11 @@ export class SingleNotificationLayer implements Layer {
       return;
     }
     if (event.type === "scroll-up") {
-      this.selectedMenuIndex = Math.max(0, this.selectedMenuIndex - 1);
+      this.selectedMenuIndex = (this.selectedMenuIndex - 1 + menu.length) % menu.length;
       return;
     }
     if (event.type === "scroll-down") {
-      this.selectedMenuIndex = Math.min(menu.length - 1, this.selectedMenuIndex + 1);
+      this.selectedMenuIndex = (this.selectedMenuIndex + 1) % menu.length;
       return;
     }
     if (event.type !== "click") return;
@@ -353,9 +361,9 @@ function drawDetailContent(
   }
 }
 
-function drawDetailMenu(image: GrayImage, font: BdfFont, menu: DetailMenuItem[], selectedIndex: number, width: number): void {
+function drawDetailMenu(image: GrayImage, font: BdfFont, menu: DetailMenuItem[], selectedIndex: number, width: number, bounceY = 0): void {
   const menuX = width - DETAIL_MENU_WIDTH - 24;
-  const menuY = 24;
+  const menuY = 24 + bounceY;
   for (let index = 0; index < menu.length; index++) {
     const y = menuY + index * 22;
     const selected = index === selectedIndex;

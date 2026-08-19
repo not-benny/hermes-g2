@@ -3,6 +3,8 @@ package com.faceclaw.app;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -17,9 +19,13 @@ import android.service.notification.StatusBarNotification;
 import android.util.Log;
 
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 
@@ -31,8 +37,14 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
     private static final String TAG = "FaceclawNotify";
     private static final double NOTIFICATION_ICON_GAMMA = 1.6;
     private static final String EXTRA_SUBSTITUTE_APP_NAME = "android.substName";
+    private static final String NOTIFICATION_FILTER_MODE_KEY = "notifications.filterMode";
+    private static final String NOTIFICATION_ALLOWED_PACKAGES_KEY = "notifications.allowedPackages";
+    private static final String NOTIFICATION_FILTER_ALL = "all";
+    private static final String NOTIFICATION_FILTER_IMPORTANT = "important";
+    private static final String NOTIFICATION_FILTER_SELECTED = "selected";
 
     private static volatile FaceclawMediaNotificationListenerService activeService;
+    private static volatile boolean notificationAccessConnected;
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
     private static final Set<FaceclawNotificationListener> notificationListeners = new CopyOnWriteArraySet<>();
     private static final Set<String> activeNotificationWakeKeys = new HashSet<>();
@@ -47,6 +59,8 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
     public void onDestroy() {
         if (activeService == this) {
             activeService = null;
+            notificationAccessConnected = false;
+            FaceclawMediaController.refreshAfterNotificationAccessChanged();
         }
         super.onDestroy();
     }
@@ -54,14 +68,18 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
     @Override
     public void onListenerConnected() {
         activeService = this;
+        notificationAccessConnected = true;
         super.onListenerConnected();
         refreshActiveNotificationWakeKeys(this);
+        FaceclawMediaController.refreshAfterNotificationAccessChanged();
     }
 
     @Override
     public void onListenerDisconnected() {
         if (activeService == this) {
             activeService = null;
+            notificationAccessConnected = false;
+            FaceclawMediaController.refreshAfterNotificationAccessChanged();
         }
         super.onListenerDisconnected();
     }
@@ -94,6 +112,11 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
         if (listener != null) {
             notificationListeners.remove(listener);
         }
+    }
+
+    /** True only after Android has connected this privileged listener service. */
+    public static boolean isNotificationAccessActive() {
+        return activeService != null && notificationAccessConnected;
     }
 
     public static boolean hasActiveNotificationTitle(String expectedTitle) {
@@ -255,6 +278,92 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
         return out.toString();
     }
 
+    /** Re-evaluate active tray/modal keys after a phone-side filter change. */
+    public static void refreshNotificationFilter() {
+        FaceclawMediaNotificationListenerService service = activeService;
+        if (service != null) {
+            refreshActiveNotificationWakeKeys(service);
+        }
+    }
+
+    /**
+     * Apps with live eligible notifications before user filtering. This lets the
+     * phone UI build an allowlist without making a muted app impossible to add.
+     */
+    public static String getActiveNotificationAppsJson(int maxApps) {
+        FaceclawMediaNotificationListenerService service = activeService;
+        int limit = Math.max(1, Math.min(50, maxApps));
+        if (service == null) {
+            return "[]";
+        }
+        StatusBarNotification[] notifications;
+        try {
+            notifications = service.getActiveNotifications();
+        } catch (Throwable t) {
+            Log.w(TAG, "failed to read notification apps", t);
+            return "[]";
+        }
+        if (notifications == null || notifications.length == 0) {
+            return "[]";
+        }
+        Map<String, String> apps = new LinkedHashMap<>();
+        for (StatusBarNotification statusBarNotification : notifications) {
+            if (!isNotificationMirrorCandidate(service, statusBarNotification)) {
+                continue;
+            }
+            String packageName = statusBarNotification.getPackageName();
+            if (packageName != null && !packageName.isEmpty() && !apps.containsKey(packageName)) {
+                apps.put(packageName, getNotificationAppName(service, statusBarNotification));
+            }
+        }
+        JSONArray out = new JSONArray();
+        for (Map.Entry<String, String> app : apps.entrySet()) {
+            if (out.length() >= limit) {
+                break;
+            }
+            try {
+                JSONObject item = new JSONObject();
+                item.put("packageName", app.getKey());
+                item.put("appName", app.getValue());
+                out.put(item);
+            } catch (JSONException ignored) {
+            }
+        }
+        return out.toString();
+    }
+
+    public static String getInstalledNotificationAppsJson(int maxApps) {
+        FaceclawMediaNotificationListenerService service = activeService;
+        int limit = Math.max(1, Math.min(10_000, maxApps));
+        if (service == null) {
+            return "[]";
+        }
+        PackageManager packageManager = service.getPackageManager();
+        List<ApplicationInfo> installed;
+        try {
+            installed = new ArrayList<>(packageManager.getInstalledApplications(0));
+        } catch (Throwable t) {
+            Log.w(TAG, "failed to list installed notification apps", t);
+            return "[]";
+        }
+        installed.removeIf(app -> app == null || service.getPackageName().equals(app.packageName));
+        installed.sort((left, right) -> appLabel(packageManager, left).compareToIgnoreCase(appLabel(packageManager, right)));
+        JSONArray out = new JSONArray();
+        for (ApplicationInfo app : installed) {
+            if (out.length() >= limit) {
+                break;
+            }
+            try {
+                JSONObject item = new JSONObject();
+                item.put("packageName", app.packageName);
+                item.put("appName", appLabel(packageManager, app));
+                out.put(item);
+            } catch (JSONException ignored) {
+            }
+        }
+        return out.toString();
+    }
+
     public static boolean invokeNotificationAction(String key, int actionIndex) {
         FaceclawMediaNotificationListenerService service = activeService;
         StatusBarNotification statusBarNotification = findActiveNotificationByKey(service, key);
@@ -296,6 +405,42 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
             Log.w(TAG, "failed to dismiss notification", t);
             return false;
         }
+    }
+
+    public static int dismissAllNotifications() {
+        FaceclawMediaNotificationListenerService service = activeService;
+        if (service == null) {
+            return 0;
+        }
+        StatusBarNotification[] notifications;
+        try {
+            notifications = service.getActiveNotifications();
+        } catch (Throwable t) {
+            Log.w(TAG, "failed to read notifications for dismiss all", t);
+            return 0;
+        }
+        if (notifications == null) {
+            return 0;
+        }
+        int dismissed = 0;
+        for (StatusBarNotification statusBarNotification : notifications) {
+            if (!shouldShowNotificationInList(service, statusBarNotification)
+                    || !statusBarNotification.isClearable()) {
+                continue;
+            }
+            String key = statusBarNotification.getKey();
+            if (key == null || key.isEmpty()) {
+                continue;
+            }
+            try {
+                service.cancelNotification(key);
+                forgetActiveNotificationWakeKey(statusBarNotification);
+                dismissed += 1;
+            } catch (Throwable t) {
+                Log.w(TAG, "failed to dismiss notification during dismiss all", t);
+            }
+        }
+        return dismissed;
     }
 
     private static void emitNotificationPosted(String key) {
@@ -385,12 +530,22 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
     }
 
     private static boolean shouldShowNotificationInList(FaceclawMediaNotificationListenerService service, StatusBarNotification statusBarNotification) {
+        if (!isNotificationMirrorCandidate(service, statusBarNotification)) {
+            return false;
+        }
+        if (!passesUserNotificationFilter(service, statusBarNotification)) {
+            return false;
+        }
+        int importance = notificationImportance(service, statusBarNotification);
+        return importance == Integer.MIN_VALUE || importance > NotificationManager.IMPORTANCE_MIN;
+    }
+
+    /** Filters app-owned, media-session, and transport noise before user policy. */
+    private static boolean isNotificationMirrorCandidate(FaceclawMediaNotificationListenerService service,
+            StatusBarNotification statusBarNotification) {
         if (statusBarNotification == null || statusBarNotification.getNotification() == null) {
             return false;
         }
-        // The dashboard's own persistent foreground notification is noise, but
-        // Timer expiry notifications deliberately flow through the same mirror
-        // and modal path as notifications from other Android apps.
         if (service.getPackageName().equals(statusBarNotification.getPackageName())
                 && !FaceclawTimerNotifications.isTimerNotification(statusBarNotification)) {
             return false;
@@ -399,21 +554,76 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
         if (Notification.CATEGORY_TRANSPORT.equals(notification.category)) {
             return false;
         }
-        Bundle extras = notification.extras;
-        if (extras != null && extras.containsKey("android.mediaSession")) {
+        // Group-summary notifications restate their group's children with no
+        // content of their own — e.g. Teams posts an empty summary that renders
+        // as "Teams — (untitled)" and buries the real message. The per-message
+        // children carry the content, so mirror those and drop the summary
+        // (the icon path already excludes summaries; this aligns the list).
+        if ((notification.flags & Notification.FLAG_GROUP_SUMMARY) != 0) {
             return false;
         }
+        // A notification with neither title nor body can't be rendered as
+        // anything but "(untitled)", so it only hides real items. Skip it.
+        if (!hasDisplayableContent(notification)) {
+            return false;
+        }
+        Bundle extras = notification.extras;
+        return extras == null || !extras.containsKey("android.mediaSession");
+    }
 
+    /** Whether a notification carries any title or body text worth showing. */
+    private static boolean hasDisplayableContent(Notification notification) {
+        Bundle extras = notification.extras;
+        if (extras == null) {
+            return false;
+        }
+        return hasText(extras.getCharSequence(Notification.EXTRA_TITLE))
+            || hasText(extras.getCharSequence(Notification.EXTRA_TITLE_BIG))
+            || hasText(extras.getCharSequence(Notification.EXTRA_TEXT))
+            || hasText(extras.getCharSequence(Notification.EXTRA_BIG_TEXT))
+            || hasText(notification.tickerText);
+    }
+
+    private static boolean hasText(CharSequence value) {
+        return value != null && value.toString().trim().length() > 0;
+    }
+
+    private static boolean passesUserNotificationFilter(FaceclawMediaNotificationListenerService service,
+            StatusBarNotification statusBarNotification) {
+        FaceclawSettings settings = FaceclawSettings.getInstance(service);
+        String mode = settings.getString(NOTIFICATION_FILTER_MODE_KEY, NOTIFICATION_FILTER_ALL);
+        if (NOTIFICATION_FILTER_IMPORTANT.equals(mode)) {
+            return notificationImportance(service, statusBarNotification) >= NotificationManager.IMPORTANCE_DEFAULT;
+        }
+        if (!NOTIFICATION_FILTER_SELECTED.equals(mode)) {
+            return true;
+        }
+        String allowed = settings.getString(NOTIFICATION_ALLOWED_PACKAGES_KEY, "");
+        String packageName = statusBarNotification.getPackageName();
+        if (packageName == null || packageName.isEmpty()) {
+            return false;
+        }
+        for (String entry : allowed.split(",")) {
+            if (packageName.equals(entry.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Integer.MIN_VALUE means Android did not provide a ranking for this item. */
+    private static int notificationImportance(FaceclawMediaNotificationListenerService service,
+            StatusBarNotification statusBarNotification) {
         NotificationListenerService.RankingMap rankingMap = service.getCurrentRanking();
         if (rankingMap == null) {
-            return true;
+            return Integer.MIN_VALUE;
         }
         NotificationListenerService.Ranking ranking = new NotificationListenerService.Ranking();
-        if (!rankingMap.getRanking(statusBarNotification.getKey(), ranking)) {
-            return true;
+        String key = statusBarNotification.getKey();
+        if (key == null || !rankingMap.getRanking(key, ranking)) {
+            return Integer.MIN_VALUE;
         }
-        int importance = ranking.getImportance();
-        return importance > NotificationManager.IMPORTANCE_MIN;
+        return ranking.getImportance();
     }
 
     private static String getNotificationDedupeGroupKey(StatusBarNotification statusBarNotification) {
@@ -636,6 +846,19 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
             return text.isEmpty() ? packageName : text;
         } catch (Throwable t) {
             return packageName;
+        }
+    }
+
+    private static String appLabel(PackageManager packageManager, ApplicationInfo app) {
+        if (app == null || app.packageName == null) {
+            return "";
+        }
+        try {
+            CharSequence label = packageManager.getApplicationLabel(app);
+            String text = charSequenceToString(label);
+            return text.isEmpty() ? app.packageName : text;
+        } catch (Throwable t) {
+            return app.packageName;
         }
     }
 

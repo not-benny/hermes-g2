@@ -19,12 +19,16 @@ import {
   assistantModelSetting,
   assistantSkipConfirmationSetting,
   batteryDisplayModeSetting,
+  brightnessSetting,
   onAnySettingChanged,
   openAiApiKeySetting,
+  ringScrollMinIntervalMs,
+  ringSensitivitySetting,
   timeFormatSetting,
   wakeWordActionSetting,
 } from "../dashboard-settings";
 import { ShellChromeLayer, sidebarLeftColumnUsed, type ShellChromeState, type ShellChromeWindow } from "./chrome-layer";
+import { EdgeBounce, EdgeWrapScroller } from "../edge-scroll";
 import { ShellModalLayer } from "./modal-layer";
 import { ToolDebugMenuLayer } from "./tool-debug-layer";
 import { toolRegistry } from "../../assistant/tool-registry";
@@ -78,6 +82,14 @@ export type ShellWindow = {
   handleInput: (event: DashboardInputEvent, frameId: number) => Promise<void> | void;
   /** Repaint and resubmit this window's surface. */
   requestRender: () => void;
+  /**
+   * The controller configured this window's compositor surface; deferred
+   * first renders may flush now. Optional: windows created through
+   * launchInProcessApp are marked by the controller directly, but
+   * boot-registered windows (the launcher) are only reachable through the
+   * shell's window list, so the connect-time surface pass uses this hook.
+   */
+  markSurfaceReady?: () => void;
   /**
    * Deliver a text string to the window (e.g. finalized voice input). Optional:
    * only windows that consume typed text (the terminal) implement it.
@@ -195,12 +207,28 @@ class ShellAlertLayer implements Layer {
 class Shell {
   private windows: ShellWindow[] = [];
   private selectedIndex = 0;
+  // Edge-detent + bounce for the sidebar tab list (the "app cards").
+  private readonly sidebarScroller = new EdgeWrapScroller(undefined, "sidebar");
+  private readonly sidebarBounce = new EdgeBounce();
   /** Window ids in most-recently-visible-first order; closing the visible window returns to the next entry. */
   private mruWindowIds: string[] = [];
   private focus: FocusKind = "sidebar";
+  // Sidebar reorder: the id of the tab "picked up" by a long-press, moved with
+  // scroll and dropped with a tap. null when not reordering. The moved order is
+  // the window array order, which onWindowsChanged persists like any switch.
+  private reorderingWindowId: string | null = null;
+  // Ring-sensitivity throttle: timestamp of the last honored scroll. A physical
+  // swipe fires a burst of scroll events; at lower sensitivity we drop the ones
+  // that arrive within the configured interval so one swipe steps once or twice.
+  private lastScrollHonoredAtMs = 0;
   private screenOn = true;
   private lastInputAtMs = Date.now();
-  private battery: ShellChromeState["battery"] = { headset: null, headsetCharging: null };
+  private battery: ShellChromeState["battery"] = {
+    headset: null,
+    headsetCharging: null,
+    ring: null,
+    ringCharging: null,
+  };
   private attention = new Map<string, boolean>();
   // App-provided top-bar tray icons, keyed by owner id; drawn between the
   // notification icons and the battery indicators.
@@ -226,6 +254,7 @@ class Shell {
   private topBarSettingsSubscribed = false;
   private lastBatteryDisplayMode: string | null = null;
   private lastTimeFormat: string | null = null;
+  private lastBrightness: string | null = null;
 
   configure(config: ShellConfig): void {
     this.config = config;
@@ -238,14 +267,21 @@ class Shell {
     this.topBarSettingsSubscribed = true;
     this.lastBatteryDisplayMode = batteryDisplayModeSetting.get();
     this.lastTimeFormat = timeFormatSetting.get();
+    this.lastBrightness = brightnessSetting.get();
     onAnySettingChanged(() => {
       const batteryMode = batteryDisplayModeSetting.get();
       const timeFormat = timeFormatSetting.get();
-      if (batteryMode === this.lastBatteryDisplayMode && timeFormat === this.lastTimeFormat) {
+      const brightness = brightnessSetting.get();
+      if (
+        batteryMode === this.lastBatteryDisplayMode &&
+        timeFormat === this.lastTimeFormat &&
+        brightness === this.lastBrightness
+      ) {
         return;
       }
       this.lastBatteryDisplayMode = batteryMode;
       this.lastTimeFormat = timeFormat;
+      this.lastBrightness = brightness;
       this.config.requestShellRender();
     });
   }
@@ -281,6 +317,10 @@ class Shell {
   removeWindow(windowId: string): void {
     const index = this.windows.findIndex((w) => w.windowId === windowId);
     if (index < 0) return;
+    // A grabbed tab that gets closed drops out of reorder mode.
+    if (this.reorderingWindowId === windowId) {
+      this.reorderingWindowId = null;
+    }
     const wasSelected = index === this.selectedIndex;
     this.windows.splice(index, 1);
     this.attention.delete(windowId);
@@ -531,6 +571,11 @@ class Shell {
     // menu. The escape timer runs regardless of what the app does with it:
     // holding the press long enough opens the shell's own menu.
     if (event.type === "long-press") {
+      // While reordering, swallow long-presses so the window menu can't open
+      // over the grab; a tap (handled in the sidebar reorder branch) ends it.
+      if (this.reorderingWindowId !== null) {
+        return { shell: true, window: false };
+      }
       this.startEscapeMenuTimer();
       if (this.activeVoiceLayer || !this.stack.isAtBase()) {
         return { shell: true, window: false };
@@ -547,6 +592,11 @@ class Shell {
       return { shell: true, window: true };
     }
     if (event.type === "long-press-release") {
+      // The finger lifting after a grab does not drop the tab; the user then
+      // scrolls to move it and taps to drop. Stay in reorder mode.
+      if (this.reorderingWindowId !== null) {
+        return { shell: true, window: false };
+      }
       this.activeVoiceLayer?.endCapture();
       if (this.activeVoiceLayer || !this.stack.isAtBase() || this.focus !== "window") {
         return { shell: true, window: false };
@@ -557,6 +607,21 @@ class Shell {
       }
       await window.handleInput(event, frameId);
       return { shell: false, window: true };
+    }
+
+    // Ring-sensitivity throttle: below max, drop scroll events that arrive too
+    // soon after the last honored one, so a fast swipe doesn't race. Applied
+    // before any consumer (list, text, sidebar) so every scroll obeys it.
+    // Reorder scrolls are exempt: those are deliberate one-at-a-time steps.
+    if ((event.type === "scroll-up" || event.type === "scroll-down") && this.reorderingWindowId === null) {
+      const interval = ringScrollMinIntervalMs(ringSensitivitySetting.get());
+      if (interval > 0) {
+        const now = Date.now();
+        if (now - this.lastScrollHonoredAtMs < interval) {
+          return { shell: false, window: false };
+        }
+        this.lastScrollHonoredAtMs = now;
+      }
     }
 
     if (!this.stack.isAtBase()) {
@@ -613,6 +678,24 @@ class Shell {
   }
 
   private handleSidebarInput(event: DashboardInputEvent): ShellInputOutcome {
+    // While a tab is picked up, scroll moves it and a tap (or double-tap) drops
+    // it; the screen-sleep double-tap is suspended so a drop can't sleep.
+    if (this.reorderingWindowId !== null) {
+      switch (event.type) {
+        case "scroll-up":
+          this.moveReorder(-1);
+          return { shell: true, window: false };
+        case "scroll-down":
+          this.moveReorder(1);
+          return { shell: true, window: false };
+        case "click":
+        case "double-click":
+          this.endReorder();
+          return { shell: true, window: false };
+        default:
+          return { shell: false, window: false };
+      }
+    }
     switch (event.type) {
       case "double-click":
         this.sleep();
@@ -639,7 +722,90 @@ class Shell {
   private moveSelection(delta: number): void {
     if (!this.windows.length) return;
     const count = this.windows.length;
-    this.setSelectedIndex((this.selectedIndex + delta + count) % count);
+    const dir = delta > 0 ? 1 : -1;
+    const step = this.sidebarScroller.step(this.selectedIndex, count, dir, Date.now());
+    if (step.atEdge) {
+      // Stopped hard against an end: bounce, don't move or wrap yet.
+      this.sidebarBounce.trigger(dir, () => this.config.requestShellRender());
+      return;
+    }
+    this.setSelectedIndex(step.index);
+  }
+
+  /** A tab is reorderable unless it is pinned (the uncloseable launcher). */
+  private isReorderable(window: ShellWindow): boolean {
+    return window.closeable !== false;
+  }
+
+  /**
+   * Whether a window's tab can be picked up right now: it must be movable (not
+   * the pinned launcher) and there must be another movable tab to swap with.
+   * The window menus use this to show the "Reorder" entry only when it works.
+   */
+  canReorder(windowId: string): boolean {
+    const window = this.windows.find((w) => w.windowId === windowId);
+    if (!window || !this.isReorderable(window)) return false;
+    return this.windows.filter((w) => this.isReorderable(w)).length >= 2;
+  }
+
+  /**
+   * Enter reorder mode for a window, chosen from its long-press menu. Focuses
+   * the sidebar and picks up that tab, so scroll then moves it and a tap drops
+   * it. No-op (returns false) if the window can no longer be reordered.
+   */
+  beginReorderFromMenu(windowId: string): boolean {
+    const index = this.windows.findIndex((w) => w.windowId === windowId);
+    if (index < 0 || !this.canReorder(windowId)) return false;
+    this.selectedIndex = index;
+    this.focus = "sidebar";
+    this.reorderingWindowId = windowId;
+    const window = this.windows[index]!;
+    window.setForeground?.(true);
+    window.requestRender();
+    this.config.requestShellRender();
+    return true;
+  }
+
+  /**
+   * Move the picked-up tab one slot up (-1) or down (+1). Clamps at the ends
+   * (no wrap, so the affordance chevrons read truthfully) and never crosses a
+   * pinned tab, keeping the launcher first. The moved tab stays selected and
+   * foreground, so only its sidebar position changes. Persists the new order.
+   */
+  private moveReorder(delta: number): void {
+    const from = this.windows.findIndex((w) => w.windowId === this.reorderingWindowId);
+    if (from < 0) {
+      this.reorderingWindowId = null;
+      return;
+    }
+    const to = from + delta;
+    if (to < 0 || to >= this.windows.length) return;
+    if (!this.isReorderable(this.windows[to]!)) return;
+    const [moved] = this.windows.splice(from, 1);
+    this.windows.splice(to, 0, moved!);
+    this.selectedIndex = to;
+    this.config.onWindowsChanged?.();
+  }
+
+  /** Drop the picked-up tab, leaving the order as arranged. */
+  private endReorder(): void {
+    if (this.reorderingWindowId === null) return;
+    this.reorderingWindowId = null;
+    this.config.onWindowsChanged?.();
+  }
+
+  /** Reorder-related chrome flags; the move bounds mirror moveReorder's clamp. */
+  private reorderChromeState(): Pick<
+    ShellChromeState,
+    "reordering" | "reorderCanMoveUp" | "reorderCanMoveDown"
+  > {
+    if (this.reorderingWindowId === null) {
+      return { reordering: false, reorderCanMoveUp: false, reorderCanMoveDown: false };
+    }
+    const from = this.windows.findIndex((w) => w.windowId === this.reorderingWindowId);
+    const up = from > 0 && this.isReorderable(this.windows[from - 1]!);
+    const down = from >= 0 && from < this.windows.length - 1 && this.isReorderable(this.windows[from + 1]!);
+    return { reordering: true, reorderCanMoveUp: up, reorderCanMoveDown: down };
   }
 
   /** Change selection; the selected window is the foreground window. */
@@ -967,6 +1133,8 @@ class Shell {
       })),
       selectedIndex: this.selectedIndex,
       focus: this.focus,
+      sidebarBounceY: this.sidebarBounce.offsetPx(),
+      ...this.reorderChromeState(),
       foregroundHeightMode: this.foregroundWindow()?.heightMode ?? "min",
       battery: this.battery,
       trayIcons: Array.from(this.trayIcons.keys())

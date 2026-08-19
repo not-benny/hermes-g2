@@ -29,6 +29,7 @@ import {
   elevenLabsApiKeySetting,
   mapboxApiKeySetting,
   openAiApiKeySetting,
+  ringSensitivitySetting,
   roamApiTokenSetting,
   roamGraphNameSetting,
   sonioxApiKeySetting,
@@ -79,6 +80,13 @@ function settingsSections(): SettingsSection[] {
         enumSettingMenuItem(timeFormatSetting),
         // Selects the UI body typeface (Terminus vs proportional TerminusV).
         enumSettingMenuItem(uiFontSetting),
+      ],
+    },
+    {
+      label: "Input",
+      items: [
+        // Throttles ring/touchpad scrolling; lower levels tame a runaway swipe.
+        enumSettingMenuItem(ringSensitivitySetting),
       ],
     },
     {

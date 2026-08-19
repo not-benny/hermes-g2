@@ -45,6 +45,8 @@ export type InProcessWindow = {
   window: ShellWindow;
   stack: LayerStack;
   requestRender: () => void;
+  /** Called after the controller has configured this window's compositor surface. */
+  markSurfaceReady: () => void;
 };
 
 /** The controller-provided plumbing common to every in-process app window. */
@@ -57,7 +59,13 @@ export type InProcessAppOptions = {
 };
 
 export function createInProcessWindow(options: InProcessWindowOptions): InProcessWindow {
+  let surfaceReady = false;
+  let renderPendingUntilSurfaceReady = false;
   const requestRender = () => {
+    if (!surfaceReady) {
+      renderPendingUntilSurfaceReady = true;
+      return;
+    }
     void render(0).catch((error) => {
       console.error(`${options.windowId} render failed: ${error}`);
     });
@@ -96,6 +104,15 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
     }
   }
 
+  const markSurfaceReady = () => {
+    if (surfaceReady || closed) return;
+    surfaceReady = true;
+    if (renderPendingUntilSurfaceReady) {
+      renderPendingUntilSurfaceReady = false;
+      requestRender();
+    }
+  };
+
   // The window's long-press menu: app-specific items, then the defaults every
   // window shares. In-process apps run on the main thread, so the default
   // items act on the shell directly (workers post messages instead).
@@ -109,6 +126,16 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
         shell.startVoiceInput();
       },
     });
+    // Pick this tab up for reordering; only offered when it can actually move.
+    if (shell.canReorder(options.windowId)) {
+      items.push({
+        label: "Reorder",
+        onSelect: (ctx) => {
+          ctx.stack.pop();
+          shell.beginReorderFromMenu(options.windowId);
+        },
+      });
+    }
     if (options.closeable) {
       items.push({
         label: "Close window",
@@ -149,11 +176,12 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
       await render(frameId);
     },
     requestRender,
+    markSurfaceReady,
     setForeground: (foreground) => {
       options.setSurfaceVisible(foreground);
     },
   };
-  return { window, stack, requestRender };
+  return { window, stack, requestRender, markSurfaceReady };
 }
 
 /**

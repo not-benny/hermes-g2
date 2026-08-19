@@ -63,6 +63,11 @@ export type WorkerAppReply =
       windowId: string;
     }
   | {
+      /** Window-menu pick: pick this tab up for sidebar reordering. */
+      type: "reorder-window-request";
+      windowId: string;
+    }
+  | {
       /** Open or focus the Settings app, optionally jumping to a section. */
       type: "open-settings";
       section?: string;
@@ -210,6 +215,12 @@ export class WorkerAppHost {
           if (this.openWindows.has(message.windowId)) {
             shell.closeWindow(message.windowId);
             this.options.requestShellRender();
+          }
+          break;
+        case "reorder-window-request":
+          // The shell no-ops if this window can no longer be reordered.
+          if (this.openWindows.has(message.windowId)) {
+            shell.beginReorderFromMenu(message.windowId);
           }
           break;
         case "open-settings":

@@ -21,6 +21,9 @@ public final class FaceclawEvenAppDetector {
             return false;
         }
         Context appContext = context.getApplicationContext();
+        if (FaceclawMediaNotificationListenerService.isNotificationAccessActive()) {
+            return true;
+        }
         ComponentName listenerComponent = new ComponentName(appContext, FaceclawMediaNotificationListenerService.class);
         String enabledListeners = Settings.Secure.getString(
                 appContext.getContentResolver(),

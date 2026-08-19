@@ -95,12 +95,14 @@ export function loaded(args: EventData) {
   dashboardController.refreshEvenAppStatus()
 
   const model = page.bindingContext as MainViewModel | null
-  // Automatically connect on reaching the main page (no-op if already
-  // connected or if no glasses are configured).
-  void model?.autoConnect()
-  // Reopen the apps that were open before the last restart (no-op after the
-  // first load).
-  void dashboardController.restoreOpenApps()
+  // Restore saved app windows only after auto-connect has either prepared the
+  // compositor or determined there is no configured device. Launching a worker
+  // while the G2 surface is still unconfigured loses its first render.
+  if (model) {
+    void model.autoConnect().then(() => dashboardController.restoreOpenApps())
+  } else {
+    void dashboardController.restoreOpenApps()
+  }
   const scrollViews = [
     page.getViewById<ScrollView>('logScrollView'),
     page.getViewById<ScrollView>('logScrollViewLandscape'),

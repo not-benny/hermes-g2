@@ -1,5 +1,6 @@
 import { GrayImage } from "../graphics/image";
 import { logCurrent, spanCurrent } from "./frame-timings";
+import { onSettingsStoreChanged } from "./settings-store";
 import { toUint8Array } from "../util/array-util";
 
 declare const com: any;
@@ -25,6 +26,17 @@ function invalidateIconCaches(): void {
   keyedIconCache.clear();
 }
 
+onSettingsStoreChanged((key) => {
+  if (!key.startsWith("notifications.")) return;
+  invalidateIconCaches();
+  if (!global.isAndroid) return;
+  try {
+    com.faceclaw.app.FaceclawMediaNotificationListenerService.refreshNotificationFilter();
+  } catch {
+    // Notification access may be absent while settings are still editable.
+  }
+});
+
 export type AndroidNotificationAction = {
   index: number;
   title: string;
@@ -46,6 +58,11 @@ export type AndroidNotification = {
   postTime: number;
   when: number;
   actions: AndroidNotificationAction[];
+};
+
+export type AndroidNotificationApp = {
+  packageName: string;
+  appName: string;
 };
 
 export type NotificationIconsResult = {
@@ -164,6 +181,62 @@ export function readActiveNotifications(maxNotifications = 50): AndroidNotificat
   }
 }
 
+export function readActiveNotificationApps(maxApps = 30): AndroidNotificationApp[] {
+  if (!global.isAndroid || maxApps <= 0) return [];
+  try {
+    const json = String(
+      com.faceclaw.app.FaceclawMediaNotificationListenerService.getActiveNotificationAppsJson(
+        Math.max(1, Math.round(maxApps)),
+      ),
+    );
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((value): AndroidNotificationApp | null => {
+        if (!value || typeof value !== "object") return null;
+        const packageName = String(value.packageName ?? "").trim();
+        if (!packageName) return null;
+        const appName = String(value.appName ?? packageName).trim() || packageName;
+        return { packageName, appName };
+      })
+      .filter((value): value is AndroidNotificationApp => value !== null);
+  } catch {
+    return [];
+  }
+}
+
+export function readInstalledNotificationApps(maxApps = 10_000): AndroidNotificationApp[] {
+  if (!global.isAndroid || maxApps <= 0) return [];
+  try {
+    const json = String(
+      com.faceclaw.app.FaceclawMediaNotificationListenerService.getInstalledNotificationAppsJson(
+        Math.max(1, Math.round(maxApps)),
+      ),
+    );
+    return parseNotificationAppsJson(json);
+  } catch {
+    return [];
+  }
+}
+
+function parseNotificationAppsJson(json: string): AndroidNotificationApp[] {
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((value): AndroidNotificationApp | null => {
+        if (!value || typeof value !== "object") return null;
+        const packageName = String(value.packageName ?? "").trim();
+        if (!packageName) return null;
+        const appName = String(value.appName ?? packageName).trim() || packageName;
+        return { packageName, appName };
+      })
+      .filter((value): value is AndroidNotificationApp => value !== null);
+  } catch {
+    return [];
+  }
+}
+
 export function invokeNotificationAction(notificationKey: string, actionIndex: number): boolean {
   if (!global.isAndroid || !notificationKey) return false;
   invalidateIconCaches();
@@ -181,6 +254,16 @@ export function dismissNotification(notificationKey: string): boolean {
   return Boolean(
     com.faceclaw.app.FaceclawMediaNotificationListenerService.dismissNotification(notificationKey),
   );
+}
+
+export function dismissAllNotifications(): number {
+  if (!global.isAndroid) return 0;
+  invalidateIconCaches();
+  try {
+    return Math.max(0, Number(com.faceclaw.app.FaceclawMediaNotificationListenerService.dismissAllNotifications()) || 0);
+  } catch {
+    return 0;
+  }
 }
 
 export function onAndroidNotificationPosted(listener: (notificationKey: string) => void): () => void {

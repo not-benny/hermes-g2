@@ -25,6 +25,10 @@ public class BleProtocol {
     public static final String RENDER_NOTIFY_UUID = "00002760-08c2-11e1-9073-0e8ac72e6402";
     public static final String R1_PHONE_NOTIFY_CHAR_UUID = "bae80011-4f05-4503-8e65-3af1f7329d1f";
     public static final String R1_NOTIFY_CHAR_UUID = "bae80013-4f05-4503-8e65-3af1f7329d1f";
+    // The ring's data write channel (props=write-no-response). All real
+    // com.even.sg traffic uses the bae80012/bae80013 pair; the bae80010/11
+    // pair is reserved. Used to drive health sampling (see probeRingHealth).
+    public static final String R1_WRITE_CHAR_UUID = "bae80012-4f05-4503-8e65-3af1f7329d1f";
 
     public static final int PRELUDE_ACK_SID = 0x01;
     public static final int PRELUDE_ACK_MAGIC = 156;
@@ -55,6 +59,13 @@ public class BleProtocol {
     // g2-kit-unofficial/ble/gen/even_ai_pb.ts).
     public static final int SID_EVEN_AI = 0x07;
     public static final int SID_NAVIGATION = 0x08;
+    // Ring-relay service IDs (g2.service_id_def.SID). The glasses relay ring
+    // data — taps as RingEvent, health as RingRawData — over these, plus the
+    // health app service. Used by the Route A health spike to discover whether
+    // the glasses forward ring raw data over the phone's existing link.
+    public static final int SID_HEALTH = 0x0e;          // UI_HEALTH_APP_ID
+    public static final int SID_RING_ROW_DATA = 0x90;   // UX_RING_ROW_DATA_ID
+    public static final int SID_RING_DATA_RELAY = 0x91; // UX_RING_DATA_RELAY_ID
     public static final int NAV_CMD_COMPASS_CHANGED = 15;
     public static final int NAV_CMD_COMPASS_CALIBRATION_STARTED = 16;
     public static final int NAV_CMD_COMPASS_CALIBRATION_COMPLETE = 17;

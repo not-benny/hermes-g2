@@ -10,6 +10,7 @@ import {
 } from "../../ui/gestures";
 import { DashboardInputEvent, Layer, LayerActions, LayerContext } from "../../ui/layers";
 import { drawSelectionHighlight, scrollToKeepSelectionVisible } from "../../ui/menu";
+import { EdgeBounce, EdgeWrapScroller } from "../../ui/edge-scroll";
 import { onAnySettingChanged } from "../../ui/dashboard-settings";
 import { createInProcessWindow } from "../../ui/shell/in-process-window";
 import { getFolderAssignments, getFolders, getFolderStateFingerprint } from "./launcher-folders";
@@ -74,6 +75,9 @@ class LauncherGridLayer implements Layer {
   private scrollRow = 0;
   /** Folder whose contents the grid is showing, or null for the top grid. */
   private currentFolder: string | null = null;
+  // Edge-detent + bounce, matching the sidebar cards and settings list.
+  private readonly scroller = new EdgeWrapScroller(undefined, "launcher");
+  private readonly bounce = new EdgeBounce();
 
   constructor(private readonly options: LauncherOptions) {}
 
@@ -154,7 +158,8 @@ class LauncherGridLayer implements Layer {
     // Scroll to keep the selected row among the fully-visible rows.
     this.scrollRow = scrollToKeepSelectionVisible(this.scrollRow, this.selectedRow, FULL_ROWS, rows);
 
-    const rowY = (row: number) => gridTop + (row - this.scrollRow) * rowH;
+    const bounceY = this.bounce.offsetPx();
+    const rowY = (row: number) => gridTop + (row - this.scrollRow) * rowH + bounceY;
 
     // Selection highlight (row band, or a single cell in item mode).
     const selY = rowY(this.selectedRow);
@@ -203,27 +208,34 @@ class LauncherGridLayer implements Layer {
     switch (event.type) {
       case "scroll-up":
       case "scroll-down": {
-        const delta = event.type === "scroll-down" ? 1 : -1;
+        const dir = event.type === "scroll-down" ? 1 : -1;
         if (this.mode === "row") {
-          this.selectedRow = clamp(this.selectedRow + delta, 0, rows - 1);
-        } else {
-          // Item selection traverses the grid linearly: past a row's edge it
-          // continues onto the adjacent row (stopping at the grid's ends).
-          const itemCount = this.itemsInRow(entries.length, this.selectedRow);
-          const next = clamp(this.selectedCol, 0, itemCount - 1) + delta;
-          if (next >= 0 && next < itemCount) {
-            this.selectedCol = next;
-          } else if (next < 0 && this.selectedRow > 0) {
-            this.selectedRow--;
-            this.selectedCol = this.itemsInRow(entries.length, this.selectedRow) - 1;
-          } else if (next >= itemCount && this.selectedRow < rows - 1) {
-            this.selectedRow++;
-            this.selectedCol = 0;
+          if (rows <= 0) return;
+          const step = this.scroller.step(this.selectedRow, rows, dir, Date.now());
+          if (step.atEdge) {
+            this.bounce.trigger(dir, () => ctx.actions.requestRender());
+            return;
           }
+          this.selectedRow = step.index;
+          this.selectedCol = clamp(this.selectedCol, 0, Math.max(0, this.itemsInRow(entries.length, this.selectedRow) - 1));
+        } else {
+          // Item selection traverses the whole grid linearly by entry index;
+          // past a row's edge it continues onto the adjacent row, and the grid
+          // ends get the same stop-bounce-then-wrap as every other list.
+          if (!entries.length) return;
+          const gi = this.selectedRow * COLS + this.selectedCol;
+          const step = this.scroller.step(gi, entries.length, dir, Date.now());
+          if (step.atEdge) {
+            this.bounce.trigger(dir, () => ctx.actions.requestRender());
+            return;
+          }
+          this.selectedRow = Math.floor(step.index / COLS);
+          this.selectedCol = step.index % COLS;
         }
         return;
       }
       case "click": {
+        this.scroller.reset();
         if (this.mode === "row") {
           this.mode = "item";
           // Default to the middle column (clamped to the row's item count).
@@ -250,6 +262,7 @@ class LauncherGridLayer implements Layer {
         return;
       }
       case "double-click":
+        this.scroller.reset();
         if (this.mode === "item") {
           this.mode = "row";
         } else if (this.currentFolder !== null) {

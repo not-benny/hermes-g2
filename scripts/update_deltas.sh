@@ -52,7 +52,7 @@ serialized = json.dumps(patch_set, indent=2, ensure_ascii=False)
 content = f"""// AUTO-GENERATED from the reviewed Even G2 2.2.8.4 verification package.
 // Regenerate with scripts/update_deltas.sh.
 // Turns stock G2 2.2.8.4 into the statically verified Hermes G2 candidate.
-// Hardware installation remains disabled until recovery validation is complete.
+// Hardware-installation policy is enforced by firmware-compat.ts.
 
 export type FirmwarePatchOp = {{
   offset: number;

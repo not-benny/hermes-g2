@@ -1,11 +1,12 @@
 import { G2_LENS_HEIGHT, G2_LENS_WIDTH, GrayImage } from "../../graphics/image";
 import { getDefaultMediumFont, getDefaultSmallFont } from "../../graphics/bdffont";
 import { BATTERY_ICON_WIDTH, drawBattery } from "../../graphics/battery";
+import { batteryLabelIcon, drawBrightnessBadge } from "../../graphics/device-icons";
 import { readActiveNotificationIcons } from "../../native/notification-icons";
 import { readPhoneBatteryState } from "../../native/phone-battery";
 import { noteStaleDataUsed, renderPassAllowsStaleData } from "../../util/render-freshness";
 import { renderIcon, renderIconWithGlyph, type IconName } from "../../graphics/icons";
-import { batteryDisplayModeSetting, timeFormatSetting } from "../dashboard-settings";
+import { batteryDisplayModeSetting, brightnessSetting, timeFormatSetting } from "../dashboard-settings";
 import { Layer } from "../layers";
 import { scrollToKeepSelectionVisible } from "../menu";
 import {
@@ -60,9 +61,21 @@ export type ShellChromeState = {
   windows: ShellChromeWindow[];
   selectedIndex: number;
   focus: "sidebar" | "window";
+  /** The selected tab is picked up for reordering (scroll moves it, tap drops). */
+  reordering: boolean;
+  /** While reordering, whether the picked-up tab can still move up / down. */
+  reorderCanMoveUp: boolean;
+  reorderCanMoveDown: boolean;
   /** Height mode of the foreground window; decides where its top bar sits. */
   foregroundHeightMode: WindowHeightMode;
-  battery: { headset: number | null; headsetCharging: boolean | null };
+  /** Vertical bounce offset for the sidebar tab list when stopped at an end. */
+  sidebarBounceY: number;
+  battery: {
+    headset: number | null;
+    headsetCharging: boolean | null;
+    ring: number | null;
+    ringCharging: boolean | null;
+  };
   /** App-provided tray images, drawn between notification icons and batteries. */
   trayIcons: GrayImage[];
 };
@@ -146,7 +159,7 @@ export class ShellChromeLayer implements Layer {
     // windows off-screen above/below. Icons fill the right column top to
     // bottom, then overflow into the left one, so a visible slot's column is
     // decided by its position within the scrolled window.
-    const listTop = bandTop + TOP_BAR_HEIGHT + LIST_MARGIN;
+    const listTop = bandTop + TOP_BAR_HEIGHT + LIST_MARGIN + state.sidebarBounceY;
     const itemStride = ICON_STRIDE;
     const rowsPerColumn = ROWS_PER_COLUMN;
     const visibleCount = rowsPerColumn * SIDEBAR_COLUMNS;
@@ -206,6 +219,19 @@ export class ShellChromeLayer implements Layer {
     if (lastVisible < count) {
       drawChevron(image, SIDEBAR_WIDTH / 2, bandBottom - 6, 1);
     }
+
+    // Reorder affordance: the picked-up tab (always the selected one) shows
+    // movement chevrons hugging the separator gap above/below it, so grab mode
+    // reads distinctly from normal selection and points where a scroll moves it.
+    if (state.reordering && selTabTop !== null) {
+      const markX = sep - 3;
+      if (state.reorderCanMoveUp) {
+        drawChevron(image, markX, selTabTop - 1, -1);
+      }
+      if (state.reorderCanMoveDown) {
+        drawChevron(image, markX, selTabTop + ICON_SIZE + 5, 1);
+      }
+    }
   }
 
   private drawTopBar(image: GrayImage, state: ShellChromeState): void {
@@ -244,24 +270,31 @@ export class ShellChromeLayer implements Layer {
   }
 
   /**
-   * Labelled battery indicators for the phone and the G2, right-aligned in
-   * the top bar, following the dashboard card's icon/percentage setting.
-   * Returns the left edge of the battery block.
+   * Battery indicators for the phone, the G2 and the ring, right-aligned in
+   * the top bar, following the dashboard card's icon/percentage setting. Each
+   * gauge is labelled with a small device glyph (phone / glasses / ring). A
+   * brightness sun sits just left of the block: it holds the level percentage
+   * when a fixed brightness is set, or "A" when the ambient sensor drives it.
+   * Returns the left edge of the block.
    */
   private drawTopBarBatteries(image: GrayImage, state: ShellChromeState, barTop: number): number {
     const font = getDefaultSmallFont();
     const percentageMode = batteryDisplayModeSetting.get() === "percentage";
-    type BatteryItem = { label: string; percent: number; charging: boolean };
+    type BatteryKind = "phone" | "glasses" | "ring";
+    type BatteryItem = { kind: BatteryKind; percent: number; charging: boolean };
     const items: BatteryItem[] = [];
     const phone = readPhoneBatteryState();
     if (phone.battery !== null && Number.isFinite(phone.battery)) {
-      items.push({ label: "Phone", percent: phone.battery, charging: Boolean(phone.charging) });
+      items.push({ kind: "phone", percent: phone.battery, charging: Boolean(phone.charging) });
     }
     if (state.battery.headset !== null && Number.isFinite(state.battery.headset)) {
-      items.push({ label: "G2", percent: state.battery.headset, charging: Boolean(state.battery.headsetCharging) });
+      items.push({ kind: "glasses", percent: state.battery.headset, charging: Boolean(state.battery.headsetCharging) });
     }
-    if (!items.length) return G2_LENS_WIDTH;
+    if (state.battery.ring !== null && Number.isFinite(state.battery.ring)) {
+      items.push({ kind: "ring", percent: state.battery.ring, charging: Boolean(state.battery.ringCharging) });
+    }
 
+    const centerY = (height: number) => barTop + Math.max(0, ((TOP_BAR_HEIGHT - height) / 2) | 0);
     const labelGap = 5;
     const itemGap = 12;
     const textY = barTop + Math.max(0, ((TOP_BAR_HEIGHT - font.lineHeight) / 2) | 0);
@@ -270,10 +303,10 @@ export class ShellChromeLayer implements Layer {
       const item = items[index]!;
       const percentText = `${Math.max(0, Math.min(100, Math.round(item.percent)))}%`;
       const valueWidth = percentageMode ? font.measureText(percentText) : BATTERY_ICON_WIDTH;
-      const labelWidth = font.measureText(item.label);
-      x -= labelWidth + labelGap + valueWidth;
-      image.drawText(font, x, textY, item.label, 150);
-      const valueX = x + labelWidth + labelGap;
+      const labelIcon = batteryLabelIcon(item.kind);
+      x -= labelIcon.width + labelGap + valueWidth;
+      image.bitBlt(labelIcon, x, centerY(labelIcon.height), { transparentZero: true });
+      const valueX = x + labelIcon.width + labelGap;
       if (percentageMode) {
         if (item.charging) {
           // Inverted text marks charging, matching the dashboard card.
@@ -284,13 +317,20 @@ export class ShellChromeLayer implements Layer {
         }
       } else {
         const icon = drawBattery(item.percent, item.charging);
-        image.bitBlt(icon, valueX, barTop + Math.max(0, ((TOP_BAR_HEIGHT - icon.height) / 2) | 0), {
-          transparentZero: true,
-        });
+        image.bitBlt(icon, valueX, centerY(icon.height), { transparentZero: true });
       }
       x -= itemGap;
     }
-    return x + itemGap;
+    let leftEdge = items.length ? x + itemGap : G2_LENS_WIDTH;
+
+    // Brightness sun, just left of the battery block: the level percentage for
+    // a fixed brightness, or "A" when the ambient sensor is driving it.
+    const brightness = brightnessSetting.get();
+    const badge = drawBrightnessBadge(font, brightness === "auto" ? "A" : brightness);
+    const badgeGap = items.length ? 10 : 8;
+    leftEdge -= badgeGap + badge.width;
+    image.bitBlt(badge, leftEdge, centerY(badge.height), { transparentZero: true });
+    return leftEdge;
   }
 }
 

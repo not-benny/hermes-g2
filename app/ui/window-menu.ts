@@ -94,6 +94,16 @@ export function defaultWindowMenuItems(
       },
     },
     {
+      // Pick this tab up for sidebar reordering. Kept unconditional here (the
+      // worker can't see the shell's window set); the shell ignores it when the
+      // tab can't move, e.g. this is the only app open.
+      label: "Reorder",
+      onSelect: (ctx) => {
+        ctx.stack.pop();
+        post({ type: "reorder-window-request", windowId });
+      },
+    },
+    {
       label: "Close window",
       onSelect: (ctx) => {
         ctx.stack.pop();

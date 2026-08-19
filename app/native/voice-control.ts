@@ -1,6 +1,7 @@
 import { Utils } from "@nativescript/core";
 
 import { CloudSttClient } from "./cloud-stt";
+import { DeepgramSttClient } from "./deepgram-stt";
 import { ElevenLabsSttClient } from "./elevenlabs-stt";
 import { OpenAiRealtimeSttClient } from "./openai-stt";
 import { SonioxSttClient } from "./soniox-stt";
@@ -12,7 +13,7 @@ export type VoiceControlState = {
   status: string;
 };
 
-export type VoiceProviderKind = "onboard" | "elevenlabs" | "whisper" | "soniox";
+export type VoiceProviderKind = "onboard" | "deepgram" | "elevenlabs" | "whisper" | "soniox";
 
 export type VoiceTranscriptEvent = {
   /**
@@ -26,6 +27,7 @@ export type VoiceTranscriptEvent = {
 export type PushToTalkOptions = {
   communicator: any;
   provider: VoiceProviderKind;
+  deepgramApiKey: string;
   elevenLabsApiKey: string;
   openAiApiKey: string;
   sonioxApiKey: string;
@@ -144,6 +146,14 @@ export class FaceclawVoiceControlBridge {
       onStatus: (status: string) => this.setStatus(status),
       onError: (message: string) => this.setStatus(message),
     };
+    if (options.provider === "deepgram") {
+      const apiKey = options.deepgramApiKey.trim();
+      if (!apiKey) {
+        this.setStatus("No Deepgram key set; using on-device voice.");
+        return null;
+      }
+      return new DeepgramSttClient({ ...sttOptions, apiKey });
+    }
     if (options.provider === "elevenlabs") {
       const apiKey = options.elevenLabsApiKey.trim();
       if (!apiKey) {

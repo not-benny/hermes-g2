@@ -10,6 +10,7 @@ import {
   GESTURE_SCROLL_UP,
 } from "../../ui/gestures";
 import { MenuLayer, drawSelectionHighlight, drawSubmenuIndicator } from "../../ui/menu";
+import { EdgeBounce, EdgeWrapScroller } from "../../ui/edge-scroll";
 import {
   mediaControllerBridge,
   type MediaControllerState,
@@ -63,6 +64,11 @@ class MusicAppLayer implements Layer {
   private queueScrollRow = 0;
   private art: GrayImage | null = null;
   private artKey = "";
+  // Edge-detent + bounce per column, matching the sidebar cards.
+  private readonly actionScroller = new EdgeWrapScroller(undefined, "music-actions");
+  private readonly actionBounce = new EdgeBounce();
+  private readonly queueScroller = new EdgeWrapScroller(undefined, "music-queue");
+  private readonly queueBounce = new EdgeBounce();
 
   isPlaylistFocused(): boolean {
     return this.focusColumn === "playlist";
@@ -126,9 +132,10 @@ class MusicAppLayer implements Layer {
     }
     this.queueScrollRow = clamp(this.queueScrollRow, 0, Math.max(0, queue.length - visibleRows));
 
+    const actionBounceY = this.actionBounce.offsetPx();
     for (let index = 0; index < actions.length; index++) {
       const action = actions[index]!;
-      const y = LIST_TOP + index * ROW_HEIGHT;
+      const y = LIST_TOP + index * ROW_HEIGHT + actionBounceY;
       const selected = index === this.selectedActionIndex;
       const highlightX = ACTION_X - 6;
       const highlightY = y - 1;
@@ -157,10 +164,11 @@ class MusicAppLayer implements Layer {
       image.drawText(font, QUEUE_X, LIST_TOP + 1, "Playlist unavailable", 90);
     } else {
       const queueWidth = width - QUEUE_X - 20;
+      const queueBounceY = this.queueBounce.offsetPx();
       const lastVisible = Math.min(queue.length, this.queueScrollRow + visibleRows);
       for (let index = this.queueScrollRow; index < lastVisible; index++) {
         const item = queue[index]!;
-        const y = LIST_TOP + (index - this.queueScrollRow) * ROW_HEIGHT;
+        const y = LIST_TOP + (index - this.queueScrollRow) * ROW_HEIGHT + queueBounceY;
         const selected = index === this.selectedQueueIndex;
         if (selected) {
           drawSelectionHighlight(
@@ -202,6 +210,8 @@ class MusicAppLayer implements Layer {
     if (event.type === "double-click" && this.focusColumn === "playlist") {
       this.focusColumn = "actions";
       this.selectedActionIndex = PLAYLIST_ACTION_INDEX;
+      this.actionScroller.reset();
+      this.queueScroller.reset();
       return;
     }
     const media = mediaControllerBridge.snapshot();
@@ -224,19 +234,27 @@ class MusicAppLayer implements Layer {
     this.reconcileSelection(actions, queue);
     switch (event.type) {
       case "scroll-up":
+      case "scroll-down": {
+        const dir = event.type === "scroll-down" ? 1 : -1;
         if (this.focusColumn === "playlist") {
-          this.selectedQueueIndex = Math.max(0, this.selectedQueueIndex - 1);
+          if (!queue.length) return;
+          const step = this.queueScroller.step(this.selectedQueueIndex, queue.length, dir, Date.now());
+          if (step.atEdge) {
+            this.queueBounce.trigger(dir, () => ctx.actions.requestRender());
+            return;
+          }
+          this.selectedQueueIndex = step.index;
         } else {
-          this.selectedActionIndex = (this.selectedActionIndex + actions.length - 1) % actions.length;
+          if (!actions.length) return;
+          const step = this.actionScroller.step(this.selectedActionIndex, actions.length, dir, Date.now());
+          if (step.atEdge) {
+            this.actionBounce.trigger(dir, () => ctx.actions.requestRender());
+            return;
+          }
+          this.selectedActionIndex = step.index;
         }
         return;
-      case "scroll-down":
-        if (this.focusColumn === "playlist") {
-          this.selectedQueueIndex = Math.min(Math.max(0, queue.length - 1), this.selectedQueueIndex + 1);
-        } else {
-          this.selectedActionIndex = (this.selectedActionIndex + 1) % actions.length;
-        }
-        return;
+      }
       case "click": {
         if (this.focusColumn === "playlist") {
           const item = queue[this.selectedQueueIndex];
@@ -245,6 +263,7 @@ class MusicAppLayer implements Layer {
             // The player rebuilds the queue with the chosen track at index 0.
             this.selectedQueueIndex = 0;
             this.queueScrollRow = 0;
+            this.queueScroller.reset();
           }
           return;
         }
@@ -260,6 +279,7 @@ class MusicAppLayer implements Layer {
           const activeIndex = queue.findIndex((item) => item.active);
           if (activeIndex >= 0) this.selectedQueueIndex = activeIndex;
           this.focusColumn = "playlist";
+          this.queueScroller.reset();
         }
         return;
       }

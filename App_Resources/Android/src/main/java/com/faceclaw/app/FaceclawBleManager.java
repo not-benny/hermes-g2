@@ -49,6 +49,10 @@ public class FaceclawBleManager {
     private final ConcurrentHashMap<String, CountDownLatch> writeLatches = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Integer> writeStatuses = new ConcurrentHashMap<>();
 
+    private final ConcurrentHashMap<String, CountDownLatch> readLatches = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Integer> readStatuses = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, byte[]> readValues = new ConcurrentHashMap<>();
+
     private volatile FaceclawBleListener listener;
 
     public FaceclawBleManager(Context context) {
@@ -168,6 +172,54 @@ public class FaceclawBleManager {
             Integer status = servicesStatuses.remove(address);
             servicesLatches.remove(address);
             return status != null && status == BluetoothGatt.GATT_SUCCESS;
+        }
+    }
+
+    /** Read a characteristic after service discovery; null on timeout or failure. */
+    public byte[] readCharacteristic(String address, String characteristicUuid, int timeoutMs) {
+        synchronized (gattLock(address)) {
+            CountDownLatch latch = new CountDownLatch(1);
+            readLatches.put(address, latch);
+            readStatuses.remove(address);
+            readValues.remove(address);
+
+            BluetoothGatt gatt = requireGatt(address);
+            BluetoothGattCharacteristic characteristic = requireCharacteristic(gatt, characteristicUuid);
+            if (!gatt.readCharacteristic(characteristic)) {
+                readLatches.remove(address);
+                return null;
+            }
+            if (!awaitLatch(latch, timeoutMs)) {
+                readLatches.remove(address);
+                readStatuses.remove(address);
+                readValues.remove(address);
+                return null;
+            }
+            Integer status = readStatuses.remove(address);
+            byte[] value = readValues.remove(address);
+            readLatches.remove(address);
+            return status != null && status == BluetoothGatt.GATT_SUCCESS && value != null ? value.clone() : null;
+        }
+    }
+
+    /** Compact UUID inventory for a connected device; intended for diagnostics. */
+    public String describeServices(String address) {
+        synchronized (gattLock(address)) {
+            BluetoothGatt gatt = requireGatt(address);
+            StringBuilder out = new StringBuilder();
+            for (BluetoothGattService service : gatt.getServices()) {
+                if (out.length() > 0) out.append(";");
+                out.append(service.getUuid()).append("[");
+                for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()) {
+                    if (out.charAt(out.length() - 1) != '[') out.append(",");
+                    out.append(characteristic.getUuid())
+                        .append("{properties=")
+                        .append(characteristic.getProperties())
+                        .append("}");
+                }
+                out.append("]");
+            }
+            return out.toString();
         }
     }
 
@@ -438,6 +490,17 @@ public class FaceclawBleManager {
         }
 
         @Override
+        public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value, int status) {
+            finishCharacteristicRead(gatt.getDevice().getAddress(), value, status);
+        }
+
+        @Deprecated
+        @Override
+        public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
+            finishCharacteristicRead(gatt.getDevice().getAddress(), characteristic.getValue(), status);
+        }
+
+        @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value) {
             dispatchNotification(gatt.getDevice().getAddress(), characteristic.getUuid().toString(), value);
         }
@@ -448,6 +511,17 @@ public class FaceclawBleManager {
             dispatchNotification(gatt.getDevice().getAddress(), characteristic.getUuid().toString(), characteristic.getValue());
         }
     };
+
+    private void finishCharacteristicRead(String address, byte[] value, int status) {
+        readStatuses.put(address, status);
+        if (value != null) {
+            readValues.put(address, value.clone());
+        }
+        CountDownLatch latch = readLatches.remove(address);
+        if (latch != null) {
+            latch.countDown();
+        }
+    }
 
     private void dispatchConnectionState(String address, boolean connected) {
         FaceclawBleListener current = listener;

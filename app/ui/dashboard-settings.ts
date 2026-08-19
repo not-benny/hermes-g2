@@ -37,6 +37,7 @@ export type ScreenTimeoutSetting = "15s" | "30s" | "1m" | "3m" | "never";
 export const BRIGHTNESS_VALUES = ["auto", "0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"] as const;
 export type BrightnessSetting = (typeof BRIGHTNESS_VALUES)[number];
 export type WakeWordAction = "voice-input" | "off" | "turn-screen-on";
+export type NotificationFilterMode = "all" | "important" | "selected";
 
 type ConfigSettingOptions<TValue, TId extends string> = {
   id: TId;
@@ -254,6 +255,47 @@ export const screenTimeoutSetting = new ConfigSettingEnum<ScreenTimeoutSetting>(
   description: "How long the display stays on after the last input before turning itself off. \"Never\" keeps it on until turned off manually.",
 });
 
+// Ring/touchpad scroll sensitivity as a five-step slider. Each level is a
+// minimum interval between honored scrolls: a physical swipe fires a burst of
+// scroll events, and throttling that burst turns one swipe into a few steps
+// instead of a runaway. "5" honors every event (the original behavior).
+export const RING_SENSITIVITY_VALUES = ["1", "2", "3", "4", "5"] as const;
+export type RingSensitivity = (typeof RING_SENSITIVITY_VALUES)[number];
+
+export const ringSensitivitySetting = new ConfigSettingEnum<RingSensitivity>({
+  id: "ring-sensitivity",
+  label: "Ring sensitivity",
+  storageKey: "input.ringSensitivity",
+  defaultValue: "5",
+  values: RING_SENSITIVITY_VALUES,
+  formatValue: ringSensitivityLabel,
+  description:
+    "How fast ring and touchpad scrolling moves. Lower levels ignore rapid repeat scrolls, so a single swipe steps once or twice instead of racing through a list. 5 is the fastest (every scroll counts).",
+});
+
+export function ringSensitivityLabel(value: RingSensitivity): string {
+  const suffix =
+    value === "1" ? " (slowest)" : value === "5" ? " (fastest)" : "";
+  return `${value}${suffix}`;
+}
+
+/** Minimum ms between honored scrolls for each sensitivity level (5 = none). */
+export function ringScrollMinIntervalMs(value: RingSensitivity): number {
+  switch (value) {
+    case "1":
+      return 320;
+    case "2":
+      return 220;
+    case "3":
+      return 150;
+    case "4":
+      return 80;
+    case "5":
+    default:
+      return 0;
+  }
+}
+
 export const lockScreenEnabledSetting = new ConfigSettingBoolean({
   id: "lock-screen-enabled",
   label: "Enable lock screen",
@@ -308,10 +350,11 @@ export const suspendEvenHubWhenScreenOffSetting = new ConfigSettingBoolean({
   description: "Suspend the EvenHub session while the display is off. This significantly improves battery life, but increases the latency of waking the screen.",
 });
 
-export type VoiceProvider = "onboard" | "elevenlabs" | "whisper" | "soniox";
+export type VoiceProvider = "onboard" | "deepgram" | "elevenlabs" | "whisper" | "soniox";
 
 const voiceProviderLabels: Record<VoiceProvider, string> = {
   onboard: "On-device",
+  deepgram: "Deepgram",
   elevenlabs: "ElevenLabs",
   whisper: "Whisper",
   soniox: "Soniox",
@@ -322,15 +365,16 @@ export const voiceProviderSetting = new ConfigSettingEnum<VoiceProvider>({
   label: "Transcription Provider",
   storageKey: "voice.provider",
   defaultValue: "onboard",
-  values: ["onboard", "elevenlabs", "whisper", "soniox"],
+  values: ["onboard", "deepgram", "elevenlabs", "whisper", "soniox"],
   formatValue: (value) => voiceProviderLabels[value] ?? value,
   isDisabled: (value) => {
+    if (value === "deepgram") return deepgramApiKeySetting.get().trim().length === 0;
     if (value === "elevenlabs") return elevenLabsApiKeySetting.get().trim().length === 0;
     if (value === "whisper") return openAiApiKeySetting.get().trim().length === 0;
     if (value === "soniox") return sonioxApiKeySetting.get().trim().length === 0;
     return false;
   },
-  description: "Speech-to-text engine for voice input. ElevenLabs, Whisper, and Soniox are cloud services that need an API key, with significantly better accuracy than on-device transcription.",
+  description: "Speech-to-text engine for voice input. Deepgram, ElevenLabs, Whisper, and Soniox are cloud services that need an API key, with significantly better accuracy than on-device transcription.",
 });
 
 const wakeWordActionLabels: Record<WakeWordAction, string> = {
@@ -364,6 +408,43 @@ export const assistantSkipConfirmationSetting = new ConfigSettingBoolean({
   defaultValue: false,
   description: "After a wakeword utterance, send the transcript straight to the assistant instead of stopping at the Send/Type confirmation menu.",
 });
+
+const notificationFilterModeLabels: Record<NotificationFilterMode, string> = {
+  all: "All non-silent",
+  important: "Important only",
+  selected: "Selected apps",
+};
+
+export const notificationFilterModeSetting = new ConfigSettingEnum<NotificationFilterMode>({
+  id: "notification-filter-mode",
+  label: "Notification filter",
+  storageKey: "notifications.filterMode",
+  defaultValue: "all",
+  values: ["all", "important", "selected"],
+  formatValue: (value) => notificationFilterModeLabels[value] ?? value,
+  description: "Choose whether Hermes mirrors all non-silent notifications, only Android default-priority-or-higher alerts, or only apps selected on the phone.",
+});
+
+export const notificationAllowedPackagesSetting = new ConfigSettingString({
+  id: "notification-allowed-packages",
+  label: "Selected notification apps",
+  storageKey: "notifications.allowedPackages",
+  defaultValue: "",
+  normalize: normalizeNotificationAllowedPackages,
+  formatValue: (value) => `${parseNotificationAllowedPackages(value).length} app${parseNotificationAllowedPackages(value).length === 1 ? "" : "s"}`,
+  description: "Apps allowed when Notification filter is set to Selected apps. Manage this list from the Android Glasses Controls page.",
+});
+
+export function parseNotificationAllowedPackages(value = notificationAllowedPackagesSetting.get()): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => /^[A-Za-z0-9._-]+$/.test(item));
+}
+
+function normalizeNotificationAllowedPackages(value: string | null | undefined): string {
+  return Array.from(new Set(parseNotificationAllowedPackages(value ?? ""))).sort().join(",");
+}
 
 export type AssistantBackendKind = "direct" | "external";
 
@@ -415,6 +496,85 @@ export const assistantBridgeTokenSetting = new ConfigSettingString({
   description: "Shared secret that must match the Hermes Agent bridge token.",
 });
 
+// Even account + cloud-API signing config for the ring-health integration
+// (see app/native/even-api.ts). The account fields are the user's Even login;
+// the signing fields are the embedded API credentials the official app uses,
+// supplied by the user (masked). The auth token is filled in after login.
+export const evenAccountEmailSetting = new ConfigSettingString({
+  id: "even-account-email",
+  label: "Even account email",
+  storageKey: "even.account.email",
+  defaultValue: "",
+  editorTitle: "Even account email or phone",
+  description: "The email (or phone) for your Even Realities account, used to fetch ring health from Even's cloud.",
+});
+
+export const evenAccountPasswordSetting = new ConfigSettingString({
+  id: "even-account-password",
+  label: "Even account password",
+  storageKey: "even.account.password",
+  defaultValue: "",
+  editorTitle: "Even account password",
+  glassesEditTitle: "Edit Even password",
+  formatValue: (value) => (value ? "••••••••" : "(not set)"),
+  description: "Your Even Realities account password. Stored on-device and sent (encrypted) only to Even's login API.",
+});
+
+export const evenApiAppIdSetting = new ConfigSettingString({
+  id: "even-api-app-id",
+  label: "Even API app id",
+  storageKey: "even.api.appId",
+  defaultValue: "",
+  formatValue: (value) => (value ? `${value.slice(0, 6)}...` : "(not set)"),
+  description: "Even API app_id (from the official app). Required for request signing.",
+});
+
+export const evenApiAccessKeySetting = new ConfigSettingString({
+  id: "even-api-access-key",
+  label: "Even API access key",
+  storageKey: "even.api.accessKey",
+  defaultValue: "",
+  formatValue: (value) => (value ? `${value.slice(0, 6)}...` : "(not set)"),
+  description: "Even API accessKey (from the official app). Required for request signing.",
+});
+
+export const evenApiAccessSecretSetting = new ConfigSettingString({
+  id: "even-api-access-secret",
+  label: "Even API access secret",
+  storageKey: "even.api.accessSecret",
+  defaultValue: "",
+  formatValue: (value) => (value ? `${value.slice(0, 4)}...` : "(not set)"),
+  description: "Even API accessKeySecret (from the official app) — the HMAC-SHA256 signing key.",
+});
+
+export const evenApiAesKeySetting = new ConfigSettingString({
+  id: "even-api-aes-key",
+  label: "Even password AES key",
+  storageKey: "even.api.aesKey",
+  defaultValue: "",
+  formatValue: (value) => (value ? `${value.slice(0, 4)}...` : "(not set)"),
+  description: "32-byte AES-256-CBC key the app uses to encrypt the login password.",
+});
+
+export const evenApiAesIvSetting = new ConfigSettingString({
+  id: "even-api-aes-iv",
+  label: "Even password AES IV",
+  storageKey: "even.api.aesIv",
+  defaultValue: "",
+  formatValue: (value) => (value ? `${value.slice(0, 4)}...` : "(not set)"),
+  description: "16-byte AES-CBC IV paired with the password AES key.",
+});
+
+// Written by the client after a successful login; not user-editable in practice.
+export const evenAuthTokenSetting = new ConfigSettingString({
+  id: "even-auth-token",
+  label: "Even auth token",
+  storageKey: "even.api.authToken",
+  defaultValue: "",
+  formatValue: (value) => (value ? "(signed in)" : "(signed out)"),
+  description: "Bearer token from the last successful Even login.",
+});
+
 export const assistantAllowProactiveSetting = new ConfigSettingBoolean({
   id: "assistant-allow-proactive",
   label: "Allow proactive Hermes actions",
@@ -422,6 +582,17 @@ export const assistantAllowProactiveSetting = new ConfigSettingBoolean({
   defaultValue: true,
   description:
     "Let Hermes Agent use glasses tools outside a conversation, for example to show an alert when a long-running job finishes. Rate-limited; only tools marked proactive-safe are allowed.",
+});
+
+export const deepgramApiKeySetting = new ConfigSettingString({
+  id: "deepgram-api-key",
+  label: "Deepgram key",
+  storageKey: "voice.deepgramApiKey",
+  defaultValue: "",
+  editorTitle: "Deepgram API key",
+  glassesEditTitle: "Edit Deepgram key",
+  formatValue: (value) => (value ? `${value.slice(0, 6)}...` : "(not set)"),
+  description: "Deepgram API key, used when Deepgram is the transcription provider.",
 });
 
 export const elevenLabsApiKeySetting = new ConfigSettingString({

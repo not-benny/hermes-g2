@@ -68,15 +68,27 @@ public class FaceclawMediaController {
         }
     };
 
+    private static volatile FaceclawMediaController activeInstance;
+
     private volatile FaceclawMediaControllerListener listener;
     private MediaController activeController;
     private boolean started;
+    private boolean sessionListenerRegistered;
 
     public FaceclawMediaController(Context context) {
         this.appContext = context.getApplicationContext();
         this.listenerComponent = new ComponentName(appContext, FaceclawMediaNotificationListenerService.class);
         this.sessionManager = (MediaSessionManager) appContext.getSystemService(Context.MEDIA_SESSION_SERVICE);
         this.audioManager = (AudioManager) appContext.getSystemService(Context.AUDIO_SERVICE);
+        activeInstance = this;
+    }
+
+    /** Re-check access when Android connects or disconnects the listener service. */
+    public static void refreshAfterNotificationAccessChanged() {
+        FaceclawMediaController controller = activeInstance;
+        if (controller != null) {
+            controller.refresh();
+        }
     }
 
     public void setListener(FaceclawMediaControllerListener listener) {
@@ -88,28 +100,19 @@ public class FaceclawMediaController {
 
     public void start() {
         synchronized (lock) {
-            if (started) {
-                emitStateLocked();
-                return;
-            }
             started = true;
-            if (!isNotificationAccessEnabled()) {
+            refreshMediaSessionAccessLocked();
+        }
+    }
+
+    /** Refresh access/session state without requiring an app reconnect. */
+    public void refresh() {
+        synchronized (lock) {
+            if (!started) {
                 emitStateLocked();
                 return;
             }
-            if (sessionManager != null) {
-                try {
-                    sessionManager.addOnActiveSessionsChangedListener(
-                            sessionsChangedListener,
-                            listenerComponent,
-                            mainHandler
-                    );
-                } catch (SecurityException ignored) {
-                    emitStateLocked();
-                    return;
-                }
-            }
-            refreshActiveControllerLocked(null);
+            refreshMediaSessionAccessLocked();
         }
     }
 
@@ -119,11 +122,12 @@ public class FaceclawMediaController {
                 return;
             }
             started = false;
-            if (sessionManager != null) {
+            if (sessionListenerRegistered && sessionManager != null) {
                 try {
                     sessionManager.removeOnActiveSessionsChangedListener(sessionsChangedListener);
                 } catch (SecurityException ignored) {
                 }
+                sessionListenerRegistered = false;
             }
             setActiveControllerLocked(null);
             emitStateLocked();
@@ -269,6 +273,29 @@ public class FaceclawMediaController {
         appContext.startActivity(intent);
     }
 
+    private void refreshMediaSessionAccessLocked() {
+        if (!isNotificationAccessEnabled()) {
+            setActiveControllerLocked(null);
+            emitStateLocked();
+            return;
+        }
+        if (!sessionListenerRegistered && sessionManager != null) {
+            try {
+                sessionManager.addOnActiveSessionsChangedListener(
+                        sessionsChangedListener,
+                        listenerComponent,
+                        mainHandler
+                );
+                sessionListenerRegistered = true;
+            } catch (SecurityException ignored) {
+                setActiveControllerLocked(null);
+                emitStateLocked();
+                return;
+            }
+        }
+        refreshActiveControllerLocked(null);
+    }
+
     private void refreshActiveControllerLocked(List<MediaController> controllers) {
         if (!started) {
             setActiveControllerLocked(null);
@@ -329,6 +356,14 @@ public class FaceclawMediaController {
     }
 
     private boolean isNotificationAccessEnabled() {
+        // A live listener is the strongest signal: it has already received
+        // Android's privileged callback and can enumerate the notification list.
+        // Samsung/Android variants can serialize enabled_notification_listeners
+        // differently, so Settings.Secure remains a fallback rather than the
+        // only authority.
+        if (FaceclawMediaNotificationListenerService.isNotificationAccessActive()) {
+            return true;
+        }
         String enabledListeners = Settings.Secure.getString(
                 appContext.getContentResolver(),
                 "enabled_notification_listeners"

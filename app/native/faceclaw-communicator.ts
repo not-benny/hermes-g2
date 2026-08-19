@@ -18,9 +18,12 @@ export type CommunicatorState = {
   status: string;
 };
 
+export type RingConnectionState = "not-configured" | "idle" | "retrying" | "subscribing" | "ready";
+
 export type HeadsetBatteryState = {
   battery: number;
   chargingStatus: number;
+  ringBattery: number;
 };
 
 export type FrameMetrics = {
@@ -169,10 +172,11 @@ export class FaceclawCommunicatorBridge {
         frameTimings.logFrame(event.frameId, "input event received on JS side");
         this.emitAsync(this.ringListeners, event);
       },
-      onBatteryState: (headsetBattery: number, headsetCharging: number) => {
+      onBatteryState: (headsetBattery: number, headsetCharging: number, ringBattery: number) => {
         const state = {
           battery: Number(headsetBattery),
           chargingStatus: Number(headsetCharging),
+          ringBattery: Number(ringBattery),
         };
         this.emitAsync(this.batteryListeners, state);
       },
@@ -399,6 +403,15 @@ export class FaceclawCommunicatorBridge {
 
   async setG2ScreenOn(screenOn: boolean): Promise<void> {
     await this.enqueueJavaCall(() => this.communicator.setG2ScreenOn(Boolean(screenOn)));
+  }
+
+  getRingConnectionState(): RingConnectionState {
+    if (!global.isAndroid) return "not-configured";
+    return String(this.communicator.getRingConnectionState()) as RingConnectionState;
+  }
+
+  async requestRingReconnect(): Promise<boolean> {
+    return this.enqueueJavaCall(() => Boolean(this.communicator.requestRingReconnect()));
   }
 
   async setFirmwareDebugFlags(enabled: boolean): Promise<void> {

@@ -5,6 +5,7 @@ import { clamp } from "../../util/numeric-util";
 import { GESTURE_CLICK, GESTURE_DOUBLE_CLICK, GESTURE_SCROLL } from "../gestures";
 import { DashboardInputEvent, Layer, LayerContext } from "../layers";
 import { drawSelectionHighlight, isMenuItemDisabled, MenuItem, MenuLayer, openModalMenu } from "../menu";
+import { EdgeBounce, EdgeWrapScroller } from "../edge-scroll";
 import { shell } from "../shell/shell";
 
 /**
@@ -47,6 +48,11 @@ export class SettingsPanelLayer implements Layer {
   private focus: "left" | "right" = "left";
   private leftScroll = 0;
   private rightScroll = 0;
+  // Edge-detent + bounce per column, matching the sidebar cards.
+  private readonly leftScroller = new EdgeWrapScroller(undefined, "settings-sections");
+  private readonly leftBounce = new EdgeBounce();
+  private readonly rightScroller = new EdgeWrapScroller(undefined, "settings-items");
+  private readonly rightBounce = new EdgeBounce();
 
   constructor(private readonly sections: SettingsSection[]) {}
 
@@ -60,6 +66,7 @@ export class SettingsPanelLayer implements Layer {
     if (index < 0) return;
     this.leftIndex = index;
     this.focus = "left";
+    this.leftScroller.reset();
     this.resetRight();
   }
 
@@ -80,8 +87,9 @@ export class SettingsPanelLayer implements Layer {
     // Left column: section labels.
     const leftRows = Math.max(1, ((listBottom - top) / ROW_H) | 0);
     this.leftScroll = clampScroll(this.leftIndex, this.leftScroll, leftRows, this.sections.length);
+    const leftBounceY = this.leftBounce.offsetPx();
     for (let i = this.leftScroll; i < Math.min(this.sections.length, this.leftScroll + leftRows); i++) {
-      const rowY = top + (i - this.leftScroll) * ROW_H;
+      const rowY = top + (i - this.leftScroll) * ROW_H + leftBounceY;
       const selected = i === this.leftIndex;
       if (selected) {
         drawSelectionHighlight(image, PAD - 2, rowY, LEFT_W, ROW_H - 2, appFocused && this.focus === "left", 6);
@@ -113,9 +121,10 @@ export class SettingsPanelLayer implements Layer {
       const rightListBottom = listBottom - descriptionH;
       const rightRows = Math.max(1, ((rightListBottom - rightTop) / ROW_H) | 0);
       this.rightScroll = clampScroll(this.rightIndex, this.rightScroll, rightRows, rightItems.length);
+      const rightBounceY = this.rightBounce.offsetPx();
       for (let i = this.rightScroll; i < Math.min(rightItems.length, this.rightScroll + rightRows); i++) {
         const item = rightItems[i]!;
-        const rowY = rightTop + (i - this.rightScroll) * ROW_H;
+        const rowY = rightTop + (i - this.rightScroll) * ROW_H + rightBounceY;
         // A selection only appears once focus is in the right column; before
         // that the pane is a preview of what tapping would open.
         const selected = this.focus === "right" && i === this.rightIndex;
@@ -159,13 +168,17 @@ export class SettingsPanelLayer implements Layer {
     if (this.focus === "left") {
       switch (event.type) {
         case "scroll-up":
-          this.leftIndex = (this.leftIndex + this.sections.length - 1) % this.sections.length;
+        case "scroll-down": {
+          const dir = event.type === "scroll-down" ? 1 : -1;
+          const step = this.leftScroller.step(this.leftIndex, this.sections.length, dir, Date.now());
+          if (step.atEdge) {
+            this.leftBounce.trigger(dir, () => ctx.actions.requestRender());
+            return;
+          }
+          this.leftIndex = step.index;
           this.resetRight();
           return;
-        case "scroll-down":
-          this.leftIndex = (this.leftIndex + 1) % this.sections.length;
-          this.resetRight();
-          return;
+        }
         case "click":
           // Only enter sections that have something interactive on the right.
           if (this.section().items.length) {
@@ -184,11 +197,17 @@ export class SettingsPanelLayer implements Layer {
     const items = this.section().items;
     switch (event.type) {
       case "scroll-up":
-        if (items.length) this.rightIndex = (this.rightIndex + items.length - 1) % items.length;
+      case "scroll-down": {
+        if (!items.length) return;
+        const dir = event.type === "scroll-down" ? 1 : -1;
+        const step = this.rightScroller.step(this.rightIndex, items.length, dir, Date.now());
+        if (step.atEdge) {
+          this.rightBounce.trigger(dir, () => ctx.actions.requestRender());
+          return;
+        }
+        this.rightIndex = step.index;
         return;
-      case "scroll-down":
-        if (items.length) this.rightIndex = (this.rightIndex + 1) % items.length;
-        return;
+      }
       case "click":
         if (items.length) {
           const item = items[clamp(this.rightIndex, 0, items.length - 1)]!;
@@ -206,6 +225,7 @@ export class SettingsPanelLayer implements Layer {
   private resetRight(): void {
     this.rightIndex = 0;
     this.rightScroll = 0;
+    this.rightScroller.reset();
   }
 }
 

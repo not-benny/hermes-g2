@@ -38,7 +38,7 @@ the Hermes Agent bridge.
 ## Features
 
 - Voice input triggered by “Hey Even,” with on-device transcription by default
-  and optional OpenAI Whisper, ElevenLabs, or Soniox transcription.
+  and optional Deepgram, OpenAI Whisper, ElevenLabs, or Soniox transcription.
 - Hermes Agent integration with streamed replies, MCP glasses tools, and
   optional proactive actions.
 - Direct Anthropic/OpenAI and downloaded on-phone model fallback.
@@ -58,14 +58,14 @@ Hermes G2 embeds a deterministic patch set for the reviewed 2.2.8.4 candidate
 (`bf143aa220d634969fc7ea856716bfccd6cf197fe93f41bec2b87ebd8add7584`)
 so the Android build and firmware research stay synchronized. Static checks pass,
 but the candidate has not completed hardware testing or recovery validation.
-**All headset firmware writes, including stock restoration, are disabled in this build**
-and stock-firmware users are sent to Preview Only mode. Do not bypass that gate or
-flash any candidate yet.
+**Firmware installation is enabled in this owner build.** The native writer accepts
+only the pinned stock 2.2.8.4 image or its exact reviewed CFW derivative; this does
+not establish that either image is recoverable after a failed write.
 
 The full glasses UI requires custom firmware for 640×480 framebuffer access and
-wear/wake integration. Firmware flashing can fail or brick a device; even after
-the gate is deliberately enabled, read every warning, keep the glasses powered,
-and disconnect the official Even app first.
+wear/wake integration. Firmware flashing can fail or brick a device: read every
+warning, keep both lenses powered and nearby, and disconnect the official Even app
+before choosing Flash Now.
 
 ## Building
 

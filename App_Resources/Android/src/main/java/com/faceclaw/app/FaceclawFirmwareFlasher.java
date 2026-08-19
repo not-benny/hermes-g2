@@ -11,6 +11,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -67,8 +68,13 @@ public class FaceclawFirmwareFlasher implements FaceclawBleListener {
     // END ack statuses that mean "component accepted": SUCCESS, UPDATING, SYS_RESTART.
     private static final int[] END_OK = new int[] {0, 8, 9};
 
-    // Firmware layout expectations (mirrors g2flash.py).
-    private static final int EXPECTED_SEGMENTS = 5;
+    // The writer accepts only byte-exact artifacts produced by the on-device
+    // builder: the pinned 2.2.8.4 stock image or its reviewed CFW derivative.
+    // Keep this full-image check immediately before any OTA transfer.
+    private static final String EXPECTED_CFW_IMAGE_SHA256 =
+        "bf143aa220d634969fc7ea856716bfccd6cf197fe93f41bec2b87ebd8add7584";
+    private static final String EXPECTED_STOCK_IMAGE_SHA256 =
+        "df7b8bd18727765eba73be5ab836e0ee4cfd17b5e680046003b8d608d2fbfda7";
     private static final String REQUIRED_SEGMENT = "ota/s200_firmware_ota.bin";
     private static final long APP_LOAD_ADDR = 0x00438000L;
     private static final long APP_MAX_END = 0x007F0000L;
@@ -140,6 +146,7 @@ public class FaceclawFirmwareFlasher implements FaceclawBleListener {
 
             emitState("validating", "");
             byte[] img = readFile(firmwarePath);
+            requireCanonicalImageDigest(img);
             List<Segment> segs = validate(img);
             emitLog("firmware validated: " + segs.size() + " components, " + img.length + " bytes");
 
@@ -444,9 +451,6 @@ public class FaceclawFirmwareFlasher implements FaceclawBleListener {
 
     private List<Segment> validate(byte[] img) {
         List<Segment> segs = parseSegments(img);
-        if (segs.size() != EXPECTED_SEGMENTS) {
-            throw new IllegalStateException("expected " + EXPECTED_SEGMENTS + " components, found " + segs.size());
-        }
         Segment main = null;
         for (Segment s : segs) {
             byte[] payload = Arrays.copyOfRange(img, s.off + 128, s.off + 128 + s.ps);
@@ -566,6 +570,30 @@ public class FaceclawFirmwareFlasher implements FaceclawBleListener {
             return out.toByteArray();
         } catch (IOException e) {
             throw new IllegalStateException("could not read firmware: " + e.getMessage(), e);
+        }
+    }
+
+    private static void requireCanonicalImageDigest(byte[] img) {
+        String actual = sha256Hex(img);
+        if (!EXPECTED_CFW_IMAGE_SHA256.equals(actual) && !EXPECTED_STOCK_IMAGE_SHA256.equals(actual)) {
+            throw new IllegalStateException(
+                "firmware SHA-256 is not an approved Hermes G2 stock or CFW image: " + actual);
+        }
+    }
+
+    private static String sha256Hex(byte[] data) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(data);
+            char[] out = new char[digest.length * 2];
+            final char[] hex = "0123456789abcdef".toCharArray();
+            for (int i = 0; i < digest.length; i++) {
+                int value = digest[i] & 0xff;
+                out[i * 2] = hex[value >>> 4];
+                out[i * 2 + 1] = hex[value & 0x0f];
+            }
+            return new String(out);
+        } catch (Exception e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
         }
     }
 

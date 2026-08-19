@@ -18,6 +18,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -42,6 +43,19 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private static final String G2_SCREEN_WAKE_LOCK_TAG = "Faceclaw:G2Screen";
     private static final long FACECLAW_WAKE_LEASE_RENEW_MS = 45_000;
     private static final long FACECLAW_WAKE_CONTROL_WAIT_MS = 1_500;
+    // Bluetooth SIG Battery Service / Battery Level characteristic. Optional:
+    // an R1 without it remains usable but reports no battery percentage.
+    private static final String RING_BATTERY_LEVEL_UUID = "00002a19-0000-1000-8000-00805f9b34fb";
+    private static final int RING_BATTERY_READ_TIMEOUT_MS = 2_500;
+    // Health-sampling experiment gate. The prior "auth/host-binding wall" verdict
+    // was WRONG: root-cause analysis of com.even.sg's BleRing1Model.toBytes showed
+    // frame[1..4] is a CRC-32 (poly 0x1EDC6F41) over the inner frame, and the old
+    // buildRingFrame filled it with RANDOM bytes — so the ring's transport layer
+    // silently discarded 100% of Hermes' writes before the command dispatcher,
+    // with no auth involved. buildRingFrame is now rebuilt to the verified layout.
+    // probeRingHealth fires a read-only GET canary (verbatim-replayed captured
+    // frames + a random-CRC control) to prove the channel; watch bae80013.
+    private static final boolean RING_HEALTH_PROBE_ENABLED = true;
 
     private final Context appContext;
     private final PowerManager powerManager;
@@ -70,6 +84,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private boolean leftConnected;
     private boolean ringConnected;
     private boolean ringNotificationsReady;
+    private int ringBattery = -1;
+    // Ring health-sampling spike: per-session write sequence + one-shot guard.
+    // The R1 streams health pushes on its notify channel only after it is put
+    // into HRV sampling mode; probeRingHealth sends that enable command once
+    // per connection. Reset on ring disconnect so a reconnect re-arms it.
+    private int ringWriteSeq = 0;
+    private boolean ringHealthProbeSent = false;
+    private final SecureRandom ringRandom = new SecureRandom();
     private boolean sessionReady;
     private boolean fixedLayoutCreated;
     private boolean warmedUp;
@@ -275,6 +297,37 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     public void setG2ScreenOn(boolean screenOn) {
         mainHandler.post(() -> updateG2ScreenWakeLock(screenOn));
+    }
+
+    /** Direct R1 status; glasses-forwarded ring events still work without it. */
+    public String getRingConnectionState() {
+        synchronized (lock) {
+            if (!hasRingAddress()) {
+                return "not-configured";
+            }
+            if (ringNotificationsReady) {
+                return "ready";
+            }
+            if (ringConnected) {
+                return "subscribing";
+            }
+            return running && sessionReady ? "retrying" : "idle";
+        }
+    }
+
+    /** Request the next safe idle window to retry the optional direct R1 link. */
+    public boolean requestRingReconnect() {
+        synchronized (lock) {
+            if (!hasRingAddress() || !running || !sessionReady) {
+                return false;
+            }
+            if (ringNotificationsReady) {
+                return true;
+            }
+            ringReconnectAfterMs = 0;
+        }
+        interruptibleSleep.interrupt();
+        return true;
     }
 
     public void setFirmwareDebugFlags(boolean enabled) {
@@ -1006,6 +1059,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
         Log.d(TAG, "onNotification: address=" + address + " characteristicUuid=" + characteristicUuid + " data.length=" + data.length);
         BleProtocol.ParsedFrame frame = BleProtocol.parseFrame(data);
+        logRelayCandidateFrame(address, frame);
         int decodedWearState = BleProtocol.parseWearState(frame);
         BleProtocol.CompassEvent compassEvent = address.equalsIgnoreCase(rightAddress)
             ? BleProtocol.parseCompassEvent(frame)
@@ -1141,10 +1195,70 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
     }
 
+    /**
+     * Route A health spike (discovery): log glasses frames on the ring-relay /
+     * health service IDs, and any other unhandled SID, with their protobuf
+     * bytes. Read-only — this is how we learn whether the glasses forward ring
+     * RingRawData (health) over the phone's existing link without any phone↔ring
+     * auth. A frame on SID_RING_ROW_DATA/SID_RING_DATA_RELAY/SID_HEALTH is the
+     * signal that the relay path works; total silence means the relay needs a
+     * request kick (next spike step) or the ring isn't sampling.
+     */
+    private void logRelayCandidateFrame(String address, BleProtocol.ParsedFrame frame) {
+        if (frame == null || !frame.ok) {
+            return;
+        }
+        int sid = frame.sid;
+        boolean relaySid = sid == BleProtocol.SID_RING_ROW_DATA
+            || sid == BleProtocol.SID_RING_DATA_RELAY
+            || sid == BleProtocol.SID_HEALTH;
+        if (relaySid) {
+            logLine(String.format(Locale.US,
+                "RING-RELAY frame arm=%s sid=0x%02x flag=0x%02x pb=%s",
+                armLabel(address), sid, frame.flag, hex(frame.pb)));
+            return;
+        }
+        // Widen the net: an unhandled SID could be an unforeseen relay channel.
+        switch (sid) {
+            case BleProtocol.SID_APP_LAUNCH:
+            case BleProtocol.SID_EVENHUB:
+            case BleProtocol.SID_UI_SETTING:
+            case BleProtocol.SID_STATE_CHANGE:
+            case BleProtocol.SID_ONBOARDING:
+            case BleProtocol.SID_EVEN_AI:
+            case BleProtocol.SID_NAVIGATION:
+                return;
+            default:
+                logLine(String.format(Locale.US,
+                    "unhandled frame arm=%s sid=0x%02x flag=0x%02x pb=%s",
+                    armLabel(address), sid, frame.flag, hex(frame.pb)));
+        }
+    }
+
+    private String armLabel(String address) {
+        if (address == null) {
+            return "?";
+        }
+        if (address.equalsIgnoreCase(rightAddress)) {
+            return "R";
+        }
+        if (address.equalsIgnoreCase(leftAddress)) {
+            return "L";
+        }
+        return address;
+    }
+
     private void handleDirectRingNotification(String characteristicUuid, byte[] data) {
         FaceclawRingEventDecoder.DirectRingEvent decoded = FaceclawRingEventDecoder.decode(data);
         if (decoded == null) {
-            Log.d(TAG, "direct ring notify ignored: characteristicUuid=" + characteristicUuid + " raw=" + hex(data));
+            // Not a gesture event. Could be a health/command RESPONSE (bae80013) or
+            // a phone-notify status frame (bae80011). Surface it in the in-app log
+            // with the frame envelope decoded, so a ring reply is finally visible.
+            synchronized (lock) {
+                lastIncomingAtMs = SystemClock.elapsedRealtime();
+            }
+            logLine("direct ring notify " + shortCharUuid(characteristicUuid) + " "
+                + describeRingFrame(data) + " raw=" + hex(data));
             return;
         }
 
@@ -1188,7 +1302,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 ringConnected = connected;
                 ringNotificationsReady = false;
                 if (!connected) {
+                    ringBattery = -1;
+                    ringHealthProbeSent = false;
                     ringReconnectAfterMs = SystemClock.elapsedRealtime() + ConnectionOptions.RING_RECONNECT_DELAY_MS;
+                    emitBatteryState(headsetBattery, headsetCharging, ringBattery);
                 }
                 logLine(connected ? "direct ring BLE connected" : "direct ring BLE disconnected");
                 return;
@@ -1352,6 +1469,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
         try {
             connectRing();
+            refreshRingBattery();
+            probeRingHealth();
         } catch (Throwable t) {
             synchronized (lock) {
                 ringConnected = false;
@@ -1386,7 +1505,284 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             ringNotificationsReady = true;
             ringReconnectAfterMs = 0;
         }
-        logLine("direct ring ready phoneNotify=" + phoneNotify + " dataNotify=" + dataNotify);
+        logLine("direct ring ready phoneNotify=" + phoneNotify + " dataNotify=" + dataNotify
+            + " services=" + ringServiceSummary());
+    }
+
+    /** Best-effort standard BLE battery read; absence is not a ring failure. */
+    private void refreshRingBattery() {
+        byte[] value;
+        try {
+            value = bleManager.readCharacteristic(ringAddress, RING_BATTERY_LEVEL_UUID, RING_BATTERY_READ_TIMEOUT_MS);
+        } catch (Throwable t) {
+            logLine("direct ring battery unavailable: " + safeMessage(t) + " services=" + ringServiceSummary());
+            return;
+        }
+        if (value == null || value.length < 1) {
+            logLine("direct ring battery unavailable services=" + ringServiceSummary());
+            return;
+        }
+        int level = value[0] & 0xff;
+        if (level > 100) {
+            logLine("direct ring battery value out of range: " + level);
+            return;
+        }
+        synchronized (lock) {
+            ringBattery = level;
+        }
+        emitBatteryState(headsetBattery, headsetCharging, ringBattery);
+        logLine("direct ring battery=" + level + "%");
+    }
+
+    private String ringServiceSummary() {
+        try {
+            String summary = bleManager.describeServices(ringAddress);
+            return summary.isEmpty() ? "<none>" : summary;
+        } catch (Throwable t) {
+            return "<unavailable:" + safeMessage(t) + ">";
+        }
+    }
+
+    /**
+     * Health-sampling spike: nudge the R1 into HRV sampling mode so it begins
+     * streaming health pushes (cmd=0x01, marker 10 ff) on its notify channel,
+     * which land in handleDirectRingNotification and, being unrecognized by the
+     * gesture decoder, log as "direct ring notify ignored: ... raw=<hex>".
+     *
+     * This deliberately sends ONLY the enable + time-sync commands, not the
+     * pairAuth handshake (whose key comes from Even's cloud): if the ring's
+     * existing Even-app session persists, this is enough to start the stream;
+     * if it is not, we learn that from the absence of pushes without touching
+     * the working gesture link's auth. Best-effort — any failure is logged and
+     * the ring stays fully usable for input.
+     *
+     * Frame layout (verified against com.even.sg captures, g2-kit ble/ring.ts):
+     *   [0]=00 [1..4]=random anti-replay hash [5]=64 [6]=seqGroup(01)
+     *   [7]=64 [8]=seq [9..10]=flags BE [11]=00 [12]=cmd [13]=sub [14]=00 [15..]=payload
+     */
+    private void probeRingHealth() {
+        if (!RING_HEALTH_PROBE_ENABLED) {
+            return;
+        }
+        synchronized (lock) {
+            if (ringHealthProbeSent) {
+                return;
+            }
+            ringHealthProbeSent = true;
+            ringWriteSeq = 1; // fresh serialId per connection, like the app
+        }
+        // Read-only GET canary. The whole point: prove the corrected frame encoder
+        // makes the ring answer at all. Every frame here is status=req, zero data,
+        // touches no pairing state, and works with the ring on a desk. Watch
+        // bae80013 (R1_NOTIFY): a decoded "FRAME ... crc32=OK" reply to A/B/C but
+        // NOT to D means the CRC-32 was the blocker and there is no auth wall.
+        //   A,B  verbatim-replayed captured GETs (correct CRC-32 straight from a
+        //        real com.even.sg capture — immune to any residual encoder doubt).
+        //   C    the SAME GET built by the new buildRingFrame (proves our encoder).
+        //   D    control: frame A with a random CRC-32 (the old-Hermes bug) — must
+        //        stay silent if the ring validates the checksum.
+        logLine("ring health canary START — pairAuth session probe + read-only GET A/B/C + control D; watch bae80013");
+        // P: pairAuth first (verbatim captured, data=0x01). The cold GETs got no
+        // reply, so the ring likely needs a command session opened first. If P
+        // draws ANY bae80013 frame (ack or challenge), that is the missing step.
+        sendRawRingFrame("canary P pairAuth verbatim", hexToBytes("00971953f964016401000000080d003f0101"));
+        ringProbeGap();
+        ringProbeGap();
+        ringProbeGap();
+        // Q: deviceInfo GET (builder) — a universally-safe read com.even.sg does early.
+        sendRingCommand("canary Q builder deviceInfoGET", 0x01, 0x00, 0x02, 0x00, null);
+        ringProbeGap();
+        sendRawRingFrame("canary A verbatim healthSettingsGET", hexToBytes("00d5faceaf640164280000000e0c00912f"));
+        ringProbeGap();
+        sendRawRingFrame("canary B verbatim systemSettingsGET", hexToBytes("0000045a68640164290000000f0c00015d"));
+        ringProbeGap();
+        sendRingCommand("canary C builder healthSettingsGET", 0x01, 0x00, 0x0e, 0x00, null);
+        ringProbeGap();
+        byte[] control = hexToBytes("00d5faceaf640164280000000e0c00912f");
+        byte[] rnd = new byte[4];
+        ringRandom.nextBytes(rnd);
+        System.arraycopy(rnd, 0, control, 1, 4);
+        sendRawRingFrame("canary D control randomCRC (expect SILENCE)", control);
+        logLine("ring health canary SENT — reply on bae80013 to A/B/C but not D => encoder was the blocker, no auth wall");
+    }
+
+    /** ~200ms spacing between probe frames so the ring can answer each in turn. */
+    private void ringProbeGap() {
+        try {
+            Thread.sleep(200);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** Build and write one R1 binary command frame to the ring's write channel. */
+    /** Send a ring command frame built to the verified BleRing1Model layout. */
+    private void sendRingCommand(String label, int module, int cmd, int subCmd, int status, byte[] payload) {
+        byte[] frame = buildRingFrame(module, cmd, subCmd, status, payload);
+        if (frame == null) {
+            logLine("direct ring " + label + " REFUSED (blocklisted subCmd; would risk pairing/host state)");
+            return;
+        }
+        sendRawRingFrame(label, frame);
+    }
+
+    /** Write an exact, pre-built ring frame verbatim (used to replay captured frames). */
+    private void sendRawRingFrame(String label, byte[] frame) {
+        try {
+            boolean ok = bleManager.writeFrames(
+                ringAddress,
+                BleProtocol.R1_WRITE_CHAR_UUID,
+                Collections.singletonList(frame),
+                ConnectionOptions.WRITE_TYPE,
+                ConnectionOptions.WRITE_TIMEOUT_MS
+            );
+            logLine("direct ring " + label + " write " + (ok ? "ok" : "failed") + " raw=" + hex(frame));
+        } catch (Throwable t) {
+            logLine("direct ring " + label + " write error: " + safeMessage(t));
+        }
+    }
+
+    // subCmds (under module=system, cmd=system) that mutate pairing/host/firmware
+    // state and must NEVER be emitted by the health path: otaStart(0x09),
+    // advStart(0x0a, carries the host MAC — the one real ring<->glasses rebind
+    // risk), setAlgoKey(0x0c), nvRecover(0x11), powerControl(0x12), pairDelete(0x13).
+    private static boolean isBlocklistedRingSubCmd(int module, int cmd, int subCmd) {
+        if (module == 0x01 && cmd == 0x00) {
+            switch (subCmd) {
+                case 0x09: case 0x0a: case 0x0c: case 0x11: case 0x12: case 0x13:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Build one R1 command frame to the layout recovered from com.even.sg's
+     * BleRing1Model.toBytes (verified: rebuilding captured frames reproduces them
+     * byte-for-byte): [0]=0x00, [1..4]=CRC-32 (poly 0x1EDC6F41, MSB-first, init 0,
+     * no xorout) stored little-endian over the inner frame, then the 12-byte inner
+     * header — version 0x64, module (1=system 2=health 3=sport), moduleVersion
+     * 0x64, serialId u16 LE, status (0=req 1=set 2=push 3=ack), cmd, subCmd,
+     * length u16 LE (=12+len(data)), crc16 u16 LE (CRC-16/CCITT-FALSE) — then data.
+     * Returns null if (module,cmd,subCmd) is blocklisted.
+     */
+    private byte[] buildRingFrame(int module, int cmd, int subCmd, int status, byte[] payload) {
+        if (isBlocklistedRingSubCmd(module, cmd, subCmd)) {
+            return null;
+        }
+        byte[] data = payload != null ? payload : new byte[0];
+        int innerLen = 12 + data.length;
+        int serial;
+        synchronized (lock) {
+            serial = ringWriteSeq & 0xffff;
+            ringWriteSeq = (ringWriteSeq + 1) & 0xffff;
+        }
+        byte[] inner = new byte[innerLen];
+        inner[0] = 0x64;                          // version
+        inner[1] = (byte) (module & 0xff);        // 1=system 2=health 3=sport
+        inner[2] = 0x64;                          // moduleVersion
+        inner[3] = (byte) (serial & 0xff);        // serialId u16 LE
+        inner[4] = (byte) ((serial >>> 8) & 0xff);
+        inner[5] = (byte) (status & 0xff);        // 0=req 1=set 2=push 3=ack
+        inner[6] = (byte) (cmd & 0xff);
+        inner[7] = (byte) (subCmd & 0xff);
+        inner[8] = (byte) (innerLen & 0xff);      // length u16 LE = 12 + data
+        inner[9] = (byte) ((innerLen >>> 8) & 0xff);
+        inner[10] = 0;                            // crc16 zeroed for its own computation
+        inner[11] = 0;
+        System.arraycopy(data, 0, inner, 12, data.length);
+        int crc16 = ringCrc16(inner, 0, innerLen);
+        inner[10] = (byte) (crc16 & 0xff);
+        inner[11] = (byte) ((crc16 >>> 8) & 0xff);
+        int crc32 = ringCrc32(inner, 0, innerLen);
+        byte[] frame = new byte[5 + innerLen];
+        frame[0] = 0x00;
+        frame[1] = (byte) (crc32 & 0xff);         // CRC-32 stored little-endian
+        frame[2] = (byte) ((crc32 >>> 8) & 0xff);
+        frame[3] = (byte) ((crc32 >>> 16) & 0xff);
+        frame[4] = (byte) ((crc32 >>> 24) & 0xff);
+        System.arraycopy(inner, 0, frame, 5, innerLen);
+        return frame;
+    }
+
+    // CRC-32, poly 0x1EDC6F41 (Castagnoli), MSB-first, init 0, no xorout — the
+    // transport checksum at frame[1..4]. The old builder filled this with random
+    // bytes, so the ring silently dropped every Hermes write. Table built once.
+    private static final int[] RING_CRC32_TABLE = buildRingCrc32Table();
+    private static int[] buildRingCrc32Table() {
+        int[] t = new int[256];
+        for (int i = 0; i < 256; i++) {
+            int c = i << 24;
+            for (int k = 0; k < 8; k++) {
+                c = ((c & 0x80000000) != 0) ? ((c << 1) ^ 0x1EDC6F41) : (c << 1);
+            }
+            t[i] = c;
+        }
+        return t;
+    }
+    private static int ringCrc32(byte[] data, int off, int len) {
+        int c = 0;
+        for (int i = off; i < off + len; i++) {
+            c = (c << 8) ^ RING_CRC32_TABLE[((c >>> 24) ^ (data[i] & 0xff)) & 0xff];
+        }
+        return c;
+    }
+
+    // CRC-16/CCITT-FALSE variant (Nordic crc16_compute) transcribed from the app,
+    // for the crc16 field at inner[10..11]. The ring appears not to validate it
+    // (captured values don't match this algorithm), but we compute it faithfully.
+    private static int ringCrc16(byte[] data, int off, int len) {
+        int c = 0xFFFF;
+        for (int i = off; i < off + len; i++) {
+            c = ((c >>> 8) & 0xff) | ((c << 8) & 0xff00);
+            c ^= (data[i] & 0xff);
+            c ^= (c & 0xff) >>> 4;
+            c ^= (c << 12) & 0xffff;
+            c ^= ((c & 0xff) << 5) & 0xffff;
+        }
+        return c & 0xffff;
+    }
+
+    private static byte[] hexToBytes(String hex) {
+        int n = hex.length() / 2;
+        byte[] out = new byte[n];
+        for (int i = 0; i < n; i++) {
+            out[i] = (byte) Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16);
+        }
+        return out;
+    }
+
+    /** Just the discriminating nibble of a bae8001x characteristic UUID, for logs. */
+    private static String shortCharUuid(String uuid) {
+        if (uuid == null) {
+            return "?";
+        }
+        if (uuid.startsWith("bae8001")) {
+            return "bae8001" + uuid.charAt(7);
+        }
+        return uuid;
+    }
+
+    /** Decode a ring frame envelope (module/cmd/subCmd/status/serial/len + CRC-32 check). */
+    private static String describeRingFrame(byte[] f) {
+        if (f == null || f.length < 17 || (f[0] & 0xff) != 0x00
+            || (f[5] & 0xff) != 0x64 || (f[7] & 0xff) != 0x64) {
+            return "short/opaque(" + (f == null ? 0 : f.length) + "B)";
+        }
+        int module = f[6] & 0xff;
+        int serial = (f[8] & 0xff) | ((f[9] & 0xff) << 8);
+        int status = f[10] & 0xff;
+        int cmd = f[11] & 0xff;
+        int subCmd = f[12] & 0xff;
+        int len = (f[13] & 0xff) | ((f[14] & 0xff) << 8);
+        int innerLen = f.length - 5;
+        int stored = (f[1] & 0xff) | ((f[2] & 0xff) << 8) | ((f[3] & 0xff) << 16) | ((f[4] & 0xff) << 24);
+        boolean crcOk = stored == ringCrc32(f, 5, innerLen);
+        return "FRAME module=" + module + " cmd=0x" + Integer.toHexString(cmd)
+            + " sub=0x" + Integer.toHexString(subCmd) + " status=" + status
+            + " serial=" + serial + " len=" + len + " crc32=" + (crcOk ? "OK" : "BAD");
     }
 
     private boolean enableRingNotification(String characteristicUuid) {
@@ -2210,7 +2606,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             if (snapshot != null) {
                 headsetBattery = snapshot.battery;
                 headsetCharging = snapshot.charging;
-                emitBatteryState(headsetBattery, headsetCharging);
+                emitBatteryState(headsetBattery, headsetCharging, ringBattery);
                 if (snapshot.silentMode >= 0) {
                     // Backstop for the push in onNotification: the firmware is
                     // confirmed to push silent-mode-on, but the off transition is
@@ -2639,6 +3035,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         leftConnected = false;
         ringConnected = false;
         ringNotificationsReady = false;
+        ringBattery = -1;
+        ringHealthProbeSent = false;
         reconnectAfterMs = 0;
         ringReconnectAfterMs = 0;
         lastAckAtMs = 0;
@@ -2778,14 +3176,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         });
     }
 
-    private void emitBatteryState(int headsetBattery, int headsetCharging) {
+    private void emitBatteryState(int headsetBattery, int headsetCharging, int ringBattery) {
         final FaceclawBleCommunicatorListener current = listener;
         if (current == null) {
             return;
         }
         mainHandler.post(() -> {
             try {
-                current.onBatteryState(headsetBattery, headsetCharging);
+                current.onBatteryState(headsetBattery, headsetCharging, ringBattery);
             } catch (Throwable t) {
                 Log.w(TAG, "listener onBatteryState failed", t);
             }

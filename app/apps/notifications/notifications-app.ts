@@ -1,5 +1,5 @@
 import { NotificationsListLayer } from "../../ui/notifications";
-import { onAndroidNotificationPosted } from "../../native/notification-icons";
+import { dismissAllNotifications, onAndroidNotificationPosted } from "../../native/notification-icons";
 import {
   createInProcessWindow,
   YieldAtRootLayer,
@@ -18,13 +18,24 @@ export const NOTIFICATIONS_SURFACE_ID = "window:notifications";
 export function createNotificationsAppWindow(options: InProcessAppOptions): InProcessWindow {
   // Newly posted notifications repaint the list while the window is open.
   let offNotificationPosted: (() => void) | null = null;
-  const created = createInProcessWindow({
+  let created: InProcessWindow | null = null;
+  created = createInProcessWindow({
     appId: "notifications",
     windowId: NOTIFICATIONS_WINDOW_ID,
     title: "Notifications",
     iconLetter: "N",
     icon: "bell",
     closeable: true,
+    menuItems: () => [{
+      label: "Dismiss all",
+      onSelect: (ctx) => {
+        dismissAllNotifications();
+        ctx.stack.pop();
+        // cancelNotification is asynchronous in Android's status bar service;
+        // repaint again after it has delivered the removal callbacks.
+        setTimeout(() => created?.requestRender(), 100);
+      },
+    }],
     actions: options.actions,
     baseLayer: new YieldAtRootLayer(new NotificationsListLayer()),
     submitFrame: options.submitFrame,

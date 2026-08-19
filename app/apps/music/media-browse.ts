@@ -15,6 +15,7 @@ import {
   type MediaBrowserApp,
 } from "../../native/media-browser";
 import { Layer, type DashboardInputEvent, type LayerContext } from "../../ui/layers";
+import { EdgeBounce, EdgeWrapScroller } from "../../ui/edge-scroll";
 
 const HEADER_HEIGHT = 34;
 const ROW_HEIGHT = 16;
@@ -53,6 +54,9 @@ export class MediaBrowseLayer implements Layer {
   private connectError = "";
   private levels: BrowseLevel[] = [];
   private removed = false;
+  // Edge-detent + bounce for the current browse level, matching the cards.
+  private readonly scroller = new EdgeWrapScroller(undefined, "media-browse");
+  private readonly bounce = new EdgeBounce();
 
   constructor(private readonly options: MediaBrowseOptions) {}
 
@@ -101,10 +105,11 @@ export class MediaBrowseLayer implements Layer {
     level.scrollRow = scrollToKeepSelectionVisible(level.scrollRow, level.selectedIndex, visibleRows, items.length);
 
     const rowWidth = width - 2 * LIST_X;
+    const bounceY = this.bounce.offsetPx();
     const lastVisible = Math.min(items.length, level.scrollRow + visibleRows);
     for (let index = level.scrollRow; index < lastVisible; index++) {
       const item = items[index]!;
-      const y = HEADER_HEIGHT + (index - level.scrollRow) * ROW_HEIGHT;
+      const y = HEADER_HEIGHT + (index - level.scrollRow) * ROW_HEIGHT + bounceY;
       const selected = index === level.selectedIndex;
       const highlightX = LIST_X - 6;
       const highlightY = y - 1;
@@ -162,6 +167,7 @@ export class MediaBrowseLayer implements Layer {
     if (event.type === "double-click") {
       if (this.levels.length > 1) {
         this.levels.pop();
+        this.scroller.reset();
       } else {
         this.leave(ctx);
       }
@@ -172,11 +178,16 @@ export class MediaBrowseLayer implements Layer {
     if (!level || !items || !items.length) return;
     switch (event.type) {
       case "scroll-up":
-        level.selectedIndex = Math.max(0, level.selectedIndex - 1);
+      case "scroll-down": {
+        const dir = event.type === "scroll-down" ? 1 : -1;
+        const step = this.scroller.step(level.selectedIndex, items.length, dir, Date.now());
+        if (step.atEdge) {
+          this.bounce.trigger(dir, () => ctx.actions.requestRender());
+          return;
+        }
+        level.selectedIndex = step.index;
         return;
-      case "scroll-down":
-        level.selectedIndex = Math.min(items.length - 1, level.selectedIndex + 1);
-        return;
+      }
       case "click": {
         const item = items[clamp(level.selectedIndex, 0, items.length - 1)];
         if (!item) return;
@@ -239,6 +250,7 @@ export class MediaBrowseLayer implements Layer {
       scrollRow: 0,
     };
     this.levels.push(level);
+    this.scroller.reset();
     this.loadLevel(ctx, level);
   }
 

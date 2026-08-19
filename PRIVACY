@@ -12,12 +12,13 @@ default. When it is selected, audio stays on the phone and is not retained
 after processing unless the developer setting to save voice recordings is
 enabled.
 
-Users may instead provide their own API key and select OpenAI Whisper,
+Users may instead provide their own API key and select Deepgram, OpenAI Whisper,
 ElevenLabs, or Soniox. Audio is then sent to the selected service, associated
 with the account that issued the key, and handled under that provider's terms
 and retention policy. Hermes G2 does not transmit audio to an unselected
 transcription provider.
 
+- Deepgram: https://deepgram.com/privacy
 - OpenAI: https://openai.com/policies/row-privacy-policy/
 - ElevenLabs: https://elevenlabs.io/privacy-policy
 - Soniox: https://soniox.com/policies/privacy-policy

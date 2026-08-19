@@ -2,7 +2,7 @@ import { Application, ImageSource } from "@nativescript/core";
 import { EvenAIStatus, EvenAIStatusName, EventSourceType, EventSourceTypeName, OsEventTypeList, OsEventTypeName } from "./events";
 import { loadDeviceAddresses } from "./device-addresses";
 import { ensureBlePermissions, ensureVoicePermissions } from "./android-permissions";
-import { FaceclawCommunicatorBridge, type RawInputEvent } from "../native/faceclaw-communicator";
+import { FaceclawCommunicatorBridge, type RawInputEvent, type RingConnectionState } from "../native/faceclaw-communicator";
 import * as frameTimings from "../native/frame-timings";
 import { startForegroundNotification, stopForegroundNotification, updateForegroundNotification } from "../native/foreground-service";
 import { mediaControllerBridge } from "../native/media-controller";
@@ -32,7 +32,7 @@ import { type InProcessAppOptions, type InProcessWindow } from "../ui/shell/in-p
 import { loadPersistedOpenApps, savePersistedOpenApps } from "../ui/shell/open-apps-persistence";
 import { appViewportRect, type WindowHeightMode } from "../ui/shell/geometry";
 import { type LayerActions } from "../ui/layers";
-import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, brightnessSetting, brightnessSettingToLevel, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type ConfigSettingString } from "../ui/dashboard-settings";
+import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type ConfigSettingString } from "../ui/dashboard-settings";
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "../native/battery-optimization";
 
 type ConnectionPhase = "disconnected" | "connecting" | "connected" | "charging" | "disconnecting";
@@ -57,6 +57,10 @@ export type DashboardSnapshot = {
   firmwareWarningVisible: boolean;
   screenRecordingActive: boolean;
   batteryOptimizationWarningVisible: boolean;
+  screenOn: boolean;
+  glassesWorn: boolean | null;
+  glassesLocked: boolean;
+  ringConnectionState: RingConnectionState;
 };
 
 type DashboardListener = (snapshot: DashboardSnapshot) => void;
@@ -370,6 +374,7 @@ class DashboardController {
 
   private handleWearState(wearing: boolean): void {
     this.glassesWorn = wearing;
+    this.emit();
     this.appendLog(wearing ? "glasses wear state: ON_HEAD" : "glasses wear state: OFF_HEAD");
     if (!wearing && this.phoneLocked && lockScreenEnabledSetting.get()) {
       this.setGlassesLocked(true, "glasses removed while phone locked");
@@ -464,6 +469,13 @@ class DashboardController {
       const ready = await communicator.awaitEvenHubSessionReady(EVENHUB_WAKE_READY_TIMEOUT_MS);
       if (ready && this.communicator === communicator) {
         this.evenHubSessionSuspended = false;
+        // The firmware rebuilds the EvenHub layout on resume and repaints only
+        // from retained surface state; that retain intermittently drops the
+        // foreground window, so the dashboard wakes blank until a focus change
+        // repaints it. Force a fresh paint of the foreground window and shell
+        // chrome here so a woken frame never depends on retained compositor
+        // state. Coalesced with any render the waking input triggers next.
+        this.repaintForWake();
       }
       return ready;
     })();
@@ -475,6 +487,17 @@ class DashboardController {
     };
     void operation.then(clearOperation, clearOperation);
     return operation;
+  }
+
+  /**
+   * Repaint the foreground window surface and the shell chrome after a wake,
+   * independent of the firmware's retained-state recomposite. Both renders
+   * coalesce, so calling this from the wake barrier is safe even when the
+   * waking input goes on to trigger its own render.
+   */
+  private repaintForWake(): void {
+    shell.foregroundWindow()?.requestRender();
+    this.requestShellRender();
   }
 
   private desiredFaceclawWakeLeaseState(): boolean {
@@ -666,6 +689,70 @@ class DashboardController {
     return path;
   }
 
+  /** Phone control: restore the retained Hermes display without reconnecting. */
+  async wakeGlassesScreen(): Promise<boolean> {
+    if (this.phase !== "connected" || !this.communicator) return false;
+    if (!shell.isScreenOn()) {
+      shell.wake("sidebar");
+    }
+    const ready = await this.ensureEvenHubSessionActive();
+    this.emit();
+    return ready;
+  }
+
+  /** Phone control: blank the compositor and permit the normal idle suspend path. */
+  sleepGlassesScreen(): boolean {
+    if (this.phase !== "connected" || !this.communicator) return false;
+    shell.sleep();
+    this.emit();
+    return true;
+  }
+
+  /** Re-query CFW's current wear state after enabling the stock detector. */
+  async refreshWearState(): Promise<boolean> {
+    if (this.phase !== "connected" || !this.communicator || !this.wearNotifySupported) return false;
+    await this.communicator.enableWearDetectionAndRequestState();
+    return true;
+  }
+
+  /** Drop and rebuild the two-arm session using the stored addresses. */
+  async reconnectGlasses(): Promise<boolean> {
+    if (this.phase === "connecting" || this.phase === "disconnecting") return false;
+    if (this.phase !== "disconnected") {
+      await this.disconnect();
+    }
+    await this.connect();
+    return true;
+  }
+
+  /** Open the existing Compass app, which owns the CFW compass control safely. */
+  async openCompass(): Promise<boolean> {
+    if (this.phase !== "connected") return false;
+    await this.launchApp("compass");
+    return true;
+  }
+
+  /** Bring up the hands-free voice layer without requiring a spoken wakeword. */
+  async triggerVoiceTest(): Promise<boolean> {
+    if (this.phase !== "connected") return false;
+    await this.injectSyntheticRingInput("wakeword");
+    return true;
+  }
+
+  private ringConnectionState(): RingConnectionState {
+    if (this.communicator) return this.communicator.getRingConnectionState();
+    return loadDeviceAddresses().ring ? "idle" : "not-configured";
+  }
+
+  /** Request an immediate safe retry of the optional direct R1 BLE link. */
+  async reconnectRing(): Promise<boolean> {
+    const communicator = this.communicator;
+    if (!communicator || this.phase !== "connected") return false;
+    const queued = await communicator.requestRingReconnect();
+    this.emit();
+    return queued;
+  }
+
   subscribe(listener: DashboardListener): () => void {
     this.listeners.add(listener);
     listener(this.snapshot());
@@ -690,6 +777,10 @@ class DashboardController {
       firmwareWarningVisible: this.firmwareWarningMessage.length > 0,
       screenRecordingActive: this.screenRecordingActive,
       batteryOptimizationWarningVisible: this.batteryOptimizationWarningVisible,
+      screenOn: shell.isScreenOn(),
+      glassesWorn: this.glassesWorn,
+      glassesLocked: this.glassesLocked,
+      ringConnectionState: this.ringConnectionState(),
     };
   }
 
@@ -888,6 +979,8 @@ class DashboardController {
         shell.setBatteryLevels({
           headset: state.battery,
           headsetCharging: state.chargingStatus > 0,
+          ring: state.ringBattery >= 0 ? state.ringBattery : null,
+          ringCharging: null,
         });
         if ((this.phase === "connected" || this.phase === "charging") && this.communicator) {
           // Repaint the top bar (battery indicators live in the shell chrome).
@@ -981,6 +1074,11 @@ class DashboardController {
           window.windowId === foregroundWindowId,
           window.heightMode,
         );
+        // Boot-registered windows (the launcher) get their surface here, not
+        // through launchInProcessApp, so this is their only ready signal;
+        // without it their deferred first render never flushes and the
+        // window wakes blank until an input event forces a paint.
+        window.markSurfaceReady?.();
       }
       await communicator.start();
       await this.syncLockSurface();
@@ -1195,6 +1293,7 @@ class DashboardController {
         const options = {
           communicator: communicator.getNativeCommunicator(),
           provider: voiceProviderSetting.get(),
+          deepgramApiKey: deepgramApiKeySetting.get(),
           elevenLabsApiKey: elevenLabsApiKeySetting.get(),
           openAiApiKey: openAiApiKeySetting.get(),
           sonioxApiKey: sonioxApiKeySetting.get(),
@@ -1373,6 +1472,7 @@ class DashboardController {
     this.inProcessApps.set(windowId, app);
     shell.registerWindow(app.window);
     await this.configureWindowSurface(surfaceId, false, app.window.heightMode);
+    app.markSurfaceReady();
     shell.focusWindow(windowId);
     this.requestShellRender();
     this.appendLog(`launched ${windowId}`);

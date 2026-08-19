@@ -395,6 +395,18 @@ export class MainViewModel extends Observable {
     Frame.topmost()?.navigate("phone-ui/config-page");
   }
 
+  onGlassesControlsTap(): void {
+    Frame.topmost()?.navigate("phone-ui/glasses-controls-page");
+  }
+
+  onApiKeysTap(): void {
+    Frame.topmost()?.navigate("phone-ui/api-keys-page");
+  }
+
+  onEvenHealthTap(): void {
+    Frame.topmost()?.navigate("phone-ui/even-health-page");
+  }
+
   async onInstallFirmwareTap(): Promise<void> {
     await this.openFlashPage("install");
   }

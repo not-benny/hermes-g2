@@ -2,6 +2,7 @@ import { G2_LENS_HEIGHT, G2_LENS_WIDTH, GrayImage } from "../graphics/image";
 import { wrapText } from "../graphics/textwrap";
 import { getDefaultSmallFont, type BdfFont } from "../graphics/bdffont";
 import { clamp } from "../util/numeric-util";
+import { EdgeBounce, EdgeWrapScroller } from "./edge-scroll";
 import { DashboardInputEvent, Layer, LayerContext, PaintBelow } from "./layers";
 
 import { GESTURE_DOUBLE_CLICK } from "./gestures";
@@ -174,6 +175,8 @@ export function drawRightValueMenuItem(
 export class MenuLayer implements Layer {
   private selectedIndex = 0;
   private scrollRow = 0;
+  private readonly wrapScroller = new EdgeWrapScroller(undefined, "menu");
+  private readonly edgeBounce = new EdgeBounce();
 
   constructor(
     private readonly title: string | null,
@@ -189,6 +192,7 @@ export class MenuLayer implements Layer {
   /** Start a newly opened picker on its current value. */
   selectItem(index: number): this {
     this.selectedIndex = clamp(index, 0, Math.max(0, this.items.length - 1));
+    this.wrapScroller.reset();
     return this;
   }
 
@@ -227,10 +231,12 @@ export class MenuLayer implements Layer {
     const bodyY = y + chromeTop;
     const focused = ctx.stack.isFocused();
     const lastVisibleRow = Math.min(this.items.length, this.scrollRow + visibleRowCount);
+    // Bounce the whole list a few px when stopped hard against an end.
+    const bounceY = this.edgeBounce.offsetPx();
     for (let index = this.scrollRow; index < lastVisibleRow; index++) {
       const item = this.items[index]!;
-      const rowY = bodyY + (index - this.scrollRow) * MENU_ROW_HEIGHT;
       const selected = index === this.selectedIndex;
+      const rowY = bodyY + (index - this.scrollRow) * MENU_ROW_HEIGHT + bounceY;
       const disabled = isMenuItemDisabled(item);
       if (selected) {
         drawSelectionHighlight(
@@ -283,16 +289,24 @@ export class MenuLayer implements Layer {
       return;
     }
     switch (event.type) {
-      case "scroll-up":
-        this.selectedIndex = (this.selectedIndex + this.items.length - 1) % this.items.length;
+      case "scroll-up": {
+        const step = this.wrapScroller.step(this.selectedIndex, this.items.length, -1, Date.now());
+        this.selectedIndex = step.index;
+        if (step.atEdge) this.edgeBounce.trigger(-1, () => ctx.actions.requestRender());
         return;
-      case "scroll-down":
-        this.selectedIndex = (this.selectedIndex + 1) % this.items.length;
+      }
+      case "scroll-down": {
+        const step = this.wrapScroller.step(this.selectedIndex, this.items.length, 1, Date.now());
+        this.selectedIndex = step.index;
+        if (step.atEdge) this.edgeBounce.trigger(1, () => ctx.actions.requestRender());
         return;
+      }
       case "double-click":
+        this.wrapScroller.reset();
         ctx.stack.pop();
         return;
       case "click":
+        this.wrapScroller.reset();
         if (!isMenuItemDisabled(this.items[this.selectedIndex]!)) {
           await this.items[this.selectedIndex]!.onSelect(ctx, this);
         }
