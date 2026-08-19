@@ -1,7 +1,8 @@
 import { G2_LENS_HEIGHT, G2_LENS_WIDTH, GrayImage } from "../../graphics/image";
 import { getDefaultMediumFont, getDefaultSmallFont } from "../../graphics/bdffont";
 import { BATTERY_ICON_WIDTH, drawBattery } from "../../graphics/battery";
-import { batteryLabelIcon, drawBrightnessBadge } from "../../graphics/device-icons";
+import { batteryLabelIcon, bridgeStatusIcon, drawBrightnessBadge } from "../../graphics/device-icons";
+import type { AssistantBridgePhase } from "../../assistant/bridge-client";
 import { readActiveNotificationIcons } from "../../native/notification-icons";
 import { readPhoneBatteryState } from "../../native/phone-battery";
 import { noteStaleDataUsed, renderPassAllowsStaleData } from "../../util/render-freshness";
@@ -78,6 +79,15 @@ export type ShellChromeState = {
   };
   /** App-provided tray images, drawn between notification icons and batteries. */
   trayIcons: GrayImage[];
+  /**
+   * Hermes Agent bridge status glyph, just left of the brightness badge. Only
+   * meaningful (and only drawn) when the external backend is selected and a
+   * bridge host is configured; `show` gates the glyph and its spacing.
+   */
+  bridge: {
+    show: boolean;
+    phase: AssistantBridgePhase;
+  };
 };
 
 /** Placeholder window icon: rounded outline with a single letter. */
@@ -330,6 +340,15 @@ export class ShellChromeLayer implements Layer {
     const badgeGap = items.length ? 10 : 8;
     leftEdge -= badgeGap + badge.width;
     image.bitBlt(badge, leftEdge, centerY(badge.height), { transparentZero: true });
+
+    // Hermes Agent bridge status, just left of the brightness sun, matching its
+    // spacing. Drawn only when the external backend is configured; otherwise no
+    // glyph and no reserved gap.
+    if (state.bridge.show) {
+      const bridge = bridgeStatusIcon(state.bridge.phase);
+      leftEdge -= 10 + bridge.width;
+      image.bitBlt(bridge, leftEdge, centerY(bridge.height), { transparentZero: true });
+    }
     return leftEdge;
   }
 }
