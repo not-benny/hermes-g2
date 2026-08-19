@@ -147,6 +147,7 @@ export class RingHealthStore {
       return;
     }
     if (parsed.module !== MODULE_HEALTH) return;
+    if (parsed.data.length === 0) return; // bare command ACK, no records.
     const metric = RING_HEALTH_CMD[parsed.cmd];
     if (!metric) return; // sleep (cmd 6) and unknown cmds: layout not decoded yet.
 
