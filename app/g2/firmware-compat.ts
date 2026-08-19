@@ -1,0 +1,131 @@
+/**
+ * Compatibility check for the glasses firmware. Hermes G2 requires the custom
+ * firmware: version >= 2.2.4.34 with the required direct-framebuffer and wear
+ * notification tokens in the CFW capability string. Stock firmware sends no
+ * capability string at all.
+ */
+
+import { type FirmwareInfo } from "../native/faceclaw-communicator";
+
+const MIN_FIRMWARE_VERSION = [2, 2, 4, 34];
+const REQUIRED_CFW_CONTRACT = "EVENCFW/9";
+const REQUIRED_FIRMWARE_EXTENSIONS = ["img640", "fbguard", "wearnotify"] as const;
+
+// The stock firmware release the Hermes G2 candidate image is built from. The
+// candidate is embedded for deterministic review. Installation is explicitly
+// enabled for this owner build, but the firmware still carries the documented
+// hardware and recovery risk warnings.
+export const FLASHABLE_STOCK_VERSION = [2, 2, 8, 4];
+export const FLASHABLE_STOCK_VERSION_TEXT = FLASHABLE_STOCK_VERSION.join(".");
+export const EXPERIMENTAL_FIRMWARE_INSTALL_ENABLED = true;
+export const FIRMWARE_FLASHING_DISABLED_MESSAGE =
+  "Firmware flashing is disabled until hardware testing and recovery validation are complete.";
+
+/** A single fail-closed policy gate for every headset firmware write path. */
+export function isFirmwareFlashingEnabled(): boolean {
+  return EXPERIMENTAL_FIRMWARE_INSTALL_ENABLED;
+}
+
+function parseDottedVersion(version: string): number[] {
+  return version
+    .trim()
+    .split(".")
+    .map((part) => {
+      const value = parseInt(part, 10);
+      return Number.isFinite(value) ? value : 0;
+    });
+}
+
+/** Standard component-wise compare; missing components count as 0. */
+function compareVersions(a: number[], b: number[]): number {
+  const length = Math.max(a.length, b.length);
+  for (let i = 0; i < length; i++) {
+    const delta = (a[i] ?? 0) - (b[i] ?? 0);
+    if (delta !== 0) return delta;
+  }
+  return 0;
+}
+
+/**
+ * Human-readable explanation of why this firmware cannot run Hermes G2, or
+ * null if it is compatible. Returns null when no version was reported at all
+ * (no data is not evidence of incompatibility).
+ */
+export function firmwareIncompatibilityMessage(info: FirmwareInfo): string | null {
+  const reportedVersions = [info.leftVersion, info.rightVersion].filter((v) => v.trim().length > 0);
+  if (reportedVersions.length === 0) return null;
+
+  const minVersionText = MIN_FIRMWARE_VERSION.join(".");
+  const versionsText = `L=${info.leftVersion || "unknown"} R=${info.rightVersion || "unknown"}`;
+
+  if (reportedVersions.some((v) => compareVersions(parseDottedVersion(v), MIN_FIRMWARE_VERSION) < 0)) {
+    return (
+      `The glasses report firmware ${versionsText}, but Hermes G2 requires the modified firmware, ` +
+      `version ${minVersionText} or newer. Displaying images will not work until the glasses firmware is updated.`
+    );
+  }
+
+  const tokens = info.capabilities.trim().split(/\s+/);
+  if (!tokens.includes(REQUIRED_CFW_CONTRACT)) {
+    return (
+      `The glasses firmware (${versionsText}) does not advertise the required ${REQUIRED_CFW_CONTRACT} ` +
+      "safety contract. Hermes G2 will not use an older custom-firmware build."
+    );
+  }
+  const missingExtensions = REQUIRED_FIRMWARE_EXTENSIONS.filter(
+    (extension) => !tokens.includes(extension),
+  );
+  if (missingExtensions.length) {
+    return (
+      `The glasses firmware (${versionsText}) does not advertise the required ` +
+      `${missingExtensions.map((extension) => `"${extension}"`).join(" and ")} extension` +
+      `${missingExtensions.length === 1 ? "" : "s"}` +
+      `${info.capabilities.trim() ? ` (reported: ${info.capabilities.trim()})` : ", which suggests stock firmware"}. ` +
+      `Hermes G2 requires the modified firmware with the guarded 640x480 direct-framebuffer path and wear notifications.`
+    );
+  }
+
+  return null;
+}
+
+/** True when the glasses advertise every custom-firmware extension Hermes G2 needs. */
+export function hasCustomFirmware(info: FirmwareInfo): boolean {
+  const tokens = info.capabilities.trim().split(/\s+/);
+  return (
+    tokens.includes(REQUIRED_CFW_CONTRACT) &&
+    REQUIRED_FIRMWARE_EXTENSIONS.every((extension) => tokens.includes(extension))
+  );
+}
+
+/** The higher of the two arms' reported versions, or "" if none reported. */
+export function reportedFirmwareVersion(info: FirmwareInfo): string {
+  const versions = [info.leftVersion, info.rightVersion].map((v) => v.trim()).filter(Boolean);
+  if (versions.length === 0) return "";
+  return versions.reduce((highest, current) =>
+    compareVersions(parseDottedVersion(current), parseDottedVersion(highest)) > 0 ? current : highest,
+  );
+}
+
+/**
+ * How the pre-flash firmware check should treat the connected glasses:
+ * - "custom": Hermes G2 firmware is already installed — nothing to flash.
+ * - "flashable-stock": stock firmware at or below the version we build from.
+ * - "newer-stock": stock firmware newer than we recognize — flash only on override.
+ * - "unknown": no version could be read (treated as a probe/connection failure).
+ */
+export type OnboardingFirmwareKind = "custom" | "flashable-stock" | "newer-stock" | "unknown";
+
+export function classifyOnboardingFirmware(info: FirmwareInfo): {
+  kind: OnboardingFirmwareKind;
+  version: string;
+} {
+  if (hasCustomFirmware(info)) {
+    return { kind: "custom", version: reportedFirmwareVersion(info) };
+  }
+  const version = reportedFirmwareVersion(info);
+  if (!version) {
+    return { kind: "unknown", version: "" };
+  }
+  const comparison = compareVersions(parseDottedVersion(version), FLASHABLE_STOCK_VERSION);
+  return { kind: comparison <= 0 ? "flashable-stock" : "newer-stock", version };
+}

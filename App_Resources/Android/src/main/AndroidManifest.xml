@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+	package="__PACKAGE__">
+
+	<supports-screens
+		android:smallScreens="true"
+		android:normalScreens="true"
+		android:largeScreens="true"
+		android:xlargeScreens="true"/>
+
+	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+	<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+	<!-- All files access for the on-glasses file browser (Files app); granted
+	     via a Settings page, reasonable for a sideloaded personal tool. -->
+	<uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+	<uses-permission android:name="android.permission.INTERNET"/>
+	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+	<uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+	<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+	<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
+	<!-- Precise location for turn-by-turn navigation (Navigate app); pre-31
+	     it also covers BLE scanning. Weather only needs coarse. -->
+	<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+	<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+	<uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+	<uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation"/>
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+	<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+	<uses-permission android:name="android.permission.READ_CALENDAR"/>
+	<uses-permission android:name="android.permission.RECORD_AUDIO"/>
+	<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+	<uses-permission android:name="android.permission.WAKE_LOCK"/>
+	<!-- Needed to resolve other apps' notification small icons (Icon TYPE_RESOURCE):
+	     package visibility filtering otherwise makes Icon.loadDrawable fail with
+	     NameNotFoundException for any package we cannot see. -->
+	<uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
+	<!-- Deep Doze ignores our G2-screen wakelock unless the user exempts the app
+	     from battery optimization; this lets us show the system exemption dialog
+	     instead of sending users hunting through Settings. -->
+	<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+
+	<!-- usesCleartextTraffic: the g2mirror terminal-mirroring protocol runs
+	     plain ws:// over tailscale (transport security is the network's job),
+	     which Android's default policy would otherwise block. -->
+	<application
+		android:name="com.tns.NativeScriptApplication"
+		android:allowBackup="true"
+		android:icon="@mipmap/ic_launcher"
+		android:label="@string/app_name"
+		android:theme="@style/AppTheme"
+		android:usesCleartextTraffic="true"
+		android:hardwareAccelerated="true">
+
+		<activity
+			android:name="com.tns.NativeScriptActivity"
+			android:label="@string/title_activity_kimera"
+			android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|locale|uiMode"
+			android:theme="@style/LaunchScreenTheme"
+			android:hardwareAccelerated="true"
+      		android:launchMode="singleTask"
+			android:exported="true">
+
+			<meta-data android:name="SET_THEME_ON_LAUNCH" android:resource="@style/AppTheme" />
+
+			<intent-filter>
+				<action android:name="android.intent.action.MAIN" />
+				<category android:name="android.intent.category.LAUNCHER" />
+			</intent-filter>
+			<intent-filter>
+				<action android:name="android.intent.action.SEND" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<data android:mimeType="text/plain" />
+			</intent-filter>
+		</activity>
+		<activity android:name="com.tns.ErrorReportActivity"/>
+		<service
+			android:name="com.faceclaw.app.FaceclawForegroundService"
+			android:enabled="true"
+			android:exported="false"
+			android:foregroundServiceType="connectedDevice|microphone|location" />
+		<service
+			android:name="com.faceclaw.app.FaceclawMediaNotificationListenerService"
+			android:enabled="true"
+			android:exported="false"
+			android:label="@string/app_name"
+			android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+			<intent-filter>
+				<action android:name="android.service.notification.NotificationListenerService" />
+			</intent-filter>
+		</service>
+		<receiver
+			android:name="com.faceclaw.app.FaceclawTimerReceiver"
+			android:enabled="true"
+			android:exported="false" />
+	</application>
+</manifest>

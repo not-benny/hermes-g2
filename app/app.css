@@ -1,0 +1,57 @@
+﻿@import '@nativescript/theme/css/core.css';
+@import '@nativescript/theme/css/default.css';
+
+Page {
+  background-color: #ffffff;
+  color: #222222;
+}
+
+ActionBar {
+  background-color: #424242;
+  color: #ffffff;
+}
+
+ActionItem {
+  color: #ffffff;
+}
+
+TextField {
+  background-color: #ffffff;
+  color: #222222;
+}
+
+.system-name-modal TextField {
+  background-color: #ffffff;
+  color: #222222;
+}
+
+Button.-primary {
+  font-size: 18;
+}
+
+/*
+ * Stands in for the lens preview when showing it would be misleading (silent
+ * mode, or a disconnect explained by a flat battery). Sized by the view model
+ * to the preview's own box so the form doesn't reflow, and kept dark so it
+ * reads as "where the preview goes" rather than as a page-level banner.
+ */
+.display-preview-message {
+  background-color: #222222;
+  color: #ffffff;
+  padding: 16;
+}
+
+.display-preview-message Label {
+  font-size: 18;
+  text-align: center;
+}
+
+.system-name-modal {
+  margin: 16;
+  padding: 16;
+  background-color: #f6f6f6;
+  color: #222222;
+  border-color: #222222;
+  border-width: 1;
+  border-radius: 8;
+}

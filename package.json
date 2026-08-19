@@ -1,0 +1,33 @@
+{
+  "name": "hermes-g2",
+  "description": "Hermes Agent interface for Even Realities G2 smart glasses",
+  "main": "app/app.ts",
+  "version": "1.0.0",
+  "private": false,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "npm exec --yes --package=nativescript@9.0.7 -- ns build android",
+    "test": "node --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nativescript/core": "~9.0.0",
+    "@nativescript/theme": "^3.1.0",
+    "@xterm/headless": "^6.0.0",
+    "lodash": "^4.18.1",
+    "lz4js": "^0.2.0",
+    "pako": "^2.1.0",
+    "upng-js": "^2.1.0"
+  },
+  "devDependencies": {
+    "@nativescript/android": "9.0.4",
+    "@nativescript/types": "~9.0.0",
+    "@nativescript/webpack": "~5.0.25",
+    "typescript": "~5.4.0"
+  },
+  "overrides": {
+    "serialize-javascript": "7.1.0"
+  }
+}

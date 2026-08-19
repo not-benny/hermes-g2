@@ -1,0 +1,44 @@
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" unloaded="unloaded">
+    <ActionBar title="Glasses Controls" />
+    <ScrollView>
+        <StackLayout class="p-20">
+            <Label text="{{ status }}" textWrap="true" class="m-b-16" />
+
+            <Label text="Display" class="h2" />
+            <GridLayout columns="*,*" class="m-t-8">
+                <Button col="0" text="Wake screen" tap="{{ onWakeScreenTap }}" isEnabled="{{ canControl }}" />
+                <Button col="1" text="Blank screen" tap="{{ onBlankScreenTap }}" isEnabled="{{ canControl }}" />
+            </GridLayout>
+            <Button text="{{ brightnessLabel }}" tap="{{ onBrightnessTap }}" class="m-t-8" />
+            <Button text="{{ timeoutLabel }}" tap="{{ onTimeoutTap }}" class="m-t-8" />
+            <Button text="{{ lockLabel }}" tap="{{ onLockScreenTap }}" class="m-t-8" />
+            <Button text="{{ verticalPositionLabel }}" tap="{{ onVerticalPositionTap }}" class="m-t-8" />
+            <Button text="{{ timeFormatLabel }}" tap="{{ onTimeFormatTap }}" class="m-t-8" />
+            <Button text="{{ batteryDisplayLabel }}" tap="{{ onBatteryDisplayTap }}" class="m-t-8" />
+
+            <Label text="Sensors &amp; connection" class="h2 m-t-20" />
+            <Label text="{{ wearStatus }}" textWrap="true" class="m-t-8" />
+            <GridLayout columns="*,*" class="m-t-8">
+                <Button col="0" text="Refresh wear status" tap="{{ onRefreshWearTap }}" isEnabled="{{ canControl }}" />
+                <Button col="1" text="Open compass" tap="{{ onOpenCompassTap }}" isEnabled="{{ canControl }}" />
+            </GridLayout>
+            <Label text="{{ ringStatus }}" textWrap="true" class="m-t-12" />
+            <Button text="{{ ringSensitivityLabel }}" tap="{{ onRingSensitivityTap }}" class="m-t-8" />
+            <Button text="Reconnect R1" tap="{{ onReconnectRingTap }}" isEnabled="{{ canControl }}" class="m-t-8" />
+            <Button text="Reconnect glasses" tap="{{ onReconnectGlassesTap }}" class="m-t-8" />
+
+            <Label text="Voice diagnostics" class="h2 m-t-20" />
+            <Button text="{{ voiceProviderLabel }}" tap="{{ onVoiceProviderTap }}" class="m-t-8" />
+            <Button text="{{ wakeWordActionLabel }}" tap="{{ onWakeWordActionTap }}" class="m-t-8" />
+            <Button text="{{ voiceRecordingLabel }}" tap="{{ onSaveVoiceRecordingTap }}" class="m-t-8" />
+            <Button text="Test voice input" tap="{{ onTestVoiceInputTap }}" isEnabled="{{ canControl }}" class="m-t-8" />
+
+            <Label text="Notification filtering" class="h2 m-t-20" />
+            <Button text="{{ notificationFilterLabel }}" tap="{{ onNotificationFilterModeTap }}" class="m-t-8" />
+            <Label text="{{ selectedAppsLabel }}" textWrap="true" class="m-t-8" />
+            <Button text="Manage notification apps" tap="{{ onOpenNotificationAppsTap }}" class="m-t-8" />
+
+            <Button text="Back" tap="{{ onBackTap }}" class="m-t-24" />
+        </StackLayout>
+    </ScrollView>
+</Page>

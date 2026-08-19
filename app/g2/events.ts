@@ -1,0 +1,61 @@
+export const EventSourceType = {
+  TOUCH_EVENT_FORM_DUMMY_NULL: 0,
+  TOUCH_EVENT_FROM_GLASSES_R: 1,
+  TOUCH_EVENT_FROM_RING: 2,
+  TOUCH_EVENT_FROM_GLASSES_L: 3,
+} as const;
+
+export const EventSourceTypeName: Record<number, string> = {
+  0: "TOUCH_EVENT_FORM_DUMMY_NULL",
+  1: "TOUCH_EVENT_FROM_GLASSES_R",
+  2: "TOUCH_EVENT_FROM_RING",
+  3: "TOUCH_EVENT_FROM_GLASSES_L",
+};
+
+/**
+ * eEvenAIStatus, from EvenAIDataPackage.ctrl.status on sid 0x07
+ * (UI_FOREGROUND_EVEN_AI_ID). WAKE_UP is the on-glasses "Hey Even" wakeword
+ * firing; ENTER is a manual entry (touch/double-tap), so the two can be told
+ * apart. EXIT is the assistant tearing down.
+ */
+export const EvenAIStatus = {
+  STATUS_UNKNOWN: 0,
+  EVEN_AI_WAKE_UP: 1,
+  EVEN_AI_ENTER: 2,
+  EVEN_AI_EXIT: 3,
+} as const;
+
+export const EvenAIStatusName: Record<number, string> = {
+  0: "STATUS_UNKNOWN",
+  1: "EVEN_AI_WAKE_UP",
+  2: "EVEN_AI_ENTER",
+  3: "EVEN_AI_EXIT",
+};
+
+export const OsEventTypeList = {
+  CLICK_EVENT: 0,
+  SCROLL_TOP_EVENT: 1,
+  SCROLL_BOTTOM_EVENT: 2,
+  DOUBLE_CLICK_EVENT: 3,
+  FOREGROUND_ENTER_EVENT: 4,
+  FOREGROUND_EXIT_EVENT: 5,
+  ABNORMAL_EXIT_EVENT: 6,
+  SYSTEM_EXIT_EVENT: 7,
+  IMU_DATA_REPORT: 8,
+  RING_LONG_PRESS_EVENT: 9,
+  RING_LONG_PRESS_RELEASE_EVENT: 10,
+} as const;
+
+export const OsEventTypeName: Record<number, string> = {
+  0: "CLICK_EVENT",
+  1: "SCROLL_TOP_EVENT",
+  2: "SCROLL_BOTTOM_EVENT",
+  3: "DOUBLE_CLICK_EVENT",
+  4: "FOREGROUND_ENTER_EVENT",
+  5: "FOREGROUND_EXIT_EVENT",
+  6: "ABNORMAL_EXIT_EVENT",
+  7: "SYSTEM_EXIT_EVENT",
+  8: "IMU_DATA_REPORT",
+  9: "RING_LONG_PRESS_EVENT",
+  10: "RING_LONG_PRESS_RELEASE_EVENT",
+};
