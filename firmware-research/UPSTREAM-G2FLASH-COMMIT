@@ -1,0 +1,4 @@
+877c8d9490db0d3717ca012dd0f54556af3701bd
+https://github.com/jimrandomh/g2flash
+Reviewed and vendored 2026-08-18.
+Vendored files: patches/build.py, patches/apply_patches.py, patches/patches_main.c, LICENSE.

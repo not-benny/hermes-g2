@@ -106,6 +106,22 @@ data paths, and the selected transcription provider has its own policy. Bridge
 tokens and API keys are secrets. The configuration helper scripts read and
 write Android shared preferences; never commit or share a pulled settings file.
 
+## Support and status
+
+Hermes G2 is a personal project shared as is. There is no warranty of any kind,
+express or implied, and no guarantee of fitness for any purpose. See the GPLv3
+license for the full disclaimer.
+
+Support is best effort and limited. The author maintains this in spare time around
+a day job, so issues and pull requests may take a while, and some may not be
+answered at all. Bug reports and fixes are welcome, but please do not expect
+commercial support or a fast response. Running the app, using the cloud and voice
+integrations, and especially flashing custom firmware are entirely at your own risk.
+
+The firmware research under [firmware-research](firmware-research) is static
+research only. Nothing there has been validated on hardware, and it must not be
+flashed. See its README and DO NOT FLASH warning.
+
 ## Upstream and license
 
 Hermes G2 is based on [Faceclaw](https://github.com/jimrandomh/faceclaw), created
