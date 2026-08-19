@@ -1,10 +1,9 @@
 import { Application, Color, EventData, isAndroid, Observable, Page, ScrollView, TextField } from '@nativescript/core'
 import { MainViewModel } from './main-view-model'
+import { applyNativeInputColors } from './input-colors'
 import { dashboardController } from '../g2/dashboard-controller'
 
-const SETTINGS_TEXT_COLOR = new Color('#222222')
-const SETTINGS_BACKGROUND_COLOR = new Color('#ffffff')
-const SETTINGS_PLACEHOLDER_COLOR = new Color('#666666')
+const SETTINGS_BACKGROUND_COLOR = new Color('#1E2A22')
 
 export function navigatingTo(args: EventData) {
   const page = <Page>args.object
@@ -59,9 +58,8 @@ function scrollLogsToBottom(scrollViews: ScrollView[]): void {
 }
 
 function applySettingsTextFieldContrast(textField: TextField): void {
-  textField.color = SETTINGS_TEXT_COLOR
+  applyNativeInputColors(textField)
   textField.backgroundColor = SETTINGS_BACKGROUND_COLOR
-  textField.placeholderColor = SETTINGS_PLACEHOLDER_COLOR
 
   if (!isAndroid) {
     return
@@ -72,8 +70,6 @@ function applySettingsTextFieldContrast(textField: TextField): void {
     return
   }
 
-  nativeTextField.setTextColor(android.graphics.Color.rgb(34, 34, 34))
-  nativeTextField.setHintTextColor(android.graphics.Color.rgb(102, 102, 102))
   // Editing an existing value usually means replacing it: select all on focus
   // so typing starts fresh but the current value stays visible.
   nativeTextField.setSelectAllOnFocus(true)

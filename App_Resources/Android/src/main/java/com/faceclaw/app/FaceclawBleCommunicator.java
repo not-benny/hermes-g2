@@ -127,6 +127,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     private long reconnectAfterMs;
     private long ringReconnectAfterMs;
+    private int ringConsecutiveFailures;
     private long lastAckAtMs;
     private long lastIncomingAtMs;
     private long lastHeartbeatSentAtMs;
@@ -137,6 +138,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private long lastSessionReadyAtMs;
     private long lastEvenAppConflictAtMs;
     private int consecutiveAckTimeouts;
+    private long softResyncStartedAtMs;
+    private int setupAckTimeouts;
+    private long lastConnPriorityAssertAtMs;
     private int lastAudioControlAckMagic = 0;
 
     private ConnectionOptions connectionOptions = new ConnectionOptions();
@@ -324,6 +328,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             if (ringNotificationsReady) {
                 return true;
             }
+            // Manual reconnect clears the backoff so it retries immediately.
+            ringConsecutiveFailures = 0;
             ringReconnectAfterMs = 0;
         }
         interruptibleSleep.interrupt();
@@ -801,7 +807,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 connectionOptions.sendImagesToLeft
             );
             message.onTimeout = () -> {
-                handleTransportFailure("buzzer sequence ack timeout");
+                logLine("buzzer sequence ack timeout; dropped");
             };
             pendingMessages.addLast(message);
             logLine("queue " + message.label);
@@ -865,11 +871,11 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             sendPrelude(true);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            handleTransportFailure("EvenHub resume prelude interrupted");
+            hardTransportFailure("EvenHub resume prelude interrupted");
             return false;
         } catch (Throwable t) {
             logLine("EvenHub resume prelude failed: " + safeMessage(t));
-            handleTransportFailure("EvenHub resume prelude failed");
+            hardTransportFailure("EvenHub resume prelude failed");
             return false;
         }
 
@@ -919,7 +925,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             };
             message.onTimeout = () -> {
                 if (reconnectOnTimeout) {
-                    handleTransportFailure("shutdown ack timeout");
+                    hardTransportFailure("shutdown ack timeout");
                 } else {
                     logLine("EvenHub shutdown ack timeout; keeping BLE connected");
                 }
@@ -1304,7 +1310,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 if (!connected) {
                     ringBattery = -1;
                     ringHealthProbeSent = false;
-                    ringReconnectAfterMs = SystemClock.elapsedRealtime() + ConnectionOptions.RING_RECONNECT_DELAY_MS;
+                    ringReconnectAfterMs = Math.max(ringReconnectAfterMs,
+                        SystemClock.elapsedRealtime() + ConnectionOptions.RING_RECONNECT_DELAY_MS);
                     emitBatteryState(headsetBattery, headsetCharging, ringBattery);
                 }
                 logLine(connected ? "direct ring BLE connected" : "direct ring BLE disconnected");
@@ -1367,6 +1374,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 lastHeartbeatSentAtMs = 0;
                 lastHeartbeatAckedAtMs = 0;
                 consecutiveAckTimeouts = 0;
+                softResyncStartedAtMs = 0;
+                setupAckTimeouts = 0;
+                lastConnPriorityAssertAtMs = lastAckAtMs;
                 lastAudioControlAckMagic = 0;
                 audioCaptureActive = false;
                 faceclawWakePendingNonce = -1;
@@ -1472,27 +1482,52 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             refreshRingBattery();
             probeRingHealth();
         } catch (Throwable t) {
+            // Close the wedged GATT so the next attempt gets a fresh connectGatt;
+            // a cached half-open handle re-fails discoverServices forever.
+            try {
+                bleManager.disconnect(ringAddress);
+            } catch (Throwable ignored) {
+            }
+            long backoffMs;
+            int attempt;
             synchronized (lock) {
                 ringConnected = false;
                 ringNotificationsReady = false;
-                ringReconnectAfterMs = SystemClock.elapsedRealtime() + ConnectionOptions.RING_RECONNECT_DELAY_MS;
+                ringConsecutiveFailures++;
+                attempt = ringConsecutiveFailures;
+                // Exponential backoff (2s,4s,8s,...) capped at RING_RECONNECT_MAX_DELAY_MS.
+                // A dead/absent ring must stop hammering the display worker thread on a
+                // ~12s cadence; it retries at most every ~5min until it comes back.
+                backoffMs = attempt >= ConnectionOptions.RING_FAILURE_BREAKER_THRESHOLD
+                    ? ConnectionOptions.RING_RECONNECT_MAX_DELAY_MS
+                    : Math.min(
+                        (long) ConnectionOptions.RING_RECONNECT_DELAY_MS << Math.min(attempt - 1, 8),
+                        ConnectionOptions.RING_RECONNECT_MAX_DELAY_MS);
+                ringReconnectAfterMs = SystemClock.elapsedRealtime() + backoffMs;
             }
-            logLine("direct ring connect failed (" + reason + "): " + safeMessage(t));
+            logLine("direct ring connect failed (" + reason + ", attempt " + attempt
+                + ", next in " + (backoffMs / 1000) + "s): " + safeMessage(t));
         }
     }
 
     private void connectRing() {
         logLine("connecting direct ring " + ringAddress);
-        if (!bleManager.connect(ringAddress, ConnectionOptions.CONNECT_TIMEOUT_MS)) {
+        // Ring-specific SHORT timeouts: the ring is optional and shares the display
+        // worker thread, so a doomed attempt must return in ~2.5s, not the 5s arm
+        // timeout that froze the display pump for ~10s per failed retry.
+        if (!bleManager.connect(ringAddress, ConnectionOptions.RING_CONNECT_TIMEOUT_MS)) {
             throw new IllegalStateException("connect failed: " + ringAddress);
         }
 
-        bleManager.requestConnectionPriority(ringAddress, BluetoothGatt.CONNECTION_PRIORITY_HIGH);
-        bleManager.requestMtu(ringAddress, ConnectionOptions.RING_DESIRED_MTU, ConnectionOptions.CONNECT_TIMEOUT_MS);
-
-        if (!bleManager.discoverServices(ringAddress, ConnectionOptions.SERVICES_TIMEOUT_MS)) {
+        // Discover services FIRST (the step that fails for an absent ring). Only
+        // renegotiate MTU/priority once the ring is confirmed present, so a failed
+        // attempt does not churn the arm connection interval on every retry.
+        if (!bleManager.discoverServices(ringAddress, ConnectionOptions.RING_SERVICES_TIMEOUT_MS)) {
             throw new IllegalStateException("discoverServices failed: " + ringAddress);
         }
+
+        bleManager.requestConnectionPriority(ringAddress, BluetoothGatt.CONNECTION_PRIORITY_HIGH);
+        bleManager.requestMtu(ringAddress, ConnectionOptions.RING_DESIRED_MTU, ConnectionOptions.RING_CONNECT_TIMEOUT_MS);
 
         boolean phoneNotify = enableRingNotification(BleProtocol.R1_PHONE_NOTIFY_CHAR_UUID);
         boolean dataNotify = enableRingNotification(BleProtocol.R1_NOTIFY_CHAR_UUID);
@@ -1504,6 +1539,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             ringConnected = true;
             ringNotificationsReady = true;
             ringReconnectAfterMs = 0;
+            ringConsecutiveFailures = 0;
         }
         logLine("direct ring ready phoneNotify=" + phoneNotify + " dataNotify=" + dataNotify
             + " services=" + ringServiceSummary());
@@ -1544,21 +1580,25 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     /**
-     * Health-sampling spike: nudge the R1 into HRV sampling mode so it begins
-     * streaming health pushes (cmd=0x01, marker 10 ff) on its notify channel,
-     * which land in handleDirectRingNotification and, being unrecognized by the
-     * gesture decoder, log as "direct ring notify ignored: ... raw=<hex>".
+     * Real ring health-sync session. A 2026-08-19 capture of com.even.sg's own
+     * Ring1 protocol (the Even app logs it in plaintext to logcat) proved the ring
+     * is NOT auth-walled: the multi-session "the ring ignores Hermes" mystery was
+     * BLE CONTENTION — when Hermes and the Even app both hold the ring, every Ring1
+     * command times out for both. Isolate the ring to one central and it answers.
+     * Full protocol: notes/ring-health-protocol-2026-08-19.md.
      *
-     * This deliberately sends ONLY the enable + time-sync commands, not the
-     * pairAuth handshake (whose key comes from Even's cloud): if the ring's
-     * existing Even-app session persists, this is enough to start the stream;
-     * if it is not, we learn that from the absence of pushes without touching
-     * the working gesture link's auth. Best-effort — any failure is logged and
-     * the ring stays fully usable for input.
+     * Sequence (all on bae80012 write / bae80013 notify, MTU 247):
+     *   1. pairAuth, payload 0x01  -> ring replies statusAck.ok, session opens
+     *      (a plain request->ack; NOT a challenge-response).
+     *   2. bare status=req health GETs (module=health, subCmd daily=0x01) -> the
+     *      ring streams hourly HR/SpO2/HRV/temp/steps/sleep on bae80013, which
+     *      handleDirectRingNotification logs as "direct ring notify bae80013 ...
+     *      raw=<hex>".
      *
-     * Frame layout (verified against com.even.sg captures, g2-kit ble/ring.ts):
-     *   [0]=00 [1..4]=random anti-replay hash [5]=64 [6]=seqGroup(01)
-     *   [7]=64 [8]=seq [9..10]=flags BE [11]=00 [12]=cmd [13]=sub [14]=00 [15..]=payload
+     * NEEDS EXCLUSIVE ring access: force-stop com.even.sg during a Hermes sync or
+     * both contend and time out. Large history arrives multi-packet and needs a
+     * packetAck(0x7e) pull loop (next stage); THIS stage fires the GETs so the
+     * first response frames can be captured to reverse the daily-data byte layout.
      */
     private void probeRingHealth() {
         if (!RING_HEALTH_PROBE_ENABLED) {
@@ -1571,39 +1611,25 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             ringHealthProbeSent = true;
             ringWriteSeq = 1; // fresh serialId per connection, like the app
         }
-        // Read-only GET canary. The whole point: prove the corrected frame encoder
-        // makes the ring answer at all. Every frame here is status=req, zero data,
-        // touches no pairing state, and works with the ring on a desk. Watch
-        // bae80013 (R1_NOTIFY): a decoded "FRAME ... crc32=OK" reply to A/B/C but
-        // NOT to D means the CRC-32 was the blocker and there is no auth wall.
-        //   A,B  verbatim-replayed captured GETs (correct CRC-32 straight from a
-        //        real com.even.sg capture — immune to any residual encoder doubt).
-        //   C    the SAME GET built by the new buildRingFrame (proves our encoder).
-        //   D    control: frame A with a random CRC-32 (the old-Hermes bug) — must
-        //        stay silent if the ring validates the checksum.
-        logLine("ring health canary START — pairAuth session probe + read-only GET A/B/C + control D; watch bae80013");
-        // P: pairAuth first (verbatim captured, data=0x01). The cold GETs got no
-        // reply, so the ring likely needs a command session opened first. If P
-        // draws ANY bae80013 frame (ack or challenge), that is the missing step.
-        sendRawRingFrame("canary P pairAuth verbatim", hexToBytes("00971953f964016401000000080d003f0101"));
+        logLine("ring health sync START — pairAuth + health GETs; NEEDS exclusive ring (stop com.even.sg). watch bae80013");
+        // pairAuth: verbatim golden frame (CRC-32 verified) opens the command session.
+        sendRawRingFrame("pairAuth (session open)", hexToBytes("00971953f964016401000000080d003f0101"));
         ringProbeGap();
         ringProbeGap();
+        // Health data GETs: module=health(2), subCmd=daily(1), status=req, no payload.
+        // cmd: heartRate=1 spo2=2 temperature=3 hrv=4 activity=5 sleep=6.
+        sendRingCommand("heartRate/daily GET", 0x02, 0x01, 0x01, 0x00, null);
         ringProbeGap();
-        // Q: deviceInfo GET (builder) — a universally-safe read com.even.sg does early.
-        sendRingCommand("canary Q builder deviceInfoGET", 0x01, 0x00, 0x02, 0x00, null);
+        sendRingCommand("spo2/daily GET", 0x02, 0x02, 0x01, 0x00, null);
         ringProbeGap();
-        sendRawRingFrame("canary A verbatim healthSettingsGET", hexToBytes("00d5faceaf640164280000000e0c00912f"));
+        sendRingCommand("hrv/daily GET", 0x02, 0x04, 0x01, 0x00, null);
         ringProbeGap();
-        sendRawRingFrame("canary B verbatim systemSettingsGET", hexToBytes("0000045a68640164290000000f0c00015d"));
+        sendRingCommand("temperature/daily GET", 0x02, 0x03, 0x01, 0x00, null);
         ringProbeGap();
-        sendRingCommand("canary C builder healthSettingsGET", 0x01, 0x00, 0x0e, 0x00, null);
+        sendRingCommand("activity/daily GET", 0x02, 0x05, 0x01, 0x00, null);
         ringProbeGap();
-        byte[] control = hexToBytes("00d5faceaf640164280000000e0c00912f");
-        byte[] rnd = new byte[4];
-        ringRandom.nextBytes(rnd);
-        System.arraycopy(rnd, 0, control, 1, 4);
-        sendRawRingFrame("canary D control randomCRC (expect SILENCE)", control);
-        logLine("ring health canary SENT — reply on bae80013 to A/B/C but not D => encoder was the blocker, no auth wall");
+        sendRingCommand("sleep/daily GET", 0x02, 0x06, 0x01, 0x00, null);
+        logLine("ring health sync SENT — watch bae80013 for decoded FRAME replies (raw= hex)");
     }
 
     /** ~200ms spacing between probe frames so the ring can answer each in turn. */
@@ -1816,7 +1842,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         prelude.onAck = () -> {
         };
         prelude.onTimeout = () -> {
-            handleTransportFailure("ack timeout");
+            logLine("prelude ack timeout");
         };
         prelude.sentAtMs = now;
         writeMessage(prelude);
@@ -1940,7 +1966,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
                     // Up to WINDOW_SIZE messages may be in flight at once (full
                     // pipelining); a slot frees when an ack arrives.
-                    boolean windowHasRoom = inFlightMessages.size() < Math.max(1, connectionOptions.WINDOW_SIZE);
+                    boolean windowHasRoom = inFlightMessages.size()
+                            < (softResyncStartedAtMs != 0 ? 1 : Math.max(1, connectionOptions.WINDOW_SIZE));
                     // A frame ready to send right now: don't inject a fresh
                     // heartbeat in front of it (the image's own ack resets the
                     // firmware heartbeat timer, so the heartbeat is redundant).
@@ -1963,6 +1990,15 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                         // (what the shadow will be), so it can pipeline behind an
                         // image still awaiting its ack.
                         Log.i(TAG, "Enqueued image update");
+                        if (now - lastConnPriorityAssertAtMs >= ConnectionOptions.CONNECTION_PRIORITY_REASSERT_MS) {
+                            lastConnPriorityAssertAtMs = now;
+                            try {
+                                bleManager.requestConnectionPriority(rightAddress, BluetoothGatt.CONNECTION_PRIORITY_HIGH);
+                                bleManager.requestConnectionPriority(leftAddress, BluetoothGatt.CONNECTION_PRIORITY_HIGH);
+                            } catch (Throwable t) {
+                                logLine("connection priority re-assert failed: " + safeMessage(t));
+                            }
+                        }
                         enqueueDesiredImageLocked();
                         return 0;
                     } else if (messageToPrewrite == null && shouldPollBatteryLocked(now)) {
@@ -2072,6 +2108,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         message.onAck = () -> {
             synchronized (lock) {
                 lastHeartbeatAckedAtMs = SystemClock.elapsedRealtime();
+                softResyncStartedAtMs = 0;
             }
         };
         message.onTimeout = () -> {
@@ -2318,6 +2355,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             startupProbePending = false;
             clearMessagesOfKindLocked("startup-text-probe");
             fixedLayoutCreated = true;
+            setupAckTimeouts = 0;
             displayedFingerprint = "";
         };
         message.onTimeout = () -> {
@@ -2327,6 +2365,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     return;
                 }
                 startupProbePending = false;
+            }
+            if (++setupAckTimeouts <= ConnectionOptions.SETUP_ACK_RETRY_LIMIT) {
+                logLine("create layout ack timeout (retry " + setupAckTimeouts + ")");
+                return;
             }
             handleTransportFailure("ack timeout");
         };
@@ -2343,12 +2385,17 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             clearMessagesOfKindLocked("create-layout");
             fixedLayoutCreated = true;
             warmedUp = false;
+            setupAckTimeouts = 0;
             displayedFingerprint = "";
             logLine("existing dashboard layout accepted text probe; image warmup still required");
         };
         message.onTimeout = () -> {
             startupProbePending = false;
             if (hasPendingOrInflightKindLocked("create-layout")) {
+                return;
+            }
+            if (++setupAckTimeouts <= ConnectionOptions.SETUP_ACK_RETRY_LIMIT) {
+                logLine("startup text probe ack timeout (retry " + setupAckTimeouts + ")");
                 return;
             }
             handleTransportFailure("ack timeout");
@@ -2585,7 +2632,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             logLine(audioCaptureActive ? "G2 mic enabled" : "G2 mic disabled");
         };
         message.onTimeout = () -> {
-            handleTransportFailure("audio control ack timeout");
+            logLine("audio control ack timeout");
         };
         return message;
     }
@@ -2669,7 +2716,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         } else {
             chargingMode = false;
             logLine("glasses removed from charger; reconnecting");
-            handleTransportFailure("charging ended");
+            hardTransportFailure("charging ended");
         }
     }
 
@@ -2999,7 +3046,53 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 + " release=" + previous.reason);
     }
 
+    private boolean trySoftResync(String reason) {
+        synchronized (lock) {
+            long now = SystemClock.elapsedRealtime();
+            if (!running || userDisconnectRequested || !sessionReady
+                    || !fixedLayoutCreated || !warmedUp
+                    || !rightConnected || !leftConnected
+                    || now - lastIncomingAtMs >= ConnectionOptions.SOFT_RESYNC_RECENT_MS) {
+                return false;
+            }
+            if (softResyncStartedAtMs != 0
+                    && now - softResyncStartedAtMs >= ConnectionOptions.HEARTBEAT_FAILURE_DEADLINE_MS) {
+                return false;
+            }
+            if (softResyncStartedAtMs == 0) {
+                softResyncStartedAtMs = now;
+            }
+            logLine("soft resync instead of reconnect: " + reason);
+            clearMessagesOfKindLocked("image");
+            displayedFingerprint = "";
+            imageRetryAfterMs = now + ConnectionOptions.IMAGE_RETRY_DELAY_MS;
+            lastConnPriorityAssertAtMs = now;
+            try {
+                bleManager.requestConnectionPriority(rightAddress, BluetoothGatt.CONNECTION_PRIORITY_HIGH);
+                bleManager.requestConnectionPriority(leftAddress, BluetoothGatt.CONNECTION_PRIORITY_HIGH);
+            } catch (Throwable t) {
+                return false;
+            }
+            // Make the pump treat a heartbeat as urgent: it blocks other sends and
+            // writes one probe as soon as in-flight drains (handleHeartbeat).
+            lastHeartbeatAckedAtMs = Math.min(lastHeartbeatAckedAtMs,
+                now - ConnectionOptions.HEARTBEAT_URGENT_MS);
+        }
+        interruptibleSleep.interrupt();
+        return true;
+    }
+
     private void handleTransportFailure(String reason) {
+        if (trySoftResync(reason)) {
+            return;
+        }
+        hardTransportFailure(reason);
+    }
+
+    // A full teardown and reconnect. Deliberate teardowns (charging ended, resume
+    // prelude failure, shutdown-ack timeout) call this directly so the soft-resync
+    // gate cannot swallow a reconnect the session actually needs.
+    private void hardTransportFailure(String reason) {
         Log.e(TAG, "Transport failure: "+reason);
         synchronized (lock) {
             maybeEmitEvenAppConflictLocked(reason);
@@ -3010,6 +3103,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             shutdownRequested = false;
             chargingMode = false;
             imageRetryAfterMs = 0;
+            softResyncStartedAtMs = 0;
+            setupAckTimeouts = 0;
             displayedFingerprint = "";
             faceclawWakePendingNonce = -1;
             lastFaceclawWakeLeaseQueuedAtMs = 0;
@@ -3044,6 +3139,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         lastHeartbeatSentAtMs = 0;
         lastSessionReadyAtMs = 0;
         consecutiveAckTimeouts = 0;
+        softResyncStartedAtMs = 0;
+        setupAckTimeouts = 0;
         lastAudioControlAckMagic = 0;
         audioCaptureActive = false;
         audioPacketListener = null;

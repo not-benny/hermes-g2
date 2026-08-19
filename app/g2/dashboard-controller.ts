@@ -32,7 +32,7 @@ import { type InProcessAppOptions, type InProcessWindow } from "../ui/shell/in-p
 import { loadPersistedOpenApps, savePersistedOpenApps } from "../ui/shell/open-apps-persistence";
 import { appViewportRect, type WindowHeightMode } from "../ui/shell/geometry";
 import { type LayerActions } from "../ui/layers";
-import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type ConfigSettingString } from "../ui/dashboard-settings";
+import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "../native/battery-optimization";
 
 type ConnectionPhase = "disconnected" | "connecting" | "connected" | "charging" | "disconnecting";
@@ -80,6 +80,7 @@ const EVENHUB_WAKE_READY_TIMEOUT_MS = 4_500;
 const FOREGROUND_NOTIFICATION_MIN_UPDATE_MS = 30_000;
 const FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS = 6_000;
 const CONNECTED_PREVIEW_MIN_UPDATE_MS = 1_000;
+const BRIGHTNESS_DEBOUNCE_MS = 200;
 // Below this, a disconnect is more likely a flat battery than a BLE problem.
 const LOW_BATTERY_PERCENT = 5;
 const EVEN_APP_DETECTED_MESSAGE =
@@ -161,6 +162,7 @@ class DashboardController {
   private previewTimer: ReturnType<typeof setInterval> | null = null;
   private screenTimeoutTimer: ReturnType<typeof setInterval> | null = null;
   private evenHubSuspendTimer: ReturnType<typeof setTimeout> | null = null;
+  private brightnessDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private evenHubSessionSuspended = false;
   private evenHubResumePromise: Promise<boolean> | null = null;
   private faceclawWakeLeaseSupported = false;
@@ -404,7 +406,6 @@ class DashboardController {
   private ensureWearStateTracking(): void {
     const communicator = this.communicator;
     if (
-      !lockScreenEnabledSetting.get() ||
       !this.wearNotifySupported ||
       this.phase !== "connected" ||
       !communicator
@@ -635,16 +636,41 @@ class DashboardController {
   /**
    * Push the brightness setting to the glasses. Deduped TS-side (the change
    * listener fires for every setting, and each push queues a real BLE
-   * message); `force` skips the dedup so a fresh connection always gets the
-   * configured value regardless of what the firmware restored.
+   * message); rapid changes send the first value immediately and coalesce the
+   * rest into one settled value after a quiet window. `force` skips the dedup
+   * and debounce so a fresh connection always gets the configured value
+   * regardless of what the firmware restored.
    */
   private pushBrightness(force = false): void {
     if (!this.communicator) return;
     const value = brightnessSetting.get();
     if (!force && value === this.lastPushedBrightness) return;
+    if (force || this.brightnessDebounceTimer === null) {
+      this.clearBrightnessDebounceTimer();
+      this.transmitBrightness(value);
+      if (force) return;
+    } else {
+      clearTimeout(this.brightnessDebounceTimer);
+    }
+    this.brightnessDebounceTimer = setTimeout(() => {
+      this.brightnessDebounceTimer = null;
+      if (!this.communicator) return;
+      const settled = brightnessSetting.get();
+      if (settled === this.lastPushedBrightness) return;
+      this.transmitBrightness(settled);
+    }, BRIGHTNESS_DEBOUNCE_MS);
+  }
+
+  private transmitBrightness(value: BrightnessSetting): void {
     this.lastPushedBrightness = value;
     const level = brightnessSettingToLevel(value);
-    void this.communicator.setBrightness(level === null, level ?? 0).catch(() => {});
+    void this.communicator?.setBrightness(level === null, level ?? 0).catch(() => {});
+  }
+
+  private clearBrightnessDebounceTimer(): void {
+    if (this.brightnessDebounceTimer === null) return;
+    clearTimeout(this.brightnessDebounceTimer);
+    this.brightnessDebounceTimer = null;
   }
 
   /** Save the occupied part of the composited screen as a 4-bit grayscale PNG. */
@@ -1755,6 +1781,7 @@ class DashboardController {
 
   private clearDashboardTimer(): void {
     this.cancelEvenHubSuspendTimer();
+    this.clearBrightnessDebounceTimer();
     if (this.shellRefreshTimer) {
       clearInterval(this.shellRefreshTimer);
       this.shellRefreshTimer = null;

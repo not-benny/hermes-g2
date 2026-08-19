@@ -61,14 +61,30 @@ export type InProcessAppOptions = {
 export function createInProcessWindow(options: InProcessWindowOptions): InProcessWindow {
   let surfaceReady = false;
   let renderPendingUntilSurfaceReady = false;
+  let renderInProgress = false;
+  let renderQueued = false;
   const requestRender = () => {
     if (!surfaceReady) {
       renderPendingUntilSurfaceReady = true;
       return;
     }
-    void render(0).catch((error) => {
-      console.error(`${options.windowId} render failed: ${error}`);
-    });
+    if (renderInProgress) {
+      renderQueued = true;
+      return;
+    }
+    renderInProgress = true;
+    void (async () => {
+      try {
+        do {
+          renderQueued = false;
+          await render(0);
+        } while (renderQueued);
+      } catch (error) {
+        console.error(`${options.windowId} render failed: ${error}`);
+      } finally {
+        renderInProgress = false;
+      }
+    })();
   };
   const heightMode = options.heightMode ?? "min";
   const stack = new LayerStack(

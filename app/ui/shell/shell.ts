@@ -10,6 +10,7 @@ import { AssistantSession, type AssistantBackendConfig } from "../../assistant/s
 import { resolveAssistantModel } from "../../assistant/models";
 import type { AssistantContext } from "../../assistant/types";
 import { SingleNotificationLayer } from "../notifications";
+import { assistantBridge, type AssistantBridgePhase } from "../../assistant/bridge-client";
 import {
   anthropicApiKeySetting,
   assistantBackendSetting,
@@ -255,6 +256,9 @@ class Shell {
   private lastBatteryDisplayMode: string | null = null;
   private lastTimeFormat: string | null = null;
   private lastBrightness: string | null = null;
+  private lastBridgeBackend: string | null = null;
+  private lastBridgeHost: string | null = null;
+  private bridgePhase: AssistantBridgePhase = assistantBridge.state().phase;
 
   configure(config: ShellConfig): void {
     this.config = config;
@@ -268,20 +272,34 @@ class Shell {
     this.lastBatteryDisplayMode = batteryDisplayModeSetting.get();
     this.lastTimeFormat = timeFormatSetting.get();
     this.lastBrightness = brightnessSetting.get();
+    this.lastBridgeBackend = assistantBackendSetting.get();
+    this.lastBridgeHost = assistantBridgeHostSetting.get().trim();
     onAnySettingChanged(() => {
       const batteryMode = batteryDisplayModeSetting.get();
       const timeFormat = timeFormatSetting.get();
       const brightness = brightnessSetting.get();
+      const bridgeBackend = assistantBackendSetting.get();
+      const bridgeHost = assistantBridgeHostSetting.get().trim();
       if (
         batteryMode === this.lastBatteryDisplayMode &&
         timeFormat === this.lastTimeFormat &&
-        brightness === this.lastBrightness
+        brightness === this.lastBrightness &&
+        bridgeBackend === this.lastBridgeBackend &&
+        bridgeHost === this.lastBridgeHost
       ) {
         return;
       }
       this.lastBatteryDisplayMode = batteryMode;
       this.lastTimeFormat = timeFormat;
       this.lastBrightness = brightness;
+      this.lastBridgeBackend = bridgeBackend;
+      this.lastBridgeHost = bridgeHost;
+      this.config.requestShellRender();
+    });
+    // The bridge glyph tracks live connection phase; repaint the bar on change.
+    assistantBridge.onStateChange((state) => {
+      if (state.phase === this.bridgePhase) return;
+      this.bridgePhase = state.phase;
       this.config.requestShellRender();
     });
   }
@@ -1140,6 +1158,13 @@ class Shell {
       trayIcons: Array.from(this.trayIcons.keys())
         .sort()
         .map((key) => this.trayIcons.get(key)!),
+      bridge: {
+        // Only meaningful with the external backend and a configured host.
+        show:
+          assistantBackendSetting.get() === "external" &&
+          assistantBridgeHostSetting.get().trim().length > 0,
+        phase: this.bridgePhase,
+      },
     };
   }
 }

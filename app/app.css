@@ -1,32 +1,188 @@
-﻿@import '@nativescript/theme/css/core.css';
-@import '@nativescript/theme/css/default.css';
+@import '@nativescript/theme/css/core.css';
+
+/*
+ * Hermes G2 phone companion theme. Dark only - we do NOT follow the system
+ * light/dark setting. Element selectors reskin every phone-ui page with no
+ * per-page markup changes. NativeScript CSS does not reliably support var(),
+ * so palette values are written as literal hex.
+ *
+ * Palette:
+ *   bg          #0F1411   surface     #172019   surface-2   #1E2A22
+ *   border      #24312A   text        #EAF2EC   text-muted  #9BB0A5
+ *   primary     #57D8A6   primary-pr  #46B88C   on-primary  #08120D
+ *   secondary   #4C9DF5   danger      #E5484D   action-bar  #101512
+ */
 
 Page {
-  background-color: #ffffff;
-  color: #222222;
+  background-color: #0F1411;
+  color: #EAF2EC;
+  font-family: "Saira", "Roboto", sans-serif;
+}
+
+ScrollView {
+  background-color: #0F1411;
 }
 
 ActionBar {
-  background-color: #424242;
-  color: #ffffff;
+  background-color: #101512;
+  color: #EAF2EC;
 }
 
 ActionItem {
-  color: #ffffff;
+  color: #EAF2EC;
 }
 
-TextField {
-  background-color: #ffffff;
-  color: #222222;
+NavigationButton {
+  color: #EAF2EC;
 }
 
-.system-name-modal TextField {
-  background-color: #ffffff;
-  color: #222222;
+Label {
+  color: #EAF2EC;
+  font-family: "Saira", "Roboto", sans-serif;
+}
+
+TextField,
+TextView {
+  background-color: #1E2A22;
+  color: #EAF2EC;
+  placeholder-color: #9BB0A5;
+  border-color: #24312A;
+  border-width: 1;
+  border-radius: 8;
+  padding: 10;
+  font-family: "Saira", "Roboto", sans-serif;
+}
+
+Button {
+  background-color: #172019;
+  color: #EAF2EC;
+  border-color: #24312A;
+  border-width: 1;
+  border-radius: 8;
+  padding: 10;
+  font-family: "Saira", "Roboto", sans-serif;
+}
+
+Button:highlighted {
+  background-color: #1E2A22;
 }
 
 Button.-primary {
   font-size: 18;
+}
+
+ListView {
+  background-color: #0F1411;
+  separator-color: #24312A;
+}
+
+ListView .list-group-item,
+ListView ListViewItem {
+  background-color: #172019;
+  color: #EAF2EC;
+}
+
+Switch {
+  color: #57D8A6;
+}
+
+Slider {
+  color: #57D8A6;
+  background-color: #24312A;
+}
+
+ActivityIndicator {
+  color: #57D8A6;
+}
+
+/* --- Additive opt-in component classes ---------------------------------- */
+
+.btn {
+  background-color: #172019;
+  color: #EAF2EC;
+  border-color: #24312A;
+  border-width: 1;
+  border-radius: 8;
+  padding: 12;
+}
+
+.btn-primary {
+  background-color: #57D8A6;
+  color: #08120D;
+  border-width: 0;
+  border-radius: 8;
+  padding: 12;
+}
+
+.btn-primary:highlighted {
+  background-color: #46B88C;
+}
+
+.btn-secondary {
+  background-color: transparent;
+  color: #4C9DF5;
+  border-color: #4C9DF5;
+  border-width: 1;
+  border-radius: 8;
+  padding: 12;
+}
+
+.btn-danger {
+  background-color: #E5484D;
+  color: #EAF2EC;
+  border-width: 0;
+  border-radius: 8;
+  padding: 12;
+}
+
+.card {
+  background-color: #172019;
+  border-color: #24312A;
+  border-width: 1;
+  border-radius: 12;
+  padding: 16;
+}
+
+.input {
+  background-color: #1E2A22;
+  color: #EAF2EC;
+  placeholder-color: #9BB0A5;
+  border-color: #24312A;
+  border-width: 1;
+  border-radius: 8;
+  padding: 10;
+}
+
+.h1 {
+  font-size: 28;
+  font-weight: bold;
+  color: #EAF2EC;
+}
+
+.h2 {
+  font-size: 20;
+  font-weight: bold;
+  color: #EAF2EC;
+}
+
+.section-label {
+  font-size: 12;
+  letter-spacing: 1;
+  text-transform: uppercase;
+  color: #9BB0A5;
+}
+
+.muted {
+  color: #9BB0A5;
+}
+
+.value {
+  color: #EAF2EC;
+}
+
+.divider {
+  background-color: #24312A;
+  height: 1;
 }
 
 /*
@@ -36,8 +192,8 @@ Button.-primary {
  * reads as "where the preview goes" rather than as a page-level banner.
  */
 .display-preview-message {
-  background-color: #222222;
-  color: #ffffff;
+  background-color: #172019;
+  color: #EAF2EC;
   padding: 16;
 }
 
@@ -49,9 +205,15 @@ Button.-primary {
 .system-name-modal {
   margin: 16;
   padding: 16;
-  background-color: #f6f6f6;
-  color: #222222;
-  border-color: #222222;
+  background-color: #172019;
+  color: #EAF2EC;
+  border-color: #24312A;
   border-width: 1;
   border-radius: 8;
+}
+
+.system-name-modal TextField {
+  background-color: #1E2A22;
+  color: #EAF2EC;
+  placeholder-color: #9BB0A5;
 }

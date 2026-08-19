@@ -1,3 +1,4 @@
+import type { AssistantBridgePhase } from "../assistant/bridge-client";
 import { BdfFont } from "./bdffont";
 import { GrayImage, imageFromAsciiArt } from "./image";
 
@@ -12,6 +13,9 @@ const LABEL_VALUE = 150;
 // The brightness badge is a filled sun; a high value keeps the knocked-out
 // digits high-contrast against the bright disc.
 const BRIGHTNESS_VALUE = 200;
+// A live bridge link reads brightest (emphasis); dialling / failed states are
+// muted so a healthy connection is the one that stands out on the bar.
+const BRIDGE_LIVE_VALUE = 210;
 // 12 is even, so the 8px glyph ink centres exactly (2px disc margin each side).
 const SUN_DISC_HEIGHT = 12;
 const SUN_RAY_LENGTH = 2;
@@ -113,6 +117,70 @@ export function drawBrightnessBadge(font: BdfFont, content: string): GrayImage {
   const textY = Math.round(discY + (discH - 1) / 2 - SUN_GLYPH_INK_CENTER);
   image.drawText(font, textX, textY, content, 0);
   return image;
+}
+
+/**
+ * Hermes Agent bridge status: a small broadcast tower whose signal is encoded
+ * by fill rather than motion (the HUD frame is static). Connected shows both
+ * uplink arcs at full brightness; connecting drops the outer arc and dims, so
+ * it reads as a weaker/pending link; idle and failed drop both arcs and cut a
+ * diagonal slash through the tower — a plainly broken/off link.
+ */
+export function bridgeStatusIcon(phase: AssistantBridgePhase): GrayImage {
+  switch (phase) {
+    case "connected":
+      return imageFromAsciiArt(
+        [
+          "#.......#",
+          ".#.....#.",
+          "..#...#..",
+          "...#.#...",
+          "....#....",
+          "....#....",
+          "....#....",
+          "....#....",
+          "...#.#...",
+          "..#...#..",
+          ".#.....#.",
+        ],
+        BRIDGE_LIVE_VALUE,
+      );
+    case "connecting":
+      return imageFromAsciiArt(
+        [
+          ".........",
+          ".........",
+          "..#...#..",
+          "...#.#...",
+          "....#....",
+          "....#....",
+          "....#....",
+          "....#....",
+          "...#.#...",
+          "..#...#..",
+          ".#.....#.",
+        ],
+        LABEL_VALUE,
+      );
+    case "idle":
+    case "failed":
+      return imageFromAsciiArt(
+        [
+          "........#",
+          ".......#.",
+          "......#..",
+          "......#..",
+          "....##...",
+          "....#....",
+          "...##....",
+          "..#.#....",
+          "..##.#...",
+          ".##...#..",
+          "##.....#.",
+        ],
+        LABEL_VALUE,
+      );
+  }
 }
 
 export function batteryLabelIcon(kind: "phone" | "glasses" | "ring"): GrayImage {
