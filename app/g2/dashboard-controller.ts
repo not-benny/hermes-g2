@@ -23,6 +23,7 @@ import { registerSystemTools } from "../assistant/system-tools";
 import { registerNavigateTools } from "../assistant/navigate-tools";
 import { registerRoamTools } from "../assistant/roam-tools";
 import { assistantBridge } from "../assistant/bridge-client";
+import { ringHealthStore } from "../health/ring-health-store";
 import { registerWindowTools } from "../assistant/window-tools";
 import { registerTimerTools } from "../assistant/timer-tools";
 import { WorkerAppHost } from "../ui/shell/worker-window";
@@ -177,6 +178,8 @@ class DashboardController {
   private offLog: (() => void) | null = null;
   private offRing: (() => void) | null = null;
   private offBattery: (() => void) | null = null;
+  private offRingHealthFrame: (() => void) | null = null;
+  private offRingHealthChange: (() => void) | null = null;
   private offSilentMode: (() => void) | null = null;
   private offWearState: (() => void) | null = null;
   private offPhoneLockState: (() => void) | null = null;
@@ -1005,11 +1008,26 @@ class DashboardController {
         shell.setBatteryLevels({
           headset: state.battery,
           headsetCharging: state.chargingStatus > 0,
-          ring: state.ringBattery >= 0 ? state.ringBattery : null,
+          // The standard GATT battery service is usually absent on the ring
+          // (-1); fall back to the protocol-decoded deviceStatus percent.
+          ring: state.ringBattery >= 0 ? state.ringBattery : ringHealthStore.snapshot().batteryPercent,
           ringCharging: null,
         });
         if ((this.phase === "connected" || this.phase === "charging") && this.communicator) {
           // Repaint the top bar (battery indicators live in the shell chrome).
+          this.requestShellRender();
+        }
+      });
+      ringHealthStore.setLog((line) => this.appendLog(line));
+      this.offRingHealthFrame = communicator.onRingHealthFrame((frame) => {
+        ringHealthStore.ingestFrame(frame.data);
+      });
+      this.offRingHealthChange = ringHealthStore.onChange((snapshot) => {
+        shell.setRingHeartRate(snapshot.heartRate?.latest ?? null);
+        if (snapshot.batteryPercent !== null) {
+          shell.setBatteryLevels({ ring: snapshot.batteryPercent });
+        }
+        if ((this.phase === "connected" || this.phase === "charging") && this.communicator) {
           this.requestShellRender();
         }
       });
@@ -1135,6 +1153,10 @@ class DashboardController {
       this.offRing = null;
       this.offBattery?.();
       this.offBattery = null;
+      this.offRingHealthFrame?.();
+      this.offRingHealthFrame = null;
+      this.offRingHealthChange?.();
+      this.offRingHealthChange = null;
       this.offSilentMode?.();
       this.offSilentMode = null;
       this.offWearState?.();
@@ -1187,6 +1209,10 @@ class DashboardController {
     this.offRing = null;
     this.offBattery?.();
     this.offBattery = null;
+    this.offRingHealthFrame?.();
+    this.offRingHealthFrame = null;
+    this.offRingHealthChange?.();
+    this.offRingHealthChange = null;
     this.offSilentMode?.();
     this.offSilentMode = null;
     this.offWearState?.();

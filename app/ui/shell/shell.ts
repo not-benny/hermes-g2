@@ -256,6 +256,8 @@ class Shell {
   private lastBatteryDisplayMode: string | null = null;
   private lastTimeFormat: string | null = null;
   private lastBrightness: string | null = null;
+  /** Latest ring heart rate (bpm) for the top-bar HUD, null when unknown. */
+  private ringHeartRate: number | null = null;
   private lastBridgeBackend: string | null = null;
   private lastBridgeHost: string | null = null;
   private bridgePhase: AssistantBridgePhase = assistantBridge.state().phase;
@@ -392,6 +394,14 @@ class Shell {
   setWindowAttention(windowId: string, attention: boolean): void {
     if (Boolean(this.attention.get(windowId)) === attention) return;
     this.attention.set(windowId, attention);
+    this.config.requestShellRender();
+  }
+
+  /** Latest ring heart rate for the HUD; repaints the top bar on change. */
+  setRingHeartRate(bpm: number | null): void {
+    const next = bpm !== null && Number.isFinite(bpm) ? Math.round(bpm) : null;
+    if (next === this.ringHeartRate) return;
+    this.ringHeartRate = next;
     this.config.requestShellRender();
   }
 
@@ -1155,6 +1165,7 @@ class Shell {
       ...this.reorderChromeState(),
       foregroundHeightMode: this.foregroundWindow()?.heightMode ?? "min",
       battery: this.battery,
+      ringHeartRate: this.ringHeartRate,
       trayIcons: Array.from(this.trayIcons.keys())
         .sort()
         .map((key) => this.trayIcons.get(key)!),

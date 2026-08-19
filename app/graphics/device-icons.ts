@@ -71,6 +71,19 @@ export const RING_ICON = imageFromAsciiArt(
   LABEL_VALUE,
 );
 
+/** Heart-rate label: a small filled heart, drawn beside the live bpm value. */
+export const HEART_ICON = imageFromAsciiArt(
+  [
+    ".##.##.",
+    "#######",
+    "#######",
+    ".#####.",
+    "..###..",
+    "...#...",
+  ],
+  LABEL_VALUE,
+);
+
 /**
  * Brightness badge: a small sun (a rounded body with eight rays) with text in
  * the middle — the level percentage when a fixed brightness is set, or "A"

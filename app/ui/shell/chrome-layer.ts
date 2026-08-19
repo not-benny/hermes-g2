@@ -1,7 +1,7 @@
 import { G2_LENS_HEIGHT, G2_LENS_WIDTH, GrayImage } from "../../graphics/image";
 import { getDefaultMediumFont, getDefaultSmallFont } from "../../graphics/bdffont";
 import { BATTERY_ICON_WIDTH, drawBattery } from "../../graphics/battery";
-import { batteryLabelIcon, bridgeStatusIcon, drawBrightnessBadge } from "../../graphics/device-icons";
+import { batteryLabelIcon, bridgeStatusIcon, drawBrightnessBadge, HEART_ICON } from "../../graphics/device-icons";
 import type { AssistantBridgePhase } from "../../assistant/bridge-client";
 import { readActiveNotificationIcons } from "../../native/notification-icons";
 import { readPhoneBatteryState } from "../../native/phone-battery";
@@ -71,6 +71,8 @@ export type ShellChromeState = {
   foregroundHeightMode: WindowHeightMode;
   /** Vertical bounce offset for the sidebar tab list when stopped at an end. */
   sidebarBounceY: number;
+  /** Ring heart rate (bpm) for the HUD, null hides the readout entirely. */
+  ringHeartRate: number | null;
   battery: {
     headset: number | null;
     headsetCharging: boolean | null;
@@ -348,6 +350,15 @@ export class ShellChromeLayer implements Layer {
       const bridge = bridgeStatusIcon(state.bridge.phase);
       leftEdge -= 10 + bridge.width;
       image.bitBlt(bridge, leftEdge, centerY(bridge.height), { transparentZero: true });
+    }
+
+    // Ring heart rate, leftmost in the block: a small heart plus the live bpm,
+    // shown only once the ring has synced a reading.
+    if (state.ringHeartRate !== null && Number.isFinite(state.ringHeartRate)) {
+      const bpmText = String(Math.max(0, Math.min(255, Math.round(state.ringHeartRate))));
+      leftEdge -= 10 + HEART_ICON.width + labelGap + font.measureText(bpmText);
+      image.bitBlt(HEART_ICON, leftEdge, centerY(HEART_ICON.height), { transparentZero: true });
+      image.drawText(font, leftEdge + HEART_ICON.width + labelGap, textY, bpmText, 200);
     }
     return leftEdge;
   }

@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-08-20 (later the same day)
+
+Live ring health in the HUD, verified on hardware.
+
+- The ring's health frames now flow end to end: the BLE layer forwards
+  every data-notify frame to a new decode store that reassembles and
+  CRC-checks multi-packet batches and keeps the latest value per metric.
+  The health probe additionally requests the ring's device status, whose
+  response carries the battery percent.
+- The top bar shows a live heart-rate readout (heart glyph plus bpm) and
+  the ring battery gauge, verified on a real rig: heart rate, SpO2, HRV,
+  activity and ring battery all decoded from a live sync
+  (screenshots/launcher-health-hud-green.png).
+- The onboarding wordmark is recolored for the dark theme.
+- The phone app is locked to portrait orientation.
+
 ## 2026-08-20
 
 Reliability batch, dark phone UI, ring health parser, and a bridge status
