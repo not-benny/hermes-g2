@@ -20,6 +20,14 @@ export type CommunicatorState = {
 
 export type RingConnectionState = "not-configured" | "idle" | "retrying" | "subscribing" | "ready";
 
+/** One raw frame from the ring's health/command notify characteristic. */
+export type RingHealthFrame = {
+  /** Short characteristic uuid, e.g. "bae80013". */
+  charUuid: string;
+  /** The raw notify frame bytes (fragment header + payload). */
+  data: Uint8Array;
+};
+
 export type HeadsetBatteryState = {
   battery: number;
   chargingStatus: number;
@@ -110,6 +118,18 @@ function nonNegativeNumber(value: number): number {
   return Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
 }
 
+/** Decode the Java side's continuous lowercase-hex encoding; null if invalid. */
+function bytesFromHex(hexData: string): Uint8Array | null {
+  if (hexData.length === 0 || hexData.length % 2 !== 0) return null;
+  const bytes = new Uint8Array(hexData.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    const byte = Number.parseInt(hexData.slice(i * 2, i * 2 + 2), 16);
+    if (Number.isNaN(byte)) return null;
+    bytes[i] = byte;
+  }
+  return bytes;
+}
+
 export class FaceclawCommunicatorBridge {
   private readonly communicator: any;
   private readonly listenerProxy: any;
@@ -123,6 +143,7 @@ export class FaceclawCommunicatorBridge {
   private readonly stateListeners = new Set<(state: CommunicatorState) => void>();
   private readonly ringListeners = new Set<(event: RawInputEvent) => void>();
   private readonly batteryListeners = new Set<(state: HeadsetBatteryState) => void>();
+  private readonly ringHealthFrameListeners = new Set<(frame: RingHealthFrame) => void>();
   private readonly silentModeListeners = new Set<(silent: boolean) => void>();
   private readonly wearStateListeners = new Set<(wearing: boolean) => void>();
   private readonly phoneLockStateListeners = new Set<(locked: boolean) => void>();
@@ -171,6 +192,11 @@ export class FaceclawCommunicatorBridge {
         };
         frameTimings.logFrame(event.frameId, "input event received on JS side");
         this.emitAsync(this.ringListeners, event);
+      },
+      onRingHealthFrame: (charUuid: string, hexData: string) => {
+        const data = bytesFromHex(String(hexData));
+        if (!data) return;
+        this.emitAsync(this.ringHealthFrameListeners, { charUuid: String(charUuid), data });
       },
       onBatteryState: (headsetBattery: number, headsetCharging: number, ringBattery: number) => {
         const state = {
@@ -269,6 +295,15 @@ export class FaceclawCommunicatorBridge {
   onBatteryState(listener: (state: HeadsetBatteryState) => void): () => void {
     this.batteryListeners.add(listener);
     return () => this.batteryListeners.delete(listener);
+  }
+
+  /**
+   * Raw frames from the ring's health/command notify characteristic
+   * (bae80013), forwarded verbatim for the app/health decode path.
+   */
+  onRingHealthFrame(listener: (frame: RingHealthFrame) => void): () => void {
+    this.ringHealthFrameListeners.add(listener);
+    return () => this.ringHealthFrameListeners.delete(listener);
   }
 
   /**

@@ -1265,6 +1265,11 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             }
             logLine("direct ring notify " + shortCharUuid(characteristicUuid) + " "
                 + describeRingFrame(data) + " raw=" + hex(data));
+            if (BleProtocol.R1_NOTIFY_CHAR_UUID.equalsIgnoreCase(characteristicUuid)) {
+                // Health/command channel: hand the raw frame to the JS decode
+                // path (app/health) for reassembly and state.health population.
+                emitRingHealthFrame(shortCharUuid(characteristicUuid), hex(data));
+            }
             return;
         }
 
@@ -1629,6 +1634,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         sendRingCommand("activity/daily GET", 0x02, 0x05, 0x01, 0x00, null);
         ringProbeGap();
         sendRingCommand("sleep/daily GET", 0x02, 0x06, 0x01, 0x00, null);
+        ringProbeGap();
+        // deviceStatus GET: module=system(1), cmd=system(0), subCmd=deviceStatus(1).
+        // The status=3 response carries the ring battery percent in data[0].
+        sendRingCommand("deviceStatus GET (battery)", 0x01, 0x00, 0x01, 0x00, null);
         logLine("ring health sync SENT — watch bae80013 for decoded FRAME replies (raw= hex)");
     }
 
@@ -3269,6 +3278,20 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 current.onPhoneLockState(locked);
             } catch (Throwable t) {
                 Log.w(TAG, "listener onPhoneLockState failed", t);
+            }
+        });
+    }
+
+    private void emitRingHealthFrame(String charUuid, String hexData) {
+        final FaceclawBleCommunicatorListener current = listener;
+        if (current == null) {
+            return;
+        }
+        mainHandler.post(() -> {
+            try {
+                current.onRingHealthFrame(charUuid, hexData);
+            } catch (Throwable t) {
+                Log.w(TAG, "listener onRingHealthFrame failed", t);
             }
         });
     }
