@@ -1,6 +1,7 @@
-import { NavigatedData, Page } from "@nativescript/core";
+import { EventData, NavigatedData, Page } from "@nativescript/core";
 
 import { ConfigViewModel } from "./config-view-model";
+import { applyInputColors } from "./input-colors";
 
 export function navigatingTo(args: NavigatedData): void {
   const page = args.object as Page;
@@ -10,4 +11,8 @@ export function navigatingTo(args: NavigatedData): void {
     const context = (args.context as { onboarding?: boolean } | undefined) ?? undefined;
     page.bindingContext = new ConfigViewModel({ onboarding: context?.onboarding ?? false });
   }
+}
+
+export function loaded(args: EventData): void {
+  applyInputColors(args.object as Page);
 }

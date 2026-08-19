@@ -25,6 +25,7 @@ import {
   type InProcessAppOptions,
   type InProcessWindow,
 } from "../../ui/shell/in-process-window";
+import { shell } from "../../ui/shell/shell";
 
 export const MUSIC_WINDOW_ID = "music";
 export const MUSIC_SURFACE_ID = "window:music";
@@ -472,6 +473,21 @@ export function createMusicAppWindow(options: InProcessAppOptions): InProcessWin
       progressTimer = null;
     }
   };
+  const syncProgressTimer = () => {
+    const state = mediaControllerBridge.snapshot();
+    if (
+      shell.foregroundWindow()?.windowId === MUSIC_WINDOW_ID &&
+      state.playbackState === "playing" &&
+      state.durationMs > 0 &&
+      state.positionMs >= 0
+    ) {
+      progressTimer ??= setInterval(() => {
+        if (shell.isWindowVisible(MUSIC_WINDOW_ID)) app.requestRender();
+      }, 1_000);
+    } else {
+      stopProgressTimer();
+    }
+  };
   const app = createInProcessWindow({
     appId: "music",
     windowId: MUSIC_WINDOW_ID,
@@ -482,7 +498,10 @@ export function createMusicAppWindow(options: InProcessAppOptions): InProcessWin
     actions: options.actions,
     baseLayer: new MusicRootLayer(musicLayer),
     submitFrame: options.submitFrame,
-    setSurfaceVisible: options.setSurfaceVisible,
+    setSurfaceVisible: (visible) => {
+      options.setSurfaceVisible(visible);
+      syncProgressTimer();
+    },
     removeSurface: options.removeSurface,
     onClosed: () => {
       stopProgressTimer();
@@ -491,13 +510,9 @@ export function createMusicAppWindow(options: InProcessAppOptions): InProcessWin
       options.onClosed();
     },
   });
-  unsubscribe = mediaControllerBridge.onStateChange((state) => {
-    if (state.playbackState === "playing" && state.durationMs > 0 && state.positionMs >= 0) {
-      progressTimer ??= setInterval(() => app.requestRender(), 1_000);
-    } else {
-      stopProgressTimer();
-    }
-    app.requestRender();
+  unsubscribe = mediaControllerBridge.onStateChange(() => {
+    syncProgressTimer();
+    if (shell.isWindowVisible(MUSIC_WINDOW_ID)) app.requestRender();
   });
   return app;
 }

@@ -22,6 +22,9 @@ declare const com: any;
 const PROTOCOL_VERSION = 1;
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 60_000;
+const PING_INTERVAL_MS = 20_000;
+/** No inbound traffic for this long => the link is dead (half-open TCP). */
+const LIVENESS_TIMEOUT_MS = 45_000;
 /** Backstop on a turn the bridge never finishes (server-side cap is 2 min). */
 const TURN_TIMEOUT_MS = 3 * 60 * 1000;
 
@@ -57,6 +60,8 @@ export class AssistantBridgeClient {
   private stopped = true;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelayMs = RECONNECT_MIN_MS;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private lastTrafficMs = 0;
   private activeTurn: ActiveTurn | null = null;
   private turnSeq = 0;
   private mcpServer: AssistantMcpServer | null = null;
@@ -99,6 +104,7 @@ export class AssistantBridgeClient {
   stop(): void {
     this.stopped = true;
     this.clearReconnectTimer();
+    this.clearKeepalive();
     this.failActiveTurn("Bridge connection closed");
     if (this.unsubscribeToolsChanged) {
       this.unsubscribeToolsChanged();
@@ -175,13 +181,13 @@ export class AssistantBridgeClient {
         this.handleMessage(String(message));
       },
       onClosed: (code: number, reason: string) => {
-        if (this.stopped) return;
+        if (this.stopped || !this.ws) return;
         this.handleConnectionLost(
           `Connection closed (${Number(code)}${reason ? `: ${String(reason)}` : ""})`,
         );
       },
       onFailure: (message: string) => {
-        if (this.stopped) return;
+        if (this.stopped || !this.ws) return;
         this.handleConnectionLost(`Connection failed: ${String(message)}`);
       },
     });
@@ -196,6 +202,7 @@ export class AssistantBridgeClient {
   }
 
   private handleMessage(raw: string): void {
+    this.lastTrafficMs = Date.now();
     let frame: any = null;
     try {
       frame = JSON.parse(raw);
@@ -221,6 +228,8 @@ export class AssistantBridgeClient {
   private handleCtl(frame: any): void {
     if (frame.type === "hello-ack") {
       this.reconnectDelayMs = RECONNECT_MIN_MS;
+      this.lastTrafficMs = Date.now();
+      this.startKeepalive();
       this.setState("connected", `Connected to ${String(frame.serverName ?? "bridge")}`);
       return;
     }
@@ -269,6 +278,7 @@ export class AssistantBridgeClient {
   private handleConnectionLost(status: string): void {
     this.ws = null;
     this.listenerProxy = null;
+    this.clearKeepalive();
     // Keep a ctl-error status (e.g. "invalid token") in preference to the
     // generic close message that follows it.
     const detail = this.status.startsWith("Bridge error:") ? this.status : status;
@@ -279,7 +289,7 @@ export class AssistantBridgeClient {
 
   private scheduleReconnect(): void {
     if (this.stopped || this.reconnectTimer) return;
-    const delay = this.reconnectDelayMs;
+    const delay = this.reconnectDelayMs + Math.floor(Math.random() * (this.reconnectDelayMs / 2));
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, RECONNECT_MAX_MS);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -292,6 +302,34 @@ export class AssistantBridgeClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+  }
+
+  private startKeepalive(): void {
+    this.clearKeepalive();
+    this.pingTimer = setInterval(() => this.checkLiveness(), PING_INTERVAL_MS);
+  }
+
+  private clearKeepalive(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
+  private checkLiveness(): void {
+    if (this.phase !== "connected" || !this.ws) return;
+    if (Date.now() - this.lastTrafficMs > LIVENESS_TIMEOUT_MS) {
+      const ws = this.ws;
+      this.ws = null;
+      try {
+        ws.close(1000, "liveness timeout");
+      } catch {
+        // ignore
+      }
+      this.handleConnectionLost("Connection timed out (no traffic from bridge)");
+      return;
+    }
+    this.send({ chan: "ctl", type: "ping", ts: Date.now() });
   }
 
   private clearActiveTurn(): void {

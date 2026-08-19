@@ -43,6 +43,7 @@ const MAP_RETRY_BACKOFF_MS = 5_000;
 const REROUTE_MIN_INTERVAL_MS = 20_000;
 const FIRST_FIX_TIMEOUT_MS = 10_000;
 const LOCATION_INTERVAL_MS = 1_000;
+const NAV_RENDER_MIN_INTERVAL_MS = 1_500;
 /** Above this speed a GPS bearing is trustworthy for heading-up. */
 const BEARING_MIN_SPEED_MPS = 2.5;
 
@@ -131,6 +132,7 @@ let mapNextRetryAtMs = 0;
 let mapLastError = "";
 
 let tickTimer: ReturnType<typeof setInterval> | null = null;
+let lastNavRenderAtMs = 0;
 let firstFixWaiters: Array<(fix: TrackedLocation) => void> = [];
 
 const tracker = new LocationTracker({
@@ -333,7 +335,7 @@ function handleFix(fix: TrackedLocation): void {
     void maybeReroute(fix);
   }
   maybeRefreshMap();
-  render();
+  if (Date.now() - lastNavRenderAtMs >= NAV_RENDER_MIN_INTERVAL_MS) render();
 }
 
 async function maybeReroute(fix: TrackedLocation): Promise<void> {
@@ -386,6 +388,7 @@ function ensureTickTimer(): void {
   const shouldRun = phase === "navigating";
   if (shouldRun && tickTimer === null) {
     tickTimer = setInterval(() => {
+      if (!screenOn) return;
       maybeRefreshMap();
       render(); // ETA/minute updates; fingerprint dedup keeps the wire quiet.
     }, 2_000);
@@ -855,6 +858,10 @@ function render(): void {
 
 function renderAndSubmit(win: NavWindow, inputFrameId: number): void {
   if (!win.foreground && inputFrameId === 0) return;
+  if (!screenOn) {
+    if (inputFrameId > 0) frameTimings.finishFrame(inputFrameId, "discarded: navigate screen off");
+    return;
+  }
   const frameId = inputFrameId > 0 ? inputFrameId : frameTimings.startFrame(`render:${win.windowId}`);
   try {
     const paintStartedAtMs = Date.now();
@@ -885,6 +892,7 @@ function renderAndSubmit(win: NavWindow, inputFrameId: number): void {
       frameId,
     );
     win.lastSubmittedFingerprint = fingerprint;
+    lastNavRenderAtMs = Date.now();
   } catch (error) {
     frameTimings.finishFrame(frameId, "discarded: navigate render failed");
     console.error(`navigate worker render failed: ${error}`);

@@ -16,10 +16,14 @@ public class ConnectionOptions {
     public static final int RING_RECONNECT_MAX_DELAY_MS = 5 * 60_000;
     public static final int RING_CONNECT_TIMEOUT_MS = 2_500;
     public static final int RING_SERVICES_TIMEOUT_MS = 2_500;
+    public static final int RING_FAILURE_BREAKER_THRESHOLD = 5;
     public static final int WRITE_TIMEOUT_MS = 2_000;
     public static final int PRELUDE_TIMEOUT_MS = 2_000;
     public static final int ACK_TIMEOUT_MS = 3_500;
     public static final int HEARTBEAT_FAILURE_DEADLINE_MS = 10_000;
+    public static final int SOFT_RESYNC_RECENT_MS = 4_000;
+    public static final int SETUP_ACK_RETRY_LIMIT = 3;
+    public static final int CONNECTION_PRIORITY_REASSERT_MS = 30_000;
     public static final int HEARTBEAT_READY_MS = 4_000;
     public static final int HEARTBEAT_URGENT_MS = 6_000;
     public static final int BATTERY_REFRESH_INTERVAL_MS = 5 * 60_000;

@@ -1,4 +1,4 @@
-<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo">
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" loaded="loaded">
     <ActionBar title="API Keys &amp; Bridge" />
     <ScrollView>
         <StackLayout class="p-20">
