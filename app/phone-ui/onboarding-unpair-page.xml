@@ -1,12 +1,17 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" actionBarHidden="true">
     <GridLayout rows="*,auto" class="p-20">
         <ScrollView row="0">
-            <StackLayout>
-                <Label text="Disconnect the Even App" class="h1 text-center m-t-24" textWrap="true" />
-                <Label
-                    text="Hermes G2 and the official Even Realities app can't both be connected to the glasses at once. Before continuing, open the Even app, go to Home, select your glasses, open the Connection submenu, and press Disconnect (or turn off the Even app's Bluetooth)."
-                    class="m-t-24" textWrap="true" />
-                <Button text="Open Even App Settings" tap="{{ onOpenEvenAppSettingsTap }}" class="-primary m-t-24" />
+            <StackLayout verticalAlignment="center" class="p-8">
+                <StackLayout class="onb-card">
+                    <Label text="🔌" class="onb-icon text-center" />
+                    <Label text="Disconnect the Even app" class="h2 text-center m-t-8" textWrap="true" />
+                    <Label text="Hermes and the official Even Realities app can't both hold the glasses connection at once. In the Even app:"
+                           class="onb-body m-t-16" textWrap="true" />
+                    <Label text="1.  Open Home and select your glasses.&#10;2.  Open the Connection submenu.&#10;3.  Press Disconnect (or turn off the Even app's Bluetooth)."
+                           class="onb-body m-t-8" textWrap="true" />
+                    <Label text="Then come back here and continue." class="onb-body m-t-8" textWrap="true" />
+                    <Button text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" class="m-t-16" />
+                </StackLayout>
             </StackLayout>
         </ScrollView>
 
