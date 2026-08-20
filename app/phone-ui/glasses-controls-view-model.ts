@@ -71,9 +71,10 @@ export class GlassesControlsViewModel extends Observable {
     return this._screenOn ? "Blank screen" : "Wake screen";
   }
 
-  get brightnessLabel(): string {
-    return `Brightness: ${brightnessSetting.displayValue()}`;
-  }
+  get brightnessSliderValue(): number { return this.enumIndex(brightnessSetting); }
+  set brightnessSliderValue(value: number) { this.setEnumSlider(brightnessSetting, value, "brightnessValueLabel"); }
+  get brightnessSliderMax(): number { return this.enumSliderMax(brightnessSetting); }
+  get brightnessValueLabel(): string { return brightnessSetting.displayValue(); }
 
   get timeoutLabel(): string {
     return `Screen timeout: ${screenTimeoutSetting.displayValue()}`;
@@ -110,9 +111,10 @@ export class GlassesControlsViewModel extends Observable {
     return RING_STATUS_LABELS[this._ringConnectionState];
   }
 
-  get ringSensitivityLabel(): string {
-    return `Ring sensitivity: ${ringSensitivitySetting.displayValue()}`;
-  }
+  get ringSensitivitySliderValue(): number { return this.enumIndex(ringSensitivitySetting); }
+  set ringSensitivitySliderValue(value: number) { this.setEnumSlider(ringSensitivitySetting, value, "ringSensitivityValueLabel"); }
+  get ringSensitivitySliderMax(): number { return this.enumSliderMax(ringSensitivitySetting); }
+  get ringSensitivityValueLabel(): string { return ringSensitivitySetting.displayValue(); }
 
   get voiceControlChecked(): boolean {
     return voiceControlEnabledSetting.get();
@@ -171,11 +173,6 @@ export class GlassesControlsViewModel extends Observable {
     this.setStatus(dashboardController.sleepGlassesScreen() ? "Screen blanked." : "Connect to the glasses first.");
   }
 
-  onBrightnessTap(): void {
-    brightnessSetting.set(brightnessSetting.next());
-    this.setStatus(`Set ${brightnessSetting.displayValue()} brightness.`);
-  }
-
   onTimeoutTap(): void {
     screenTimeoutSetting.set(screenTimeoutSetting.next());
     this.setStatus(`Set screen timeout to ${screenTimeoutSetting.displayValue()}.`);
@@ -204,11 +201,6 @@ export class GlassesControlsViewModel extends Observable {
   async onReconnectRingTap(): Promise<void> {
     const queued = await dashboardController.reconnectRing();
     this.setStatus(queued ? "R1 reconnect requested." : "R1 needs a configured address and an active glasses session.");
-  }
-
-  onRingSensitivityTap(): void {
-    ringSensitivitySetting.set(ringSensitivitySetting.next());
-    this.setStatus(`Ring sensitivity set to ${ringSensitivitySetting.displayValue()}.`);
   }
 
   onVoiceProviderTap(): void {
@@ -247,14 +239,14 @@ export class GlassesControlsViewModel extends Observable {
 
   private refreshSettingLabels(): void {
     for (const property of [
-      "brightnessLabel",
+      "brightnessValueLabel",
       "timeoutLabel",
       "lockScreenChecked",
       "verticalPositionLabel",
       "timeFormatIndex",
       "batteryDisplayIndex",
       "dashboardSizeIndex",
-      "ringSensitivityLabel",
+      "ringSensitivityValueLabel",
       "voiceControlChecked",
       "uiFontIndex",
       "voiceProviderLabel",
@@ -300,6 +292,27 @@ export class GlassesControlsViewModel extends Observable {
     if (value === undefined || value === setting.get()) return;
     setting.set(value);
     this.notifyPropertyChange(property, index);
+    this.setStatus(`${setting.label} set to ${setting.displayValue()}.`);
+  }
+
+  /** Top index for a Slider that runs over an enum's values. */
+  private enumSliderMax(setting: ConfigSettingEnum<string>): number {
+    return Math.max(0, setting.values.length - 1);
+  }
+
+  /**
+   * Persist an enum from a Slider value (a continuous float over the value
+   * index). Rounds to the nearest value and guards no-op writes so dragging
+   * only writes when it crosses into a new value. Deliberately does NOT notify
+   * the slider's own value back mid-drag (that would fight the finger); the
+   * value chip label is notified instead so it tracks the drag.
+   */
+  private setEnumSlider(setting: ConfigSettingEnum<string>, sliderValue: number, labelProperty: string): void {
+    const index = Math.max(0, Math.min(this.enumSliderMax(setting), Math.round(sliderValue)));
+    const value = setting.values[index];
+    if (value === undefined || value === setting.get()) return;
+    setting.set(value);
+    this.notifyPropertyChange(labelProperty, setting.displayValue());
     this.setStatus(`${setting.label} set to ${setting.displayValue()}.`);
   }
 }

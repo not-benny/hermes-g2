@@ -9,7 +9,13 @@
                 <Button col="0" text="Wake screen" tap="{{ onWakeScreenTap }}" isEnabled="{{ canControl }}" />
                 <Button col="1" text="Blank screen" tap="{{ onBlankScreenTap }}" isEnabled="{{ canControl }}" />
             </GridLayout>
-            <Button text="{{ brightnessLabel }}" tap="{{ onBrightnessTap }}" class="m-t-8" />
+            <StackLayout class="control-row">
+                <GridLayout columns="*,auto">
+                    <Label col="0" text="Brightness" class="control-row-label" />
+                    <Label col="1" text="{{ brightnessValueLabel }}" class="control-row-value" />
+                </GridLayout>
+                <Slider minValue="0" maxValue="{{ brightnessSliderMax }}" value="{{ brightnessSliderValue }}" class="m-t-4" />
+            </StackLayout>
             <Button text="{{ timeoutLabel }}" tap="{{ onTimeoutTap }}" class="m-t-8" />
             <GridLayout columns="*,auto" class="control-row">
                 <Label col="0" text="Lock screen" class="control-row-label" />
@@ -40,7 +46,13 @@
                 <Button col="1" text="Open compass" tap="{{ onOpenCompassTap }}" isEnabled="{{ canControl }}" />
             </GridLayout>
             <Label text="{{ ringStatus }}" textWrap="true" class="m-t-12" />
-            <Button text="{{ ringSensitivityLabel }}" tap="{{ onRingSensitivityTap }}" class="m-t-8" />
+            <StackLayout class="control-row">
+                <GridLayout columns="*,auto">
+                    <Label col="0" text="Ring sensitivity" class="control-row-label" />
+                    <Label col="1" text="{{ ringSensitivityValueLabel }}" class="control-row-value" />
+                </GridLayout>
+                <Slider minValue="0" maxValue="{{ ringSensitivitySliderMax }}" value="{{ ringSensitivitySliderValue }}" class="m-t-4" />
+            </StackLayout>
             <Button text="Reconnect R1" tap="{{ onReconnectRingTap }}" isEnabled="{{ canControl }}" class="m-t-8" />
             <Button text="Reconnect glasses" tap="{{ onReconnectGlassesTap }}" class="m-t-8" />
 
