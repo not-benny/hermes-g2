@@ -83,19 +83,58 @@ test("ring lifecycle state and wakeups are isolated from the display sleeper", (
 
 test("disconnect quiesces both workers before closing BLE", () => {
   const body = methodBody(communicator, "public void disconnect()");
+  const stoppingGate = body.indexOf("stopping = true");
+  const framebufferRelease = body.indexOf("releaseFaceclawFramebufferLease()");
   const ringInterrupt = body.indexOf("ringThreadToJoin.interrupt()");
-  const ringJoin = body.indexOf("ringThreadToJoin.join(");
+  const ringJoin = body.indexOf("joinWorker(ringThreadToJoin)");
   const managerClose = body.indexOf("bleManager.close()");
+  assert.ok(stoppingGate >= 0 && framebufferRelease > stoppingGate, "ring work is excluded before framebuffer release can wait");
   assert.ok(ringInterrupt >= 0 && ringJoin > ringInterrupt && managerClose > ringJoin);
   assert.ok(
-    body.indexOf("threadToJoin.interrupt()") < body.indexOf("threadToJoin.join("),
+    body.indexOf("threadToJoin.interrupt()") < body.indexOf("joinWorker(threadToJoin)"),
     "display worker is interrupted before either bounded join",
   );
   assert.ok(
-    ringInterrupt < body.indexOf("threadToJoin.join("),
+    ringInterrupt < body.indexOf("joinWorker(threadToJoin)"),
     "ring worker is interrupted before waiting for the display worker",
   );
   assert.match(body, /ringInterruptibleSleep\.interrupt\(\)/);
+  assert.match(body, /synchronized \(lifecycleLock\)/, "start and teardown share one lifecycle serialization lock");
+  assert.match(methodBody(communicator, "public void start()"), /synchronized \(lifecycleLock\)/);
+  assert.match(methodBody(communicator, "public void start()"), /if \(running \|\| stopping\)/);
+
+  const joinWorker = methodBody(communicator, "private boolean joinWorker(Thread thread)");
+  assert.match(joinWorker, /thread\.join\(5_000\)/);
+  assert.match(joinWorker, /return !thread\.isAlive\(\)/);
+  const quiescenceGuard = body.indexOf("if (!displayWorkerStopped || !ringWorkerStopped)");
+  assert.ok(quiescenceGuard > ringJoin, "both bounded joins are checked before teardown continues");
+  assert.ok(body.indexOf("resetSessionStateLocked()") > quiescenceGuard);
+  assert.ok(body.indexOf("resetRingStateLocked()") > quiescenceGuard);
+  assert.ok(managerClose > quiescenceGuard, "BLE manager close is unreachable after a live-worker join");
+});
+
+test("stopping is a durable gate for every direct-ring entry and side effect", () => {
+  assert.match(communicator, /private volatile boolean stopping/);
+  for (const signature of [
+    "public boolean requestRingReconnect()",
+    "private boolean shouldAttemptRingConnect()",
+    "private void tryConnectRing(String reason)",
+    "private void handleRingFailure(String reason, Throwable failure)",
+    "private int connectRing()",
+    "private void queueRingPacketAck(byte[] frame)",
+    "private boolean isRingOperationAllowedLocked(int generation)",
+    "private void sendRawRingFrame(String label, byte[] frame)",
+  ]) {
+    assert.match(methodBody(communicator, signature), /stopping/, `${signature} must reject work during teardown`);
+  }
+  assert.match(methodBody(communicator, "private void runRingLoop()"), /!stopping/);
+  assert.match(methodBody(communicator, "public void onConnectionStateChange(String address, boolean connected)"), /if \(stopping\)[^{]*\{\s*return;/);
+  assert.ok(
+    (methodBody(communicator, "private int connectRing()").match(/ensureRingConnectAllowed\(\)/g) || []).length >= 6,
+    "each connect/discovery/MTU/subscription stage revalidates teardown",
+  );
+  assert.match(methodBody(communicator, "private void refreshRingBattery(int generation)"), /ensureRingConnectAllowed\(\)/);
+  assert.match(methodBody(communicator, "private boolean enableRingNotification(String characteristicUuid)"), /ensureRingConnectAllowed\(\)/);
 });
 
 test("BLE waits serialize per address while the process-wide API lock is initiation-only", () => {

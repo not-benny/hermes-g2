@@ -63,6 +63,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private final FaceclawBleManager bleManager;
     private final InterruptibleSleep interruptibleSleep = new InterruptibleSleep();
     private final InterruptibleSleep ringInterruptibleSleep = new InterruptibleSleep();
+    private final Object lifecycleLock = new Object();
     private final Object lock = new Object();
     private final Object ringLock = new Object();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -78,6 +79,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private volatile Thread workerThread;
     private volatile Thread ringWorkerThread;
     private volatile boolean running;
+    private volatile boolean stopping;
     private volatile boolean userDisconnectRequested;
 
     private String phase = "disconnected";
@@ -263,81 +265,104 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     public void start() {
-        synchronized (lock) {
-            if (running) {
-                return;
+        synchronized (lifecycleLock) {
+            synchronized (lock) {
+                if (running || stopping) {
+                    return;
+                }
+                running = true;
+                userDisconnectRequested = false;
+                shutdownRequested = false;
+                activeInstance = this;
+                workerThread = new Thread(this, "FaceclawBleCommunicator");
+                ringWorkerThread = new Thread(this::runRingLoop, "FaceclawRingLink");
+                workerThread.start();
+                ringWorkerThread.start();
             }
-            running = true;
-            userDisconnectRequested = false;
-            shutdownRequested = false;
-            activeInstance = this;
-            workerThread = new Thread(this, "FaceclawBleCommunicator");
-            ringWorkerThread = new Thread(this::runRingLoop, "FaceclawRingLink");
-            workerThread.start();
-            ringWorkerThread.start();
         }
     }
 
     public void disconnect() {
-        releaseFaceclawFramebufferLease();
-        Thread threadToJoin;
-        Thread ringThreadToJoin;
-        synchronized (lock) {
-            userDisconnectRequested = true;
-            running = false;
-            audioCaptureActive = false;
-            audioPacketListener = null;
-            threadToJoin = workerThread;
-            ringThreadToJoin = ringWorkerThread;
-        }
-        setStateDisplay("disconnecting", "Disconnecting...");
-        interruptibleSleep.interrupt();
-        ringInterruptibleSleep.interrupt();
-        if (threadToJoin != null) {
-            threadToJoin.interrupt();
-        }
-        if (ringThreadToJoin != null) {
-            ringThreadToJoin.interrupt();
-        }
-        // The ring lock is the final write boundary. Once the worker has been
-        // interrupted, passing this barrier proves no ring write remains active
-        // and running=false prevents another one from starting.
-        synchronized (ringLock) {
-            // Barrier only.
-        }
-        if (threadToJoin != null) {
-            try {
-                threadToJoin.join(5_000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+        synchronized (lifecycleLock) {
+            Thread threadToJoin;
+            Thread ringThreadToJoin;
+            boolean releaseFramebufferLease;
+            synchronized (lock) {
+                releaseFramebufferLease = !stopping;
+                stopping = true;
+                threadToJoin = workerThread;
+                ringThreadToJoin = ringWorkerThread;
             }
-        }
-        if (ringThreadToJoin != null) {
-            try {
-                ringThreadToJoin.join(5_000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+
+            // Stop optional R1 work at method entry. The display worker remains
+            // alive briefly so it can deliver the required framebuffer release.
+            ringInterruptibleSleep.interrupt();
+            if (ringThreadToJoin != null) {
+                ringThreadToJoin.interrupt();
             }
+            synchronized (ringLock) {
+                // Final ring-write barrier after stopping became visible.
+            }
+            if (releaseFramebufferLease) {
+                releaseFaceclawFramebufferLease();
+            }
+
+            synchronized (lock) {
+                userDisconnectRequested = true;
+                running = false;
+                audioCaptureActive = false;
+                audioPacketListener = null;
+            }
+            setStateDisplay("disconnecting", "Disconnecting...");
+            interruptibleSleep.interrupt();
+            ringInterruptibleSleep.interrupt();
+            if (threadToJoin != null) {
+                threadToJoin.interrupt();
+            }
+            if (ringThreadToJoin != null) {
+                ringThreadToJoin.interrupt();
+            }
+
+            boolean displayWorkerStopped = joinWorker(threadToJoin);
+            boolean ringWorkerStopped = joinWorker(ringThreadToJoin);
+            if (!displayWorkerStopped || !ringWorkerStopped) {
+                logLine("disconnect incomplete; worker did not stop before timeout");
+                return;
+            }
+
+            synchronized (lock) {
+                workerThread = null;
+                resetSessionStateLocked();
+                clearAllMessagesLocked("disconnect");
+                // Unknown until the next connection's first push or settings poll.
+                silentMode = -1;
+            }
+            synchronized (ringLock) {
+                ringWorkerThread = null;
+                resetRingStateLocked();
+            }
+            bleManager.disconnect(rightAddress);
+            bleManager.disconnect(leftAddress);
+            if (hasRingAddress()) {
+                bleManager.disconnect(ringAddress);
+            }
+            bleManager.close();
+            releaseG2ScreenWakeLock();
+            setStateDisplay("disconnected", "Disconnected.");
         }
-        synchronized (lock) {
-            workerThread = null;
-            resetSessionStateLocked();
-            clearAllMessagesLocked("disconnect");
-            // Unknown until the next connection's first push or settings poll.
-            silentMode = -1;
+    }
+
+    private boolean joinWorker(Thread thread) {
+        if (thread == null) {
+            return true;
         }
-        synchronized (ringLock) {
-            ringWorkerThread = null;
-            resetRingStateLocked();
+        try {
+            thread.join(5_000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
-        bleManager.disconnect(rightAddress);
-        bleManager.disconnect(leftAddress);
-        if (hasRingAddress()) {
-            bleManager.disconnect(ringAddress);
-        }
-        bleManager.close();
-        releaseG2ScreenWakeLock();
-        setStateDisplay("disconnected", "Disconnected.");
+        return !thread.isAlive();
     }
 
     public void close() {
@@ -373,10 +398,13 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     /** Request the dedicated R1 worker to retry the optional direct link. */
     public boolean requestRingReconnect() {
-        if (!hasRingAddress() || !running || !sessionReady) {
+        if (!hasRingAddress() || stopping || !running || !sessionReady) {
             return false;
         }
         synchronized (ringLock) {
+            if (stopping) {
+                return false;
+            }
             if (ringNotificationsReady) {
                 return true;
             }
@@ -1096,7 +1124,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     private void runRingLoop() {
         logLine("direct ring worker start");
-        while (running) {
+        while (running && !stopping) {
             try {
                 if (!hasRingAddress() || !sessionReady) {
                     ringInterruptibleSleep.sleep(ConnectionOptions.IDLE_SLEEP_MS);
@@ -1115,7 +1143,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 maybeReRingCurrentHrPoll();
                 ringInterruptibleSleep.sleep(nextRingLoopSleepMs());
             } catch (Throwable t) {
-                if (!running) {
+                if (!running || stopping) {
                     break;
                 }
                 logLine("direct ring worker error: " + safeMessage(t));
@@ -1399,9 +1427,12 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (address == null) {
             return;
         }
+        if (stopping) {
+            return;
+        }
         if (isConfiguredRingAddress(address)) {
             synchronized (ringLock) {
-                if (connected && !running) {
+                if (stopping || (connected && !running)) {
                     return;
                 }
                 ringConnected = connected;
@@ -1571,12 +1602,12 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private boolean shouldAttemptRingConnect() {
-        if (!hasRingAddress() || !running || !sessionReady) {
+        if (!hasRingAddress() || stopping || !running || !sessionReady) {
             return false;
         }
         long now = SystemClock.elapsedRealtime();
         synchronized (ringLock) {
-            if (ringNotificationsReady || now < ringReconnectAfterMs) {
+            if (stopping || ringNotificationsReady || now < ringReconnectAfterMs) {
                 return false;
             }
         }
@@ -1586,7 +1617,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private void tryConnectRing(String reason) {
-        if (!hasRingAddress() || !running || !sessionReady) {
+        if (!hasRingAddress() || stopping || !running || !sessionReady) {
             return;
         }
         try {
@@ -1600,7 +1631,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private void handleRingFailure(String reason, Throwable failure) {
-        if (!running) {
+        if (stopping || !running) {
             return;
         }
         // Close the wedged GATT so the next attempt gets a fresh connectGatt;
@@ -1609,13 +1640,13 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             bleManager.disconnect(ringAddress);
         } catch (Throwable ignored) {
         }
-        if (!running) {
+        if (stopping || !running) {
             return;
         }
         long backoffMs;
         int attempt;
         synchronized (ringLock) {
-            if (!running) {
+            if (stopping || !running) {
                 return;
             }
             ringConnected = false;
@@ -1644,8 +1675,12 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private int connectRing() {
+        if (stopping) {
+            throw new IllegalStateException("ring connect cancelled");
+        }
         logLine("connecting direct ring " + ringAddress);
         // Ring-specific SHORT timeouts limit retry latency on the optional worker.
+        ensureRingConnectAllowed();
         if (!bleManager.connect(ringAddress, ConnectionOptions.RING_CONNECT_TIMEOUT_MS)) {
             throw new IllegalStateException("connect failed: " + ringAddress);
         }
@@ -1653,18 +1688,23 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         // Discover services FIRST (the step that fails for an absent ring). Only
         // renegotiate MTU/priority once the ring is confirmed present, so a failed
         // attempt does not churn the arm connection interval on every retry.
+        ensureRingConnectAllowed();
         if (!bleManager.discoverServices(ringAddress, ConnectionOptions.RING_SERVICES_TIMEOUT_MS)) {
             throw new IllegalStateException("discoverServices failed: " + ringAddress);
         }
 
+        ensureRingConnectAllowed();
         bleManager.requestConnectionPriority(ringAddress, BluetoothGatt.CONNECTION_PRIORITY_HIGH);
+        ensureRingConnectAllowed();
         boolean mtu247Requested = bleManager.requestMtu(
             ringAddress,
             ConnectionOptions.RING_DESIRED_MTU,
             ConnectionOptions.RING_CONNECT_TIMEOUT_MS
         );
 
+        ensureRingConnectAllowed();
         boolean phoneNotify = enableRingNotification(BleProtocol.R1_PHONE_NOTIFY_CHAR_UUID);
+        ensureRingConnectAllowed();
         boolean dataNotify = enableRingNotification(BleProtocol.R1_NOTIFY_CHAR_UUID);
         if (!phoneNotify && !dataNotify) {
             throw new IllegalStateException("no R1 notify characteristic subscribed");
@@ -1672,7 +1712,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
         int generation;
         synchronized (ringLock) {
-            if (!running || !sessionReady) {
+            if (stopping || !running || !sessionReady) {
                 throw new IllegalStateException("ring connect cancelled");
             }
             ringConnectionGeneration++;
@@ -1689,6 +1729,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         return generation;
     }
 
+    private void ensureRingConnectAllowed() {
+        synchronized (ringLock) {
+            if (stopping || !running || !sessionReady) {
+                throw new IllegalStateException("ring connect cancelled");
+            }
+        }
+    }
+
     /** Best-effort standard BLE battery read; absence is not a ring failure. */
     private void refreshRingBattery(int generation) {
         synchronized (ringLock) {
@@ -1698,6 +1746,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
         byte[] value;
         try {
+            ensureRingConnectAllowed();
             value = bleManager.readCharacteristic(ringAddress, RING_BATTERY_LEVEL_UUID, RING_BATTERY_READ_TIMEOUT_MS);
         } catch (Throwable t) {
             logLine("direct ring battery unavailable: " + safeMessage(t) + " services=" + ringServiceSummary());
@@ -1892,7 +1941,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         payload[4] = frame[8];
         payload[5] = frame[9];
         synchronized (ringLock) {
-            if (!ringConnected || !ringNotificationsReady) return;
+            if (stopping || !ringConnected || !ringNotificationsReady) return;
             if (ringPacketAckQueue.size() >= 16) ringPacketAckQueue.removeFirst();
             ringPacketAckQueue.addLast(new RingPacketAckCursor(payload, ringConnectionGeneration));
         }
@@ -1924,7 +1973,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private boolean isRingOperationAllowedLocked(int generation) {
-        return running
+        return !stopping
+            && running
             && sessionReady
             && ringConnected
             && ringNotificationsReady
@@ -1977,7 +2027,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
      */
     private void sendRawRingFrame(String label, byte[] frame) {
         synchronized (ringLock) {
-            if (!running || !sessionReady || !ringConnected || !ringNotificationsReady) {
+            if (stopping || !running || !sessionReady || !ringConnected || !ringNotificationsReady) {
                 return;
             }
             String refusalReason = rawRingFrameRefusalReason(frame);
@@ -2176,6 +2226,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     private boolean enableRingNotification(String characteristicUuid) {
         try {
+            ensureRingConnectAllowed();
             return bleManager.enableNotifications(
                 ringAddress,
                 characteristicUuid,
