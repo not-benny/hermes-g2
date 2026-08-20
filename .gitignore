@@ -38,3 +38,14 @@ App_Resources/Android/whatsapp-node/node_modules/
 
 # Session scratchpad: pulled device DBs, screenshots, ground-truth dumps (never commit)
 scratchpad/
+
+# Secrets and private data (never commit). Operational identifiers + credentials
+# live in a local secrets file; the raw captures, firmware, and API tokens live
+# in ../ground-truth-private (outside this repo). Belt-and-suspenders: ignore that
+# path too in case it is ever copied inside the tree.
+secrets.local.md
+secrets.local
+.env.local
+*.secret
+.even-jwt
+ground-truth-private/
