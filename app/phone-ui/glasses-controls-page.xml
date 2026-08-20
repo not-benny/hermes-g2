@@ -16,6 +16,7 @@
             <Button text="{{ timeFormatLabel }}" tap="{{ onTimeFormatTap }}" class="m-t-8" />
             <Button text="{{ batteryDisplayLabel }}" tap="{{ onBatteryDisplayTap }}" class="m-t-8" />
             <Button text="{{ dashboardSizeLabel }}" tap="{{ onDashboardSizeTap }}" class="m-t-8" />
+            <Button text="{{ uiFontLabel }}" tap="{{ onUiFontTap }}" class="m-t-8" />
 
             <Label text="Sensors &amp; connection" class="h2 m-t-20" />
             <Label text="{{ wearStatus }}" textWrap="true" class="m-t-8" />
@@ -29,6 +30,7 @@
             <Button text="Reconnect glasses" tap="{{ onReconnectGlassesTap }}" class="m-t-8" />
 
             <Label text="Voice diagnostics" class="h2 m-t-20" />
+            <Button text="{{ voiceControlLabel }}" tap="{{ onVoiceControlTap }}" class="m-t-8" />
             <Button text="{{ voiceProviderLabel }}" tap="{{ onVoiceProviderTap }}" class="m-t-8" />
             <Button text="{{ wakeWordActionLabel }}" tap="{{ onWakeWordActionTap }}" class="m-t-8" />
             <Button text="{{ voiceRecordingLabel }}" tap="{{ onSaveVoiceRecordingTap }}" class="m-t-8" />

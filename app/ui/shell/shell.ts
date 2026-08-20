@@ -27,6 +27,7 @@ import {
   ringSensitivitySetting,
   timeFormatSetting,
   wakeWordActionSetting,
+  voiceControlEnabledSetting,
 } from "../dashboard-settings";
 import { ShellChromeLayer, sidebarLeftColumnUsed, type ShellChromeState, type ShellChromeWindow } from "./chrome-layer";
 import { EdgeBounce, EdgeWrapScroller } from "../edge-scroll";
@@ -618,6 +619,10 @@ class Shell {
     // Even AI app never launches, so the firmware does not power the display
     // for us either -- actions that need it wake the screen themselves.
     if (event.type === "wakeword") {
+      // Master voice switch: off ignores the wakeword entirely.
+      if (!voiceControlEnabledSetting.get()) {
+        return { shell: false, window: false };
+      }
       const action = wakeWordActionSetting.get();
       if (action === "off") {
         return { shell: false, window: false };
@@ -913,6 +918,8 @@ class Shell {
     handsFree?: boolean;
     defaultTarget: "assistant" | "app";
   }): void {
+    // Master voice switch: off suppresses all voice input (manual or wakeword).
+    if (!voiceControlEnabledSetting.get()) return;
     const targets = this.buildVoiceSendTargets();
     let defaultIndex = targets.findIndex((target) => target.id === options.defaultTarget);
     if (defaultIndex < 0) defaultIndex = 0;

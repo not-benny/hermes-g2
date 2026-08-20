@@ -17,6 +17,8 @@ import {
   verticalPositionSetting,
   voiceProviderSetting,
   wakeWordActionSetting,
+  voiceControlEnabledSetting,
+  uiFontSetting,
 } from "../ui/dashboard-settings";
 import { type RingConnectionState } from "../native/faceclaw-communicator";
 
@@ -100,6 +102,14 @@ export class GlassesControlsViewModel extends Observable {
 
   get ringSensitivityLabel(): string {
     return `Ring sensitivity: ${ringSensitivitySetting.displayValue()}`;
+  }
+
+  get voiceControlLabel(): string {
+    return `Voice control: ${voiceControlEnabledSetting.get() ? "On" : "Off"}`;
+  }
+
+  get uiFontLabel(): string {
+    return `Font: ${uiFontSetting.displayValue()}`;
   }
 
   get voiceProviderLabel(): string {
@@ -199,6 +209,16 @@ export class GlassesControlsViewModel extends Observable {
     this.setStatus(`Voice provider set to ${voiceProviderSetting.displayValue()}.`);
   }
 
+  onVoiceControlTap(): void {
+    voiceControlEnabledSetting.toggle();
+    this.setStatus(`Voice control ${voiceControlEnabledSetting.get() ? "enabled" : "disabled"}.`);
+  }
+
+  onUiFontTap(): void {
+    uiFontSetting.set(uiFontSetting.next());
+    this.setStatus(`Font set to ${uiFontSetting.displayValue()}.`);
+  }
+
   onWakeWordActionTap(): void {
     wakeWordActionSetting.set(wakeWordActionSetting.next());
     this.setStatus(`Wakeword action set to ${wakeWordActionSetting.displayValue()}.`);
@@ -263,6 +283,8 @@ export class GlassesControlsViewModel extends Observable {
       "batteryDisplayLabel",
       "dashboardSizeLabel",
       "ringSensitivityLabel",
+      "voiceControlLabel",
+      "uiFontLabel",
       "voiceProviderLabel",
       "wakeWordActionLabel",
       "voiceRecordingLabel",
