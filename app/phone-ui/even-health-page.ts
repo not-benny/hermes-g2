@@ -9,6 +9,12 @@ export function navigatingTo(args: EventData): void {
   }
 }
 
+export function loaded(args: EventData): void {
+  const page = args.object as Page;
+  // Build the readiness ring gauge once the AbsoluteLayout mount exists.
+  (page.bindingContext as EvenHealthViewModel | undefined)?.buildRing(page);
+}
+
 // Health tab root: keep the VM (and its ring-store subscription) alive across
 // tab-unload, since navigatingTo does not re-fire on tab return.
 export function unloaded(_args: EventData): void {}

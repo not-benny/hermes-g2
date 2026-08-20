@@ -35,3 +35,6 @@ App_Resources/Android/src/main/assets/faceclaw-voice-asr/
 faceclaw_settings.xml
 hermes_g2_settings.xml
 App_Resources/Android/whatsapp-node/node_modules/
+
+# Session scratchpad: pulled device DBs, screenshots, ground-truth dumps (never commit)
+scratchpad/

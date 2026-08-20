@@ -42,6 +42,14 @@ export interface RingHealthSnapshot {
   batteryPercent: number | null;
   /** Wall-clock ms of the last applied update, null before the first. */
   updatedAtMs: number | null;
+  /** The day's full hourly record arrays (for insights + sparklines). */
+  heartRateSeries: RingHealthSample[];
+  spo2Series: RingHealthSample[];
+  hrvSeries: RingHrvSample[];
+  /** Live/current heart rate from the point-push stream (null until wired/worn). */
+  currentHr: number | null;
+  /** Nightly body temperature in degC (from the sleep record; null until decoded). */
+  bodyTempC: number | null;
 }
 
 const EMPTY: RingHealthSnapshot = {
@@ -52,6 +60,11 @@ const EMPTY: RingHealthSnapshot = {
   activity: null,
   batteryPercent: null,
   updatedAtMs: null,
+  heartRateSeries: [],
+  spo2Series: [],
+  hrvSeries: [],
+  currentHr: null,
+  bodyTempC: null,
 };
 
 /** Incomplete batches kept while their fragments trickle in. */
@@ -168,7 +181,8 @@ export class RingHealthStore {
       const daily = decodeDailyData(parsed.data, "hrv");
       const newest = latestByTs(daily.records);
       if (!newest) return;
-      this.snapshotState = { ...this.snapshotState, hrv: newest, updatedAtMs: Date.now() };
+      const series = [...daily.records].sort((a, b) => a.ts - b.ts);
+      this.snapshotState = { ...this.snapshotState, hrv: newest, hrvSeries: series, updatedAtMs: Date.now() };
       this.emit();
       return;
     }
@@ -176,7 +190,10 @@ export class RingHealthStore {
     const daily = decodeDailyData(parsed.data, metric);
     const newest = latestByTs(daily.records);
     if (!newest) return;
-    this.snapshotState = { ...this.snapshotState, [metric]: newest, updatedAtMs: Date.now() };
+    const series = [...daily.records].sort((a, b) => a.ts - b.ts);
+    const seriesPatch =
+      metric === "heartRate" ? { heartRateSeries: series } : metric === "spo2" ? { spo2Series: series } : {};
+    this.snapshotState = { ...this.snapshotState, [metric]: newest, ...seriesPatch, updatedAtMs: Date.now() };
     this.emit();
   }
 

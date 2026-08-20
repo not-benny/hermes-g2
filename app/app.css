@@ -181,7 +181,10 @@ TabView {
 
 .section-label {
   font-size: 12;
-  letter-spacing: 1;
+  /* NativeScript letter-spacing is in em, not px: 1 == 1em (~12px/char), which
+     both over-spaces and overflows narrow columns (e.g. "READINESS" in the
+     health hero). 0.15em is proper uppercase tracking. */
+  letter-spacing: 0.15;
   text-transform: uppercase;
   color: #9BB0A5;
 }
@@ -273,6 +276,53 @@ SegmentedBar {
 }
 .tile-locked {
   opacity: 0.7;
+}
+
+/* --- Health tab: readiness hero + cards --------------------------------- */
+.health-statusbar {
+  padding: 4 0;
+}
+.dot-on {
+  color: #57D8A6;
+  font-size: 16;
+}
+.dot-off {
+  color: #9BB0A5;
+  font-size: 16;
+}
+.health-batt-chip {
+  color: #9BB0A5;
+  font-size: 13;
+  background-color: #172019;
+  border-color: #24312A;
+  border-width: 1;
+  border-radius: 10;
+  padding: 4 10;
+}
+.health-hero {
+  padding: 16;
+}
+.hero-score {
+  font-size: 44;
+  font-weight: bold;
+  color: #EAF2EC;
+}
+.hero-score-sub {
+  font-size: 12;
+  color: #9BB0A5;
+}
+.driver-chips {
+  color: #57D8A6;
+  font-size: 12;
+}
+.hr-big {
+  font-size: 40;
+  font-weight: bold;
+  color: #EAF2EC;
+}
+.chart-caption {
+  font-size: 11;
+  color: #7C9184;
 }
 
 /*

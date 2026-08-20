@@ -30,18 +30,37 @@ test("native crypto helper provides HMAC-SHA256 and AES-256-CBC", () => {
   assert.match(java, /aesCbcEncryptBase64/);
 });
 
-test("Even Health is a direct-BLE ring dashboard reachable from the Health tab", () => {
+test("Even Health is a direct-BLE readiness dashboard reachable from the Health tab", () => {
   const vm = read("app/phone-ui/even-health-view-model.ts");
   const xml = read("app/phone-ui/even-health-page.xml");
   const shell = read("app/phone-ui/shell-page.xml");
 
-  // Store-backed (not the old Even cloud): reads ringHealthStore + exposes tiles.
+  // Store-backed (not the old Even cloud), computing insights + a readiness score.
   assert.match(vm, /ringHealthStore/);
-  assert.match(vm, /get heartRateValue\(\): string/);
+  assert.match(vm, /readinessScore/);
+  assert.match(vm, /get readinessValue\(\): string/);
+  assert.match(vm, /get currentHrValue\(\): string/);
   assert.match(vm, /get batteryValue\(\): string/);
-  // A tiled dashboard, and reachable as the Health tab of the shell.
-  assert.match(xml, /Heart rate/);
+  // Historic logging + export are wired from the tab.
+  assert.match(vm, /recordHealthDay/);
+  assert.match(vm, /shareHealthCsv/);
+  assert.match(vm, /pushHealthToHermes/);
+
+  // The readiness hero ring gauge is built into an AbsoluteLayout mount.
+  assert.match(vm, /buildRing\(page: Page\)/);
+  assert.match(xml, /id="readinessRing"/);
+  assert.match(xml, /HEART RATE/);
   assert.match(xml, /class="card tile"/);
+
+  // Stylish charts: the 24h HR range chart + the readiness trend, drawn via the
+  // dependency-free column-chart renderer into their AbsoluteLayout mounts.
+  assert.match(vm, /renderColumnChart/);
+  assert.match(vm, /paintHrChart/);
+  assert.match(vm, /paintTrendChart/);
+  assert.match(xml, /id="hrChart"/);
+  assert.match(xml, /id="trendChart"/);
+
+  // Reachable as the Health tab of the shell.
   assert.match(shell, /title="Health"/);
   assert.match(shell, /phone-ui\/even-health-page/);
 });

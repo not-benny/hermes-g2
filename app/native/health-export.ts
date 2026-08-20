@@ -24,6 +24,21 @@ import {
 const HISTORY_KEY = "health.history.v1";
 const MAX_DAYS = 90;
 
+/**
+ * User consent to share ring health with the Hermes bridge. Off by default:
+ * nothing leaves the device until the user turns the toggle on, after which the
+ * Health tab pushes on an interval while the app is running.
+ */
+const HERMES_CONSENT_KEY = "health.hermes.consent.v1";
+
+export function getHermesConsent(): boolean {
+  return ApplicationSettings.getBoolean(HERMES_CONSENT_KEY, false);
+}
+
+export function setHermesConsent(on: boolean): void {
+  ApplicationSettings.setBoolean(HERMES_CONSENT_KEY, on);
+}
+
 export function loadHealthHistory(): DailyHealthSummary[] {
   try {
     const raw = ApplicationSettings.getString(HISTORY_KEY, "");

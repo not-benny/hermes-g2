@@ -122,6 +122,12 @@ export function heartRateInsights(i: InsightInputs): HeartRateInsights {
   const min = Math.min(...recs.map((r) => r.min));
   const max = Math.max(...recs.map((r) => r.max));
   const avg = Math.round(mean(recs.map((r) => r.avg)));
+  // No live stream: show the latest hour's AVERAGE, not its `.latest`. A review
+  // flagged `.latest` as the truer "current" reading (and SpO2/HRV do use it) --
+  // but the HR record byte layout is still unverified, and on real device data
+  // `.latest` decodes OUT of its own hour's min..max envelope (e.g. 112 vs a
+  // 59-88 range), which reads as broken. `.avg` stays within range and sane.
+  // Revisit `.latest` once the HR record offsets are validated on worn-ring data.
   const current = typeof i.liveHr === "number"
     ? i.liveHr
     : Math.round(recs[recs.length - 1]!.avg);
