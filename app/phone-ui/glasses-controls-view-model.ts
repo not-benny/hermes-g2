@@ -1,4 +1,5 @@
-import { Frame, Observable } from "@nativescript/core";
+import { Frame, Observable, SegmentedBarItem } from "@nativescript/core";
+import type { ConfigSettingEnum } from "../ui/dashboard-settings";
 
 import { dashboardController, type DashboardSnapshot } from "../g2/dashboard-controller";
 import {
@@ -41,6 +42,9 @@ export class GlassesControlsViewModel extends Observable {
   private _ringConnectionState: RingConnectionState = "not-configured";
   private unsubscribeSnapshot: (() => void) | null = null;
   private unsubscribeSettings: (() => void) | null = null;
+  // SegmentedBar items are static per enum (values never change), so build them
+  // once and reuse - rebuilding on every getter read would churn the bar.
+  private readonly itemsCache = new Map<ConfigSettingEnum<string>, SegmentedBarItem[]>();
 
   constructor() {
     super();
@@ -89,13 +93,13 @@ export class GlassesControlsViewModel extends Observable {
     return `Window position: ${verticalPositionSetting.displayValue()}`;
   }
 
-  get timeFormatLabel(): string {
-    return `Clock: ${timeFormatSetting.displayValue()}`;
-  }
+  get timeFormatItems(): SegmentedBarItem[] { return this.enumItems(timeFormatSetting); }
+  get timeFormatIndex(): number { return this.enumIndex(timeFormatSetting); }
+  set timeFormatIndex(index: number) { this.setEnumIndex(timeFormatSetting, index, "timeFormatIndex"); }
 
-  get batteryDisplayLabel(): string {
-    return `Battery display: ${batteryDisplayModeSetting.displayValue()}`;
-  }
+  get batteryDisplayItems(): SegmentedBarItem[] { return this.enumItems(batteryDisplayModeSetting); }
+  get batteryDisplayIndex(): number { return this.enumIndex(batteryDisplayModeSetting); }
+  set batteryDisplayIndex(index: number) { this.setEnumIndex(batteryDisplayModeSetting, index, "batteryDisplayIndex"); }
 
   get wearStatus(): string {
     const wearing = this._glassesWorn === null ? "unknown" : this._glassesWorn ? "on head" : "off head";
@@ -120,17 +124,17 @@ export class GlassesControlsViewModel extends Observable {
     this.setStatus(`Voice control ${value ? "enabled" : "disabled"}.`);
   }
 
-  get uiFontLabel(): string {
-    return `Font: ${uiFontSetting.displayValue()}`;
-  }
+  get uiFontItems(): SegmentedBarItem[] { return this.enumItems(uiFontSetting); }
+  get uiFontIndex(): number { return this.enumIndex(uiFontSetting); }
+  set uiFontIndex(index: number) { this.setEnumIndex(uiFontSetting, index, "uiFontIndex"); }
 
   get voiceProviderLabel(): string {
     return `Transcription: ${voiceProviderSetting.displayValue()}`;
   }
 
-  get wakeWordActionLabel(): string {
-    return `Wakeword: ${wakeWordActionSetting.displayValue()}`;
-  }
+  get wakeWordActionItems(): SegmentedBarItem[] { return this.enumItems(wakeWordActionSetting); }
+  get wakeWordActionIndex(): number { return this.enumIndex(wakeWordActionSetting); }
+  set wakeWordActionIndex(index: number) { this.setEnumIndex(wakeWordActionSetting, index, "wakeWordActionIndex"); }
 
   get saveVoiceRecordingsChecked(): boolean {
     return saveVoiceRecordingsSetting.get();
@@ -142,21 +146,21 @@ export class GlassesControlsViewModel extends Observable {
     this.setStatus(`Voice recording diagnostics ${value ? "enabled" : "disabled"}.`);
   }
 
-  get notificationFilterLabel(): string {
-    return `Notifications: ${notificationFilterModeSetting.displayValue()}`;
-  }
+  get notificationFilterItems(): SegmentedBarItem[] { return this.enumItems(notificationFilterModeSetting); }
+  get notificationFilterIndex(): number { return this.enumIndex(notificationFilterModeSetting); }
+  set notificationFilterIndex(index: number) { this.setEnumIndex(notificationFilterModeSetting, index, "notificationFilterIndex"); }
 
   get selectedAppsLabel(): string {
     return `Selected apps: ${notificationAllowedPackagesSetting.displayValue()}`;
   }
 
-  get notificationFontSizeLabel(): string {
-    return `Notification text size: ${notificationFontSizeSetting.displayValue()}`;
-  }
+  get notificationFontSizeItems(): SegmentedBarItem[] { return this.enumItems(notificationFontSizeSetting); }
+  get notificationFontSizeIndex(): number { return this.enumIndex(notificationFontSizeSetting); }
+  set notificationFontSizeIndex(index: number) { this.setEnumIndex(notificationFontSizeSetting, index, "notificationFontSizeIndex"); }
 
-  get dashboardSizeLabel(): string {
-    return `Dashboard size: ${dashboardSizeSetting.displayValue()}`;
-  }
+  get dashboardSizeItems(): SegmentedBarItem[] { return this.enumItems(dashboardSizeSetting); }
+  get dashboardSizeIndex(): number { return this.enumIndex(dashboardSizeSetting); }
+  set dashboardSizeIndex(index: number) { this.setEnumIndex(dashboardSizeSetting, index, "dashboardSizeIndex"); }
 
   async onWakeScreenTap(): Promise<void> {
     const woke = await dashboardController.wakeGlassesScreen();
@@ -180,16 +184,6 @@ export class GlassesControlsViewModel extends Observable {
   onVerticalPositionTap(): void {
     verticalPositionSetting.set(verticalPositionSetting.next());
     this.setStatus(`Moved windows to ${verticalPositionSetting.displayValue()}.`);
-  }
-
-  onTimeFormatTap(): void {
-    timeFormatSetting.set(timeFormatSetting.next());
-    this.setStatus(`Clock set to ${timeFormatSetting.displayValue()}.`);
-  }
-
-  onBatteryDisplayTap(): void {
-    batteryDisplayModeSetting.set(batteryDisplayModeSetting.next());
-    this.setStatus(`Battery display set to ${batteryDisplayModeSetting.displayValue()}.`);
   }
 
   async onOpenCompassTap(): Promise<void> {
@@ -222,34 +216,9 @@ export class GlassesControlsViewModel extends Observable {
     this.setStatus(`Voice provider set to ${voiceProviderSetting.displayValue()}.`);
   }
 
-  onUiFontTap(): void {
-    uiFontSetting.set(uiFontSetting.next());
-    this.setStatus(`Font set to ${uiFontSetting.displayValue()}.`);
-  }
-
-  onWakeWordActionTap(): void {
-    wakeWordActionSetting.set(wakeWordActionSetting.next());
-    this.setStatus(`Wakeword action set to ${wakeWordActionSetting.displayValue()}.`);
-  }
-
   async onTestVoiceInputTap(): Promise<void> {
     const started = await dashboardController.triggerVoiceTest();
     this.setStatus(started ? "Voice test opened on the glasses." : "Connect to the glasses first.");
-  }
-
-  onNotificationFilterModeTap(): void {
-    notificationFilterModeSetting.set(notificationFilterModeSetting.next());
-    this.setStatus(`Notification filter set to ${notificationFilterModeSetting.displayValue()}.`);
-  }
-
-  onNotificationFontSizeTap(): void {
-    notificationFontSizeSetting.set(notificationFontSizeSetting.next());
-    this.setStatus(`Notification text size set to ${notificationFontSizeSetting.displayValue()}.`);
-  }
-
-  onDashboardSizeTap(): void {
-    dashboardSizeSetting.set(dashboardSizeSetting.next());
-    this.setStatus(`Dashboard size set to ${dashboardSizeSetting.displayValue()}. Reopen an app to apply.`);
   }
 
   onOpenNotificationAppsTap(): void {
@@ -282,18 +251,18 @@ export class GlassesControlsViewModel extends Observable {
       "timeoutLabel",
       "lockScreenChecked",
       "verticalPositionLabel",
-      "timeFormatLabel",
-      "batteryDisplayLabel",
-      "dashboardSizeLabel",
+      "timeFormatIndex",
+      "batteryDisplayIndex",
+      "dashboardSizeIndex",
       "ringSensitivityLabel",
       "voiceControlChecked",
-      "uiFontLabel",
+      "uiFontIndex",
       "voiceProviderLabel",
-      "wakeWordActionLabel",
+      "wakeWordActionIndex",
       "saveVoiceRecordingsChecked",
-      "notificationFilterLabel",
+      "notificationFilterIndex",
       "selectedAppsLabel",
-      "notificationFontSizeLabel",
+      "notificationFontSizeIndex",
     ]) {
       this.notifyPropertyChange(property, (this as any)[property]);
     }
@@ -302,5 +271,35 @@ export class GlassesControlsViewModel extends Observable {
   private setStatus(value: string): void {
     this._status = value;
     this.notifyPropertyChange("status", value);
+  }
+
+  // --- SegmentedBar enum helpers -------------------------------------------
+  /** Cached SegmentedBarItem list for an enum, titled by its display labels. */
+  private enumItems(setting: ConfigSettingEnum<string>): SegmentedBarItem[] {
+    let items = this.itemsCache.get(setting);
+    if (!items) {
+      items = setting.values.map((value) => {
+        const item = new SegmentedBarItem();
+        item.title = setting.displayValue(value);
+        return item;
+      });
+      this.itemsCache.set(setting, items);
+    }
+    return items;
+  }
+
+  /** The selected index for an enum's current value (0 if somehow unset). */
+  private enumIndex(setting: ConfigSettingEnum<string>): number {
+    const index = setting.values.indexOf(setting.get());
+    return index < 0 ? 0 : index;
+  }
+
+  /** Persist an enum from a SegmentedBar selectedIndex; guards the notify loop. */
+  private setEnumIndex(setting: ConfigSettingEnum<string>, index: number, property: string): void {
+    const value = setting.values[index];
+    if (value === undefined || value === setting.get()) return;
+    setting.set(value);
+    this.notifyPropertyChange(property, index);
+    this.setStatus(`${setting.label} set to ${setting.displayValue()}.`);
   }
 }
