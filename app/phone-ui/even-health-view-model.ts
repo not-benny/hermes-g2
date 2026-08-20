@@ -1,136 +1,149 @@
 import { Frame, Observable } from "@nativescript/core";
 
-import {
-  evenAccountEmailSetting,
-  evenAccountPasswordSetting,
-  evenApiAccessKeySetting,
-  evenApiAccessSecretSetting,
-  evenApiAesIvSetting,
-  evenApiAesKeySetting,
-  evenApiAppIdSetting,
-} from "../ui/dashboard-settings";
-import { evenGetLatestHealth, evenIsSignedIn, evenLogin, evenSignOut } from "../native/even-api";
-
-type TextChangeArgs = { value?: string; object?: { text?: string } };
+import { ringHealthStore, type RingHealthSnapshot } from "../health/ring-health-store";
+import { dashboardController, type DashboardSnapshot } from "../g2/dashboard-controller";
+import type { RingConnectionState } from "../native/faceclaw-communicator";
 
 /**
- * Phone screen to configure the Even account + API signing credentials and
- * test the cloud health fetch. It's the validation surface: sign in, then fetch
- * health, and the on-screen status shows the real API result or error so the
- * signing can be corrected if the reconstructed scheme is off.
+ * Even Health dashboard, backed DIRECTLY by the R1 ring's BLE health store
+ * (app/health/ring-health-store) - not the old Even cloud API. The store is
+ * already fed by dashboard-controller (onRingHealthFrame -> ingestFrame), so
+ * this view model only reads its snapshot and re-renders the tiles on change.
+ *
+ * Live tiles: heart rate, SpO2, HRV, temperature, battery. Sleep is gated: its
+ * wire layout is not decoded yet (ring-parser.decodeSleep is a stub), so the
+ * tile shows an unlock hint instead of a value.
  */
+const RING_STATUS_LABELS: Record<RingConnectionState, string> = {
+  "not-configured": "Ring: no address configured",
+  idle: "Ring: waiting for glasses session",
+  retrying: "Ring: reconnecting…",
+  subscribing: "Ring: subscribing…",
+  ready: "Ring: connected",
+};
+
 export class EvenHealthViewModel extends Observable {
-  private _status = "EXPERIMENTAL / untested — this likely does not work yet (see the warning above).";
-  private _health = "";
-  private _email = evenAccountEmailSetting.get();
-  private _password = "";
-  private _appId = "";
-  private _accessKey = "";
-  private _accessSecret = "";
-  private _aesKey = "";
-  private _aesIv = "";
+  private health: RingHealthSnapshot = ringHealthStore.snapshot();
+  private ringState: RingConnectionState = "not-configured";
+  private offHealth: (() => void) | null = null;
+  private offDashboard: (() => void) | null = null;
 
-  get status(): string { return this._status; }
-  get health(): string { return this._health; }
-  get email(): string { return this._email; }
-  set email(value: string) { this._email = value ?? ""; }
-  get signInState(): string { return evenIsSignedIn() ? "Signed in" : "Signed out"; }
-  get appIdConfigured(): string { return configuredLabel("app_id", evenApiAppIdSetting.get()); }
-  get accessKeyConfigured(): string { return configuredLabel("accessKey", evenApiAccessKeySetting.get()); }
-  get accessSecretConfigured(): string { return configuredLabel("accessKeySecret", evenApiAccessSecretSetting.get()); }
-  get aesKeyConfigured(): string { return configuredLabel("password AES key", evenApiAesKeySetting.get()); }
-  get aesIvConfigured(): string { return configuredLabel("password AES IV", evenApiAesIvSetting.get()); }
-  get passwordConfigured(): string { return configuredLabel("password", evenAccountPasswordSetting.get()); }
-
-  onEmailTextChange(args: TextChangeArgs): void { this._email = args.object?.text ?? args.value ?? ""; }
-  onPasswordTextChange(args: TextChangeArgs): void { this._password = args.object?.text ?? args.value ?? ""; }
-  onAppIdTextChange(args: TextChangeArgs): void { this._appId = args.object?.text ?? args.value ?? ""; }
-  onAccessKeyTextChange(args: TextChangeArgs): void { this._accessKey = args.object?.text ?? args.value ?? ""; }
-  onAccessSecretTextChange(args: TextChangeArgs): void { this._accessSecret = args.object?.text ?? args.value ?? ""; }
-  onAesKeyTextChange(args: TextChangeArgs): void { this._aesKey = args.object?.text ?? args.value ?? ""; }
-  onAesIvTextChange(args: TextChangeArgs): void { this._aesIv = args.object?.text ?? args.value ?? ""; }
-
-  onSaveTap(): void {
-    const email = this._email.trim();
-    if (email) evenAccountEmailSetting.set(email);
-    replaceIfProvided(evenAccountPasswordSetting, this._password);
-    replaceIfProvided(evenApiAppIdSetting, this._appId);
-    replaceIfProvided(evenApiAccessKeySetting, this._accessKey);
-    replaceIfProvided(evenApiAccessSecretSetting, this._accessSecret);
-    replaceIfProvided(evenApiAesKeySetting, this._aesKey);
-    replaceIfProvided(evenApiAesIvSetting, this._aesIv);
-    this._password = this._appId = this._accessKey = this._accessSecret = this._aesKey = this._aesIv = "";
-    this.setStatus("Saved. Secret values stay hidden.");
-    this.refresh();
+  constructor() {
+    super();
+    // onChange does NOT fire on subscribe, so we seed from snapshot() above.
+    this.offHealth = ringHealthStore.onChange((snapshot) => {
+      this.health = snapshot;
+      this.refreshTiles();
+    });
+    // subscribe() DOES fire immediately, seeding ringState + the sleep hint.
+    this.offDashboard = dashboardController.subscribe((snapshot: DashboardSnapshot) => {
+      if (snapshot.ringConnectionState === this.ringState) return;
+      this.ringState = snapshot.ringConnectionState;
+      this.refreshConnection();
+    });
   }
 
-  async onSignInTap(): Promise<void> {
-    this.setStatus("Signing in…");
-    const result = await evenLogin();
-    this.setStatus(result.ok ? "Signed in." : `Sign-in failed: ${result.error}`);
-    this.refresh();
+  dispose(): void {
+    this.offHealth?.();
+    this.offHealth = null;
+    this.offDashboard?.();
+    this.offDashboard = null;
   }
 
-  onSignOutTap(): void {
-    evenSignOut();
-    this.setStatus("Signed out.");
-    this.refresh();
+  // --- header / connection -------------------------------------------------
+  get ringStatusLabel(): string {
+    return RING_STATUS_LABELS[this.ringState];
+  }
+  get lastUpdatedLabel(): string {
+    return this.health.updatedAtMs === null ? "No ring data yet." : `Updated ${relativeTime(this.health.updatedAtMs)}`;
+  }
+  get emptyStateVisibility(): "visible" | "collapse" {
+    return this.health.updatedAtMs === null ? "visible" : "collapse";
   }
 
-  async onFetchHealthTap(): Promise<void> {
-    this.setStatus("Fetching health…");
-    const result = await evenGetLatestHealth();
-    if (!result.ok) {
-      this.setStatus(`Fetch failed: ${result.error}`);
-      this.refresh();
-      return;
-    }
-    const h = result.data!;
-    const line = (label: string, value: number | null, unit = "") =>
-      `${label}: ${value === null ? "—" : `${value}${unit}`}`;
-    this._health = [
-      line("Steps", h.steps),
-      line("Heart rate", h.heartRate, " bpm"),
-      line("HRV", h.hrv, " ms"),
-      line("SpO₂", h.spo2, "%"),
-      line("Body temp", h.bodyTempC, "°C"),
-      line("Calories", h.caloriesKcal, " kcal"),
-      line("Sleep", h.sleepMinutes, " min"),
-    ].join("\n");
-    this.setStatus("Health fetched.");
-    this.refresh();
+  // --- Heart rate ----------------------------------------------------------
+  get heartRateValue(): string { return valueOf(this.health.heartRate?.latest); }
+  get heartRateUnit(): string { return this.health.heartRate ? "bpm" : ""; }
+  get heartRateSub(): string { return hourlySub(this.health.heartRate); }
+
+  // --- SpO2 ----------------------------------------------------------------
+  get spo2Value(): string { return valueOf(this.health.spo2?.latest); }
+  get spo2Unit(): string { return this.health.spo2 ? "%" : ""; }
+  get spo2Sub(): string { return hourlySub(this.health.spo2); }
+
+  // --- HRV -----------------------------------------------------------------
+  get hrvValue(): string { return valueOf(this.health.hrv?.latest); }
+  get hrvUnit(): string { return this.health.hrv ? "ms" : ""; }
+  get hrvSub(): string { return this.health.hrv ? `at ${clockTime(this.health.hrv.ts)}` : ""; }
+
+  // --- Temperature (rides the stride-9 hourly layout; u8 => integer degrees)-
+  get temperatureValue(): string { return formatTemp(this.health.temperature?.latest); }
+  get temperatureUnit(): string { return this.health.temperature ? "°C" : ""; }
+  get temperatureSub(): string { return hourlySub(this.health.temperature); }
+
+  // --- Battery -------------------------------------------------------------
+  get batteryValue(): string { return valueOf(this.health.batteryPercent); }
+  get batteryUnit(): string { return this.health.batteryPercent === null ? "" : "%"; }
+  get batterySub(): string { return this.health.batteryPercent === null ? "" : "ring"; }
+
+  // --- Sleep (gated: layout undecoded) -------------------------------------
+  get sleepHint(): string {
+    return this.ringState === "ready"
+      ? "Wear the ring overnight to unlock sleep staging."
+      : "Connect the ring, then wear it overnight.";
   }
 
   onBackTap(): void {
     Frame.topmost()?.navigate({ moduleName: "phone-ui/main-page", clearHistory: true });
   }
 
-  private setStatus(value: string): void {
-    this._status = value;
+  private refreshTiles(): void {
+    for (const property of [
+      "heartRateValue", "heartRateUnit", "heartRateSub",
+      "spo2Value", "spo2Unit", "spo2Sub",
+      "hrvValue", "hrvUnit", "hrvSub",
+      "temperatureValue", "temperatureUnit", "temperatureSub",
+      "batteryValue", "batteryUnit", "batterySub",
+      "lastUpdatedLabel", "emptyStateVisibility",
+    ]) {
+      this.notifyPropertyChange(property, (this as any)[property]);
+    }
   }
 
-  private refresh(): void {
-    for (const property of [
-      "status",
-      "health",
-      "signInState",
-      "appIdConfigured",
-      "accessKeyConfigured",
-      "accessSecretConfigured",
-      "aesKeyConfigured",
-      "aesIvConfigured",
-      "passwordConfigured",
-    ]) {
+  private refreshConnection(): void {
+    for (const property of ["ringStatusLabel", "sleepHint"]) {
       this.notifyPropertyChange(property, (this as any)[property]);
     }
   }
 }
 
-function replaceIfProvided(setting: { set(value: string): string }, value: string): void {
-  const replacement = value.trim();
-  if (replacement) setting.set(replacement);
+function valueOf(n: number | null | undefined): string {
+  return n === null || n === undefined ? "—" : String(n);
 }
 
-function configuredLabel(label: string, value: string): string {
-  return `${label}: ${value.trim() ? "configured" : "not set"}`;
+/** Single knob for the temperature scale; adjust here if a real reading shows
+ *  the u8 is not whole degrees C. */
+function formatTemp(n: number | null | undefined): string {
+  return n === null || n === undefined ? "—" : String(n);
+}
+
+function hourlySub(s: { avg: number; min: number; max: number } | null | undefined): string {
+  return s ? `avg ${s.avg} · ${s.min}–${s.max}` : "";
+}
+
+function clockTime(epochSeconds: number): string {
+  const d = new Date(epochSeconds * 1000);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function relativeTime(ms: number): string {
+  const secs = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (secs < 60) return "just now";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins} min ago`;
+  return `${Math.round(mins / 60)} h ago`;
+}
+
+function pad(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
 }

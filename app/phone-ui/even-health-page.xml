@@ -1,39 +1,64 @@
-<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" loaded="loaded">
-    <ActionBar title="Even Health — EXPERIMENTAL" />
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" unloaded="unloaded">
+    <ActionBar title="Even Health" />
     <ScrollView>
         <StackLayout class="p-20">
-            <Label text="⚠ EXPERIMENTAL — barely working. This cloud path is reconstructed from the Even app, has NOT been validated against the real API, and almost certainly does not work yet: the server needs a full device-identity + signature handshake that is only partially reproduced. Expect a &quot;device went wrong&quot; error. Nothing here is tested." textWrap="true" class="m-t-4" />
-            <Label text="{{ status }}" textWrap="true" class="m-t-12" />
-            <Label text="Intended to fetch ring health the official Even app syncs to Even's cloud. Secrets stay hidden; leave a field blank to keep its saved value." textWrap="true" class="m-t-8" />
+            <Label text="{{ ringStatusLabel }}" textWrap="true" class="muted" />
+            <Label text="{{ lastUpdatedLabel }}" textWrap="true" class="muted m-t-4" />
+            <Label text="Waiting for the R1 ring to sync. Connect the glasses session and wear the ring; live values appear here."
+                   textWrap="true" class="muted m-t-16" visibility="{{ emptyStateVisibility }}" />
 
-            <Label text="Even account" class="h2 m-t-20" />
-            <Label text="Email or phone" class="m-t-8" />
-            <TextField text="{{ email }}" textChange="{{ onEmailTextChange }}" autocorrect="false" autocapitalizationType="none" keyboardType="email" />
-            <Label text="{{ passwordConfigured }}" class="m-t-8" />
-            <TextField hint="Even password — leave blank to keep" textChange="{{ onPasswordTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
+            <GridLayout rows="auto,auto,auto" columns="*,*" class="m-t-12">
+                <StackLayout row="0" col="0" class="card tile">
+                    <Label text="Heart rate" class="tile-metric" />
+                    <StackLayout orientation="horizontal" class="m-t-4">
+                        <Label text="{{ heartRateValue }}" class="tile-value" />
+                        <Label text="{{ heartRateUnit }}" class="tile-unit" />
+                    </StackLayout>
+                    <Label text="{{ heartRateSub }}" class="tile-trend" textWrap="true" />
+                </StackLayout>
 
-            <Label text="API signing (from the official app)" class="h2 m-t-20" />
-            <Label text="{{ appIdConfigured }}" class="m-t-8" />
-            <TextField hint="app_id — leave blank to keep" textChange="{{ onAppIdTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
-            <Label text="{{ accessKeyConfigured }}" class="m-t-8" />
-            <TextField hint="accessKey — leave blank to keep" textChange="{{ onAccessKeyTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
-            <Label text="{{ accessSecretConfigured }}" class="m-t-8" />
-            <TextField hint="accessKeySecret — leave blank to keep" textChange="{{ onAccessSecretTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
-            <Label text="{{ aesKeyConfigured }}" class="m-t-8" />
-            <TextField hint="password AES key — leave blank to keep" textChange="{{ onAesKeyTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
-            <Label text="{{ aesIvConfigured }}" class="m-t-8" />
-            <TextField hint="password AES IV — leave blank to keep" textChange="{{ onAesIvTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
+                <StackLayout row="0" col="1" class="card tile">
+                    <Label text="SpO₂" class="tile-metric" />
+                    <StackLayout orientation="horizontal" class="m-t-4">
+                        <Label text="{{ spo2Value }}" class="tile-value" />
+                        <Label text="{{ spo2Unit }}" class="tile-unit" />
+                    </StackLayout>
+                    <Label text="{{ spo2Sub }}" class="tile-trend" textWrap="true" />
+                </StackLayout>
 
-            <Button text="Save" tap="{{ onSaveTap }}" class="-primary m-t-24" />
+                <StackLayout row="1" col="0" class="card tile">
+                    <Label text="HRV" class="tile-metric" />
+                    <StackLayout orientation="horizontal" class="m-t-4">
+                        <Label text="{{ hrvValue }}" class="tile-value" />
+                        <Label text="{{ hrvUnit }}" class="tile-unit" />
+                    </StackLayout>
+                    <Label text="{{ hrvSub }}" class="tile-trend" textWrap="true" />
+                </StackLayout>
 
-            <Label text="{{ signInState }}" class="h2 m-t-20" />
-            <GridLayout columns="*,*" class="m-t-8">
-                <Button col="0" text="Sign in" tap="{{ onSignInTap }}" class="-primary" />
-                <Button col="1" text="Sign out" tap="{{ onSignOutTap }}" />
+                <StackLayout row="1" col="1" class="card tile">
+                    <Label text="Temperature" class="tile-metric" />
+                    <StackLayout orientation="horizontal" class="m-t-4">
+                        <Label text="{{ temperatureValue }}" class="tile-value" />
+                        <Label text="{{ temperatureUnit }}" class="tile-unit" />
+                    </StackLayout>
+                    <Label text="{{ temperatureSub }}" class="tile-trend" textWrap="true" />
+                </StackLayout>
+
+                <StackLayout row="2" col="0" class="card tile tile-locked">
+                    <Label text="Sleep" class="tile-metric" />
+                    <Label text="🔒" class="tile-value" />
+                    <Label text="{{ sleepHint }}" class="tile-trend" textWrap="true" />
+                </StackLayout>
+
+                <StackLayout row="2" col="1" class="card tile">
+                    <Label text="Battery" class="tile-metric" />
+                    <StackLayout orientation="horizontal" class="m-t-4">
+                        <Label text="{{ batteryValue }}" class="tile-value" />
+                        <Label text="{{ batteryUnit }}" class="tile-unit" />
+                    </StackLayout>
+                    <Label text="{{ batterySub }}" class="tile-trend" textWrap="true" />
+                </StackLayout>
             </GridLayout>
-            <Button text="Fetch latest health" tap="{{ onFetchHealthTap }}" class="m-t-8" />
-            <Label text="{{ health }}" textWrap="true" class="m-t-12" />
-
         </StackLayout>
     </ScrollView>
 </Page>

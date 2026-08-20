@@ -30,15 +30,18 @@ test("native crypto helper provides HMAC-SHA256 and AES-256-CBC", () => {
   assert.match(java, /aesCbcEncryptBase64/);
 });
 
-test("Even Health has a phone screen wired into the app", () => {
+test("Even Health is a direct-BLE ring dashboard reachable from the Health tab", () => {
   const vm = read("app/phone-ui/even-health-view-model.ts");
   const xml = read("app/phone-ui/even-health-page.xml");
-  const main = read("app/phone-ui/main-view-model.ts");
-  const mainXml = read("app/phone-ui/main-page.xml");
+  const shell = read("app/phone-ui/shell-page.xml");
 
-  assert.match(vm, /onSignInTap|evenLogin/);
-  assert.match(vm, /onFetchHealthTap|evenGetLatestHealth/);
-  assert.match(xml, /Fetch latest health/);
-  assert.match(main, /navigate\("phone-ui\/even-health-page"\)/);
-  assert.match(mainXml, /onEvenHealthTap/);
+  // Store-backed (not the old Even cloud): reads ringHealthStore + exposes tiles.
+  assert.match(vm, /ringHealthStore/);
+  assert.match(vm, /get heartRateValue\(\): string/);
+  assert.match(vm, /get batteryValue\(\): string/);
+  // A tiled dashboard, and reachable as the Health tab of the shell.
+  assert.match(xml, /Heart rate/);
+  assert.match(xml, /class="card tile"/);
+  assert.match(shell, /title="Health"/);
+  assert.match(shell, /phone-ui\/even-health-page/);
 });

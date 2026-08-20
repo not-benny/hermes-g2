@@ -232,6 +232,35 @@ SegmentedBar {
   font-size: 14;
 }
 
+/* --- Even Health: metric tiles (direct-BLE ring dashboard) --------------- */
+.tile {
+  margin: 6;
+}
+.tile-metric {
+  font-size: 12;
+  text-transform: uppercase;
+  color: #9BB0A5;
+}
+.tile-value {
+  font-size: 34;
+  font-weight: bold;
+  color: #EAF2EC;
+}
+.tile-unit {
+  font-size: 14;
+  color: #9BB0A5;
+  margin-left: 4;
+  vertical-align: bottom;
+}
+.tile-trend {
+  font-size: 12;
+  color: #9BB0A5;
+  margin-top: 2;
+}
+.tile-locked {
+  opacity: 0.7;
+}
+
 /*
  * Stands in for the lens preview when showing it would be misleading (silent
  * mode, or a disconnect explained by a flat battery). Sized by the view model

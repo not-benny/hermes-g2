@@ -12,8 +12,10 @@ test("phone UI exposes safe live glasses controls", () => {
   const controller = read("app/g2/dashboard-controller.ts");
   const communicator = read("app/native/faceclaw-communicator.ts");
 
-  assert.match(mainPage, /Glasses controls/);
-  assert.match(mainModel, /onGlassesControlsTap/);
+  // Glasses controls is now the Controls tab of the bottom-tab shell.
+  const shell = read("app/phone-ui/shell-page.xml");
+  assert.match(shell, /title="Controls"/);
+  assert.match(shell, /phone-ui\/glasses-controls-page/);
   assert.match(controlsPage, /Wake screen/);
   assert.match(controlsPage, /Blank screen/);
   assert.match(controlsPage, /Refresh wear status/);
@@ -68,8 +70,11 @@ test("phone UI offers replace-only API-key and Hermes bridge credential fields",
   const keysPage = read("app/phone-ui/api-keys-page.xml");
   const keysModel = read("app/phone-ui/api-keys-view-model.ts");
 
-  assert.match(mainPage, /API keys/);
-  assert.match(mainModel, /onApiKeysTap/);
+  // API keys is now reached from the Settings tab hub, not the main overflow.
+  const settingsPage = read("app/phone-ui/settings-page.xml");
+  const settingsModel = read("app/phone-ui/settings-view-model.ts");
+  assert.match(settingsPage, /API keys/);
+  assert.match(settingsModel, /onApiKeysTap/);
   assert.match(keysPage, /secure="true"/);
   assert.match(keysPage, /Leave blank to keep/);
   assert.match(keysModel, /set bridgeHost\(/);

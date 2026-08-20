@@ -227,7 +227,9 @@ test("decodeRingBattery reads the battery percent from data[0]", () => {
 
 // --- unobserved layouts ----------------------------------------------------
 
-test("temperature-detail and sleep decoders are explicit unobserved stubs", () => {
-  assert.throws(() => decodeTemperatureDetail(new Uint8Array(0)), /not yet observed/);
+test("temperature has no separate record; sleep decoder is an unobserved stub", () => {
+  // Temperature rides the stride-9 hourly layout (no dedicated record); the
+  // stub is a defensive never-call. Sleep is still genuinely unobserved.
+  assert.throws(() => decodeTemperatureDetail(new Uint8Array(0)), /no separate ring temperature-detail record/);
   assert.throws(() => decodeSleep(new Uint8Array(0)), /not yet observed/);
 });

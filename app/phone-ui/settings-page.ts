@@ -9,7 +9,6 @@ export function navigatingTo(args: EventData): void {
   }
 }
 
-export function unloaded(args: EventData): void {
-  const page = args.object as Page;
-  (page.bindingContext as SettingsViewModel | null)?.dispose();
-}
+// Settings tab root: keep the VM alive across tab-unload (navigatingTo does not
+// re-fire on tab return).
+export function unloaded(_args: EventData): void {}
