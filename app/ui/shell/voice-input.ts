@@ -6,6 +6,7 @@ import { refineDictation, type AnthropicStreamHandle } from "../../native/anthro
 import { anthropicApiKeySetting } from "../dashboard-settings";
 import { GESTURE_CLICK, GESTURE_DOUBLE_CLICK, gestureHints } from "../gestures";
 import { drawSelectionHighlight } from "../menu";
+import { EdgeBounce, EdgeWrapScroller } from "../edge-scroll";
 import { Layer, type DashboardInputEvent, type LayerActions, type LayerContext } from "../layers";
 import { MIN_WINDOW_HEIGHT, minWindowTop } from "./geometry";
 
@@ -95,6 +96,8 @@ export class VoiceInputLayer implements Layer {
   private followupFinalizeTimer: ReturnType<typeof setTimeout> | null = null;
   private refineHandle: AnthropicStreamHandle | null = null;
   private menuIndex = 0;
+  private readonly wrapScroller = new EdgeWrapScroller(undefined, "voice-targets");
+  private readonly edgeBounce = new EdgeBounce();
   /** Auto-send (wakeword skip-confirmation) is waiting to fire. */
   private pendingAutoSend = false;
   private autoSendTimer: ReturnType<typeof setTimeout> | null = null;
@@ -256,8 +259,9 @@ export class VoiceInputLayer implements Layer {
 
     if (inMenu) {
       const menuTop = top + DIALOG_H - rows.length * MENU_ROW_H - 2;
+      const bounceY = this.edgeBounce.offsetPx();
       for (let i = 0; i < rows.length; i++) {
-        const rowY = menuTop + i * MENU_ROW_H;
+        const rowY = menuTop + i * MENU_ROW_H + bounceY;
         const selected = i === this.menuIndex;
         if (selected) {
           drawSelectionHighlight(image, left - 4, rowY - 2, DIALOG_W - 24, MENU_ROW_H - 2, true, 6);
@@ -301,20 +305,28 @@ export class VoiceInputLayer implements Layer {
   private handleMenuInput(event: DashboardInputEvent): void {
     const rowCount = this.menuRows().length;
     switch (event.type) {
-      case "scroll-up":
-        this.menuIndex = (this.menuIndex + rowCount - 1) % rowCount;
+      case "scroll-up": {
+        const step = this.wrapScroller.step(this.menuIndex, rowCount, -1, Date.now());
+        this.menuIndex = step.index;
+        if (step.atEdge) this.edgeBounce.trigger(-1, () => this.actions.requestRender());
         this.actions.requestRender();
         return;
-      case "scroll-down":
-        this.menuIndex = (this.menuIndex + 1) % rowCount;
+      }
+      case "scroll-down": {
+        const step = this.wrapScroller.step(this.menuIndex, rowCount, 1, Date.now());
+        this.menuIndex = step.index;
+        if (step.atEdge) this.edgeBounce.trigger(1, () => this.actions.requestRender());
         this.actions.requestRender();
         return;
+      }
       case "click": {
+        this.wrapScroller.reset();
         const row = this.menuRows()[this.menuIndex];
         row?.onSelect();
         return;
       }
       case "double-click":
+        this.wrapScroller.reset();
         this.dismiss();
         return;
       default:
