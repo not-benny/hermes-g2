@@ -1547,7 +1547,11 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
 
         bleManager.requestConnectionPriority(ringAddress, BluetoothGatt.CONNECTION_PRIORITY_HIGH);
-        bleManager.requestMtu(ringAddress, ConnectionOptions.RING_DESIRED_MTU, ConnectionOptions.RING_CONNECT_TIMEOUT_MS);
+        boolean mtu247Requested = bleManager.requestMtu(
+            ringAddress,
+            ConnectionOptions.RING_DESIRED_MTU,
+            ConnectionOptions.RING_CONNECT_TIMEOUT_MS
+        );
 
         boolean phoneNotify = enableRingNotification(BleProtocol.R1_PHONE_NOTIFY_CHAR_UUID);
         boolean dataNotify = enableRingNotification(BleProtocol.R1_NOTIFY_CHAR_UUID);
@@ -1561,7 +1565,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             ringReconnectAfterMs = 0;
             ringConsecutiveFailures = 0;
         }
-        logLine("direct ring ready phoneNotify=" + phoneNotify + " dataNotify=" + dataNotify
+        logLine("direct ring ready mtu247Request=" + (mtu247Requested ? "ok" : "fallback")
+            + " phoneNotify=" + phoneNotify + " dataNotify=" + dataNotify
             + " services=" + ringServiceSummary());
     }
 

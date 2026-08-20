@@ -136,6 +136,29 @@ test("raw ring writes validate the envelope and cannot bypass the command blockl
   assert.match(validatorBody, /isBlocklistedRingSubCmd\(module, cmd, subCmd\)/);
 });
 
+test("direct ring requests MTU 247 before subscribing and probing", () => {
+  const src = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  const options = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/g2protocol/ConnectionOptions.java", import.meta.url),
+    "utf8",
+  );
+  assert.match(options, /RING_DESIRED_MTU = 247/);
+  const start = src.indexOf("private void connectRing()");
+  const end = src.indexOf("private void refreshRingBattery()", start);
+  const body = src.slice(start, end);
+  const discover = body.indexOf("discoverServices(ringAddress");
+  const requestMtu = body.indexOf("requestMtu(");
+  const subscribe = body.indexOf("enableRingNotification(");
+  const ready = body.indexOf("ringNotificationsReady = true");
+  assert.ok(start >= 0 && end > start);
+  assert.ok(discover >= 0 && requestMtu > discover && subscribe > requestMtu && ready > subscribe);
+  assert.match(body, /mtu247Request=/);
+  assert.match(body, /mtu247Requested \? "ok" : "fallback"/); // failure is logged but ring remains usable.
+});
+
 test("health pushes queue packetAck cursors and the worker drains them safely", () => {
   const src = readFileSync(
     new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),

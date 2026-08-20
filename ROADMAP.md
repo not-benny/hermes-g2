@@ -65,9 +65,9 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   glasses HUD (re-wired this session). The frame envelope for this path is byte-verified (see CONFIRMED above),
   which closes the earlier "finish the frame-format decode" sub-item. A periodic current-hour re-read (~15s to
   1min cadence, NOT per-beat) is a minor future enhancement, best folded into the request-layer work below.
-- **PARTIAL** (medium) — Request-layer enhancements (`FaceclawBleCommunicator.java`): the captured
-  system/packetAck (0x7e) cursor loop is implemented with CRC/shape validation, a bounded callback queue,
-  and worker-thread writes. Still TODO: request MTU 247 before probing.
+- **DONE** (2026-08-20) — Request-layer MTU + packetAck: direct-ring connect requests MTU 247 after
+  service discovery and before notify subscription/probing, logging `ok` or safe `fallback`; the captured
+  system/packetAck (0x7e) cursor loop uses CRC/shape validation, a bounded callback queue, and worker-thread writes.
 
 ### Security
 - **DONE** (2026-08-20) — Closed the raw-frame bypass. `sendRawRingFrame()` now fails closed before writing

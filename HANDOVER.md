@@ -6,7 +6,7 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 ## 0. Latest continuation (2026-08-20)
 
-Four self-contained items were completed on the `hermes-g2` branch/current
+Five self-contained items were completed on the `hermes-g2` branch/current
 working tree:
 
 - **Raw ring-frame security gate:** `sendRawRingFrame()` now fails closed before
@@ -30,11 +30,15 @@ working tree:
   active kcal, total kcal, and derived resting kcal; merges and persists buckets
   by local day; uses native active kcal as primary with Keytel as fallback; and
   drains captured `packetAck` cursors through a bounded worker-thread queue.
+- **R1 MTU contract:** direct-ring connect already requested MTU 247 after
+  service discovery and before notification subscription/health probing. The
+  result is now logged as `ok` or `fallback`, and a source-contract regression
+  test pins the constant and ordering without making MTU failure fatal.
 
-Verification on the continuation checkout: all 126 tests passed, TypeScript
+Verification on the continuation checkout: all 127 tests passed, TypeScript
 typechecking passed, and a debug Android build completed with Android SDK 35 and
 JDK 21. APK: `platforms/android/app/build/outputs/apk/debug/app-debug.apk`, SHA-256
-`fc53a77178ad3a4f65d0a0609c318f4d74ace33d3cae5f02fe9ea93c2699dfbf`.
+`3585a33dd45ab851d298e0b700b960fe51f49f82345344c0ba744db2c10516bd`.
 JDK 26 is present but fails this Gradle stack's `jlink` step; use
 `JAVA_HOME=/usr/lib/jvm/java-21-openjdk` and `ANDROID_HOME=/home/benny/Android/Sdk`.
 
@@ -42,8 +46,9 @@ JDK 26 is present but fails this Gradle stack's `jlink` step; use
 its resulting commit as a new frozen candidate and run independent review; do
 not cite `1e73fee` as covering these newer changes.
 
-**Next recommended item:** capture and correlate an overnight `cmd=6` sleep
-session against the Even export, then implement the verified sleep-stage layout.
+**Next recommended item:** while sleep is deliberately deferred until Benny
+wears the ring overnight, add the optional 15-60s current-hour re-read. After
+the overnight capture exists, correlate `cmd=6` against the matching Even export.
 
 ## 1. What this project is
 
@@ -105,12 +110,12 @@ In-repo, the ring-health work is:
 
 ## 4. What is pending (see ROADMAP.md for the full list)
 
-- `cmd=6` sleep decode. Schema + stage map known (0=Wake/1=REM/2=Light/3=Deep, 30s
+- `cmd=6` sleep decode is deliberately deferred until Benny wears the ring
+  overnight. Schema + stage map known (0=Wake/1=REM/2=Light/3=Deep, 30s
   epochs, total/wake/rem/light/deep seconds, body_temp_delta). Needs a real overnight
   capture correlated to a live DB session. `decodeSleep` stays a throwing stub.
-- Request-layer: request MTU 247 before probing. The captured `packetAck` (0x7e)
-  cursor loop is implemented with CRC/shape validation, a bounded callback queue,
-  and worker-thread-only writes.
+- Request-layer MTU 247 and `packetAck` are implemented. Remaining optional work
+  is a faster 15-60s current-hour re-read cadence.
 - Even firmware auto-track cron: the check_firmware API accepts the account JWT
   (`x-token`) but returns 403 without the app's device-identifying params; finishing
   it needs a one-time TLS intercept (mitmproxy/frida) of the app's real request.

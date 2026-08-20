@@ -137,6 +137,7 @@ There is no per-beat or per-second stream.
   known session (start/end, stage durations, hypnogram, body-temp delta).
 - Determine the meaning of the `base`/timestamp field at offset 7 so per-record
   absolute timestamps can be reconstructed rather than inferred from `hourIdx`.
-- Request MTU 247 before probing. The captured `packetAck(0x7e)` cursor loop is
-  implemented: only complete CRC-valid health pushes queue a bounded cursor, and
-  the communicator worker performs the write outside the BLE callback.
+- MTU 247 and packetAck are implemented: connect requests MTU after service
+  discovery and before notify subscription/probing, with a logged safe fallback;
+  only complete CRC-valid health pushes queue a bounded cursor, and the
+  communicator worker performs the write outside the BLE callback.
