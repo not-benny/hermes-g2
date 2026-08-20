@@ -23,6 +23,12 @@ const launcherApp: AppDefinition = {
         launchApp: (appId) => ctx.launchApp(appId),
         submitFrame: (image, paintMs, frameId) => ctx.submitWindowFrame(LAUNCHER_SURFACE_ID, image, paintMs, frameId),
         setSurfaceVisible: (visible) => ctx.setWindowSurfaceVisible(LAUNCHER_SURFACE_ID, visible),
+        // Only offered while the Health card is hidden; read at open time so it
+        // reflects live state.
+        menuItems: () =>
+          shell.isHealthHidden()
+            ? [{ label: "Unhide health tab", onSelect: (ctx) => { ctx.stack.pop(); shell.setHealthHidden(false); } }]
+            : [],
       }),
     );
   },

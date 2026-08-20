@@ -114,6 +114,8 @@ export type ShellConfig = {
   onScreenStateChanged: (on: boolean) => void;
   /** Window registered/removed or foreground changed (persists the open-app list). */
   onWindowsChanged?: () => void;
+  /** The Health side card was hidden/shown (persists the choice). */
+  onHealthHiddenChanged?: (hidden: boolean) => void;
 };
 
 /** Which surfaces need re-rendering after an input event. */
@@ -376,6 +378,49 @@ class Shell {
     }
     this.config.onWindowsChanged?.();
     this.config.requestShellRender();
+  }
+
+  // --- Health side card ------------------------------------------------------
+  // A pinned, uncloseable card kept directly under the launcher. Hiding reuses
+  // removeWindow (which does NOT close the window, so its surface + object
+  // survive); unhiding splices the same object back at its slot.
+  private healthWindow: ShellWindow | null = null;
+  private healthHidden = false;
+
+  /** Register the Health card and place it directly under the launcher. */
+  registerHealthWindow(window: ShellWindow): void {
+    this.healthWindow = window;
+    this.insertHealthAtSlot();
+  }
+
+  /** Splice the Health card in under the launcher (idempotent). */
+  private insertHealthAtSlot(): void {
+    const w = this.healthWindow;
+    if (!w || this.windows.some((x) => x.windowId === w.windowId)) return;
+    const launcherIndex = this.windows.findIndex((x) => x.windowId === "launcher");
+    const insertAt = launcherIndex >= 0 ? launcherIndex + 1 : Math.min(1, this.windows.length);
+    this.windows.splice(insertAt, 0, w);
+    // Keep the currently-selected window selected (inverse of removeWindow's
+    // decrement) so the sidebar highlight does not jump when health reappears.
+    if (insertAt <= this.selectedIndex) this.selectedIndex++;
+    this.config.onWindowsChanged?.();
+    this.config.requestShellRender();
+  }
+
+  /** Show or hide the Health side card. */
+  setHealthHidden(hidden: boolean, opts?: { persist?: boolean }): void {
+    if (hidden === this.healthHidden) return;
+    this.healthHidden = hidden;
+    if (hidden) {
+      if (this.healthWindow) this.removeWindow(this.healthWindow.windowId);
+    } else {
+      this.insertHealthAtSlot();
+    }
+    if (opts?.persist !== false) this.config.onHealthHiddenChanged?.(hidden);
+  }
+
+  isHealthHidden(): boolean {
+    return this.healthHidden;
   }
 
   /** Close a window by id, if it is closeable (menu actions route here). */

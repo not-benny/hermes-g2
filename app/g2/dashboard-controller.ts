@@ -32,6 +32,7 @@ import { ALL_APPS } from "../apps/all-apps";
 import { type AppContext, type AppDefinition, type AppLaunchParams, type TextEditorHost } from "../apps/app-definition";
 import { type InProcessAppOptions, type InProcessWindow } from "../ui/shell/in-process-window";
 import { loadPersistedOpenApps, savePersistedOpenApps } from "../ui/shell/open-apps-persistence";
+import { loadHealthTabHidden, saveHealthTabHidden } from "../ui/shell/health-tab-persistence";
 import { appViewportRect, type WindowHeightMode } from "../ui/shell/geometry";
 import { type LayerActions } from "../ui/layers";
 import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
@@ -271,6 +272,7 @@ class DashboardController {
       getScreenTimeoutMs: () => screenTimeoutSettingToMs(screenTimeoutSetting.get()),
       requestShellRender: () => this.requestShellRender(),
       onWindowsChanged: () => this.persistOpenApps(),
+      onHealthHiddenChanged: (hidden) => saveHealthTabHidden(hidden),
       onScreenStateChanged: (on) => {
         this.handleScreenStateChanged(on);
         if (on) this.requestShellRender();
@@ -1162,6 +1164,10 @@ class DashboardController {
         // window wakes blank until an input event forces a paint.
         window.markSurfaceReady?.();
       }
+      // Now that the Health card's surface exists (configured + ready above),
+      // apply the persisted hidden choice. Doing it here (not at boot) avoids
+      // hiding it before its surface is made, which would paint blank on unhide.
+      if (loadHealthTabHidden()) shell.setHealthHidden(true, { persist: false });
       await communicator.start();
       await this.syncLockSurface();
       this.syncEvenHubScreenOffSetting();
@@ -1630,7 +1636,8 @@ class DashboardController {
     if (!this.openAppsRestored || this.suppressOpenAppsPersist) return;
     const open: string[] = [];
     for (const window of shell.getWindows()) {
-      if (window.appId === "launcher") continue;
+      // launcher + health are pinned/boot-registered, not restorable open apps.
+      if (window.appId === "launcher" || window.appId === "health") continue;
       if (!open.includes(window.appId)) open.push(window.appId);
     }
     savePersistedOpenApps({ open, foreground: shell.foregroundWindow()?.appId ?? null });
