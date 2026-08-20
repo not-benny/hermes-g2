@@ -38,10 +38,19 @@ function emit(event) {
 }
 
 // --- Baileys socket ----------------------------------------------------------
+let pairingInFlight = false;
+let socketOpenedAt = 0;
+
 async function startSocket() {
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
   let version;
-  try { ({ version } = await fetchLatestBaileysVersion()); } catch {}
+  try {
+    const v = await fetchLatestBaileysVersion();
+    version = v.version;
+    console.log('[wa] WA version ' + JSON.stringify(version) + ' (latest=' + v.isLatest + ')');
+  } catch (e) {
+    console.log('[wa] fetchLatestBaileysVersion FAILED: ' + (e?.message || e) + ' - using Baileys default');
+  }
 
   connectionState = 'connecting';
   sock = makeWASocket({
@@ -56,31 +65,60 @@ async function startSocket() {
     getMessage: async () => ({ conversation: '' }),
   });
 
+  socketOpenedAt = Date.now();
   sock.ev.on('creds.update', saveCreds);
+  try {
+    if (sock.ws && typeof sock.ws.on === 'function') {
+      sock.ws.on('open', () => console.log('[wa] ws open (+' + (Date.now() - socketOpenedAt) + 'ms)'));
+      sock.ws.on('close', (c, r) => console.log('[wa] ws close code=' + c + ' reason=' + (r || '?') + ' (+' + (Date.now() - socketOpenedAt) + 'ms)'));
+      sock.ws.on('error', (e) => console.log('[wa] ws error: ' + (e?.message || e)));
+    }
+  } catch (e) { console.log('[wa] ws hook failed: ' + (e?.message || e)); }
 
   sock.ev.on('connection.update', (update) => {
-    const { connection, lastDisconnect } = update;
+    const { connection, lastDisconnect, isNewLogin } = update;
+    const registered = !!sock?.authState?.creds?.registered;
     if (connection === 'connecting') {
       connectionState = 'connecting';
       emit({ event: 'connecting' });
     } else if (connection === 'open') {
       connectionState = 'connected';
+      pairingInFlight = false;
       connectedUser = sock?.user ? { id: sock.user.id || null, name: sock.user.name || sock.user.verifiedName || null } : null;
       pairing.code = null;
       emit({ event: 'connected', user: connectedUser });
-      console.log('[wa] connected as ' + (connectedUser?.id || '?'));
+      console.log('[wa] CONNECTED as ' + (connectedUser?.id || '?') + ' newLogin=' + isNewLogin);
     } else if (connection === 'close') {
-      const code = lastDisconnect?.error?.output?.statusCode;
+      const err = lastDisconnect?.error;
+      const code = err?.output?.statusCode;
+      const dt = socketOpenedAt ? (Date.now() - socketOpenedAt) : -1;
+      console.log('[wa] close code=' + code + ' registered=' + registered +
+        ' pairingInFlight=' + pairingInFlight + ' aliveMs=' + dt +
+        ' msg=' + (err?.message || '?') +
+        ' data=' + JSON.stringify(err?.output?.payload || err?.data || {}));
       if (code === DisconnectReason.loggedOut) {
-        connectionState = 'logged_out';
-        lastError = 'logged_out';
-        emit({ event: 'logged_out' });
-        console.log('[wa] logged out');
-      } else {
+        // A real logout only makes sense once registered. During pairing an
+        // unregistered 401 is a failed attempt - surface it, keep the session so
+        // a fresh /pair can retry (don't wipe unless asked).
+        connectionState = registered ? 'logged_out' : 'disconnected';
+        lastError = registered ? 'logged_out' : 'pairing_failed_401';
+        emit({ event: registered ? 'logged_out' : 'pairing_failed', code });
+      } else if (code === DisconnectReason.restartRequired || code === 515) {
+        // Expected right after a successful pairing: reconnect to finish login.
+        connectionState = 'connecting';
+        emit({ event: 'restart', code });
+        setTimeout(() => { startSocket().catch((e) => { lastError = String(e); }); }, 800);
+      } else if (registered) {
+        // Normal runtime drop: reconnect.
         connectionState = 'disconnected';
         emit({ event: 'disconnected', code });
-        console.log('[wa] closed (' + code + '), reconnecting');
-        setTimeout(() => { startSocket().catch((e) => { lastError = String(e); }); }, code === 515 ? 1000 : 3000);
+        setTimeout(() => { startSocket().catch((e) => { lastError = String(e); }); }, 3000);
+      } else {
+        // Unregistered transient close DURING pairing: do NOT churn the socket
+        // (reconnecting abandons the pairing). Hold; the user still has the code.
+        connectionState = 'pairing';
+        emit({ event: 'pairing_wait', code });
+        console.log('[wa] holding pairing socket (code still valid): ' + (pairing.code || '?'));
       }
     }
   });
@@ -98,10 +136,45 @@ async function startSocket() {
   return sock;
 }
 
+// True once this device has completed a link (creds carry a registration).
+function isRegistered() {
+  try {
+    const p = path.join(SESSION_DIR, 'creds.json');
+    if (!fs.existsSync(p)) return false;
+    return !!JSON.parse(fs.readFileSync(p, 'utf8'))?.registered;
+  } catch { return false; }
+}
+
+// Wipe the auth state so the next pairing starts clean. A prior aborted attempt
+// leaves an *unregistered* creds.json (noise keys, no registration); reconnecting
+// with it makes WA reject the session with 401 "Connection Failure" seconds after
+// the code is minted, before the user can enter it. Only ever called when not
+// registered, so a live link is never destroyed.
+function clearSession() {
+  try {
+    for (const f of fs.readdirSync(SESSION_DIR)) {
+      fs.rmSync(path.join(SESSION_DIR, f), { recursive: true, force: true });
+    }
+    console.log('[wa] session cleared for fresh pairing');
+  } catch (e) { console.log('[wa] clearSession failed: ' + (e?.message || e)); }
+}
+
 async function requestPairing(phoneNumber) {
   const digits = String(phoneNumber).replace(/[^0-9]/g, '');
   if (!digits) throw new Error('invalid phone number');
-  if (!sock) await startSocket();
+  if (connectionState === 'connected' && isRegistered()) {
+    throw new Error('already linked; unlink first to re-pair');
+  }
+  // Fresh pairing: tear down any half-open socket and clear stale/partial auth
+  // state, otherwise WA 401s the reconnect. This is the fix for the pairing code
+  // dying seconds after it is issued.
+  if (sock) { try { sock.end?.(new Error('re-pair')); } catch {} sock = null; }
+  if (!isRegistered()) clearSession();
+  pairingInFlight = true;
+  await startSocket();
+  // Brief settle for the WS to open before asking for a code (too long and WA
+  // closes the unregistered socket first).
+  await delay(800);
   // requestPairingCode must run once the socket is up but before registration.
   for (let i = 0; i < 20; i++) {
     try {
@@ -127,7 +200,7 @@ app.use((req, res, next) => {
 });
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, engine: 'faceclaw-whatsapp', milestone: '1b', node: process.version, arch: process.arch, baileys: true, state: connectionState });
+  res.json({ ok: true, engine: 'faceclaw-whatsapp', milestone: '1c', node: process.version, arch: process.arch, baileys: true, state: connectionState });
 });
 app.get('/status', (req, res) => {
   res.json({ state: connectionState, user: connectedUser, pairingCode: pairing.code, lastError });
@@ -155,9 +228,14 @@ app.listen(PORT, '127.0.0.1', () => {
   console.log('[wa] engine listening on 127.0.0.1:' + PORT + ' node=' + process.version);
 });
 
-// If a session already exists (previously linked), auto-connect on boot.
-if (fs.existsSync(path.join(SESSION_DIR, 'creds.json'))) {
+// Auto-connect on boot only when actually linked. An unregistered creds.json is
+// a stale/partial pairing attempt: connecting with it would 401, so leave it for
+// the next /pair to clear.
+if (isRegistered()) {
+  console.log('[wa] registered session found, auto-connecting');
   startSocket().catch((e) => { lastError = String(e); console.error('[wa] auto-connect failed: ' + e); });
+} else if (fs.existsSync(path.join(SESSION_DIR, 'creds.json'))) {
+  console.log('[wa] stale unregistered session on boot, leaving for next /pair to clear');
 }
 
 process.on('uncaughtException', (e) => console.error('[wa] uncaught: ' + (e?.stack || e)));
