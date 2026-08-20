@@ -45,6 +45,13 @@ working tree:
   same Even-app warning as glasses write failures. Main, Controls, and Health all
   offer Open Even settings + Retry R1; opening settings starts a bounded release
   poll that clears the warning and retries R1 once Even releases Bluetooth.
+- **MCP / skill publish audit:** the phone exposes 24 assistant tools, but public
+  MCP/skill publication is NO-GO. The bridge lacks authenticated peer/transport,
+  pre-auth and stale-socket rejection, turn-generation authorization, enforced
+  schemas, correct lifecycle/errors, safe multi-window ownership, and cancellable/
+  idempotent side effects. A bounded shell-owned `glasses.render_view` v1 is
+  designed but blocked on that hardening. See
+  `notes/mcp-skill-publish-audit-2026-08-20.md`.
 
 Verification on the combined continuation checkout: all 133 tests passed,
 TypeScript typechecking passed, and a debug Android build completed with Android
@@ -54,13 +61,15 @@ canonical release identity.
 JDK 26 is present but fails this Gradle stack's `jlink` step; use
 `JAVA_HOME=/usr/lib/jvm/java-21-openjdk` and `ANDROID_HOME=/home/benny/Android/Sdk`.
 
-**Freeze status:** the cmd=5/activity continuation is tested and built. Treat
-its resulting commit as a new frozen candidate and run independent review; do
-not cite `1e73fee` as covering these newer changes.
+**Freeze status:** activity ingestion and packetAck lifecycle hardening passed
+independent static review, merged with the contention UX, passed 133 tests,
+typecheck, and a combined Android build, and was installed on the A32.
 
-**Next recommended item:** while sleep is deliberately deferred until Benny
-wears the ring overnight, do the MCP/skill review queued under Platform/vision.
-After the overnight capture exists, correlate `cmd=6` against the matching export.
+**Next recommended item:** harden the external assistant bridge/MCP trust boundary
+in the order listed by the publish audit, starting with authenticated connection
+generations and rejecting all pre-auth/stale frames. `glasses.render_view` and its
+skill stay blocked until those global gates close. After Benny provides a worn
+overnight capture, correlate `cmd=6` against the matching export.
 
 ## 1. What this project is
 

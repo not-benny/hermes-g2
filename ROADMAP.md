@@ -103,14 +103,21 @@ session-open frame is hardcoded/universal (not per-device).
   the captured response was CRC-valid and no firmware-write behavior was added.
 
 ### Platform / vision groundwork
-- **TODO** — **MCP / skill review** — audit and publish the relevant skills/MCPs. Flagship use case = the
-  MCP-driven glasses display (see Later).
+- **AUDIT DONE / PUBLICATION BLOCKED** (2026-08-20) — **MCP / skill review** inventoried 24 phone-served
+  tools and designed a bounded shell-owned `glasses.render_view` v1. Publication is NO-GO until the external
+  bridge has authenticated transport/peer proof, pre-auth and stale-connection rejection, turn-generation
+  authorization, enforced JSON Schemas, correct MCP lifecycle/errors, window-owned registrations, and
+  cancellation/idempotency for side effects. Tool-specific holds include proactive alert/timer mutation,
+  over-broad Roam reads, and disconnected-success paths. Full report:
+  `notes/mcp-skill-publish-audit-2026-08-20.md`. Do not publish a `hermes-g2-glasses` skill before these gates.
 
 ### Smaller backlog (do not lose)
 - **TODO** — S5 Ring pair/unpair + direct phone-to-ring link management UI (ties to T2).
-- **DONE** (2026-08-20) — S6 Ring-health contention UX: direct R1 failures and glasses write failures surface
+- **IMPLEMENTED / HARDWARE VALIDATION BLOCKED** (2026-08-20) — S6 Ring-health contention UX: direct R1 failures and glasses write failures surface
   an Even-app warning on Main, Controls, and Health with Open settings + Retry R1 actions. Opening settings
   starts a bounded release poll; once Even releases Bluetooth, the warning clears and R1 retries automatically.
+  Static review passed, but real contention/release could not be exercised because launching Even immediately
+  requested glasses re-pairing; that prompt was refused and Even was re-disabled/revoked. Operational GO remains open.
 - **TODO** — S7 Voice-assistant bridge validate end-to-end ("Hey Even" → bridge → agent); bridge now works,
   path was never hardware-tested.
 - **DEFER** — S3 `foregroundServiceType` refinement (FaceclawForegroundService.java ~110) — current
@@ -147,10 +154,11 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   model outside CFW scope; custom PHRASE = phone-side sherpa KWS only (deferred XL). Custom ACTION already ships.
 
 ### Vision — MCP-driven glasses display
-- **RESEARCH / DESIGN** — Hermes renders dynamic cards/dashboards to the glasses via MCP (e.g. Home Assistant
+- **DESIGNED / BLOCKED ON MCP HARDENING** — Hermes renders dynamic cards/dashboards to the glasses via MCP (e.g. Home Assistant
   "what's on in the living room" → a control dashboard; Starling "recent transactions" → a compact statement).
-  Substrate ~80% there (phone is already an MCP server; ~20 glasses apps already render surfaces). Missing:
-  a generic `glasses.render_view(spec)` MCP tool + gesture-driven interactivity. Flagship for the MCP/skill review.
+  V1 is specified as one shell-owned in-process window with opaque identity, revision checks, TTL, strict bounded
+  text/key-value/progress/divider blocks, no raw pixels/coordinates/URLs/scripts, and no proactive wake/focus.
+  Gesture events remain a later extension. Do not implement/publish until the audit's bridge/registry blockers close.
 
 ### Other deferred
 - **RESEARCH** — **Automate Even firmware tracking + CFW re-patching.** Even ships new glasses firmware
