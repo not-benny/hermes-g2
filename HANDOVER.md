@@ -6,6 +6,49 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 ## 0. Latest continuation (2026-08-20)
 
+### Direct-R1 worker isolation candidate (2026-08-21)
+
+- Local branch `work/t_c1971fa9-ring-worker` now has candidate commits
+  `0accf5f` and `0475383` (not pushed; no PR). Every optional direct-R1 connect,
+  discovery/MTU/subscription wait, battery read, health poll, packetAck drain,
+  and ring write runs on the single `FaceclawRingLink` worker. The glasses
+  `FaceclawBleCommunicator` loop and initial glasses connect path perform no
+  direct-ring work.
+- Direct-ring lifecycle, timers, generation, battery, and bounded packetAck
+  state are protected by a distinct `ringLock`. Shutdown interrupts both Java
+  workers before bounded joins and crosses the final ring-write barrier before
+  resetting state or closing BLE. Delayed writes and probe gaps revalidate the
+  captured ring generation and stop on cancellation.
+- `FaceclawBleManager` now serializes complete operations per address while a
+  short static Bluetooth API lock protects only immediate Android GATT API
+  initiation. Different-address callback waits no longer block glasses writes,
+  and callbacks from an obsolete GATT are ignored.
+- Verification on the frozen `0475383` checkout: focused ring contracts 17/17,
+  full suite 148/148, `npm run typecheck` PASS, and JDK 21 / Android SDK 35 debug
+  build PASS. APK: `platforms/android/app/build/outputs/apk/debug/app-debug.apk`.
+  The two initial clean-worktree typecheck/build attempts lacked the ignored
+  `node_modules` link and reproduced 35 missing NativeScript ambient-type errors;
+  after linking the existing dependency tree into the isolated verification
+  worktree, the exact commands passed.
+- A32 USB (`SM_A326B`) install and launch passed. Runtime process evidence showed
+  `FaceclawBleCommunicator` and `FaceclawRingLink` as separate threads. In the
+  connected-R1 run, the ring worker used TID 2486 while glasses display writes
+  used TID 2485; a glasses frame completed during the ring connect window. The
+  R1 reached ready with MTU 247, returned CRC-valid read-only firmware, health,
+  and device-status responses, the full poll completed, the phone UI reported
+  `Connected.`, and later 15-second current-HR refresh ran on the ring worker.
+  The optional SIG battery characteristic remained absent, preserving the safe
+  fallback. Frame timings were pulled to `/tmp/t_535a9f1f-frame-timings.txt` and
+  no MAC-bearing/raw health log is tracked.
+- A reversible ring timeout could not be safely induced without physical handling
+  during this headless run. No pairing/ownership, permission, MAC, firmware/DFU,
+  reset, power, or destructive operation was attempted; Even Bluetooth remained
+  revoked. Connected-path thread/interleaving evidence is therefore the available
+  hardware proof, and timeout/retry hardware proof remains an explicit limitation.
+- Review state: implementation is ready for mandatory `g2-reviewer` review.
+  Only a reviewer-created delivery card may authorize push/PR. Remaining latency
+  siblings are the non-blocking wake barrier and shorter `waitForFrameFinished`.
+
 Seven self-contained items were completed on the `hermes-g2` branch/current
 working tree:
 
