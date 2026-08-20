@@ -96,6 +96,17 @@ export class FaceclawMediaControllerBridge {
     this.controller?.playPause();
   }
 
+  /**
+   * Resume the last media session when none is active. Dispatches a media-play
+   * key the system routes to the most recently active player (see
+   * FaceclawMediaController.resumeLast). Fire-and-forget: a session appears via
+   * onStateChange if a player picks it up.
+   */
+  async resumeLast(): Promise<void> {
+    this.ensureController();
+    this.controller?.resumeLast();
+  }
+
   async skipNext(): Promise<void> {
     this.ensureController();
     this.controller?.skipNext();

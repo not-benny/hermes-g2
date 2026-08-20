@@ -46,6 +46,7 @@ const PLAYLIST_ACTION_INDEX = 1;
 
 type MusicAction =
   | { kind: "play-pause"; label: string; enabled: boolean }
+  | { kind: "resume-last"; label: string; enabled: boolean }
   | { kind: "previous"; label: string; enabled: boolean }
   | { kind: "next"; label: string; enabled: boolean }
   | { kind: "volume"; label: string; enabled: boolean }
@@ -272,6 +273,7 @@ class MusicAppLayer implements Layer {
         const action = actions[this.selectedActionIndex];
         if (!action || !action.enabled) return;
         if (action.kind === "play-pause") await mediaControllerBridge.playPause();
+        else if (action.kind === "resume-last") await mediaControllerBridge.resumeLast();
         else if (action.kind === "previous") await mediaControllerBridge.skipPrevious();
         else if (action.kind === "next") await mediaControllerBridge.skipNext();
         else if (action.kind === "browse") this.openBrowse(ctx);
@@ -359,12 +361,17 @@ class MusicAppLayer implements Layer {
 
   private buildActions(media: MediaControllerState, queue: MediaQueueItem[]): MusicAction[] {
     const volume = mediaControllerBridge.getMediaVolumePercent();
+    // With no active session there is nothing to Play/Pause; offer "Resume last"
+    // instead, which wakes the most recently used player via a media-play key.
+    const playRow: MusicAction = media.available
+      ? {
+          kind: "play-pause",
+          label: media.playbackState === "playing" ? "Pause" : "Play",
+          enabled: media.canPlayPause,
+        }
+      : { kind: "resume-last", label: "Resume last", enabled: true };
     return [
-      {
-        kind: "play-pause",
-        label: media.playbackState === "playing" ? "Pause" : "Play",
-        enabled: media.canPlayPause,
-      },
+      playRow,
       { kind: "playlist", label: "Playlist", enabled: queue.length > 0 },
       { kind: "browse", label: "Browse library", enabled: mediaBrowserBridge.listVisibleBrowsableApps().length > 0 },
       { kind: "volume", label: volume >= 0 ? `Volume (${volume})` : "Volume", enabled: volume >= 0 },
