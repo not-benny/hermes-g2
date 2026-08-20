@@ -75,7 +75,7 @@
             </StackLayout>
 
             <!-- [E] supporting tiles -->
-            <GridLayout rows="auto,auto" columns="*,*" class="m-t-4">
+            <GridLayout rows="auto,auto,auto" columns="*,*" class="m-t-4">
                 <StackLayout row="0" col="0" class="card tile">
                     <Label text="SpO₂" class="tile-metric" />
                     <Label text="{{ spo2Value }}" class="tile-value" />
@@ -95,6 +95,15 @@
                 <StackLayout row="1" col="1" class="card tile">
                     <Label text="Battery" class="tile-metric" />
                     <Label text="{{ batteryValue }}" class="tile-value" />
+                </StackLayout>
+                <StackLayout row="2" col="0" class="card tile">
+                    <Label text="Active kcal *" class="tile-metric" />
+                    <Label text="{{ caloriesValue }}" class="tile-value" />
+                    <Label text="estimated from HR" class="tile-trend" />
+                </StackLayout>
+                <StackLayout row="2" col="1" class="card tile">
+                    <Label text="Steps" class="tile-metric" />
+                    <Label text="{{ stepsValue }}" class="tile-value" />
                 </StackLayout>
             </GridLayout>
 

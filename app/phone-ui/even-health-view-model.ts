@@ -29,6 +29,8 @@ import {
   getHermesConsent,
   setHermesConsent,
 } from "../native/health-export";
+import { estimateActiveCalories } from "../health/calories";
+import { loadCalorieProfile } from "../native/calorie-profile";
 
 /** Minimal per-hour shape (hourIdx + avg/max/min) the insights + charts consume. */
 type RingHour = { hourIdx: number; avg: number; max: number; min: number };
@@ -335,6 +337,11 @@ export class EvenHealthViewModel extends Observable {
     return this.tempI.currentC === null ? "nightly" : this.tempI.deviationC === null ? "baseline building" : "vs baseline";
   }
   get batteryValue(): string { return this.health.batteryPercent === null ? "--" : String(this.health.batteryPercent); }
+  get caloriesValue(): string {
+    const hrs = this.hrHours();
+    return hrs.length ? String(estimateActiveCalories(hrs, loadCalorieProfile(), this.hrI.restingHr)) : "--";
+  }
+  get stepsValue(): string { return this.health.activity ? String(this.health.activity.totalSteps) : "--"; }
 
   // --- export + sharing ------------------------------------------------------
   onExportJsonTap(): void {
@@ -376,7 +383,7 @@ const NOTIFY = [
   "currentHrValue", "currentHrSource", "restingHrLabel", "hrRangeLabel", "hrTrendLabel", "hrChartVisibility",
   "trendChartVisibility", "trendEmptyVisibility", "trendEmptyLabel",
   "sleepLockedVisibility", "sleepFullVisibility", "sleepHint", "sleepScoreLabel", "sleepDurationLabel",
-  "spo2Value", "hrvValue", "temperatureValue", "temperatureUnit", "temperatureSub", "batteryValue",
+  "spo2Value", "hrvValue", "temperatureValue", "temperatureUnit", "temperatureSub", "batteryValue", "caloriesValue", "stepsValue",
 ];
 
 function relativeTime(ms: number): string {

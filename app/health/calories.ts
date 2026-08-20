@@ -31,10 +31,20 @@ export function kcalPerMinute(hrBpm: number, p: CalorieProfile): number {
 }
 
 /**
- * Estimated calories across a set of hourly average heart rates: each hour
- * contributes its average HR sustained for 60 minutes. Only hours we have HR for
- * count, so the figure grows through the day as more hours accumulate.
+ * Estimated ACTIVE calories across a set of hourly average heart rates: for each
+ * hour, the energy expended ABOVE the resting-HR baseline, sustained for 60
+ * minutes. Subtracting the resting rate is what makes a sedentary day read low
+ * (raw Keytel EE would count basal burn too and reach ~1500+ kcal/day). Hours at
+ * or below resting contribute nothing. `restingHr` falls back to the lowest
+ * tracked hour, then to 60 bpm.
  */
-export function estimateCaloriesFromHours(hours: Array<{ avg: number }>, p: CalorieProfile): number {
-  return Math.round(hours.reduce((sum, h) => sum + kcalPerMinute(h.avg, p) * 60, 0));
+export function estimateActiveCalories(
+  hours: Array<{ avg: number }>,
+  p: CalorieProfile,
+  restingHr: number | null,
+): number {
+  if (hours.length === 0) return 0;
+  const restHr = restingHr ?? Math.min(...hours.map((h) => h.avg), 60);
+  const basePerMin = kcalPerMinute(restHr, p);
+  return Math.round(hours.reduce((sum, h) => sum + Math.max(0, kcalPerMinute(h.avg, p) - basePerMin) * 60, 0));
 }

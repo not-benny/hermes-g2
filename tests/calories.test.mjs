@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { kcalPerMinute, estimateCaloriesFromHours } from "../app/health/calories.ts";
+import { kcalPerMinute, estimateActiveCalories } from "../app/health/calories.ts";
 
 const MALE = { weightKg: 75, ageYears: 30, sex: "male" };
 const FEMALE = { weightKg: 65, ageYears: 30, sex: "female" };
@@ -21,9 +21,11 @@ test("kcalPerMinute rises with heart rate", () => {
   assert.ok(kcalPerMinute(140, MALE) > kcalPerMinute(80, MALE));
 });
 
-test("estimateCaloriesFromHours sums each hour as 60 minutes at its avg HR", () => {
-  const perMin = kcalPerMinute(120, MALE);
-  const twoHours = estimateCaloriesFromHours([{ avg: 120 }, { avg: 120 }], MALE);
-  assert.equal(twoHours, Math.round(perMin * 60 * 2));
-  assert.equal(estimateCaloriesFromHours([], MALE), 0);
+test("estimateActiveCalories counts only burn above the resting-HR baseline", () => {
+  // Two hours at 120 bpm with resting 60: each hour = (rate@120 - rate@60) * 60.
+  const active = (kcalPerMinute(120, MALE) - kcalPerMinute(60, MALE)) * 60;
+  assert.equal(estimateActiveCalories([{ avg: 120 }, { avg: 120 }], MALE, 60), Math.round(active * 2));
+  // A sedentary hour at resting contributes ~0 (not a full basal burn).
+  assert.equal(estimateActiveCalories([{ avg: 62 }], MALE, 62), 0);
+  assert.equal(estimateActiveCalories([], MALE, 60), 0);
 });

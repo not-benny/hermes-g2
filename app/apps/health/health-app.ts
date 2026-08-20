@@ -30,7 +30,7 @@ import { computeBaselines, dateKeyOf } from "../../health/health-history";
 import { hourlyForDay } from "../../health/health-hourly";
 import { buildHrDayBars, type HourHr } from "../../phone-ui/health-chart-data";
 import { loadHourly, loadHealthHistory } from "../../native/health-export";
-import { estimateCaloriesFromHours } from "../../health/calories";
+import { estimateActiveCalories } from "../../health/calories";
 import { loadCalorieProfile } from "../../native/calorie-profile";
 
 export const HEALTH_WINDOW_ID = "health";
@@ -175,9 +175,9 @@ class HealthCardLayer implements Layer {
     const dividerY = (haveChart ? chartTop + chartH : hrY + big.lineHeight) + 10;
     const valueY = dividerY + 10;
     const labelY = valueY + 24;
-    const kcal = hours.length ? estimateCaloriesFromHours(hours, loadCalorieProfile()) : null;
+    const kcal = hours.length ? estimateActiveCalories(hours, loadCalorieProfile(), hrI.restingHr) : null;
     const tiles: Array<[string, string]> = [
-      [kcal === null ? "--" : String(kcal), "kcal *"],
+      [kcal === null ? "--" : String(kcal), "active kcal *"],
       [s.batteryPercent === null ? "--" : `${s.batteryPercent}`, "ring %"],
       [s.spo2 ? `${s.spo2.avg}` : "--", "SpO2 %"],
       [s.hrv ? `${s.hrv.avg}` : "--", "HRV ms"],
