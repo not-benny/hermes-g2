@@ -325,6 +325,26 @@ SegmentedBar {
   color: #7C9184;
 }
 
+/* --- Onboarding wizard: progress dots + permission status ---------------- */
+.onb-dot {
+  width: 8;
+  height: 8;
+  border-radius: 4;
+  margin: 3;
+}
+.onb-dot-on {
+  background-color: #57D8A6;
+}
+.onb-dot-off {
+  background-color: #24312A;
+}
+.onb-ok {
+  color: #57D8A6;
+}
+.onb-todo {
+  color: #F5C542;
+}
+
 /*
  * Stands in for the lens preview when showing it would be misleading (silent
  * mode, or a disconnect explained by a flat battery). Sized by the view model

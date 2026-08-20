@@ -103,6 +103,12 @@ export async function ensureBlePermissions(): Promise<void> {
   await ensurePermissions(getRequiredPermissions(), PERMISSION_REQUEST_CODE, "Bluetooth");
 }
 
+/** Whether every required Bluetooth/scan permission is granted (false off-Android). */
+export function hasBlePermissions(): boolean {
+  if (!global.isAndroid) return false;
+  return getRequiredPermissions().every(isPermissionGranted);
+}
+
 export async function ensureVoicePermissions(): Promise<void> {
   await ensurePermissions([RECORD_AUDIO_PERMISSION], VOICE_PERMISSION_REQUEST_CODE, "Voice control");
 }

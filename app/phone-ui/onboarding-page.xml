@@ -1,15 +1,55 @@
-<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" actionBarHidden="true">
-    <GridLayout rows="*,auto" class="p-20">
-        <ScrollView row="0">
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" navigatedTo="navigatedTo" navigatedFrom="navigatedFrom" actionBarHidden="true">
+    <GridLayout rows="auto,*,auto" class="p-20">
+        <!-- progress -->
+        <StackLayout row="0">
+            <StackLayout orientation="horizontal" horizontalAlignment="center">
+                <Label class="{{ dot1Class }}" />
+                <Label class="{{ dot2Class }}" />
+                <Label class="{{ dot3Class }}" />
+                <Label class="{{ dot4Class }}" />
+                <Label class="{{ dot5Class }}" />
+            </StackLayout>
+            <Label text="{{ stepLabel }}" class="muted text-center m-t-4" fontSize="11" />
+        </StackLayout>
+
+        <ScrollView row="1">
             <StackLayout>
                 <Image src="res://logo" stretch="aspectFit" height="140" horizontalAlignment="center" visibility="{{ logoVisibility }}" class="m-t-24" />
                 <Label text="{{ headline }}" class="h1 text-center m-t-24" textWrap="true" />
                 <Label text="{{ tagline }}" class="text-center m-t-8" textWrap="true" visibility="{{ taglineVisibility }}" />
                 <Label text="{{ body }}" class="m-t-24" textWrap="true" />
+
+                <!-- permissions (step 4) -->
+                <StackLayout visibility="{{ permsVisibility }}" class="m-t-16">
+                    <GridLayout columns="*,auto" class="control-row">
+                        <StackLayout col="0" verticalAlignment="center">
+                            <Label text="Bluetooth" class="control-row-label" />
+                            <Label text="Required to reach your glasses and ring." class="control-row-sublabel" textWrap="true" />
+                            <Label text="{{ bleStatusLabel }}" class="{{ bleStatusClass }}" fontSize="12" />
+                        </StackLayout>
+                        <Button col="1" text="Grant" tap="{{ onGrantBle }}" isEnabled="{{ bleButtonEnabled }}" verticalAlignment="center" />
+                    </GridLayout>
+                    <GridLayout columns="*,auto" class="control-row">
+                        <StackLayout col="0" verticalAlignment="center">
+                            <Label text="Notification access" class="control-row-label" />
+                            <Label text="So Hermes can mirror phone notifications to the lens." class="control-row-sublabel" textWrap="true" />
+                            <Label text="{{ notifStatusLabel }}" class="{{ notifStatusClass }}" fontSize="12" />
+                        </StackLayout>
+                        <Button col="1" text="Open" tap="{{ onGrantNotif }}" isEnabled="{{ notifButtonEnabled }}" verticalAlignment="center" />
+                    </GridLayout>
+                    <GridLayout columns="*,auto" class="control-row">
+                        <StackLayout col="0" verticalAlignment="center">
+                            <Label text="Unrestricted battery" class="control-row-label" />
+                            <Label text="Keeps the glasses connected in the background." class="control-row-sublabel" textWrap="true" />
+                            <Label text="{{ batteryStatusLabel }}" class="{{ batteryStatusClass }}" fontSize="12" />
+                        </StackLayout>
+                        <Button col="1" text="Allow" tap="{{ onGrantBattery }}" isEnabled="{{ batteryButtonEnabled }}" verticalAlignment="center" />
+                    </GridLayout>
+                </StackLayout>
             </StackLayout>
         </ScrollView>
 
-        <GridLayout row="1" columns="*,*" class="m-t-20">
+        <GridLayout row="2" columns="*,*" class="m-t-20">
             <Button col="0" text="{{ secondaryLabel }}" tap="{{ onSecondaryTap }}" visibility="{{ secondaryVisibility }}" />
             <Button col="1" text="{{ primaryLabel }}" tap="{{ onPrimaryTap }}" class="-primary" />
         </GridLayout>
