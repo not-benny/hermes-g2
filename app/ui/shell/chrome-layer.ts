@@ -73,7 +73,7 @@ export type ShellChromeState = {
   foregroundHeightMode: WindowHeightMode;
   /** Vertical bounce offset for the sidebar tab list when stopped at an end. */
   sidebarBounceY: number;
-  /** Ring heart rate (bpm) for the HUD, null hides the readout entirely. */
+  /** Ring heart rate (bpm) for the HUD; null renders the heart with "--". */
   ringHeartRate: number | null;
   battery: {
     headset: number | null;
@@ -366,13 +366,12 @@ export class ShellChromeLayer implements Layer {
     }
 
     // Ring heart rate, leftmost in the block: a small heart plus the live bpm,
-    // shown only once the ring has synced a reading.
-    if (state.ringHeartRate !== null && Number.isFinite(state.ringHeartRate)) {
-      const bpmText = String(Math.max(0, Math.min(255, Math.round(state.ringHeartRate))));
-      leftEdge -= 10 + HEART_ICON.width + labelGap + font.measureText(bpmText);
-      image.bitBlt(HEART_ICON, leftEdge, centerY(HEART_ICON.height), { transparentZero: true });
-      image.drawText(font, leftEdge + HEART_ICON.width + labelGap, textY, bpmText, 200);
-    }
+    // or "--" when there is no live reading (the heart stays put either way).
+    const hr = state.ringHeartRate;
+    const bpmText = hr !== null && Number.isFinite(hr) ? String(Math.max(0, Math.min(255, Math.round(hr)))) : "--";
+    leftEdge -= 10 + HEART_ICON.width + labelGap + font.measureText(bpmText);
+    image.bitBlt(HEART_ICON, leftEdge, centerY(HEART_ICON.height), { transparentZero: true });
+    image.drawText(font, leftEdge + HEART_ICON.width + labelGap, textY, bpmText, 200);
     return leftEdge;
   }
 }
