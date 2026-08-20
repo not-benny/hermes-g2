@@ -100,6 +100,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     // the ring is actually worn.
     private long lastRingHealthPollMs = 0;
     private static final long RING_HEALTH_POLL_INTERVAL_MS = 60_000L;
+    // Match the Even app's observed live-HR cadence without re-requesting every
+    // heavier daily metric on each tick.
+    private long lastRingCurrentHrPollMs = 0;
+    private static final long RING_CURRENT_HR_POLL_INTERVAL_MS = 15_000L;
     private final SecureRandom ringRandom = new SecureRandom();
     private boolean sessionReady;
     private boolean fixedLayoutCreated;
@@ -1046,6 +1050,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
                 drainRingPacketAcks();
                 maybeReRingHealthPoll();
+                maybeReRingCurrentHrPoll();
                 long sleepMs = driveSession();
                 if (sleepMs > 0) {
                     interruptibleSleep.sleep(sleepMs);
@@ -1328,6 +1333,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     ringBattery = -1;
                     ringHealthProbeSent = false;
                     lastRingHealthPollMs = 0;
+                    lastRingCurrentHrPollMs = 0;
                     ringPacketAckQueue.clear();
                     ringReconnectAfterMs = Math.max(ringReconnectAfterMs,
                         SystemClock.elapsedRealtime() + ConnectionOptions.RING_RECONNECT_DELAY_MS);
@@ -1621,9 +1627,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
      *      raw=<hex>".
      *
      * NEEDS EXCLUSIVE ring access: force-stop com.even.sg during a Hermes sync or
-     * both contend and time out. Large history arrives multi-packet and needs a
-     * packetAck(0x7e) pull loop (next stage); THIS stage fires the GETs so the
-     * first response frames can be captured to reverse the daily-data byte layout.
+     * both contend and time out. Large history uses the implemented packetAck(0x7e)
+     * pull loop; a separate HR-only GET refreshes the current-hour value every 15s.
      */
     /**
      * Re-fire the ring health poll every RING_HEALTH_POLL_INTERVAL_MS while the
@@ -1640,7 +1645,21 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             return;
         }
         lastRingHealthPollMs = now;
+        lastRingCurrentHrPollMs = now;
         probeRingHealth();
+    }
+
+    /** Lightweight current-hour HR refresh; full metrics remain on the 60s poll. */
+    private void maybeReRingCurrentHrPoll() {
+        if (!ringConnected || !ringHealthProbeSent || !RING_HEALTH_PROBE_ENABLED) {
+            return;
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastRingCurrentHrPollMs < RING_CURRENT_HR_POLL_INTERVAL_MS) {
+            return;
+        }
+        lastRingCurrentHrPollMs = now;
+        sendRingCommand("heartRate/current-hour GET", 0x02, 0x01, 0x01, 0x00, null);
     }
 
     private void probeRingHealth() {
@@ -3282,6 +3301,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         ringBattery = -1;
         ringHealthProbeSent = false;
         lastRingHealthPollMs = 0;
+        lastRingCurrentHrPollMs = 0;
         reconnectAfterMs = 0;
         ringReconnectAfterMs = 0;
         lastAckAtMs = 0;

@@ -59,15 +59,16 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   firmware struct accesses, and matching 11:50 CSV rows. Resting kcal is
   `total-active`. Buckets merge and persist by day/slot; ring-native active kcal
   is primary in phone/glasses UI, with Keytel retained as the marked fallback.
-- **CONFIRMED / mostly DONE (headline health feature)** — **Live heart rate.** RE resolves the core unknown:
+- **DONE (headline health feature)** — **Live heart rate.** RE resolves the core unknown:
   the R1 ring has NO per-beat stream; its finest granularity is the hourly aggregate, and the frame header's
   live current@11 IS the live current-hour reading. That value is already routed to `store.currentHr` and the
   glasses HUD (re-wired this session). The frame envelope for this path is byte-verified (see CONFIRMED above),
-  which closes the earlier "finish the frame-format decode" sub-item. A periodic current-hour re-read (~15s to
-  1min cadence, NOT per-beat) is a minor future enhancement, best folded into the request-layer work below.
+  which closes the earlier "finish the frame-format decode" sub-item. A worker-thread HR-only GET now refreshes
+  the current-hour value every 15s (NOT per-beat), while heavier full-health polling stays at 60s.
 - **DONE** (2026-08-20) — Request-layer MTU + packetAck: direct-ring connect requests MTU 247 after
   service discovery and before notify subscription/probing, logging `ok` or safe `fallback`; the captured
   system/packetAck (0x7e) cursor loop uses CRC/shape validation, a bounded callback queue, and worker-thread writes.
+  The same worker runs an HR-only 15s current refresh without re-polling all metrics.
 
 ### Security
 - **DONE** (2026-08-20) — Closed the raw-frame bypass. `sendRawRingFrame()` now fails closed before writing

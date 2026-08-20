@@ -141,3 +141,5 @@ There is no per-beat or per-second stream.
   discovery and before notify subscription/probing, with a logged safe fallback;
   only complete CRC-valid health pushes queue a bounded cursor, and the
   communicator worker performs the write outside the BLE callback.
+- Current HR is refreshed by an HR-only daily GET every 15 seconds on the worker;
+  full multi-metric health polling remains at 60 seconds.

@@ -159,6 +159,20 @@ test("direct ring requests MTU 247 before subscribing and probing", () => {
   assert.match(body, /mtu247Requested \? "ok" : "fallback"/); // failure is logged but ring remains usable.
 });
 
+test("worker refreshes current HR every 15 seconds without re-polling all metrics", () => {
+  const src = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  assert.match(src, /RING_CURRENT_HR_POLL_INTERVAL_MS = 15_000L/);
+  assert.match(src, /maybeReRingCurrentHrPoll\(\)/);
+  const start = src.indexOf("private void maybeReRingCurrentHrPoll()");
+  const end = src.indexOf("private void probeRingHealth()", start);
+  const body = src.slice(start, end);
+  assert.match(body, /sendRingCommand\("heartRate\/current-hour GET", 0x02, 0x01, 0x01, 0x00, null\)/);
+  assert.doesNotMatch(body, /spo2\/daily|hrv\/daily|activity\/daily|sleep\/daily|deviceStatus GET/);
+});
+
 test("health pushes queue packetAck cursors and the worker drains them safely", () => {
   const src = readFileSync(
     new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
