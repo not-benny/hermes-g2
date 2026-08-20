@@ -129,8 +129,8 @@ session-open frame is hardcoded/universal (not per-device).
   over-claim is SAFE; a wrong gate could UNDER-claim and break voice capture. Leave until exercisable on-device.
 
 ### Release / repo
-- **TODO** — Q: Debug preview APK (from the excised staging tree) + GitHub Release + CHANGELOG; then the held
-  awesome-list PRs. Keep the public repo evolving (currently at 6f8556b).
+- **IN-PROGRESS** — Q: the 1.0.0 `CHANGELOG.md` is drafted. The debug preview APK and GitHub Release remain
+  pending, followed by the held awesome-list PRs. Keep the public repo evolving (currently at 6f8556b).
 
 ---
 

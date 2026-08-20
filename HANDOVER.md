@@ -6,8 +6,40 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 ## 0. Latest continuation (2026-08-20)
 
+The 1.0.0 development-preview changelog is drafted in `CHANGELOG.md` on the
+dedicated local branch `wt/t_4491cd1f`, based on `ae89fd5`. It is user-facing,
+keeps the Unreleased date honest, and records the setup rules, safety gates,
+verified health/companion capabilities, and known hardware- or upstream-blocked
+limitations. `ROADMAP.md` now marks only the changelog portion of Q as drafted;
+the debug preview APK, GitHub Release, and held awesome-list PRs remain pending.
+
+The changelog preserves these explicit limitations: Even is still required for
+initial provisioning and official maintenance; the real contention-release path
+is hardware-validation blocked; sleep decoding is still a throwing stub; skin
+temperature is sparse/daily; HR is an hourly aggregate rather than a per-beat
+stream; WhatsApp self-service pairing is blocked by the Baileys
+`link_code_companion_reg` 400 regression; “Hey Even” → bridge → agent lacks
+end-to-end hardware validation; public MCP/skill exposure and generic
+`glasses.render_view` are unavailable; firmware flash/recovery is not validated;
+and debug APK builds are not reproducible.
+
+Fresh release-gate validation from this documentation-only checkout:
+
+- `npm test` — **PASS**, 144 tests passed, 0 failed.
+- `npm run typecheck` — **FAIL**, existing NativeScript Android ambient-type
+  errors (`android`, `androidx`, `java`, and `Array.create`) across unchanged
+  application files.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk ANDROID_HOME=/home/benny/Android/Sdk npm run build` — **FAIL** with the same 35 existing TypeScript ambient-type errors; no application files were changed to address them.
+- `git diff --check` — **PASS**. The tracked diff is limited to
+  `CHANGELOG.md`, `ROADMAP.md`, and `HANDOVER.md`; no APK, tag, release, or
+  hardware operation was created or performed.
+
+The next step is independent review. Nothing has been pushed, and only a
+separate reviewer-created delivery card after approval may push or open/update
+a PR or GitHub Release.
+
 Seven self-contained items were completed on the `hermes-g2` branch/current
-working tree:
+working tree before this changelog item:
 
 - **Raw ring-frame security gate:** `sendRawRingFrame()` now fails closed before
   writing to `bae80012`. It accepts only a complete canonical single-frame
@@ -61,12 +93,14 @@ working tree:
   proactive quota follows preflight. MCP lifecycle/replies are connection-bound;
   duplicate IDs and late replies are suppressed; unsupported schemas fail closed;
   array bounds/schema-valued extra properties are enforced; owner fallback,
-  top-level protocol-version/socket closure, and auth timeout are covered. Full
-  suite: 144 tests.
+  top-level protocol-version/socket closure, and auth timeout are covered. The
+  historical combined continuation suite reported 144 tests.
 
-Verification on the combined continuation checkout: all 133 tests passed,
-TypeScript typechecking passed, and a debug Android build completed with Android
-SDK 35 and JDK 21 at `platforms/android/app/build/outputs/apk/debug/app-debug.apk`.
+  The historical combined continuation checkout reported 133 tests passed,
+  TypeScript typechecking passed, and a debug Android build completed with Android
+  SDK 35 and JDK 21. The fresh validation above is authoritative for this
+  changelog checkout; its typecheck and build are currently blocked by the
+  ambient-type errors listed there.
 Debug APK builds are not reproducible, so no build-instance hash is treated as a
 canonical release identity.
 JDK 26 is present but fails this Gradle stack's `jlink` step; use
