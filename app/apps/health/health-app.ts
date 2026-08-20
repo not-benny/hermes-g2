@@ -9,6 +9,7 @@
 
 import { getDefaultSmallFont, getFont, type BdfFont } from "../../graphics/bdffont";
 import { GrayImage } from "../../graphics/image";
+import { renderIcon } from "../../graphics/icons";
 import {
   type DashboardInputEvent,
   type Layer,
@@ -19,9 +20,15 @@ import {
 import { createInProcessWindow, YieldAtRootLayer } from "../../ui/shell/in-process-window";
 import { shell, type ShellWindow } from "../../ui/shell/shell";
 import { ringHealthStore } from "../../health/ring-health-store";
-import { readinessScore, type ReadinessInsights } from "../../health/health-insights";
+import {
+  heartRateInsights,
+  readinessScore,
+  type HeartRateInsights,
+  type ReadinessInsights,
+} from "../../health/health-insights";
 import { computeBaselines, dateKeyOf } from "../../health/health-history";
 import { hourlyForDay } from "../../health/health-hourly";
+import { buildHrDayBars, type HourHr } from "../../phone-ui/health-chart-data";
 import { loadHourly, loadHealthHistory } from "../../native/health-export";
 
 export const HEALTH_WINDOW_ID = "health";
@@ -35,23 +42,25 @@ const VERDICT: Record<ReadinessInsights["band"], string> = {
 };
 
 /**
- * Readiness computed exactly as the phone Health tab does (accumulated hourly +
- * baselines + live HR), so the glasses card matches the phone. Cheap enough for
- * the paint path; recomputed only when the card repaints (on data change/focus).
+ * Health insights computed exactly as the phone Health tab does (accumulated
+ * hourly + baselines + live HR), so the glasses card matches the phone. Cheap
+ * enough for the paint path (recomputed only when the card repaints).
  */
-function liveReadiness(): ReadinessInsights {
+function liveHealth(): { readiness: ReadinessInsights; hr: HeartRateInsights; hours: HourHr[] } {
   const nowMs = Date.now();
   const hourly = hourlyForDay(loadHourly(), dateKeyOf(nowMs));
   const s = ringHealthStore.snapshot();
-  return readinessScore({
-    heartRate: hourly.filter((p) => p.hr).map((p) => ({ hourIdx: p.hourIdx, ...p.hr! })),
+  const hours: HourHr[] = hourly.filter((p) => p.hr).map((p) => ({ hourIdx: p.hourIdx, min: p.hr!.min, max: p.hr!.max, avg: p.hr!.avg }));
+  const inputs = {
+    heartRate: hours.map((h) => ({ hourIdx: h.hourIdx, avg: h.avg, max: h.max, min: h.min })),
     hrv: hourly.filter((p) => p.hrv).map((p) => ({ hourIdx: p.hourIdx, ...p.hrv! })),
     sleep: null,
     liveHr: s.currentHr,
     bodyTempC: s.bodyTempC,
     baselines: computeBaselines(loadHealthHistory(), nowMs),
     nowMs,
-  });
+  };
+  return { readiness: readinessScore(inputs), hr: heartRateInsights(inputs), hours };
 }
 
 export type HealthOptions = {
@@ -65,10 +74,29 @@ function drawCentered(img: GrayImage, font: BdfFont, cx: number, y: number, text
   img.drawText(font, Math.round(cx - font.measureText(text) / 2), y, text, value);
 }
 
+/** Draw the day's HR as a min-max range chart with average markers + resting line. */
+function drawHrChart(img: GrayImage, x: number, y: number, w: number, h: number, hours: HourHr[], restingHr: number | null): void {
+  const { bars, baselineFrac } = buildHrDayBars(hours, restingHr);
+  if (baselineFrac !== null) {
+    const by = y + Math.round((1 - baselineFrac) * h);
+    for (let px = x; px < x + w; px += 6) img.fillRect(px, by, 3, 1, 70);
+  }
+  for (const b of bars) {
+    const cx = x + Math.round(b.xFrac * w);
+    const top = y + Math.round((1 - b.highFrac) * h);
+    const bot = y + Math.round((1 - b.lowFrac) * h);
+    img.fillRect(cx, top, 3, Math.max(2, bot - top), 150);
+    if (b.midFrac != null) {
+      const my = y + Math.round((1 - b.midFrac) * h);
+      img.fillRect(cx - 1, my - 1, 5, 3, 240);
+    }
+  }
+}
+
 /**
- * Display-only layer. Built for the standard 288px band but filled with big,
- * blocky numbers + a readiness bar rather than small text and dead space: a
- * readiness hero up top, a large HR readout, and a row of big metric tiles.
+ * Display-only layer for the standard 288px band, filled with big blocky numbers
+ * and graphics: a readiness hero + bar, a large HR readout with resting/range
+ * context and a heart accent, a 24h HR range chart, and a metric strip.
  */
 class HealthCardLayer implements Layer {
   paint(ctx: LayerContext, _paintBelow: PaintBelow): GrayImage {
@@ -79,47 +107,65 @@ class HealthCardLayer implements Layer {
     const med = getFont("terminus24");
     const small = getDefaultSmallFont();
     const s = ringHealthStore.snapshot();
-    const r = liveReadiness();
+    const { readiness: r, hr: hrI, hours } = liveHealth();
     const M = 16;
 
-    // --- readiness hero: label, big score, verdict, and a filled bar ---------
-    img.drawText(small, M, 4, "READINESS", 150);
+    // --- readiness hero: label, big score, verdict, filled bar ---------------
+    img.drawText(small, M, 3, "READINESS", 150);
     const scoreStr = r.score === null ? "--" : String(r.score);
-    img.drawText(big, M, 18, scoreStr, 250);
+    img.drawText(big, M, 15, scoreStr, 250);
     const afterScore = M + big.measureText(scoreStr) + 14;
-    const verdict = r.score === null ? "Not enough data yet" : VERDICT[r.band];
-    img.drawText(med, afterScore, 22, verdict, 220);
-    if (r.score !== null) img.drawText(small, afterScore, 46, "out of 100", 130);
+    img.drawText(med, afterScore, 18, r.score === null ? "Not enough data" : VERDICT[r.band], 225);
+    if (r.score !== null) img.drawText(small, afterScore, 42, `out of 100 - ${r.confidence} confidence`, 125);
 
-    const barY = 58;
-    const barH = 18;
+    const barY = 52;
+    const barH = 16;
     img.fillRoundedRect(M, barY, W - 2 * M, barH, 45, barH / 2);
     if (r.score !== null) {
-      const fillW = Math.max(barH, Math.round((W - 2 * M) * (r.score / 100)));
-      img.fillRoundedRect(M, barY, fillW, barH, 205, barH / 2);
+      img.fillRoundedRect(M, barY, Math.max(barH, Math.round((W - 2 * M) * (r.score / 100))), barH, 210, barH / 2);
     }
 
-    // --- big HR readout ------------------------------------------------------
-    const hr = s.currentHr ?? s.heartRate?.avg ?? null;
-    const hrY = barY + barH + 12;
-    img.drawText(big, M, hrY, hr === null ? "--" : String(hr), 245);
-    const hrNumW = big.measureText(hr === null ? "--" : String(hr));
-    img.drawText(small, M + hrNumW + 8, hrY + 4, "bpm", 150);
-    img.drawText(small, M + hrNumW + 8, hrY + 20, "heart rate", 120);
+    // --- big HR readout with a pulse icon + resting/range context -----------
+    const hrY = barY + barH + 10;
+    const icon = renderIcon("activity", 24);
+    if (icon) img.bitBlt(icon, M, hrY + 4);
+    const hrStr = hrI.current === null ? "--" : String(hrI.current);
+    const hrX = M + (icon ? icon.width + 10 : 0);
+    img.drawText(big, hrX, hrY, hrStr, 245);
+    const afterHr = hrX + big.measureText(hrStr) + 8;
+    img.drawText(small, afterHr, hrY + 4, "bpm", 150);
+    img.drawText(small, afterHr, hrY + 20, "heart rate", 120);
+    const ctxParts: string[] = [];
+    if (hrI.restingHr !== null) ctxParts.push(`rest ${hrI.restingHr}`);
+    if (hrI.min !== null && hrI.max !== null) ctxParts.push(`${hrI.min}-${hrI.max}`);
+    if (ctxParts.length) {
+      const ctxStr = ctxParts.join("   ");
+      img.drawText(small, W - M - small.measureText(ctxStr), hrY + 12, ctxStr, 150);
+    }
 
-    // --- metric tiles: big value + small label, spread across the width ------
+    // --- 24h HR range chart (the rich graphic) ------------------------------
+    const chartY = hrY + big.lineHeight + 8;
+    const stripH = 30;
+    const chartH = Math.max(28, H - chartY - stripH - 6);
+    if (hours.length) {
+      img.drawText(small, M, chartY - 12, "LAST 24H", 110);
+      drawHrChart(img, M, chartY, W - 2 * M, chartH, hours, hrI.restingHr);
+    }
+
+    // --- metric strip: big value + small label across the width -------------
     const tiles: Array<[string, string]> = [
       [s.batteryPercent === null ? "--" : `${s.batteryPercent}`, "ring %"],
       [s.spo2 ? `${s.spo2.avg}` : "--", "SpO2 %"],
       [s.hrv ? `${s.hrv.avg}` : "--", "HRV ms"],
       [s.activity ? String(s.activity.totalSteps) : "--", "steps"],
     ];
-    const tileTop = hrY + big.lineHeight + 8;
+    const stripTop = H - stripH + 2;
+    img.fillRect(M, stripTop - 6, W - 2 * M, 1, 45);
     const tileW = W / tiles.length;
     tiles.forEach(([value, label], i) => {
       const cx = i * tileW + tileW / 2;
-      drawCentered(img, med, cx, tileTop, value, 235);
-      drawCentered(img, small, cx, tileTop + 24, label, 140);
+      drawCentered(img, med, cx, stripTop, value, 235);
+      drawCentered(img, small, cx, stripTop + 22, label, 140);
     });
 
     return img;
