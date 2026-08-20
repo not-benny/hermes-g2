@@ -1104,6 +1104,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 }
                 if (shouldAttemptRingConnect()) {
                     tryConnectRing("retry");
+                    // The connection callback wakes this worker while connectGatt
+                    // is still completing. Consume that now-stale wake before the
+                    // first 200ms probe gap, where an interrupt means cancel.
+                    ringInterruptibleSleep.sleep(1);
                     continue;
                 }
                 drainRingPacketAcks();

@@ -63,6 +63,11 @@ test("a dedicated FaceclawRingLink loop owns every blocking ring action", () => 
   ]) {
     assert.match(ringRun, new RegExp(call.replace(/[()]/g, "\\$&")));
   }
+  assert.match(
+    ringRun,
+    /tryConnectRing\("retry"\);[\s\S]*ringInterruptibleSleep\.sleep\(1\);[\s\S]*continue;/,
+    "the connect callback's sticky wake is consumed before cancellable probe spacing",
+  );
   assert.doesNotMatch(methodBody(communicator, "private void connectLoopOnce()"), /tryConnectRing\(/);
 });
 
