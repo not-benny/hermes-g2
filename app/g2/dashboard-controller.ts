@@ -5,7 +5,7 @@ import { ensureBlePermissions, ensureVoicePermissions } from "./android-permissi
 import { FaceclawCommunicatorBridge, type RawInputEvent, type RingConnectionState } from "../native/faceclaw-communicator";
 import * as frameTimings from "../native/frame-timings";
 import { startForegroundNotification, stopForegroundNotification, updateForegroundNotification } from "../native/foreground-service";
-import { mediaControllerBridge } from "../native/media-controller";
+import { mediaControllerBridge, type MediaControllerState } from "../native/media-controller";
 import { nightscoutBridge } from "../native/nightscout-bridge";
 import { onAndroidNotificationPosted } from "../native/notification-icons";
 import { openEvenAppSettings, readEvenAppNotificationState } from "../native/even-app-conflict";
@@ -137,6 +137,22 @@ function sourceName(eventSource: number): string {
   return EventSourceTypeName[eventSource] ?? `SOURCE_${eventSource}`;
 }
 
+/** A media session worth showing a now-playing card for (paused counts). */
+function isMediaSessionActive(s: MediaControllerState): boolean {
+  return (
+    s.available &&
+    s.accessEnabled &&
+    (s.playbackState === "playing" || s.playbackState === "paused") &&
+    s.title.trim().length > 0
+  );
+}
+
+/** Identity-only track key: never includes position/playbackState, so a
+ *  play/pause toggle or position tick is not seen as a new track. */
+function mediaTrackKey(s: MediaControllerState): string {
+  return `${s.title} ${s.artist} ${s.album}`;
+}
+
 class DashboardController {
   private phase: ConnectionPhase = "disconnected";
   private status = "Disconnected.";
@@ -162,6 +178,10 @@ class DashboardController {
   private connectBeepArmed = false;
   /** Rate-limit the notification beep so a burst does not machine-gun. */
   private lastNotificationBeepMs = 0;
+  private offMediaCardWatcher: (() => void) | null = null;
+  private lastMediaTrackKey = "";
+  private mediaCardDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly MEDIA_CARD_DEBOUNCE_MS = 600;
 
   private communicator: FaceclawCommunicatorBridge | null = null;
   private shellRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -265,6 +285,12 @@ class DashboardController {
       void this.handleAndroidNotificationPosted(notificationKey).catch((error) => {
         this.appendLog(`notification wake failed: ${this.formatError(error)}`);
       });
+    });
+    // Screen-off now-playing card on track change. The bridge replays the
+    // current snapshot synchronously on subscribe, seeding the baseline so a
+    // track already playing at boot never spuriously drops a card.
+    this.offMediaCardWatcher = mediaControllerBridge.onStateChange((state) => {
+      this.onMediaStateForCard(state);
     });
     // Settings toggled from the glasses can change what the phone UI shows
     // (e.g. the text-setting editor), so re-emit the snapshot on any change.
@@ -1214,6 +1240,7 @@ class DashboardController {
     // await it so the queued frame flushes before teardown. ~300ms on a manual
     // disconnect. An unexpected drop can't beep on-glass (transport gone).
     this.connectBeepArmed = false;
+    this.clearMediaCardDebounce();
     await playEventBeep("disconnect", (p) => this.playBuzzerSequence(p));
     this.setPhase("disconnecting");
     this.setStatus("Disconnecting...");
@@ -1781,6 +1808,61 @@ class DashboardController {
         this.appendLog("EvenHub wake barrier timed out for phone wakeword");
       }
       this.requestShellRender();
+    }
+  }
+
+  private onMediaStateForCard(state: MediaControllerState): void {
+    if (!isMediaSessionActive(state)) {
+      this.lastMediaTrackKey = "";
+      this.clearMediaCardDebounce();
+      return;
+    }
+    const key = mediaTrackKey(state);
+    if (key === this.lastMediaTrackKey) return; // same track (identity only; ignores play/pause + position churn)
+
+    // Drop a card when the screen is OFF (fresh) or a card is already up
+    // (self-skip / advance -> update in place). Otherwise just re-baseline.
+    const canShow = this.phase === "connected" && (!shell.isScreenOn() || shell.isMusicCardActive());
+    if (!canShow) {
+      this.lastMediaTrackKey = key;
+      this.clearMediaCardDebounce();
+      return;
+    }
+    if (this.mediaCardDebounceTimer) clearTimeout(this.mediaCardDebounceTimer);
+    this.mediaCardDebounceTimer = setTimeout(() => {
+      this.mediaCardDebounceTimer = null;
+      void this.commitMediaCard();
+    }, DashboardController.MEDIA_CARD_DEBOUNCE_MS);
+  }
+
+  private async commitMediaCard(): Promise<void> {
+    const settled = mediaControllerBridge.snapshot();
+    if (!isMediaSessionActive(settled)) return;
+    const canShow = this.phase === "connected" && (!shell.isScreenOn() || shell.isMusicCardActive());
+    if (!canShow) {
+      this.lastMediaTrackKey = mediaTrackKey(settled);
+      return;
+    }
+    this.lastMediaTrackKey = mediaTrackKey(settled);
+
+    const wokeScreen = shell.isScreenOn() ? false : shell.wake("sidebar");
+    if (wokeScreen) {
+      const ready = await this.ensureEvenHubSessionActive();
+      if (!ready) this.appendLog("EvenHub wake barrier timed out for music card");
+      if (!shell.isScreenOn()) return; // user/idle raced us to OFF during the await
+    }
+    const shown = shell.openMusicCard(wokeScreen);
+    if (!shown && wokeScreen) {
+      shell.sleep(); // another overlay refused the card -> hand the screen back
+      return;
+    }
+    this.requestShellRender();
+  }
+
+  private clearMediaCardDebounce(): void {
+    if (this.mediaCardDebounceTimer) {
+      clearTimeout(this.mediaCardDebounceTimer);
+      this.mediaCardDebounceTimer = null;
     }
   }
 

@@ -33,6 +33,7 @@ import { EdgeBounce, EdgeWrapScroller } from "../edge-scroll";
 import { ShellModalLayer } from "./modal-layer";
 import { ToolDebugMenuLayer } from "./tool-debug-layer";
 import { playEventBeep } from "../event-beeps";
+import { MusicCardLayer } from "./music-card";
 import { toolRegistry } from "../../assistant/tool-registry";
 import {
   MIN_WINDOW_HEIGHT,
@@ -237,6 +238,8 @@ class Shell {
   private readonly trayIcons = new Map<string, GrayImage>();
   private activeVoiceLayer: VoiceInputLayer | null = null;
   private assistantSession: AssistantSession | null = null;
+  private musicCard: MusicCardLayer | null = null;
+  private musicCardWokeScreen = false;
   private assistantLayer: AssistantLayer | null = null;
   private escapeMenuTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly actions: LayerActions = { ...noopActions };
@@ -469,6 +472,10 @@ class Shell {
     this.cancelEscapeMenuTimer();
     this.screenOn = false;
     this.stack.clearToBase();
+    // clearToBase pops the card and fires its onRemoved (timers cleared); null
+    // the refs so an idle/external sleep can't leave a dangling card.
+    this.musicCard = null;
+    this.musicCardWokeScreen = false;
     for (const window of this.windows) {
       window.setScreenOn?.(false);
     }
@@ -493,7 +500,9 @@ class Shell {
     // An in-flight assistant turn suspends it for the same reason (a tool loop
     // can run for a while with no input); once the turn ends and the
     // Follow-up/Done menu is showing, the normal idle timeout resumes.
-    if (this.activeVoiceLayer || this.assistantSession?.isTurnActive()) {
+    if (this.activeVoiceLayer || this.assistantSession?.isTurnActive() || this.musicCard) {
+      // A live music card owns the screen (drop/hold/rise + its own dismiss
+      // timer); suspend the idle timeout so it can't race the card's own blank.
       this.lastInputAtMs = nowMs;
       return false;
     }
@@ -509,15 +518,64 @@ class Shell {
    */
   openNotificationModal(notificationKey: string, wokeScreen: boolean): void {
     if (!this.screenOn) return;
+    // A notification preempts an active music card. Evict the card first (it is
+    // always top when active) and inherit its wake ownership, so closing the
+    // notification still re-sleeps if the card is what woke the screen. Without
+    // this, the card's later rise would fail popIfTop and strand a zombie layer.
+    let owned = wokeScreen;
+    if (this.musicCard) {
+      const card = this.musicCard;
+      this.stack.popIfTop((l) => l === card);
+      if (this.musicCardWokeScreen) owned = true;
+      this.musicCard = null;
+      this.musicCardWokeScreen = false;
+    }
     const modal: ShellModalLayer = new ShellModalLayer(
       new SingleNotificationLayer(notificationKey, {
         origin: "new-notification-modal",
-        closeModal: () => this.closeNotificationModal(modal, wokeScreen),
+        closeModal: () => this.closeNotificationModal(modal, owned),
       }),
       this.config.actions,
     );
     this.stack.push(modal);
     this.config.requestShellRender();
+  }
+
+  /** Whether the screen-off now-playing card is currently up. */
+  isMusicCardActive(): boolean {
+    return this.musicCard !== null;
+  }
+
+  /**
+   * Present, or (if one is already up) refresh, the song-change card. The caller
+   * wakes the screen first. Returns false if another overlay owns the screen.
+   */
+  openMusicCard(wokeScreen: boolean): boolean {
+    if (!this.screenOn) return false;
+    if (this.musicCard) {
+      this.musicCard.onTrackChanged();
+      return true;
+    }
+    if (!this.stack.isAtBase()) return false; // notification / voice / menu owns the screen
+    const card = new MusicCardLayer({
+      actions: this.config.actions,
+      onDismissed: () => this.closeMusicCard(card),
+    });
+    this.musicCard = card;
+    this.musicCardWokeScreen = wokeScreen;
+    this.stack.push(card);
+    this.config.requestShellRender();
+    return true;
+  }
+
+  private closeMusicCard(card: MusicCardLayer): void {
+    if (this.musicCard !== card) return; // stale (already replaced/torn down)
+    this.stack.popIfTop((l) => l === card);
+    const woke = this.musicCardWokeScreen;
+    this.musicCard = null;
+    this.musicCardWokeScreen = false;
+    if (woke) this.sleep();
+    else this.config.requestShellRender();
   }
 
   private closeNotificationModal(modal: ShellModalLayer, wokeScreen: boolean): void {
