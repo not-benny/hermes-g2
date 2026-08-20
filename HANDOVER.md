@@ -6,10 +6,11 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 ## 0. Latest continuation (2026-08-20)
 
-### Persistent ring-health pull candidate (local, review rework)
+### Persistent ring-health pull candidate (local, re-review pending)
 
 Branch `feature/persistent-health-mcp-t_3e9c4645` contains local candidate commits
-`587dff7` and `bafe63f` for the planned push-to-pull replacement from baseline `ae89fd5`.
+`587dff7`, `bafe63f`, and review-rework commit `f8dca5a` for the planned push-to-pull
+replacement from baseline `ae89fd5`.
 Ring health now has one
 canonical app-private `health.store.v1` document, independently validated legacy
 migration with exact read-back before old-key removal, and exact 90-local-date
@@ -39,9 +40,9 @@ retries untouched legacy fragments, adds two-instance restart coverage and a
 behavioral migrated-preview clear test, and marks the old roadmap behavior as
 superseded. Focused/full tests, typecheck, Android build, and A32 reinstall/
 launch pass after rework; the package process remained alive with zero bounded
-fatal/uncaught or old health-push markers. A new frozen rework commit is pending;
-nothing was pushed and no PR was opened. The repository-wide public MCP/skill
-publication gate remains NO-GO.
+fatal/uncaught or old health-push markers. Frozen rework commit `f8dca5a` awaits
+independent re-review; nothing was pushed and no PR was opened. The repository-
+wide public MCP/skill publication gate remains NO-GO.
 
 Seven self-contained items were completed on the `hermes-g2` branch/current
 working tree:
