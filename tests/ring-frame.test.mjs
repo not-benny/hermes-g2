@@ -135,3 +135,21 @@ test("raw ring writes validate the envelope and cannot bypass the command blockl
   assert.match(validatorBody, /storedCrc != ringCrc32\(frame, 5, innerLen\)/);
   assert.match(validatorBody, /isBlocklistedRingSubCmd\(module, cmd, subCmd\)/);
 });
+
+test("health pushes queue packetAck cursors and the worker drains them safely", () => {
+  const src = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  assert.match(src, /queueRingPacketAck\(data\)/);
+  assert.match(src, /drainRingPacketAcks\(\)/);
+  assert.match(src, /payload\[0\] = frame\[6\]/); // module
+  assert.match(src, /payload\[1\] = frame\[11\]/); // cmd
+  assert.match(src, /payload\[2\] = frame\[12\]/); // subCmd
+  assert.match(src, /payload\[4\] = frame\[8\]/); // incoming serial low
+  assert.match(src, /payload\[5\] = frame\[9\]/); // incoming serial high
+  assert.match(
+    src,
+    /sendRingCommand\("packetAck", 0x01, 0x00, 0x7e, 0x01, payload\)/,
+  );
+});

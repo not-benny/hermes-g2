@@ -338,9 +338,13 @@ export class EvenHealthViewModel extends Observable {
   }
   get batteryValue(): string { return this.health.batteryPercent === null ? "--" : String(this.health.batteryPercent); }
   get caloriesValue(): string {
+    const nativeActiveCalories = this.health.activity?.activeCalories;
+    if (nativeActiveCalories !== undefined) return String(nativeActiveCalories);
     const hrs = this.hrHours();
     return hrs.length ? String(estimateActiveCalories(hrs, loadCalorieProfile(), this.hrI.restingHr)) : "--";
   }
+  get caloriesMetricLabel(): string { return this.health.activity ? "Active kcal" : "Active kcal *"; }
+  get caloriesSourceLabel(): string { return this.health.activity ? "from R1 ring" : "estimated from HR"; }
   get stepsValue(): string { return this.health.activity ? String(this.health.activity.totalSteps) : "--"; }
 
   // --- export + sharing ------------------------------------------------------
@@ -383,7 +387,8 @@ const NOTIFY = [
   "currentHrValue", "currentHrSource", "restingHrLabel", "hrRangeLabel", "hrTrendLabel", "hrChartVisibility",
   "trendChartVisibility", "trendEmptyVisibility", "trendEmptyLabel",
   "sleepLockedVisibility", "sleepFullVisibility", "sleepHint", "sleepScoreLabel", "sleepDurationLabel",
-  "spo2Value", "hrvValue", "temperatureValue", "temperatureUnit", "temperatureSub", "batteryValue", "caloriesValue", "stepsValue",
+  "spo2Value", "hrvValue", "temperatureValue", "temperatureUnit", "temperatureSub", "batteryValue",
+  "caloriesValue", "caloriesMetricLabel", "caloriesSourceLabel", "stepsValue",
 ];
 
 function relativeTime(ms: number): string {

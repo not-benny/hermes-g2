@@ -66,19 +66,20 @@ export interface RingHrvSample {
   min: number;
 }
 
-/**
- * One activity/steps record (stride 7). Activity is a slot-indexed 144-hour
- * circular buffer, so `slot` is the buffer position rather than a timestamp.
- */
+/** One confirmed 10-minute activity bucket (stride 7). */
 export interface RingActivitySample {
-  /** Circular-buffer slot index (0..143). */
+  /** Ten-minute slot within the local day (0..143). */
   slot: number;
+  /** Absolute bucket timestamp reconstructed from day base + slot * 600. */
+  timestampSec: number;
   /** Step count for the slot. */
   steps: number;
-  /** Auxiliary field 1 (units not yet pinned down). */
-  f1: number;
-  /** Auxiliary field 2 (units not yet pinned down). */
-  f2: number;
+  /** Ring-native active calories for the slot. */
+  activeCalories: number;
+  /** Ring-native total calories for the slot. */
+  totalCalories: number;
+  /** Derived total - active calories for the slot. */
+  restingCalories: number;
 }
 
 /** Decoded daily-push payload for a single metric. */
@@ -92,6 +93,11 @@ export interface RingDailyData<T = RingHealthSample> {
    *  u16 for HRV. null when the payload is too short to carry it. */
   current: number | null;
   records: T[];
+}
+
+export interface RingActivityData extends RingDailyData<RingActivitySample> {
+  /** Minute offset reported in the activity header (observed +60). */
+  timezoneOffsetMinutes: number;
 }
 
 /** Unwrapped inner-frame envelope fields. */
@@ -121,6 +127,11 @@ export interface RingReassembly {
 
 function u16le(b: Bytes, o: number): number {
   return (b[o] | (b[o + 1] << 8)) >>> 0;
+}
+
+function i16le(b: Bytes, o: number): number {
+  const value = u16le(b, o);
+  return value & 0x8000 ? value - 0x10000 : value;
 }
 
 function u32le(b: Bytes, o: number): number {
@@ -268,8 +279,7 @@ const HEALTH_REC_STRIDE = 4;
 /** HRV record: [hourIdx u8][avg u16 LE][max u16 LE][min u16 LE]. */
 const HRV_REC_OFF = 13;
 const HRV_REC_STRIDE = 7;
-/** Activity/steps layout is not yet validated against ground truth; kept as the
- *  earlier stride-7 read after the 7-byte header. TODO: RE and confirm. */
+/** Activity header: count u8, signed timezone offset i16 LE, local-day base u32 LE. */
 const ACTIVITY_REC_OFF = 7;
 const ACTIVITY_REC_STRIDE = 7;
 
@@ -290,11 +300,44 @@ export function decodeDailyData(
 export function decodeDailyData(
   payload: Bytes,
   metric: "activity",
-): RingDailyData<RingActivitySample>;
+): RingActivityData;
 export function decodeDailyData(
   payload: Bytes,
   metric: RingMetric,
-): RingDailyData<RingHealthSample | RingHrvSample | RingActivitySample> {
+): RingDailyData<RingHealthSample | RingHrvSample> | RingActivityData {
+  if (metric === "activity") {
+    if (payload.length < ACTIVITY_REC_OFF) {
+      throw new Error(`ring activity payload too short: ${payload.length} bytes`);
+    }
+    const count = payload[0];
+    const timezoneOffsetMinutes = i16le(payload, 1);
+    const base = u32le(payload, 3);
+    const required = ACTIVITY_REC_OFF + count * ACTIVITY_REC_STRIDE;
+    if (required > payload.length) {
+      throw new Error(`ring activity payload truncated: need ${required}, got ${payload.length}`);
+    }
+    const records: RingActivitySample[] = [];
+    for (let i = 0; i < count; i++) {
+      const o = ACTIVITY_REC_OFF + i * ACTIVITY_REC_STRIDE;
+      const slot = payload[o];
+      if (slot > 143) throw new Error(`ring activity slot out of range: ${slot}`);
+      const activeCalories = u16le(payload, o + 3);
+      const totalCalories = u16le(payload, o + 5);
+      if (activeCalories > totalCalories) {
+        throw new Error(`ring activity calories invalid: active ${activeCalories} > total ${totalCalories}`);
+      }
+      records.push({
+        slot,
+        timestampSec: base + slot * 600,
+        steps: u16le(payload, o + 1),
+        activeCalories,
+        totalCalories,
+        restingCalories: totalCalories - activeCalories,
+      });
+    }
+    return { metric, count, base, current: null, records, timezoneOffsetMinutes };
+  }
+
   if (payload.length < DAILY_CURRENT_OFF) {
     throw new Error(`ring daily payload too short: ${payload.length} bytes`);
   }
@@ -315,21 +358,6 @@ export function decodeDailyData(
       });
     }
     return { metric, count, base, current, records };
-  }
-
-  if (metric === "activity") {
-    const records: RingActivitySample[] = [];
-    for (let i = 0; i < count; i++) {
-      const o = ACTIVITY_REC_OFF + i * ACTIVITY_REC_STRIDE;
-      if (o + ACTIVITY_REC_STRIDE > payload.length) break;
-      records.push({
-        slot: payload[o],
-        steps: u16le(payload, o + 1),
-        f1: u16le(payload, o + 3),
-        f2: u16le(payload, o + 5),
-      });
-    }
-    return { metric, count, base, current: null, records };
   }
 
   // heartRate / spo2 / temperature: single-byte avg/max/min per hour.

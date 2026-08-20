@@ -6,7 +6,8 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 ## 0. Latest continuation (2026-08-20)
 
-Three self-contained items were completed on the `hermes-g2` branch:
+Four self-contained items were completed on the `hermes-g2` branch/current
+working tree:
 
 - **Raw ring-frame security gate:** `sendRawRingFrame()` now fails closed before
   writing to `bae80012`. It accepts only a complete canonical single-frame
@@ -24,16 +25,25 @@ Three self-contained items were completed on the `hermes-g2` branch:
   after session open, decodes the first NUL-padded 16-byte ASCII field from the
   CRC-valid ack, and displays it in phone Glasses Controls. Verified live on the
   A32 with the connected R1 as `2.2.8.0002`. No firmware-write behavior exists.
+- **Ring-native activity:** `cmd=5` is confirmed against the capture, firmware
+  struct accesses, and matching Even CSV rows. Hermes decodes 10-minute steps,
+  active kcal, total kcal, and derived resting kcal; merges and persists buckets
+  by local day; uses native active kcal as primary with Keytel as fallback; and
+  drains captured `packetAck` cursors through a bounded worker-thread queue.
 
-Verification on the continuation checkout: all 119 tests passed, TypeScript
+Verification on the continuation checkout: all 126 tests passed, TypeScript
 typechecking passed, and a debug Android build completed with Android SDK 35 and
-JDK 21. JDK 26 is present on the machine but fails this Gradle stack's `jlink`
-step; use `JAVA_HOME=/usr/lib/jvm/java-21-openjdk` for builds.
+JDK 21. APK: `platforms/android/app/build/outputs/apk/debug/app-debug.apk`, SHA-256
+`fc53a77178ad3a4f65d0a0609c318f4d74ace33d3cae5f02fe9ea93c2699dfbf`.
+JDK 26 is present but fails this Gradle stack's `jlink` step; use
+`JAVA_HOME=/usr/lib/jvm/java-21-openjdk` and `ANDROID_HOME=/home/benny/Android/Sdk`.
 
-**Next recommended item:** reverse and validate the `cmd=5` activity payload
-against the existing 10-minute `steps.csv` and `calories.csv` ground truth, then
-make ring-native steps/calories primary while retaining Keytel as fallback. The
-unvalidated stride-7 decoder remains gated off until that correlation is proven.
+**Freeze status:** the cmd=5/activity continuation is tested and built. Treat
+its resulting commit as a new frozen candidate and run independent review; do
+not cite `1e73fee` as covering these newer changes.
+
+**Next recommended item:** capture and correlate an overnight `cmd=6` sleep
+session against the Even export, then implement the verified sleep-stage layout.
 
 ## 1. What this project is
 
@@ -60,9 +70,9 @@ it has explicitly newer changes.
 
 In-repo, the ring-health work is:
 - `app/health/ring-parser.ts` — frame reassembly, CRC-32C transport, inner-frame
-  unwrap, `decodeDailyData` (HR/SpO2/HRV records), `decodeRingBattery`.
-- `app/health/ring-health-store.ts` — decodes pushes into a snapshot; activity is
-  gated off (see below).
+  unwrap, `decodeDailyData` (HR/SpO2/HRV/activity), `decodeRingBattery`.
+- `app/health/ring-health-store.ts` — decodes pushes, merges current-day activity
+  slots, and rejects malformed/unanchored/non-push activity frames.
 - `app/health/health-hourly.ts`, `health-insights.ts`, `health-history.ts`,
   `calories.ts` — hourly persistence, readiness/HR insights, Keytel calorie fallback.
 - `app/apps/health/health-app.ts` — the glasses Health side card + HUD heart feed.
@@ -88,18 +98,19 @@ In-repo, the ring-health work is:
 - R1 ring firmware extracted (Nordic DFU, nRF52840) and reverse-engineered with a
   capstone harness (`fwre.py`) using format-string anchoring. Full byte-level
   `DECODE-SPEC.md` written (private).
-- Activity/steps/calories decoder GATED OFF: its byte layout was an unvalidated
-  guess, so steps now render "--" honestly until `cmd=5` is properly decoded.
+- Activity/steps/calories decoder CONFIRMED and enabled: cmd=5 header carries
+  timezone + local-midnight epoch, records are 10-minute slot/steps/active-kcal/
+  total-kcal tuples, and resting kcal is derived as total-active. The captured
+  slot reproduces the matching Even CSV row exactly; buckets merge and persist.
 
 ## 4. What is pending (see ROADMAP.md for the full list)
 
-- `cmd=5` activity/steps/calories byte-layout RE. UNBLOCKED: we have the 10-minute
-  ground truth (steps.csv, calories.csv with resting/active split, 144 slots/day).
 - `cmd=6` sleep decode. Schema + stage map known (0=Wake/1=REM/2=Light/3=Deep, 30s
   epochs, total/wake/rem/light/deep seconds, body_temp_delta). Needs a real overnight
   capture correlated to a live DB session. `decodeSleep` stays a throwing stub.
-- Request-layer: request MTU 247 before probing; implement the `packetAck` (0x7e)
-  loop to pull multi-fragment batches.
+- Request-layer: request MTU 247 before probing. The captured `packetAck` (0x7e)
+  cursor loop is implemented with CRC/shape validation, a bounded callback queue,
+  and worker-thread-only writes.
 - Even firmware auto-track cron: the check_firmware API accepts the account JWT
   (`x-token`) but returns 403 without the app's device-identifying params; finishing
   it needs a one-time TLS intercept (mitmproxy/frida) of the app's real request.

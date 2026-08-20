@@ -175,9 +175,10 @@ class HealthCardLayer implements Layer {
     const dividerY = (haveChart ? chartTop + chartH : hrY + big.lineHeight) + 10;
     const valueY = dividerY + 10;
     const labelY = valueY + 24;
-    const kcal = hours.length ? estimateActiveCalories(hours, loadCalorieProfile(), hrI.restingHr) : null;
+    const nativeKcal = s.activity?.activeCalories ?? null;
+    const kcal = nativeKcal ?? (hours.length ? estimateActiveCalories(hours, loadCalorieProfile(), hrI.restingHr) : null);
     const tiles: Array<[string, string]> = [
-      [kcal === null ? "--" : String(kcal), "active kcal *"],
+      [kcal === null ? "--" : String(kcal), nativeKcal === null ? "active kcal *" : "active kcal"],
       [s.batteryPercent === null ? "--" : `${s.batteryPercent}`, "ring %"],
       [s.spo2 ? `${s.spo2.avg}` : "--", "SpO2 %"],
       [s.hrv ? `${s.hrv.avg}` : "--", "HRV ms"],

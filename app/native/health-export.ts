@@ -15,6 +15,7 @@ import {
   type DaySummaryInputs,
 } from "../health/health-history";
 import { buildHourlyPoints, upsertHourly, type HourlyPoint } from "../health/health-hourly";
+import type { RingActivitySnapshot } from "../health/ring-health-store";
 import {
   assistantBridgeHostSetting,
   assistantBridgePortSetting,
@@ -23,6 +24,7 @@ import {
 
 const HISTORY_KEY = "health.history.v1";
 const HOURLY_KEY = "health.hourly.v1";
+const ACTIVITY_KEY = "health.activity.v1";
 const MAX_DAYS = 90;
 
 /**
@@ -107,10 +109,58 @@ export function recordHourly(hr: RingHour[], spo2: RingHour[], hrv: RingHour[], 
   return merged;
 }
 
+/** Load today's locally accumulated 10-minute ring activity buckets. */
+export function loadActivity(nowMs = Date.now()): RingActivitySnapshot | null {
+  try {
+    const raw = ApplicationSettings.getString(ACTIVITY_KEY, "");
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<RingActivitySnapshot>;
+    if (
+      !Number.isInteger(value.dayBaseSec) ||
+      !Number.isInteger(value.timezoneOffsetMinutes) ||
+      !Array.isArray(value.slots) ||
+      value.timezoneOffsetMinutes! < -14 * 60 ||
+      value.timezoneOffsetMinutes! > 14 * 60 ||
+      (value.dayBaseSec! + value.timezoneOffsetMinutes! * 60) % 86400 !== 0
+    ) return null;
+    const nowSec = Math.floor(nowMs / 1000);
+    if (nowSec < value.dayBaseSec! || nowSec >= value.dayBaseSec! + 26 * 60 * 60) return null;
+    const slots = value.slots.filter((slot) =>
+      Number.isInteger(slot.slot) && slot.slot >= 0 && slot.slot < 144 &&
+      Number.isInteger(slot.steps) && slot.steps >= 0 &&
+      Number.isInteger(slot.activeCalories) && slot.activeCalories >= 0 &&
+      Number.isInteger(slot.totalCalories) && slot.totalCalories >= slot.activeCalories &&
+      slot.restingCalories === slot.totalCalories - slot.activeCalories,
+    );
+    if (slots.length !== value.slots.length) return null;
+    return {
+      slots,
+      dayBaseSec: value.dayBaseSec!,
+      timezoneOffsetMinutes: value.timezoneOffsetMinutes!,
+      totalSteps: slots.reduce((sum, slot) => sum + slot.steps, 0),
+      activeCalories: slots.reduce((sum, slot) => sum + slot.activeCalories, 0),
+      totalCalories: slots.reduce((sum, slot) => sum + slot.totalCalories, 0),
+      restingCalories: slots.reduce((sum, slot) => sum + slot.restingCalories, 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the store's merge-safe current-day activity snapshot. */
+export function recordActivity(activity: RingActivitySnapshot | null): void {
+  if (!activity) return;
+  try {
+    ApplicationSettings.setString(ACTIVITY_KEY, JSON.stringify(activity));
+  } catch (error) {
+    console.error(`[health-export] activity save failed: ${error}`);
+  }
+}
+
 /** The consolidated export document (JSON): the same shape the Hermes push sends. */
 function healthExportDocument(): string {
   return JSON.stringify(
-    { source: "hermes-g2", exportedAt: dateKeyOf(Date.now()), history: loadHealthHistory(), hourly: loadHourly() },
+    { source: "hermes-g2", exportedAt: dateKeyOf(Date.now()), history: loadHealthHistory(), hourly: loadHourly(), activity: loadActivity() },
     null,
     2,
   );
@@ -181,7 +231,7 @@ export async function pushHealthToHermes(): Promise<boolean> {
         "content-type": "application/json",
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
-      content: JSON.stringify({ source: "hermes-g2", history: loadHealthHistory(), hourly: loadHourly() }),
+      content: JSON.stringify({ source: "hermes-g2", history: loadHealthHistory(), hourly: loadHourly(), activity: loadActivity() }),
       timeout: 8000,
     });
     const ok = typeof res.statusCode === "number" && res.statusCode >= 200 && res.statusCode < 300;

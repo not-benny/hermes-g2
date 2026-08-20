@@ -91,6 +91,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     // per connection. Reset on ring disconnect so a reconnect re-arms it.
     private int ringWriteSeq = 0;
     private boolean ringHealthProbeSent = false;
+    // packetAck cursors are captured on the BLE callback and drained only by
+    // the communicator worker, so notify handling never performs a nested write.
+    private final ArrayDeque<byte[]> ringPacketAckQueue = new ArrayDeque<>();
     // Re-poll the ring health GETs periodically: the ring auto-connects while
     // off-head (empty window), so a one-shot poll never sees worn data. Re-firing
     // every RING_HEALTH_POLL_INTERVAL_MS means data arrives on the next poll once
@@ -1041,6 +1044,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     continue;
                 }
 
+                drainRingPacketAcks();
                 maybeReRingHealthPoll();
                 long sleepMs = driveSession();
                 if (sleepMs > 0) {
@@ -1275,6 +1279,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             if (BleProtocol.R1_NOTIFY_CHAR_UUID.equalsIgnoreCase(characteristicUuid)) {
                 // Health/command channel: hand the raw frame to the JS decode
                 // path (app/health) for reassembly and state.health population.
+                queueRingPacketAck(data);
                 emitRingHealthFrame(shortCharUuid(characteristicUuid), hex(data));
             }
             return;
@@ -1323,6 +1328,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     ringBattery = -1;
                     ringHealthProbeSent = false;
                     lastRingHealthPollMs = 0;
+                    ringPacketAckQueue.clear();
                     ringReconnectAfterMs = Math.max(ringReconnectAfterMs,
                         SystemClock.elapsedRealtime() + ConnectionOptions.RING_RECONNECT_DELAY_MS);
                     emitBatteryState(headsetBattery, headsetCharging, ringBattery);
@@ -1693,6 +1699,49 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             Thread.sleep(200);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Queue the cursor acknowledgement required to pull the ring's next rich
+     * health batch. Captured payload layout is
+     * [module][cmd][subCmd][0][incoming serial u16 LE][0,0,0,0].
+     */
+    private void queueRingPacketAck(byte[] frame) {
+        if (frame == null || frame.length < 17 || (frame[0] & 0xff) != 0x00) return;
+        int innerLen = (frame[13] & 0xff) | ((frame[14] & 0xff) << 8);
+        if (innerLen < 12 || frame.length != 5 + innerLen) return;
+        int storedCrc = (frame[1] & 0xff) | ((frame[2] & 0xff) << 8)
+            | ((frame[3] & 0xff) << 16) | ((frame[4] & 0xff) << 24);
+        if (storedCrc != ringCrc32(frame, 5, innerLen)) return;
+        if ((frame[6] & 0xff) != 0x02 || (frame[10] & 0xff) != 0x02) return;
+
+        byte[] payload = new byte[10];
+        payload[0] = frame[6];
+        payload[1] = frame[11];
+        payload[2] = frame[12];
+        payload[4] = frame[8];
+        payload[5] = frame[9];
+        synchronized (lock) {
+            if (ringPacketAckQueue.size() >= 16) ringPacketAckQueue.removeFirst();
+            ringPacketAckQueue.addLast(payload);
+        }
+        interruptibleSleep.interrupt();
+    }
+
+    /** Worker-thread drain for queued read-only packet cursors. */
+    private void drainRingPacketAcks() {
+        while (true) {
+            byte[] payload;
+            synchronized (lock) {
+                if (!ringConnected) {
+                    ringPacketAckQueue.clear();
+                    return;
+                }
+                payload = ringPacketAckQueue.pollFirst();
+            }
+            if (payload == null) return;
+            sendRingCommand("packetAck", 0x01, 0x00, 0x7e, 0x01, payload);
         }
     }
 

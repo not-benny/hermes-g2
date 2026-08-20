@@ -10,6 +10,9 @@ test("the Health side card is a pinned, uncloseable shell window with a Hide ent
   assert.match(app, /HEALTH_WINDOW_ID = "health"/);
   assert.match(app, /closeable: false/); // pinned + non-reorderable
   assert.match(app, /ringHealthStore\.snapshot\(\)/); // reads live vitals
+  assert.match(app, /s\.activity\?\.activeCalories/);
+  assert.match(app, /estimateActiveCalories/); // fallback while native data is absent
+  assert.match(app, /nativeKcal === null \? "active kcal \*" : "active kcal"/);
   assert.match(app, /label: "Hide health tab"/);
   assert.match(app, /shell\.setHealthHidden\(true\)/);
   assert.match(index, /showInLauncher: false/); // not an app-grid entry

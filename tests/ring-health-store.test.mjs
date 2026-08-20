@@ -77,6 +77,19 @@ function dailyHealth(current, records) {
   return new Uint8Array(bytes);
 }
 
+function activityPayload(timezoneOffsetMinutes, dayBaseSec, records) {
+  const bytes = [records.length, timezoneOffsetMinutes & 0xff, (timezoneOffsetMinutes >>> 8) & 0xff, ...u32le(dayBaseSec)];
+  for (const r of records) {
+    bytes.push(
+      r.slot,
+      r.steps & 0xff, (r.steps >>> 8) & 0xff,
+      r.activeCalories & 0xff, (r.activeCalories >>> 8) & 0xff,
+      r.totalCalories & 0xff, (r.totalCalories >>> 8) & 0xff,
+    );
+  }
+  return new Uint8Array(bytes);
+}
+
 // --- tests -------------------------------------------------------------------
 
 test("heart-rate daily push decodes across fragments and picks the newest record", () => {
@@ -127,6 +140,71 @@ test("deviceInfo push status cannot populate the firmware version", () => {
   const inner = buildInner(1, 0, 2, 2, data); // status=push, not ack
   for (const frame of fragments(inner)) store.ingestFrame(frame);
   assert.equal(store.snapshot().firmwareVersion, null);
+});
+
+test("confirmed activity push populates steps and ring-native calorie totals", () => {
+  const store = new RingHealthStore();
+  const dayBaseSec = 1_787_180_400;
+  const data = activityPayload(60, dayBaseSec, [
+    { slot: 67, steps: 5, activeCalories: 5, totalCalories: 23 },
+    { slot: 68, steps: 18, activeCalories: 5, totalCalories: 17 },
+  ]);
+  const inner = buildInner(2, 5, 1, 2, data);
+  for (const frame of fragments(inner)) store.ingestFrame(frame);
+  assert.deepEqual(store.snapshot().activity, {
+    slots: [
+      { slot: 67, timestampSec: dayBaseSec + 67 * 600, steps: 5, activeCalories: 5, totalCalories: 23, restingCalories: 18 },
+      { slot: 68, timestampSec: dayBaseSec + 68 * 600, steps: 18, activeCalories: 5, totalCalories: 17, restingCalories: 12 },
+    ],
+    dayBaseSec,
+    timezoneOffsetMinutes: 60,
+    totalSteps: 23,
+    activeCalories: 10,
+    totalCalories: 40,
+    restingCalories: 30,
+  });
+});
+
+test("activity ACK status cannot populate native totals", () => {
+  const store = new RingHealthStore();
+  const data = activityPayload(60, 1_787_180_400, [
+    { slot: 71, steps: 1, activeCalories: 3, totalCalories: 15 },
+  ]);
+  for (const frame of fragments(buildInner(2, 5, 1, 3, data))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().activity, null);
+});
+
+test("activity pushes merge by day and replace duplicate slots", () => {
+  const store = new RingHealthStore();
+  const dayBaseSec = 1_787_180_400;
+  const ingest = (records) => {
+    const data = activityPayload(60, dayBaseSec, records);
+    for (const frame of fragments(buildInner(2, 5, 1, 2, data))) store.ingestFrame(frame);
+  };
+  ingest([{ slot: 71, steps: 0, activeCalories: 3, totalCalories: 15 }]);
+  ingest([
+    { slot: 71, steps: 2, activeCalories: 4, totalCalories: 16 },
+    { slot: 72, steps: 9, activeCalories: 6, totalCalories: 19 },
+  ]);
+  assert.deepEqual(store.snapshot().activity, {
+    slots: [
+      { slot: 71, timestampSec: dayBaseSec + 71 * 600, steps: 2, activeCalories: 4, totalCalories: 16, restingCalories: 12 },
+      { slot: 72, timestampSec: dayBaseSec + 72 * 600, steps: 9, activeCalories: 6, totalCalories: 19, restingCalories: 13 },
+    ],
+    dayBaseSec,
+    timezoneOffsetMinutes: 60,
+    totalSteps: 11,
+    activeCalories: 10,
+    totalCalories: 35,
+    restingCalories: 25,
+  });
+});
+
+test("activity push without a day base remains gated off", () => {
+  const store = new RingHealthStore();
+  const data = activityPayload(0, 0, [{ slot: 19, steps: 5, activeCalories: 5, totalCalories: 23 }]);
+  for (const frame of fragments(buildInner(2, 5, 1, 2, data))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().activity, null);
 });
 
 test("interleaved batches both decode", () => {

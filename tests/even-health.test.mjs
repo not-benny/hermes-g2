@@ -41,6 +41,11 @@ test("Even Health is a direct-BLE readiness dashboard reachable from the Health 
   assert.match(vm, /get readinessValue\(\): string/);
   assert.match(vm, /get currentHrValue\(\): string/);
   assert.match(vm, /get batteryValue\(\): string/);
+  assert.match(vm, /this\.health\.activity\?\.activeCalories/);
+  assert.match(vm, /estimateActiveCalories/);
+  assert.match(vm, /get caloriesMetricLabel\(\): string/);
+  assert.match(xml, /\{\{ caloriesMetricLabel \}\}/);
+  assert.match(xml, /\{\{ caloriesSourceLabel \}\}/);
   // Historic logging + JSON export are wired from the tab.
   assert.match(vm, /recordHealthDay/);
   assert.match(vm, /shareHealthJson/);
@@ -60,6 +65,12 @@ test("Even Health is a direct-BLE readiness dashboard reachable from the Health 
   assert.match(exp, /EXTRA_STREAM/);
   assert.doesNotMatch(exp, /EXTRA_TEXT/);
   assert.match(exp, /hourly: loadHourly\(\)/); // export + push include the hourly series
+  assert.match(exp, /ACTIVITY_KEY = "health\.activity\.v1"/);
+  assert.match(exp, /export function loadActivity/);
+  assert.match(exp, /export function recordActivity/);
+  const controller = read("app/g2/dashboard-controller.ts");
+  assert.match(controller, /ringHealthStore\.restoreActivity\(loadActivity\(\)\)/);
+  assert.match(controller, /recordActivity\(snapshot\.activity\)/);
   const manifest = read("App_Resources/Android/src/main/AndroidManifest.xml");
   assert.match(manifest, /androidx\.core\.content\.FileProvider/);
   assert.match(manifest, /\.fileprovider/);

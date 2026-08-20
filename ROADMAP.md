@@ -53,21 +53,21 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
 - **NOTE** — Skin temperature is a daily, sparse metric (frequently absent or zero), consistent with the
   earlier nightly/reserved read. Low priority; there is no per-epoch temperature stream beyond the sleep
   record's body_temp_delta field.
-- **TODO** (unblocked) — Ring-native **calories + steps** decode (cmd=5, activity). RE cmd=5's byte layout
-  against the captured ground truth: steps.csv 10-min buckets and calories.csv 10-min resting/active split
-  (144 slots/day). The firmware's own format string names the record ("activity span multi 10min bucket,
-  ts,dur,st,et,steps,act"), so this is byte-layout RE, not correlation guessing. Ring-native calories become
-  the PRIMARY source; keep the shipped Keytel HR-based estimator as fallback until cmd=5 lands. The unvalidated
-  stride-7 activity/steps/calories decoder was gated OFF this session, so steps render "--" honestly until
-  cmd=5 is decoded.
+- **DONE** — Ring-native **calories + steps** decode (cmd=5, activity). Confirmed
+  header `[count][UTC offset i16][local-midnight epoch u32]` and stride-7 records
+  `[slot][steps u16][active kcal u16][total kcal u16]` against the captured frame,
+  firmware struct accesses, and matching 11:50 CSV rows. Resting kcal is
+  `total-active`. Buckets merge and persist by day/slot; ring-native active kcal
+  is primary in phone/glasses UI, with Keytel retained as the marked fallback.
 - **CONFIRMED / mostly DONE (headline health feature)** — **Live heart rate.** RE resolves the core unknown:
   the R1 ring has NO per-beat stream; its finest granularity is the hourly aggregate, and the frame header's
   live current@11 IS the live current-hour reading. That value is already routed to `store.currentHr` and the
   glasses HUD (re-wired this session). The frame envelope for this path is byte-verified (see CONFIRMED above),
   which closes the earlier "finish the frame-format decode" sub-item. A periodic current-hour re-read (~15s to
   1min cadence, NOT per-beat) is a minor future enhancement, best folded into the request-layer work below.
-- **TODO** (medium) — Request-layer enhancements (`FaceclawBleCommunicator.java`): request MTU 247 before
-  probing, and implement the system / packetAck (0x7e) loop to pull multi-fragment batches.
+- **PARTIAL** (medium) — Request-layer enhancements (`FaceclawBleCommunicator.java`): the captured
+  system/packetAck (0x7e) cursor loop is implemented with CRC/shape validation, a bounded callback queue,
+  and worker-thread writes. Still TODO: request MTU 247 before probing.
 
 ### Security
 - **DONE** (2026-08-20) — Closed the raw-frame bypass. `sendRawRingFrame()` now fails closed before writing
@@ -194,9 +194,9 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   CRC16/MODBUS), the command table, and the HR/HRV/SpO2 record layouts were reproduced against real ring
   notifies, confirming the existing decoder and the buildRingFrame CRC-32 work. Byte-verified spec captured
   privately (see NOW / Health).
-- **Activity decoder gated OFF (honest steps) — DONE** (2026-08-20): the unvalidated stride-7
-  activity/steps/calories decoder in `ring-health-store.ts` was surfacing a guess; gated it off so steps render
-  "--" honestly until cmd=5 is decoded. Build and all ring tests pass; deployed to device.
+- **Activity decoder fail-closed gate — SUPERSEDED by confirmed cmd=5 decode** (2026-08-20): the earlier
+  unvalidated stride-7 interpretation was correctly gated off; the now-verified slot/steps/active/total layout
+  replaced it before values were re-enabled.
 - **HUD heart re-wired — DONE** (2026-08-20): the glasses HUD top-bar heart had lost its data wiring in an
   earlier "-- unless a live value exists" revert (the revert removed the only code feeding it). Re-wired in
   `app/apps/health/health-app.ts` to push `ringHealthStore.snapshot().currentHr` (the live spot value; "--"

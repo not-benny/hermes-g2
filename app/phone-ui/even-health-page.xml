@@ -97,9 +97,9 @@
                     <Label text="{{ batteryValue }}" class="tile-value" />
                 </StackLayout>
                 <StackLayout row="2" col="0" class="card tile">
-                    <Label text="Active kcal *" class="tile-metric" />
+                    <Label text="{{ caloriesMetricLabel }}" class="tile-metric" />
                     <Label text="{{ caloriesValue }}" class="tile-value" />
-                    <Label text="estimated from HR" class="tile-trend" />
+                    <Label text="{{ caloriesSourceLabel }}" class="tile-trend" />
                 </StackLayout>
                 <StackLayout row="2" col="1" class="card tile">
                     <Label text="Steps" class="tile-metric" />

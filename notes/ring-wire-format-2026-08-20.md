@@ -112,14 +112,16 @@ There is no per-beat or per-second stream.
 | SpO2 | 2 | confirmed, implemented |
 | temperature | 3 | rides the hourly layout; sparse and often absent |
 | HRV | 4 | confirmed, implemented |
-| activity (steps + calories) | 5 | semantics known, byte layout not yet decoded (gated off) |
+| activity (steps + calories) | 5 | confirmed, implemented (10-minute buckets) |
 | sleep | 6 | schema known, byte layout awaits an overnight capture |
 | battery | system | confirmed, implemented |
 
-- **Activity/steps/calories (cmd=5):** semantics are known from the exported
-  ground truth (10-minute buckets, 144 per day; calories split into resting plus
-  active). The exact byte layout is **not** decoded yet, so it is gated off and
-  renders no value rather than shipping a guess.
+- **Activity/steps/calories (cmd=5):** confirmed data header is
+  `[count u8][UTC offset i16 LE][local-midnight epoch u32 LE]`; each 7-byte
+  record is `[10-minute slot u8][steps u16 LE][active kcal u16 LE][total kcal u16 LE]`.
+  Resting kcal is `total-active`, and absolute time is `dayBase+slot*600`.
+  The captured slot 71 reproduces the Even CSV's 11:50 row exactly: 0 steps and
+  15 kcal = 12 resting + 3 active. Buckets persist locally and merge by day/slot.
 - **Sleep (cmd=6):** the output schema is known and verified (session start/end,
   total/wake/REM/light/deep seconds, a hypnogram of `{type, half_minutes}` at
   30-second epochs, and a nightly `body_temp_delta`). Stage map: `0=Wake, 1=REM,
@@ -131,12 +133,10 @@ There is no per-beat or per-second stream.
 
 ## Open items
 
-- Decode the `cmd=5` activity bytes against the 10-minute-bucket ground truth
-  (steps and the resting/active calorie split), then replace the placeholder
-  record type.
 - Capture an overnight `cmd=6` sleep frame and decode its byte layout against a
   known session (start/end, stage durations, hypnogram, body-temp delta).
 - Determine the meaning of the `base`/timestamp field at offset 7 so per-record
   absolute timestamps can be reconstructed rather than inferred from `hourIdx`.
-- Request MTU 247 and implement the `packetAck(0x7e)` loop to pull multi-fragment
-  history batches.
+- Request MTU 247 before probing. The captured `packetAck(0x7e)` cursor loop is
+  implemented: only complete CRC-valid health pushes queue a bounded cursor, and
+  the communicator worker performs the write outside the BLE callback.

@@ -24,6 +24,7 @@ import { registerNavigateTools } from "../assistant/navigate-tools";
 import { registerRoamTools } from "../assistant/roam-tools";
 import { assistantBridge } from "../assistant/bridge-client";
 import { ringHealthStore } from "../health/ring-health-store";
+import { loadActivity, recordActivity } from "../native/health-export";
 import { playEventBeep } from "../ui/event-beeps";
 import { registerWindowTools } from "../assistant/window-tools";
 import { registerTimerTools } from "../assistant/timer-tools";
@@ -1055,10 +1056,12 @@ class DashboardController {
         }
       });
       ringHealthStore.setLog((line) => this.appendLog(line));
+      ringHealthStore.restoreActivity(loadActivity());
       this.offRingHealthFrame = communicator.onRingHealthFrame((frame) => {
         ringHealthStore.ingestFrame(frame.data);
       });
       this.offRingHealthChange = ringHealthStore.onChange((snapshot) => {
+        recordActivity(snapshot.activity);
         shell.setRingHeartRate(snapshot.currentHr ?? snapshot.heartRate?.avg ?? null);
         if (snapshot.batteryPercent !== null) {
           shell.setBatteryLevels({ ring: snapshot.batteryPercent });

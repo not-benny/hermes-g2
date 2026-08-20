@@ -27,6 +27,16 @@ import {
   type RingHrvSample,
 } from "./ring-parser";
 
+export interface RingActivitySnapshot {
+  slots: RingActivitySample[];
+  dayBaseSec: number;
+  timezoneOffsetMinutes: number;
+  totalSteps: number;
+  activeCalories: number;
+  totalCalories: number;
+  restingCalories: number;
+}
+
 /** Latest decoded ring values. Null until the metric has been seen. */
 export interface RingHealthSnapshot {
   /** Latest hourly heart-rate record (bpm in `latest`). */
@@ -37,8 +47,8 @@ export interface RingHealthSnapshot {
   temperature: RingHealthSample | null;
   /** Latest HRV record (milliseconds in `latest`). */
   hrv: RingHrvSample | null;
-  /** Latest activity batch: raw slots plus their summed step count. */
-  activity: { slots: RingActivitySample[]; totalSteps: number } | null;
+  /** Accumulated confirmed activity buckets for one local day. */
+  activity: RingActivitySnapshot | null;
   /** Ring battery percent from the deviceStatus response. */
   batteryPercent: number | null;
   /** Read-only firmware version from the deviceInfo response. */
@@ -95,6 +105,13 @@ export class RingHealthStore {
 
   snapshot(): RingHealthSnapshot {
     return this.snapshotState;
+  }
+
+  /** Restore today's validated activity buckets from device-local persistence. */
+  restoreActivity(activity: RingActivitySnapshot | null): void {
+    if (!activity) return;
+    this.snapshotState = { ...this.snapshotState, activity };
+    this.emit();
   }
 
   onChange(listener: (snapshot: RingHealthSnapshot) => void): () => void {
@@ -193,13 +210,38 @@ export class RingHealthStore {
     if (!metric) return; // sleep (cmd 6) and unknown cmds: layout not decoded yet.
 
     if (metric === "activity") {
-      // Activity/steps/calories are NOT surfaced yet. Firmware RE (2026-08-20)
-      // confirmed the ring stores 10-minute buckets of steps plus a
-      // resting/active calorie split, but the cmd=5 record byte layout is still
-      // an unvalidated stride-7 guess (see decodeDailyData "activity"). Surfacing
-      // it would show wrong step/calorie numbers, so leave `activity` null -- the
-      // UI then honestly renders "--" until cmd=5 is decoded against the captured
-      // steps.csv/calories.csv ground truth.
+      // Captured rich daily activity batches are pushes (status=2), not ACKs.
+      if (parsed.status !== 2) return;
+      const daily = decodeDailyData(parsed.data, "activity");
+      // A zero day base is the ring's preliminary/unanchored push. Reject other
+      // implausible headers rather than replacing fallback values with garbage.
+      if (
+        daily.base === 0 ||
+        daily.records.length === 0 ||
+        daily.timezoneOffsetMinutes < -14 * 60 ||
+        daily.timezoneOffsetMinutes > 14 * 60 ||
+        (daily.base + daily.timezoneOffsetMinutes * 60) % 86400 !== 0
+      ) return;
+      const previous = this.snapshotState.activity?.dayBaseSec === daily.base
+        ? this.snapshotState.activity.slots
+        : [];
+      const bySlot = new Map(previous.map((slot) => [slot.slot, slot]));
+      for (const slot of daily.records) bySlot.set(slot.slot, slot);
+      const slots = Array.from(bySlot.values()).sort((a, b) => a.slot - b.slot);
+      this.snapshotState = {
+        ...this.snapshotState,
+        activity: {
+          slots,
+          dayBaseSec: daily.base,
+          timezoneOffsetMinutes: daily.timezoneOffsetMinutes,
+          totalSteps: slots.reduce((sum, slot) => sum + slot.steps, 0),
+          activeCalories: slots.reduce((sum, slot) => sum + slot.activeCalories, 0),
+          totalCalories: slots.reduce((sum, slot) => sum + slot.totalCalories, 0),
+          restingCalories: slots.reduce((sum, slot) => sum + slot.restingCalories, 0),
+        },
+        updatedAtMs: Date.now(),
+      };
+      this.emit();
       return;
     }
 

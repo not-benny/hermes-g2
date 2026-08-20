@@ -21,6 +21,7 @@ test("exiting preview mode deletes every trace of the demo data", () => {
   assert.match(demo, /export function clearPreviewDemo/);
   assert.match(demo, /ApplicationSettings\.remove\(HOURLY_KEY\)/);
   assert.match(demo, /ApplicationSettings\.remove\(HISTORY_KEY\)/);
+  assert.match(demo, /ApplicationSettings\.remove\(ACTIVITY_KEY\)/);
   assert.match(demo, /ApplicationSettings\.remove\(DEMO_FLAG\)/);
   assert.match(demo, /ringHealthStore\.reset\(\)/);
 });

@@ -79,8 +79,13 @@ function buildHrvPayload(base, current, records) {
   const recBytes = records.flatMap(([h, a, mx, mn]) => [h, ...u16(a), ...u16(mx), ...u16(mn)]);
   return Uint8Array.from([records.length, 0, 0, 0, 0, 0, 0, ...u32(base), ...u16(current), ...recBytes]);
 }
-function buildActivityPayload(records) {
-  return Uint8Array.from([records.length, 0, 0, 0, 0, 0, 0, ...records.flat()]);
+function buildActivityPayload(timezoneOffsetMinutes, dayBaseSec, records) {
+  return Uint8Array.from([
+    records.length,
+    ...u16(timezoneOffsetMinutes),
+    ...u32(dayBaseSec),
+    ...records.flat(),
+  ]);
 }
 
 // --- CRC-32 --------------------------------------------------------------
@@ -196,15 +201,62 @@ test("decodeDailyData drops a truncated final record instead of reading past the
   assert.equal(decoded.records.length, 1);
 });
 
-test("decodeDailyData decodes an activity batch (stride 7 after the header)", () => {
-  const payload = buildActivityPayload([
-    [126, ...u16(0), ...u16(2), ...u16(15)],
-    [127, ...u16(47), ...u16(12), ...u16(25)],
+test("decodeDailyData decodes confirmed activity slots, steps, and native calories", () => {
+  const dayBaseSec = 1_787_180_400;
+  const payload = buildActivityPayload(60, dayBaseSec, [
+    [67, ...u16(5), ...u16(5), ...u16(23)],
+    [68, ...u16(18), ...u16(5), ...u16(17)],
   ]);
   const decoded = decodeDailyData(payload, "activity");
   assert.equal(decoded.records.length, 2);
-  assert.deepEqual(decoded.records[0], { slot: 126, steps: 0, f1: 2, f2: 15 });
-  assert.deepEqual(decoded.records[1], { slot: 127, steps: 47, f1: 12, f2: 25 });
+  assert.equal(decoded.base, dayBaseSec);
+  assert.equal(decoded.timezoneOffsetMinutes, 60);
+  assert.deepEqual(decoded.records[0], {
+    slot: 67,
+    timestampSec: dayBaseSec + 67 * 600,
+    steps: 5,
+    activeCalories: 5,
+    totalCalories: 23,
+    restingCalories: 18,
+  });
+  assert.deepEqual(decoded.records[1], {
+    slot: 68,
+    timestampSec: dayBaseSec + 68 * 600,
+    steps: 18,
+    activeCalories: 5,
+    totalCalories: 17,
+    restingCalories: 12,
+  });
+});
+
+test("decodeDailyData matches the captured cmd=5 bucket and Even CSV ground truth", () => {
+  // Capture data: count=1, tz=+60, local midnight=2026-08-20, slot 71.
+  // Even export at 11:50: steps=0; calories=15 (resting=12, active=3).
+  const payload = hexToBytes("013c007035866a47000003000f0000000000");
+  const decoded = decodeDailyData(payload, "activity");
+  assert.equal(decoded.base, 1_787_180_400);
+  assert.equal(decoded.timezoneOffsetMinutes, 60);
+  assert.deepEqual(decoded.records, [{
+    slot: 71,
+    timestampSec: 1_787_223_000,
+    steps: 0,
+    activeCalories: 3,
+    totalCalories: 15,
+    restingCalories: 12,
+  }]);
+});
+
+test("decodeDailyData rejects malformed activity records instead of surfacing partial totals", () => {
+  assert.throws(
+    () => decodeDailyData(buildActivityPayload(60, 1_787_180_400, [[144, ...u16(1), ...u16(1), ...u16(2)]]), "activity"),
+    /slot out of range/,
+  );
+  assert.throws(
+    () => decodeDailyData(buildActivityPayload(60, 1_787_180_400, [[71, ...u16(1), ...u16(16), ...u16(15)]]), "activity"),
+    /calories invalid/,
+  );
+  const truncated = buildActivityPayload(60, 1_787_180_400, [[71, ...u16(1), ...u16(3), ...u16(15)]]).subarray(0, 12);
+  assert.throws(() => decodeDailyData(truncated, "activity"), /truncated/);
 });
 
 // --- end-to-end: reassemble then decode ------------------------------------

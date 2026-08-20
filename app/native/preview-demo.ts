@@ -18,6 +18,7 @@ import { isPreviewOnlyMode } from "../phone-ui/onboarding-state";
 
 const HOURLY_KEY = "health.hourly.v1";
 const HISTORY_KEY = "health.history.v1";
+const ACTIVITY_KEY = "health.activity.v1";
 const DEMO_FLAG = "preview.demoSeeded";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -69,7 +70,15 @@ function demoSnapshot(nowMs: number): RingHealthSnapshot {
     spo2: spo2Series[spo2Series.length - 1],
     temperature: null,
     hrv: hrvSeries[hrvSeries.length - 1],
-    activity: { slots: [], totalSteps: 6480 },
+    activity: {
+      slots: [],
+      dayBaseSec: Math.floor(nowMs / 86_400_000) * 86_400,
+      timezoneOffsetMinutes: 0,
+      totalSteps: 6480,
+      activeCalories: 412,
+      totalCalories: 1830,
+      restingCalories: 1418,
+    },
     batteryPercent: 84,
     firmwareVersion: null,
     updatedAtMs: nowMs,
@@ -105,6 +114,7 @@ export function isPreviewDemoSeeded(): boolean {
 export function clearPreviewDemo(): void {
   ApplicationSettings.remove(HOURLY_KEY);
   ApplicationSettings.remove(HISTORY_KEY);
+  ApplicationSettings.remove(ACTIVITY_KEY);
   ApplicationSettings.remove(DEMO_FLAG);
   ringHealthStore.reset();
 }
