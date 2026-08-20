@@ -1,8 +1,37 @@
 # Hermes G2 handover (2026-08-20)
 
 A snapshot of project state, what was accomplished, what is pending, and how to
-pick the work back up on a new machine. Pairs with `ROADMAP.md` (kept outside the
-repo) and the private `DECODE-SPEC.md` (see "Out-of-repo data").
+pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
+the private `DECODE-SPEC.md` (see "Out-of-repo data").
+
+## 0. Latest continuation (2026-08-20)
+
+Two self-contained NOW items were completed on the `hermes-g2` branch:
+
+- **Raw ring-frame security gate:** `sendRawRingFrame()` now fails closed before
+  writing to `bae80012`. It accepts only a complete canonical single-frame
+  envelope with a valid declared length and transport CRC, then applies the same
+  pairing/host/firmware sub-command blocklist as `buildRingFrame()`. Captured
+  `otaStart`, `advStart`, `setAlgoKey`, `nvRecover`, `powerControl`, and
+  `pairDelete` frames can no longer bypass the policy gate. Regression coverage
+  is in `tests/ring-frame.test.mjs`.
+- **Honest setup README / T4:** `README.md` now matches the in-app onboarding:
+  provision the G2 and R1 in Even first, explicitly disconnect the glasses,
+  release Even's Bluetooth access during Hermes use, and keep Even installed for
+  provisioning and official maintenance. This closes the remaining T4 release
+  gate.
+
+Verification on the continuation checkout: all 114 tests passed, TypeScript
+typechecking passed, and a debug Android build completed with Android SDK 35 and
+JDK 21. JDK 26 is present on the machine but fails this Gradle stack's `jlink`
+step; use `JAVA_HOME=/usr/lib/jvm/java-21-openjdk` for builds.
+
+**Next recommended item:** add the safe, read-only R1 firmware-version display.
+Send `system/deviceInfo` (`module=1`, `cmd=0`, `subCmd=0x02`) after session open,
+decode the first NUL-padded 16-byte ASCII field from its ack (observed
+`2.2.8.0002`), and surface it in the phone's Glasses Controls page. The captured
+ack confirming this layout is documented in `notes/ring-firmware-update-design.md`;
+do not add any firmware-write behavior.
 
 ## 1. What this project is
 
@@ -14,15 +43,18 @@ HUD, voice, notifications, navigation, and more.
 ## 2. Where things live (READ THIS BEFORE MOVING MACHINES)
 
 The git repo is `hermes-faceclaw` (pushed to the private `not-benny/hermes-g2`).
-Three important things live OUTSIDE the repo and do NOT travel via git clone:
+Two important things live OUTSIDE the repo and do NOT travel via git clone:
 
 - `../ground-truth-private/` — Even health-export CSVs, btsnoop captures, the R1
   ring firmware (zip + extracted `application.bin`), the RE harness `fwre.py`, and
   the full `DECODE-SPEC.md`. Personal health data + proprietary firmware. Copy by
   hand when moving machines.
-- `../ROADMAP.md` — the living roadmap (a plan agent keeps it current).
 - `secrets.local.md` — dev identifiers (device IP, BLE MACs, git identity, Even
   API token location). Gitignored; recreate on the new machine.
+
+`ROADMAP.md` is tracked in the repository and is the canonical planning source
+that travels with a clone. Treat any older out-of-repo copy as archival unless
+it has explicitly newer changes.
 
 In-repo, the ring-health work is:
 - `app/health/ring-parser.ts` — frame reassembly, CRC-32C transport, inner-frame
@@ -59,6 +91,7 @@ In-repo, the ring-health work is:
 
 ## 4. What is pending (see ROADMAP.md for the full list)
 
+- Safe read-only ring firmware-version display (`deviceInfo`, subCmd `0x02`).
 - `cmd=5` activity/steps/calories byte-layout RE. UNBLOCKED: we have the 10-minute
   ground truth (steps.csv, calories.csv with resting/active split, 144 slots/day).
 - `cmd=6` sleep decode. Schema + stage map known (0=Wake/1=REM/2=Light/3=Deep, 30s

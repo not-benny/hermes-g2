@@ -70,13 +70,15 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   probing, and implement the system / packetAck (0x7e) loop to pull multi-fragment batches.
 
 ### Security
-- **TODO** — Close the raw-frame bypass: the ring subCmd blocklist is enforced only at frame-BUILD time,
-  but `sendRawRingFrame()` writes arbitrary bytes to bae80012 with no check — a captured otaStart frame
-  could bypass it. Surfaced by the T1 firmware research; fix independent of shipping any firmware feature.
+- **DONE** (2026-08-20) — Closed the raw-frame bypass. `sendRawRingFrame()` now fails closed before writing
+  to bae80012: it accepts only a complete canonical single-frame envelope with a valid length and transport
+  CRC, then applies the same pairing/host/firmware subCmd blocklist used by `buildRingFrame()`. A captured
+  otaStart (or other blocklisted command) can no longer bypass the policy gate.
 
 ### Release / repo
-- **TODO** — Honest **README** ("set up in Even first, then hand off; disable-don't-uninstall"). In reach now,
-  frictionless; the remaining half of gate **T4** (onboarding wizard already DONE).
+- **DONE** (2026-08-20) — Honest **README** now documents first-time setup in Even, the explicit glasses
+  disconnect and Bluetooth handoff, single-central ring contention, and the disable-don't-uninstall rule.
+  This completes gate **T4** alongside the onboarding wizard.
 
 ---
 
@@ -176,6 +178,12 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
 ---
 
 ## Recently landed (this session — full detail in the archive)
+- **Honest setup README / T4 — DONE** (2026-08-20): first-time users are told to provision in Even, disconnect
+  the glasses, release Even's Bluetooth access, keep the app installed for maintenance, and then onboard in
+  Hermes. The README and in-app wizard now tell the same story.
+- **Raw ring-frame security gate — DONE** (2026-08-20): raw captured-frame replays now validate the envelope,
+  inner length, and transport CRC and consult the shared system-command blocklist before any BLE write.
+  Regression coverage, all 114 tests, typecheck, and a debug Android build pass.
 - **Ring protocol byte-verified by firmware RE — DONE** (2026-08-20): frame envelope + both CRCs (CRC-32C and
   CRC16/MODBUS), the command table, and the HR/HRV/SpO2 record layouts were reproduced against real ring
   notifies, confirming the existing decoder and the buildRingFrame CRC-32 work. Byte-verified spec captured

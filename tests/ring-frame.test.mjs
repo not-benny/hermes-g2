@@ -110,3 +110,28 @@ test("the Java encoder is the corrected one (CRC-32 over the inner frame, no ran
   // The pairing-state subCmds stay blocklisted.
   assert.match(src, /isBlocklistedRingSubCmd/);
 });
+
+test("raw ring writes validate the envelope and cannot bypass the command blocklist", () => {
+  const src = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  const rawStart = src.indexOf("private void sendRawRingFrame(");
+  const validatorStart = src.indexOf("private static String rawRingFrameRefusalReason(");
+  assert.notEqual(rawStart, -1);
+  assert.notEqual(validatorStart, -1);
+
+  const rawBody = src.slice(rawStart, src.indexOf("\n    }", rawStart) + 6);
+  assert.match(rawBody, /rawRingFrameRefusalReason\(frame\)/);
+  assert.ok(
+    rawBody.indexOf("rawRingFrameRefusalReason(frame)") < rawBody.indexOf("bleManager.writeFrames("),
+    "raw-frame validation must run before the BLE write",
+  );
+  assert.match(rawBody, /if \(refusalReason != null\)/);
+
+  const validatorBody = src.slice(validatorStart, src.indexOf("\n    }", validatorStart) + 6);
+  assert.match(validatorBody, /frame\.length < 17/);
+  assert.match(validatorBody, /frame\.length != 5 \+ innerLen/);
+  assert.match(validatorBody, /storedCrc != ringCrc32\(frame, 5, innerLen\)/);
+  assert.match(validatorBody, /isBlocklistedRingSubCmd\(module, cmd, subCmd\)/);
+});

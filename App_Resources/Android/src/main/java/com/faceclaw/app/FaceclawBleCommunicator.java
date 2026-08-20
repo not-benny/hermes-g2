@@ -1703,8 +1703,17 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         sendRawRingFrame(label, frame);
     }
 
-    /** Write an exact, pre-built ring frame verbatim (used to replay captured frames). */
+    /**
+     * Write an exact, pre-built ring frame verbatim (used to replay captured frames).
+     * Raw replays are still subject to the same command blocklist as built frames;
+     * otherwise a captured pairing/firmware command could bypass buildRingFrame().
+     */
     private void sendRawRingFrame(String label, byte[] frame) {
+        String refusalReason = rawRingFrameRefusalReason(frame);
+        if (refusalReason != null) {
+            logLine("direct ring " + label + " REFUSED (" + refusalReason + ")");
+            return;
+        }
         try {
             boolean ok = bleManager.writeFrames(
                 ringAddress,
@@ -1733,6 +1742,37 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             }
         }
         return false;
+    }
+
+    /**
+     * Fail closed at the raw-write boundary. Only a complete, canonical,
+     * CRC-valid single-fragment FRAME may reach bae80012, and state-mutating
+     * system commands remain blocklisted even when supplied as captured bytes.
+     */
+    private static String rawRingFrameRefusalReason(byte[] frame) {
+        if (frame == null || frame.length < 17) {
+            return "malformed frame";
+        }
+        if ((frame[0] & 0xff) != 0x00 || (frame[5] & 0xff) != 0x64
+            || (frame[7] & 0xff) != 0x64) {
+            return "non-canonical frame envelope";
+        }
+        int innerLen = (frame[13] & 0xff) | ((frame[14] & 0xff) << 8);
+        if (innerLen < 12 || frame.length != 5 + innerLen) {
+            return "invalid inner length";
+        }
+        int storedCrc = (frame[1] & 0xff) | ((frame[2] & 0xff) << 8)
+            | ((frame[3] & 0xff) << 16) | ((frame[4] & 0xff) << 24);
+        if (storedCrc != ringCrc32(frame, 5, innerLen)) {
+            return "invalid transport CRC";
+        }
+        int module = frame[6] & 0xff;
+        int cmd = frame[11] & 0xff;
+        int subCmd = frame[12] & 0xff;
+        if (isBlocklistedRingSubCmd(module, cmd, subCmd)) {
+            return "blocklisted module/cmd/subCmd";
+        }
+        return null;
     }
 
     /**
