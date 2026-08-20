@@ -110,63 +110,64 @@ class HealthCardLayer implements Layer {
     const { readiness: r, hr: hrI, hours } = liveHealth();
     const M = 16;
 
-    // --- readiness hero: label, big score, verdict, filled bar ---------------
-    img.drawText(small, M, 3, "READINESS", 150);
+    // --- readiness hero: label, big score, verdict + confidence, filled bar --
+    img.drawText(small, M, 1, "READINESS", 150);
     const scoreStr = r.score === null ? "--" : String(r.score);
-    img.drawText(big, M, 15, scoreStr, 250);
+    img.drawText(big, M, 12, scoreStr, 250);
     const afterScore = M + big.measureText(scoreStr) + 14;
-    img.drawText(med, afterScore, 18, r.score === null ? "Not enough data" : VERDICT[r.band], 225);
-    if (r.score !== null) img.drawText(small, afterScore, 42, `out of 100 - ${r.confidence} confidence`, 125);
+    img.drawText(med, afterScore, 14, r.score === null ? "Not enough data" : VERDICT[r.band], 225);
+    // Confidence sits beside the score (above the bar), not across the gauge.
+    if (r.score !== null) img.drawText(small, afterScore, 38, `${r.confidence} confidence`, 130);
 
     const barY = 52;
-    const barH = 16;
+    const barH = 14;
     img.fillRoundedRect(M, barY, W - 2 * M, barH, 45, barH / 2);
     if (r.score !== null) {
       img.fillRoundedRect(M, barY, Math.max(barH, Math.round((W - 2 * M) * (r.score / 100))), barH, 210, barH / 2);
     }
 
     // --- big HR readout with a pulse icon + resting/range context -----------
-    const hrY = barY + barH + 10;
+    const hrY = barY + barH + 8;
     const icon = renderIcon("activity", 24);
-    if (icon) img.bitBlt(icon, M, hrY + 4);
+    if (icon) img.bitBlt(icon, M, hrY + 3);
     const hrStr = hrI.current === null ? "--" : String(hrI.current);
     const hrX = M + (icon ? icon.width + 10 : 0);
     img.drawText(big, hrX, hrY, hrStr, 245);
     const afterHr = hrX + big.measureText(hrStr) + 8;
-    img.drawText(small, afterHr, hrY + 4, "bpm", 150);
-    img.drawText(small, afterHr, hrY + 20, "heart rate", 120);
+    img.drawText(small, afterHr, hrY + 3, "bpm", 150);
+    img.drawText(small, afterHr, hrY + 18, "heart rate", 120);
     const ctxParts: string[] = [];
     if (hrI.restingHr !== null) ctxParts.push(`rest ${hrI.restingHr}`);
     if (hrI.min !== null && hrI.max !== null) ctxParts.push(`${hrI.min}-${hrI.max}`);
     if (ctxParts.length) {
       const ctxStr = ctxParts.join("   ");
-      img.drawText(small, W - M - small.measureText(ctxStr), hrY + 12, ctxStr, 150);
+      img.drawText(small, W - M - small.measureText(ctxStr), hrY + 10, ctxStr, 150);
     }
 
-    // --- 24h HR range chart (the rich graphic) ------------------------------
-    const chartY = hrY + big.lineHeight + 8;
-    const stripH = 30;
-    const chartH = Math.max(28, H - chartY - stripH - 6);
-    if (hours.length) {
-      img.drawText(small, M, chartY - 12, "LAST 24H", 110);
-      drawHrChart(img, M, chartY, W - 2 * M, chartH, hours, hrI.restingHr);
-    }
-
-    // --- metric strip: big value + small label across the width -------------
+    // --- metric strip pinned near the bottom (values + labels fully visible) -
+    const labelY = H - 18;
+    const valueY = labelY - 24;
     const tiles: Array<[string, string]> = [
       [s.batteryPercent === null ? "--" : `${s.batteryPercent}`, "ring %"],
       [s.spo2 ? `${s.spo2.avg}` : "--", "SpO2 %"],
       [s.hrv ? `${s.hrv.avg}` : "--", "HRV ms"],
       [s.activity ? String(s.activity.totalSteps) : "--", "steps"],
     ];
-    const stripTop = H - stripH + 2;
-    img.fillRect(M, stripTop - 6, W - 2 * M, 1, 45);
+    img.fillRect(M, valueY - 8, W - 2 * M, 1, 45);
     const tileW = W / tiles.length;
     tiles.forEach(([value, label], i) => {
       const cx = i * tileW + tileW / 2;
-      drawCentered(img, med, cx, stripTop, value, 235);
-      drawCentered(img, small, cx, stripTop + 22, label, 140);
+      drawCentered(img, med, cx, valueY, value, 235);
+      drawCentered(img, small, cx, labelY, label, 140);
     });
+
+    // --- 24h HR range chart (shrunk on Y; sits between the HR row + strip) ---
+    const chartTop = hrY + 42;
+    const chartH = Math.min(64, valueY - 14 - chartTop);
+    if (hours.length && chartH >= 24) {
+      img.drawText(small, M, chartTop - 12, "LAST 24H", 110);
+      drawHrChart(img, M, chartTop, W - 2 * M, chartH, hours, hrI.restingHr);
+    }
 
     return img;
   }
