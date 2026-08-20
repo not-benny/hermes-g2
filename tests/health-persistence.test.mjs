@@ -114,6 +114,42 @@ test("failed or unverifiable canonical migration preserves every legacy key", ()
   }
 });
 
+test("an unverifiable first migration retries legacy data after restart", () => {
+  const settings = new FakeSettings();
+  const timezoneOffsetMinutes = -new Date(NOW).getTimezoneOffset();
+  const dayBaseSec = Math.floor((NOW / 1000 + timezoneOffsetMinutes * 60) / 86400) * 86400
+    - timezoneOffsetMinutes * 60;
+  settings.values.set(LEGACY_HISTORY_KEY, JSON.stringify([daily("2026-08-20", { steps: 321 })]));
+  settings.values.set(LEGACY_HOURLY_KEY, JSON.stringify([
+    { dateKey: "2026-08-20", hourIdx: 9, hr: { avg: 61, max: 71, min: 51 } },
+  ]));
+  settings.values.set(LEGACY_ACTIVITY_KEY, JSON.stringify({
+    slots: [{ slot: 72, timestampSec: dayBaseSec + 72 * 600, steps: 12, activeCalories: 3, totalCalories: 4, restingCalories: 1 }],
+    dayBaseSec,
+    timezoneOffsetMinutes,
+    totalSteps: 12,
+    activeCalories: 3,
+    totalCalories: 4,
+    restingCalories: 1,
+  }));
+  settings.corruptReadBack = true;
+
+  const firstDocument = createHealthPersistence(settings, () => NOW).loadHealthDocument();
+  assert.equal(firstDocument.history[0].steps, 321);
+  assert.equal(settings.values.has(HEALTH_STORE_KEY), false, "failed candidate must not mask legacy data");
+
+  settings.corruptReadBack = false;
+  settings.stringWrites = [];
+  const restartedDocument = createHealthPersistence(settings, () => NOW).loadHealthDocument();
+  assert.equal(restartedDocument.history[0].steps, 321);
+  assert.equal(restartedDocument.hourly.length, 1);
+  assert.equal(restartedDocument.activity?.totalSteps, 12);
+  assert.equal(settings.values.has(HEALTH_STORE_KEY), true);
+  assert.equal(settings.values.has(LEGACY_HISTORY_KEY), false);
+  assert.equal(settings.values.has(LEGACY_HOURLY_KEY), false);
+  assert.equal(settings.values.has(LEGACY_ACTIVITY_KEY), false);
+});
+
 test("an existing canonical document is authoritative and stale legacy values are not merged", () => {
   const settings = new FakeSettings();
   settings.values.set(HEALTH_STORE_KEY, JSON.stringify({ version: 1, updatedAtMs: NOW, retentionDays: 90,

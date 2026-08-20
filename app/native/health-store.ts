@@ -93,7 +93,14 @@ export function createHealthPersistence(
       hourly: parseJson(settings.getString(LEGACY_HOURLY_KEY, ""), []),
       activity: parseJson(settings.getString(LEGACY_ACTIVITY_KEY, ""), null),
     }, nowMs);
-    writeVerified(migrated);
+    if (!writeVerified(migrated)) {
+      // This key was absent when migration began, so any value here is only the
+      // unverified candidate from this attempt. Remove it so a later process
+      // retries from the untouched legacy fragments instead of treating the
+      // candidate as authoritative. Never do this for an existing canonical
+      // document: a failed normalization write must not delete known data.
+      settings.remove(HEALTH_STORE_KEY);
+    }
     return migrated;
   };
 

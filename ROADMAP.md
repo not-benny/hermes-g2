@@ -228,7 +228,8 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   when null) on every ring-store change. No hourly-average fallback, since that is not a live reading.
 - Health: R1 ring HR/HRV/SpO2 daily-record DECODER fixed (ae9a4e0); hourly persistence/accumulation
   `app/health/health-hourly.ts` (cb5d5f2); rich Health tab — readiness hero ring, 24h HR + trend charts,
-  consent-gated 3h Hermes sync, real-file JSON export via FileProvider (003ee43, ac28d5e). Golden-vector tests.
+  real-file JSON export via FileProvider (003ee43, ac28d5e). Golden-vector tests. The former consent-gated
+  3-hour Hermes sync is superseded and removed by the pull-only implementation at lines 190–196.
 - 4-tab shell (e6f1b04), Even Health dashboard (147fa0d).
 - **Onboarding wizard — DONE** (52f6d16): 5 steps (welcome · disclaimer · honest "How Hermes works" Even
   hand-off · permissions [BLE / notification-access / battery, live Granted ticks] · firmware choice) with
