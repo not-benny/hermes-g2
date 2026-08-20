@@ -2,6 +2,14 @@
     <ActionBar title="Settings" />
     <ScrollView>
         <StackLayout class="p-20">
+            <StackLayout visibility="{{ previewModeVisibility }}">
+                <Label text="Preview mode" class="section-label" />
+                <Label text="You are exploring Hermes with anonymous demo data and no glasses connected. Exit preview to set up your real glasses; all demo data is deleted."
+                       class="muted m-t-4" textWrap="true" />
+                <Button text="Exit preview mode" tap="{{ onExitPreviewTap }}" class="m-t-8" />
+                <StackLayout class="divider m-t-20" />
+            </StackLayout>
+
             <Label text="Devices" class="section-label" />
             <Button text="Configure devices" tap="{{ onDevicesTap }}" class="m-t-8" />
 

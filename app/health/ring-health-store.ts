@@ -106,6 +106,15 @@ export class RingHealthStore {
   }
 
   /**
+   * Preview/demo only: install a complete mock snapshot and notify listeners, so
+   * the Health tab + HUD look alive with no ring connected. Cleared via reset().
+   */
+  seedMock(snapshot: RingHealthSnapshot): void {
+    this.snapshotState = snapshot;
+    this.emit();
+  }
+
+  /**
    * Ingest one raw notify frame from the ring's data characteristic. Fragments
    * buffer per batch id; the batch decodes once its fragIndex-0 tail arrives.
    * Malformed input is logged and dropped, never thrown.

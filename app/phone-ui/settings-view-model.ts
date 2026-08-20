@@ -1,6 +1,8 @@
 import { Frame, Observable, SegmentedBarItem } from "@nativescript/core";
 
 import { onAnySettingChanged, uiFontSetting } from "../ui/dashboard-settings";
+import { isPreviewOnlyMode, setPreviewOnlyMode, setOnboardingCompleted } from "./onboarding-state";
+import { clearPreviewDemo } from "../native/preview-demo";
 
 /**
  * Settings-tab hub: navigation into Devices / API keys / WhatsApp (within the
@@ -28,6 +30,20 @@ export class SettingsViewModel extends Observable {
   onDevicesTap(): void { Frame.topmost()?.navigate("phone-ui/config-page"); }
   onApiKeysTap(): void { Frame.topmost()?.navigate("phone-ui/api-keys-page"); }
   onWhatsAppTap(): void { Frame.topmost()?.navigate("phone-ui/whatsapp-page"); }
+
+  // --- preview mode ----------------------------------------------------------
+  get previewModeVisibility(): "visible" | "collapse" { return isPreviewOnlyMode() ? "visible" : "collapse"; }
+
+  /**
+   * Leave preview mode: delete all the anonymous demo data, clear the preview
+   * flag, and re-run onboarding so the user can set up real glasses.
+   */
+  onExitPreviewTap(): void {
+    clearPreviewDemo();
+    setPreviewOnlyMode(false);
+    setOnboardingCompleted(false);
+    Frame.topmost()?.navigate({ moduleName: "phone-ui/onboarding-page", clearHistory: true });
+  }
 
   get uiFontItems(): SegmentedBarItem[] {
     if (!this._fontItems) {

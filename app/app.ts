@@ -7,8 +7,17 @@ purpose of the file is to pass control to the app’s first module.
 import { Application } from '@nativescript/core'
 import { registerShareIntentHandler } from './native/share-intents'
 import { startWhatsAppNode, whatsAppNodeHealth } from './native/whatsapp-node'
+import { seedPreviewDemo } from './native/preview-demo'
 
 registerShareIntentHandler()
+
+// Preview-only users have no glasses/ring; seed anonymous demo health data so the
+// Health tab + HUD are explorable. No-op outside preview mode; cleared on exit.
+try {
+  seedPreviewDemo()
+} catch (error) {
+  console.error(`[preview-demo] seed failed: ${error}`)
+}
 
 // Boot the embedded Node WhatsApp engine and confirm the loopback server
 // answers. Best-effort; never blocks app startup. Pairing is user-initiated
