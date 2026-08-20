@@ -8,8 +8,9 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 ### Persistent ring-health pull candidate (local, review pending)
 
-Branch `feature/persistent-health-mcp-t_3e9c4645` is implementing the planned
-push-to-pull replacement from baseline `ae89fd5`. Ring health now has one
+Branch `feature/persistent-health-mcp-t_3e9c4645` contains local candidate commit
+`587dff7` for the planned push-to-pull replacement from baseline `ae89fd5`.
+Ring health now has one
 canonical app-private `health.store.v1` document, independently validated legacy
 migration with exact read-back before old-key removal, and exact 90-local-date
 retention. The new conversation-only `health.get_ring_data` registry/MCP tool is
