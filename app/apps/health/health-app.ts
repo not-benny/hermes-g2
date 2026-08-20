@@ -216,8 +216,17 @@ export function createHealthWindow(options: HealthOptions): ShellWindow {
       { label: "Hide health tab", onSelect: (ctx) => { ctx.stack.pop(); shell.setHealthHidden(true); } },
     ],
   });
-  // Repaint on any ring-health change. The card is pinned for the app's
-  // lifetime, so this subscription never needs tearing down.
-  ringHealthStore.onChange(() => created.requestRender());
+  // Repaint on any ring-health change, and feed the HUD heart the ring's live
+  // spot reading (frame-header `current`). Per the rule: the live value if we
+  // have one, "--" otherwise -- so we pass currentHr straight through (null when
+  // frames come back empty) and never fall back to an hourly average, which is
+  // not a live reading. The card is pinned for the app's lifetime, so this
+  // subscription never needs tearing down.
+  const pushHudHeart = () => shell.setRingHeartRate(ringHealthStore.snapshot().currentHr);
+  ringHealthStore.onChange(() => {
+    pushHudHeart();
+    created.requestRender();
+  });
+  pushHudHeart();
   return created.window;
 }

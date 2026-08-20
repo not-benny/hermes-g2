@@ -174,15 +174,13 @@ export class RingHealthStore {
     if (!metric) return; // sleep (cmd 6) and unknown cmds: layout not decoded yet.
 
     if (metric === "activity") {
-      const daily = decodeDailyData(parsed.data, "activity");
-      if (daily.records.length === 0) return;
-      const totalSteps = daily.records.reduce((sum, r) => sum + r.steps, 0);
-      this.snapshotState = {
-        ...this.snapshotState,
-        activity: { slots: daily.records, totalSteps },
-        updatedAtMs: Date.now(),
-      };
-      this.emit();
+      // Activity/steps/calories are NOT surfaced yet. Firmware RE (2026-08-20)
+      // confirmed the ring stores 10-minute buckets of steps plus a
+      // resting/active calorie split, but the cmd=5 record byte layout is still
+      // an unvalidated stride-7 guess (see decodeDailyData "activity"). Surfacing
+      // it would show wrong step/calorie numbers, so leave `activity` null -- the
+      // UI then honestly renders "--" until cmd=5 is decoded against the captured
+      // steps.csv/calories.csv ground truth.
       return;
     }
 
