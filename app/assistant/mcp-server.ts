@@ -27,6 +27,12 @@ export type McpServerOptions = {
 export class AssistantMcpServer {
   private readonly registry: ToolRegistry;
   private readonly proactiveCallTimes: number[] = [];
+  private lifecycle: "new" | "initializing" | "initialized" = "new";
+  private closed = false;
+  private epoch = 0;
+  private readonly activeRequestIds = new Set<string>();
+  private readonly completedRequestIds = new Set<string>();
+  private readonly completedRequestOrder: string[] = [];
 
   constructor(private readonly options: McpServerOptions) {
     this.registry = options.registry ?? toolRegistry;
@@ -34,32 +40,42 @@ export class AssistantMcpServer {
 
   /** Notify the agent that the live tool set changed. */
   sendToolsChanged(): void {
+    if (this.closed || this.lifecycle !== "initialized") return;
     this.options.send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
   }
 
   handleMessage(msg: any): void {
-    if (!msg || msg.jsonrpc !== "2.0") return;
-    if (typeof msg.method !== "string") return; // responses to server-sent requests: none yet
-    const id = msg.id;
-    const isNotification = id === undefined || id === null;
+    if (this.closed) return;
+    const id = msg?.id;
+    const validId = typeof id === "string" || typeof id === "number";
+    if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string" || id === null) {
+      if (validId) this.replyError(id, -32600, "Invalid Request");
+      return;
+    }
+    const isNotification = id === undefined;
 
     switch (msg.method) {
       case "initialize":
+        if (!validId || this.lifecycle !== "new") {
+          if (validId) this.replyError(id, -32600, "Already initialized");
+          return;
+        }
+        this.lifecycle = "initializing";
         this.reply(id, {
-          protocolVersion:
-            typeof msg.params?.protocolVersion === "string"
-              ? msg.params.protocolVersion
-              : MCP_PROTOCOL_VERSION,
+          protocolVersion: MCP_PROTOCOL_VERSION,
           capabilities: { tools: { listChanged: true } },
           serverInfo: { name: "hermes-g2", version: "1.0.0" },
         });
         return;
       case "notifications/initialized":
+        if (isNotification && this.lifecycle === "initializing") this.lifecycle = "initialized";
         return;
       case "ping":
         this.reply(id, {});
         return;
       case "tools/list":
+        if (!validId) return;
+        if (!this.requireInitialized(id)) return;
         this.reply(id, {
           tools: this.registry.listTools().map((spec) => ({
             name: spec.name,
@@ -69,7 +85,20 @@ export class AssistantMcpServer {
         });
         return;
       case "tools/call":
-        void this.handleToolCall(id, msg.params);
+        if (!validId) return; // never execute side effects from notifications
+        if (!this.requireInitialized(id)) return;
+        if (!msg.params || typeof msg.params !== "object" || typeof msg.params.name !== "string" ||
+            (msg.params.arguments !== undefined && (!msg.params.arguments || typeof msg.params.arguments !== "object" || Array.isArray(msg.params.arguments)))) {
+          this.replyError(id, -32602, "Invalid tools/call parameters");
+          return;
+        }
+        const requestKey = `${typeof id}:${String(id)}`;
+        if (this.activeRequestIds.has(requestKey) || this.completedRequestIds.has(requestKey)) {
+          this.replyError(id, -32600, "Duplicate request id");
+          return;
+        }
+        this.activeRequestIds.add(requestKey);
+        void this.handleToolCall(id, msg.params, requestKey);
         return;
       default:
         if (!isNotification) {
@@ -83,25 +112,41 @@ export class AssistantMcpServer {
     }
   }
 
-  private async handleToolCall(id: unknown, params: any): Promise<void> {
-    const name = typeof params?.name === "string" ? params.name : "";
-    const args = params?.arguments ?? {};
-    // A call while no voice turn is in flight is a proactive action by the
-    // remote agent; the phone (never the bridge) enforces the gating.
-    const proactive = !this.options.isTurnActive();
-    if (proactive && !this.options.allowProactive()) {
-      this.replyToolError(id, "Proactive assistant actions are disabled in Settings");
-      return;
+  private async handleToolCall(id: unknown, params: any, requestKey: string): Promise<void> {
+    const epoch = this.epoch;
+    try {
+      const name = typeof params?.name === "string" ? params.name : "";
+      const args = params?.arguments ?? {};
+      const proactive = !this.options.isTurnActive();
+      if (proactive && !this.options.allowProactive()) {
+        this.replyToolError(id, "Proactive assistant actions are disabled in Settings");
+        return;
+      }
+      const preflight = this.registry.preflightTool(name, args, { proactive });
+      if (preflight) {
+        if (preflight.error?.startsWith("Unknown tool:") || preflight.error?.startsWith("Invalid arguments")) {
+          this.replyError(id, -32602, preflight.error);
+        } else {
+          this.replyToolError(id, preflight.error ?? "Tool unavailable");
+        }
+        return;
+      }
+      if (proactive && !this.admitProactiveCall()) {
+        this.replyToolError(id, "Proactive action rate limit exceeded; try again later");
+        return;
+      }
+      const result = await this.registry.callTool(name, args, { proactive });
+      if (this.closed || epoch !== this.epoch) return;
+      this.reply(id, {
+        content: [{ type: "text", text: result.ok ? result.content ?? "" : result.error ?? "Tool error" }],
+        isError: !result.ok,
+      });
+    } catch (error) {
+      if (!this.closed && epoch === this.epoch) this.replyError(id, -32603, String((error as Error)?.message ?? error));
+    } finally {
+      this.activeRequestIds.delete(requestKey);
+      if (!this.closed && epoch === this.epoch) this.rememberCompleted(requestKey);
     }
-    if (proactive && !this.admitProactiveCall()) {
-      this.replyToolError(id, "Proactive action rate limit exceeded; try again later");
-      return;
-    }
-    const result = await this.registry.callTool(name, args, { proactive });
-    this.reply(id, {
-      content: [{ type: "text", text: result.ok ? result.content ?? "" : result.error ?? "Tool error" }],
-      isError: !result.ok,
-    });
   }
 
   /** Sliding-window rate limiter for proactive calls. */
@@ -122,5 +167,32 @@ export class AssistantMcpServer {
 
   private replyToolError(id: unknown, text: string): void {
     this.reply(id, { content: [{ type: "text", text }], isError: true });
+  }
+
+  private requireInitialized(id: unknown): boolean {
+    if (this.lifecycle === "initialized") return true;
+    this.replyError(id, -32002, "MCP server is not initialized");
+    return false;
+  }
+
+  private replyError(id: unknown, code: number, message: string): void {
+    if (id === undefined || id === null) return;
+    this.options.send({ jsonrpc: "2.0", id, error: { code, message } });
+  }
+
+  close(): void {
+    this.closed = true;
+    this.epoch += 1;
+    this.activeRequestIds.clear();
+    this.completedRequestIds.clear();
+    this.completedRequestOrder.length = 0;
+  }
+
+  private rememberCompleted(requestKey: string): void {
+    this.completedRequestIds.add(requestKey);
+    this.completedRequestOrder.push(requestKey);
+    while (this.completedRequestOrder.length > 128) {
+      this.completedRequestIds.delete(this.completedRequestOrder.shift()!);
+    }
   }
 }

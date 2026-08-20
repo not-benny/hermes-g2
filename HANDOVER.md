@@ -54,6 +54,15 @@ working tree:
   idempotent side effects. A bounded shell-owned `glasses.render_view` v1 is
   designed but blocked on that hardening. See
   `notes/mcp-skill-publish-audit-2026-08-20.md`.
+- **Bridge/MCP hardening pass 1:** privileged frames now require current-generation
+  authentication; stale socket callbacks are ignored; schemas are enforced;
+  app-tool ownership is window-safe; availability failures fail closed; MCP
+  initialization/errors and side-effecting notification rejection are covered;
+  proactive quota follows preflight. MCP lifecycle/replies are connection-bound;
+  duplicate IDs and late replies are suppressed; unsupported schemas fail closed;
+  array bounds/schema-valued extra properties are enforced; owner fallback,
+  top-level protocol-version/socket closure, and auth timeout are covered. Full
+  suite: 144 tests.
 
 Verification on the combined continuation checkout: all 133 tests passed,
 TypeScript typechecking passed, and a debug Android build completed with Android
@@ -67,10 +76,10 @@ JDK 26 is present but fails this Gradle stack's `jlink` step; use
 independent static review, merged with the contention UX, passed 133 tests,
 typecheck, and a combined Android build, and was installed on the A32.
 
-**Next recommended item:** harden the external assistant bridge/MCP trust boundary
-in the order listed by the publish audit, starting with authenticated connection
-generations and rejecting all pre-auth/stale frames. `glasses.render_view` and its
-skill stay blocked until those global gates close. After Benny provides a worn
+**Next recommended item:** continue the external assistant bridge/MCP hardening:
+add authenticated secure transport/server proof, then bind MCP calls to unique
+live turn generations and add cancellation/idempotency for timed-out mutations.
+`glasses.render_view` and its skill stay blocked until those global gates close. After Benny provides a worn
 overnight capture, correlate `cmd=6` against the matching export.
 
 ## 1. What this project is

@@ -14,6 +14,27 @@ This verdict does not disable the existing private bridge deployment. It records
 that the deployment assumes a trusted transport/network and is not suitable as a
 public security boundary.
 
+### Hardening progress after the audit
+
+The first hardening pass now rejects privileged pre-auth traffic, generation-
+binds native WebSocket callbacks, enforces tool input schemas centrally, makes
+same-app multi-window ownership removal-safe, fails closed on availability
+exceptions, implements MCP initialization/error handling, ignores side-effecting
+`tools/call` notifications, and charges proactive quota only after preflight.
+Behavioral coverage raises the suite to 141 tests.
+
+Publication remains NO-GO because `ws://` does not authenticate the server or
+protect the bearer token, MCP calls are not yet bound to a unique live turn
+generation, and timed-out side-effecting handlers are not cancelled/idempotent.
+
+The review follow-up also binds each MCP server/reply to one socket generation,
+closes old sessions on reconnect, suppresses late replies, rejects duplicate
+request IDs with bounded replay tombstones, restores older same-app tool owners,
+fails closed on unsupported schema keywords, closes protocol-mismatch sockets,
+and adds a 15-second authentication-handshake timeout.
+Array bounds and schema-valued additional properties are enforced, and every
+inbound bridge frame must carry the documented top-level protocol version.
+
 ## Current surface
 
 The process-wide registry exposes 24 tools:
@@ -40,9 +61,9 @@ All tools currently return text. The MCP server implements `initialize`, `ping`,
    `hello` JSON frame. Any `hello-ack` is accepted without proof that the peer
    knows the token. Public use requires `wss://` with normal certificate
    validation or an explicitly enforced authenticated tunnel plus a server proof.
-2. `chat` and `mcp` frames can be processed before `hello-ack` completes.
-3. WebSocket callbacks are not bound to a connection generation; late callbacks
-   from a replaced socket can act on the replacement connection.
+2. **Closed:** `chat` and `mcp` frames are rejected before `hello-ack` completes.
+3. **Closed:** WebSocket callbacks are bound to a connection generation and
+   stale callbacks from replaced sockets are ignored.
 4. An MCP call is treated as conversational whenever *some* voice turn is active.
    Calls carry no internal turn generation, so delayed/replayed calls can bypass
    proactive restrictions. Calls must be bound to a unique live turn and
@@ -50,19 +71,17 @@ All tools currently return text. The MCP server implements `initialize`, `ping`,
 
 ### MCP / registry correctness (HIGH)
 
-5. Advertised JSON Schemas are not centrally enforced before handlers run.
-6. Two windows of the same app can overwrite the same canonical tool name;
-   closing the older window can delete the newer registration. Registration
-   ownership/generation must be checked on removal.
-7. MCP has no explicit `new -> initializing -> initialized -> closed` lifecycle.
-   It echoes unsupported protocol versions, silently drops malformed requests,
-   permits side-effecting `tools/call` notifications, and does not consistently
-   return JSON-RPC `-32600` / `-32602` errors.
+5. **Closed:** advertised JSON Schemas are centrally enforced before handlers run.
+6. **Closed:** window registrations carry ownership; closing an older same-app
+   window cannot delete a newer registration.
+7. **Closed for the current server:** MCP uses explicit initialization state,
+   negotiates its supported version, emits protocol errors, and ignores
+   side-effecting `tools/call` notifications.
 8. Registry timeouts do not cancel handlers, so late side effects can occur after
    a timeout and be duplicated by retries. Side-effecting calls need cancellation
    and/or operation IDs plus idempotency.
-9. Availability predicates can throw outside the registry's error boundary.
-10. The proactive quota is charged before tool existence/eligibility is known.
+9. **Closed:** availability predicate failures fail closed inside error handling.
+10. **Closed:** proactive quota is charged only after tool/schema/eligibility preflight.
 
 ### Tool-specific holds
 

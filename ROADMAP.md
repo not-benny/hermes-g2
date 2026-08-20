@@ -105,11 +105,16 @@ session-open frame is hardcoded/universal (not per-device).
 ### Platform / vision groundwork
 - **AUDIT DONE / PUBLICATION BLOCKED** (2026-08-20) — **MCP / skill review** inventoried 24 phone-served
   tools and designed a bounded shell-owned `glasses.render_view` v1. Publication is NO-GO until the external
-  bridge has authenticated transport/peer proof, pre-auth and stale-connection rejection, turn-generation
-  authorization, enforced JSON Schemas, correct MCP lifecycle/errors, window-owned registrations, and
-  cancellation/idempotency for side effects. Tool-specific holds include proactive alert/timer mutation,
+  bridge has authenticated transport/peer proof, per-turn generation authorization, and cancellation/idempotency
+  for timed-out side effects. Tool-specific holds include proactive alert/timer mutation,
   over-broad Roam reads, and disconnected-success paths. Full report:
   `notes/mcp-skill-publish-audit-2026-08-20.md`. Do not publish a `hermes-g2-glasses` skill before these gates.
+  First hardening pass is DONE: pre-auth/stale-socket rejection, connection generations, central schema
+  validation, MCP initialization/errors, ownership-safe app tools, availability error boundaries, and
+  preflight-before-quota all have behavioral tests. Follow-up binds MCP replies/lifecycle to one connection,
+  suppresses late/duplicate requests, restores prior owners, rejects unsupported schemas, closes mismatched
+  sockets, and times out unauthenticated handshakes. Remaining global blockers: authenticated secure transport/
+  server proof, per-turn generation authorization, and cancellation/idempotency for timed-out side effects.
 
 ### Smaller backlog (do not lose)
 - **TODO** — S5 Ring pair/unpair + direct phone-to-ring link management UI (ties to T2).
