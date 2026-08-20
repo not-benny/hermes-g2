@@ -7,9 +7,11 @@
  * so it works the day HR alone starts flowing and improves as more metrics land.
  *
  * Honesty (verified via the Even app's decoded DB + the wire-format research):
- * temperature is RESERVED on the R1 (never sent) so it is NOT a contributor;
- * HRV/HR byte layouts are provisional until a worn capture confirms them, so the
- * module tolerates any input being absent.
+ * the HOURLY temperature metric (cmd 3) is reserved/never sent, but the NIGHTLY
+ * body temperature rides the sleep record (`body_temp`, deci-degC, populated on
+ * full nights) and is shown - like Oura - as a VARIATION from baseline; it is a
+ * readiness contributor. HRV/HR byte layouts are provisional until a worn
+ * capture confirms them, so the module tolerates any input being absent.
  */
 
 import type { RingHealthSample, RingHrvSample, RingActivitySample } from "./ring-parser";
@@ -41,10 +43,12 @@ export interface InsightInputs {
   activity?: RingActivitySample[];
   sleep?: SleepSession | null;
   liveHr?: number | null; // from the point-push stream when wired
+  bodyTempC?: number | null; // latest night's skin temperature, degC
   baselines?: {
     restingHr?: MetricBaseline;
     hrv?: MetricBaseline;
     sleepDurationMin?: MetricBaseline;
+    bodyTempC?: MetricBaseline;
   };
   targets?: { sleepMin?: number };
   nowMs?: number;
@@ -69,8 +73,16 @@ export interface SleepInsights {
   available: "none" | "duration-only" | "full";
 }
 
+export interface TemperatureInsights {
+  /** Latest night's skin temperature, degC (null if no full night yet). */
+  currentC: number | null;
+  /** Deviation from the personal baseline, degC (null until baseline n>=3). */
+  deviationC: number | null;
+  available: boolean;
+}
+
 export interface Contributor {
-  key: "restingHr" | "hrv" | "sleep" | "recovery";
+  key: "restingHr" | "hrv" | "sleep" | "temperature" | "recovery";
   label: string;
   score: number;
   weight: number;
@@ -162,6 +174,21 @@ export function sleepInsights(i: InsightInputs): SleepInsights {
   };
 }
 
+// --- temperature (nightly body-temp variation from baseline) ----------------
+export function temperatureInsights(i: InsightInputs): TemperatureInsights {
+  const currentC = typeof i.bodyTempC === "number" ? i.bodyTempC : null;
+  const base = i.baselines?.bodyTempC;
+  const deviationC = currentC !== null && base && base.n >= 3
+    ? Math.round((currentC - base.mean) * 10) / 10
+    : null;
+  return { currentC, deviationC, available: currentC !== null };
+}
+
+/** Readiness sub-score from |deviation|: on-baseline = 100, a large swing = low. */
+function temperatureScore(deviationC: number): number {
+  return clamp(100 - (Math.abs(deviationC) / 0.5) * 40, 20, 100);
+}
+
 function weightedRenorm(pairs: Array<[number, number]>): number {
   const totalW = pairs.reduce((a, [, w]) => a + w, 0);
   if (totalW === 0) return 0;
@@ -191,17 +218,18 @@ function hrvScore(hrvMs: number, base?: MetricBaseline): number {
 export function readinessScore(i: InsightInputs): ReadinessInsights {
   const hr = heartRateInsights(i);
   const sleep = sleepInsights(i);
+  const temp = temperatureInsights(i);
   const hrvRecs = i.hrv ?? [];
   const hrvAvg = hrvRecs.length ? mean(hrvRecs.map((r) => r.latest)) : null;
 
   const contributors: Contributor[] = [
     {
-      key: "restingHr", label: "Resting HR", weight: 0.25,
+      key: "restingHr", label: "Resting HR", weight: 0.2,
       available: hr.restingHr !== null,
       score: hr.restingHr !== null ? restingHrScore(hr.restingHr, i.baselines?.restingHr) : 0,
     },
     {
-      key: "hrv", label: "HRV", weight: 0.3,
+      key: "hrv", label: "HRV", weight: 0.25,
       available: hrvAvg !== null,
       score: hrvAvg !== null ? hrvScore(hrvAvg, i.baselines?.hrv) : 0,
     },
@@ -209,6 +237,11 @@ export function readinessScore(i: InsightInputs): ReadinessInsights {
       key: "sleep", label: "Sleep", weight: 0.3,
       available: sleep.score !== null,
       score: sleep.score ?? 0,
+    },
+    {
+      key: "temperature", label: "Body temp", weight: 0.1,
+      available: temp.deviationC !== null,
+      score: temp.deviationC !== null ? temperatureScore(temp.deviationC) : 0,
     },
     {
       key: "recovery", label: "Recovery", weight: 0.15,

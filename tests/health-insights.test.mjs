@@ -10,7 +10,7 @@ const src = readFileSync(new URL("../app/health/health-insights.ts", import.meta
 const js = ts.transpileModule(src, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
 }).outputText;
-const { heartRateInsights, sleepInsights, readinessScore } = await import(
+const { heartRateInsights, sleepInsights, readinessScore, temperatureInsights } = await import(
   "data:text/javascript;base64," + Buffer.from(js).toString("base64")
 );
 
@@ -87,6 +87,29 @@ test("readinessScore degrades gracefully: HR-only -> +HRV -> +sleep", () => {
   assert.equal(full.confidence, "high"); // resting HR + HRV + sleep
   assert.ok(full.score >= 0 && full.score <= 100);
   assert.ok(["low", "moderate", "good", "optimal"].includes(full.band));
+});
+
+test("temperatureInsights reports nightly body-temp deviation vs baseline", () => {
+  // Real Even-DB body temps: 35.5degC on a good night; baseline ~34.9.
+  const base = { mean: 34.9, sd: 0.2, n: 5 };
+  const t = temperatureInsights({ bodyTempC: 35.5, baselines: { bodyTempC: base } });
+  assert.equal(t.currentC, 35.5);
+  assert.equal(t.available, true);
+  assert.ok(Math.abs(t.deviationC - 0.6) < 0.001); // +0.6degC deviation
+  // no baseline -> no deviation, but still reports current
+  const t2 = temperatureInsights({ bodyTempC: 35.5 });
+  assert.equal(t2.deviationC, null);
+  assert.equal(t2.available, true);
+});
+
+test("readinessScore includes temperature once a body-temp baseline exists", () => {
+  const withTemp = readinessScore({
+    heartRate: HR, hrv: HRV, sleep: GOOD_NIGHT,
+    bodyTempC: 34.9, baselines: { bodyTempC: { mean: 34.9, sd: 0.2, n: 5 } },
+  });
+  const temp = withTemp.contributors.find((c) => c.key === "temperature");
+  assert.equal(temp.available, true);
+  assert.ok(temp.score >= 90); // on baseline -> near-perfect temp sub-score
 });
 
 test("readinessScore is null with no contributors", () => {

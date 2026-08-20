@@ -20,6 +20,7 @@ export interface DailyHealthSummary {
   sleepDurationMin: number | null;
   sleepDeepMin: number | null;
   sleepRemMin: number | null;
+  bodyTempC: number | null;
   readinessScore: number | null;
   updatedAtMs: number;
 }
@@ -38,6 +39,7 @@ export interface DaySummaryInputs {
   hrvAvg?: number | null;
   spo2Avg?: number | null;
   steps?: number | null;
+  bodyTempC?: number | null;
   updatedAtMs: number;
 }
 
@@ -55,6 +57,7 @@ export function summarizeDay(dateKey: string, i: DaySummaryInputs): DailyHealthS
     sleepDurationMin: i.sleep?.totalSleepMin ?? null,
     sleepDeepMin: i.sleep?.stages?.deepMin ?? null,
     sleepRemMin: i.sleep?.stages?.remMin ?? null,
+    bodyTempC: i.bodyTempC ?? null,
     readinessScore: i.readiness?.score ?? null,
     updatedAtMs: i.updatedAtMs,
   };
@@ -87,7 +90,7 @@ function mergeSummary(prev: DailyHealthSummary, next: DailyHealthSummary): Daily
     hrvAvg: pick("hrvAvg"), spo2Avg: pick("spo2Avg"), steps: pick("steps"),
     sleepScore: pick("sleepScore"), sleepDurationMin: pick("sleepDurationMin"),
     sleepDeepMin: pick("sleepDeepMin"), sleepRemMin: pick("sleepRemMin"),
-    readinessScore: pick("readinessScore"),
+    bodyTempC: pick("bodyTempC"), readinessScore: pick("readinessScore"),
     updatedAtMs: Math.max(prev.updatedAtMs, next.updatedAtMs),
   };
 }
@@ -104,7 +107,7 @@ export function computeBaselines(
   history: readonly DailyHealthSummary[],
   nowMs: number,
   days = 14,
-): { restingHr?: MetricBaseline; hrv?: MetricBaseline; sleepDurationMin?: MetricBaseline } {
+): { restingHr?: MetricBaseline; hrv?: MetricBaseline; sleepDurationMin?: MetricBaseline; bodyTempC?: MetricBaseline } {
   const today = dateKeyOf(nowMs);
   const cutoff = dateKeyOf(nowMs - days * 86400000);
   const window = history.filter((h) => h.dateKey >= cutoff && h.dateKey < today);
@@ -114,12 +117,13 @@ export function computeBaselines(
     restingHr: baselineOf(nums((h) => h.restingHr)),
     hrv: baselineOf(nums((h) => h.hrvAvg)),
     sleepDurationMin: baselineOf(nums((h) => h.sleepDurationMin)),
+    bodyTempC: baselineOf(nums((h) => h.bodyTempC)),
   };
 }
 
 const CSV_COLUMNS: Array<keyof DailyHealthSummary> = [
   "dateKey", "restingHr", "hrMin", "hrMax", "hrvAvg", "spo2Avg", "steps",
-  "sleepScore", "sleepDurationMin", "sleepDeepMin", "sleepRemMin", "readinessScore",
+  "sleepScore", "sleepDurationMin", "sleepDeepMin", "sleepRemMin", "bodyTempC", "readinessScore",
 ];
 
 /** Full history as CSV (one row per day, blank cells for null). */
