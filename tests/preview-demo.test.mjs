@@ -9,19 +9,18 @@ test("preview mode seeds anonymous demo health on boot, only in preview", () => 
   const demo = read("app/health/../native/preview-demo.ts");
   assert.match(app, /seedPreviewDemo\(\)/); // hooked into boot
   assert.match(demo, /if \(!isPreviewOnlyMode\(\)\) return;/); // gated on preview
-  // Seeds the same stores the real app reads (so charts/tiles/HUD light up).
+  // Seeds the canonical store the real app reads (so charts/tiles/HUD light up).
   assert.match(demo, /ringHealthStore\.seedMock/);
-  assert.match(demo, /"health\.hourly\.v1"/);
-  assert.match(demo, /"health\.history\.v1"/);
+  assert.match(demo, /replaceHealthDocument\(\{ history: demoHistory\(nowMs\), hourly: demoHourly\(nowMs\), activity: null \}\)/);
+  assert.doesNotMatch(demo, /ApplicationSettings\.setString/);
 });
 
 test("exiting preview mode deletes every trace of the demo data", () => {
   const demo = read("app/native/preview-demo.ts");
-  // clearPreviewDemo removes the persisted keys AND resets the live store.
+  // clearHealthData removes canonical + migrated legacy traces and the live
+  // ring snapshot is reset as well.
   assert.match(demo, /export function clearPreviewDemo/);
-  assert.match(demo, /ApplicationSettings\.remove\(HOURLY_KEY\)/);
-  assert.match(demo, /ApplicationSettings\.remove\(HISTORY_KEY\)/);
-  assert.match(demo, /ApplicationSettings\.remove\(ACTIVITY_KEY\)/);
+  assert.match(demo, /clearHealthData\(\)/);
   assert.match(demo, /ApplicationSettings\.remove\(DEMO_FLAG\)/);
   assert.match(demo, /ringHealthStore\.reset\(\)/);
 });

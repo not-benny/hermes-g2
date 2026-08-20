@@ -29,7 +29,7 @@ import {
 import { computeBaselines, dateKeyOf } from "../../health/health-history";
 import { hourlyForDay } from "../../health/health-hourly";
 import { buildHrDayBars, type HourHr } from "../../phone-ui/health-chart-data";
-import { loadHourly, loadHealthHistory } from "../../native/health-export";
+import { loadHourly, loadHealthHistory } from "../../native/health-store";
 import { estimateActiveCalories } from "../../health/calories";
 import { loadCalorieProfile } from "../../native/calorie-profile";
 

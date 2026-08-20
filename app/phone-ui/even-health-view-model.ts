@@ -24,11 +24,11 @@ import {
   recordHealthDay,
   recordHourly,
   loadHourly,
-  shareHealthJson,
-  pushHealthToHermes,
   getHermesConsent,
   setHermesConsent,
-} from "../native/health-export";
+} from "../native/health-store";
+import { shareHealthJson } from "../native/health-export";
+import { toolRegistry } from "../assistant/tool-registry";
 import { estimateActiveCalories } from "../health/calories";
 import { loadCalorieProfile } from "../native/calorie-profile";
 
@@ -58,12 +58,6 @@ const RING_R = 72;
 const DOT = 9;
 const TRACK = "#24312A";
 
-// While the user has consented, push the health history to Hermes on this cadence
-// (in addition to an immediate push when the toggle is switched on). Deliberately
-// infrequent: the push is a full-state upsert of the consolidated history, meant to
-// keep a persistent store fresh -- not to open a Hermes session every few minutes.
-const HERMES_PUSH_INTERVAL_MS = 3 * 60 * 60 * 1000;
-
 export class EvenHealthViewModel extends Observable {
   private health: RingHealthSnapshot = ringHealthStore.snapshot();
   private ringState: RingConnectionState = "not-configured";
@@ -73,7 +67,7 @@ export class EvenHealthViewModel extends Observable {
   private ringDots: Label[] = [];
   private readinessRaw: number | null = null;
   private readinessColor = TRACK;
-  private hermesTimer: ReturnType<typeof setInterval> | null = null;
+
   private hrChartHost: AbsoluteLayout | null = null;
   private trendChartHost: AbsoluteLayout | null = null;
   /** Today's accumulated hourly history (survives empty polls + relaunches). */
@@ -96,13 +90,11 @@ export class EvenHealthViewModel extends Observable {
       this.evenAppConflictMessageState = snapshot.evenAppConflictMessage;
       this.refresh();
     });
-    if (getHermesConsent()) this.startHermesTimer();
   }
 
   dispose(): void {
     this.offHealth?.(); this.offHealth = null;
     this.offDashboard?.(); this.offDashboard = null;
-    this.stopHermesTimer();
   }
 
   /** Build the ring gauge + charts once the page views exist (page 'loaded'). */
@@ -366,32 +358,19 @@ export class EvenHealthViewModel extends Observable {
     try { shareHealthJson(); } catch (e) { console.error(`[health] json export failed: ${e}`); }
   }
 
-  /** Consent toggle: off by default, nothing leaves the device until turned on. */
+  /** Consent gates on-demand assistant reads; revocation never deletes local data. */
   get hermesConsent(): boolean { return getHermesConsent(); }
   set hermesConsent(on: boolean) {
     if (on === getHermesConsent()) return; // guard the notify->write loop
     setHermesConsent(on);
+    toolRegistry.fireToolsChanged();
     this.notifyPropertyChange("hermesConsent", on);
     this.notifyPropertyChange("hermesConsentSub", this.hermesConsentSub);
-    if (on) { this.startHermesTimer(); void this.pushToHermes(); } else { this.stopHermesTimer(); }
   }
   get hermesConsentSub(): string {
     return getHermesConsent()
-      ? "Sharing on · syncs to Hermes every 3 hours"
-      : "Off · your health data stays on this device";
-  }
-
-  private startHermesTimer(): void {
-    if (this.hermesTimer) return;
-    this.hermesTimer = setInterval(() => { void this.pushToHermes(); }, HERMES_PUSH_INTERVAL_MS);
-  }
-  private stopHermesTimer(): void {
-    if (this.hermesTimer) { clearInterval(this.hermesTimer); this.hermesTimer = null; }
-  }
-  private async pushToHermes(): Promise<void> {
-    if (!getHermesConsent()) return; // re-check: consent may have flipped off mid-interval
-    const ok = await pushHealthToHermes();
-    console.log(`[health] hermes auto-push ${ok ? "ok" : "failed"}`);
+      ? "On · your configured assistant can read up to 90 days on demand; no background uploads"
+      : "Off · assistant reads are blocked; stored locally for up to 90 days";
   }
 }
 

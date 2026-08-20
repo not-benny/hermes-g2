@@ -49,7 +49,8 @@ test("Even Health is a direct-BLE readiness dashboard reachable from the Health 
   // Historic logging + JSON export are wired from the tab.
   assert.match(vm, /recordHealthDay/);
   assert.match(vm, /shareHealthJson/);
-  assert.match(vm, /pushHealthToHermes/);
+  assert.match(vm, /toolRegistry\.fireToolsChanged\(\)/);
+  assert.doesNotMatch(vm, /pushHealthToHermes|HERMES_PUSH_INTERVAL_MS|setInterval|hermesTimer/);
   // Hourly accumulation: each poll persists its hours and the tab reads back the
   // accumulated day (survives empty polls + relaunches), not just the live poll.
   assert.match(vm, /recordHourly/);
@@ -64,10 +65,12 @@ test("Even Health is a direct-BLE readiness dashboard reachable from the Health 
   assert.match(exp, /FileProvider\.getUriForFile/);
   assert.match(exp, /EXTRA_STREAM/);
   assert.doesNotMatch(exp, /EXTRA_TEXT/);
-  assert.match(exp, /hourly: loadHourly\(\)/); // export + push include the hourly series
-  assert.match(exp, /ACTIVITY_KEY = "health\.activity\.v1"/);
-  assert.match(exp, /export function loadActivity/);
-  assert.match(exp, /export function recordActivity/);
+  assert.match(exp, /\.\.\.loadHealthDocument\(\), exportedAtMs: Date\.now\(\)/);
+  assert.doesNotMatch(exp, /Http\.request|method:\s*"POST"|pushHealthToHermes/);
+  const persisted = read("app/native/health-store.ts");
+  assert.match(persisted, /HEALTH_STORE_KEY = "health\.store\.v1"/);
+  assert.match(persisted, /export const loadActivity/);
+  assert.match(persisted, /export const recordActivity/);
   const controller = read("app/g2/dashboard-controller.ts");
   assert.match(controller, /ringHealthStore\.restoreActivity\(loadActivity\(\)\)/);
   assert.match(controller, /recordActivity\(snapshot\.activity\)/);
@@ -80,6 +83,9 @@ test("Even Health is a direct-BLE readiness dashboard reachable from the Health 
   assert.match(xml, /id="readinessRing"/);
   assert.match(xml, /HEART RATE/);
   assert.match(xml, /class="card tile"/);
+  assert.match(xml, /Allow assistant health access/);
+  assert.match(vm, /no background uploads/);
+  assert.match(vm, /stored locally for up to 90 days/);
 
   // Stylish charts: the 24h HR range chart + the readiness trend, drawn via the
   // dependency-free column-chart renderer into their AbsoluteLayout mounts.

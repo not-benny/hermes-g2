@@ -187,7 +187,13 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   crack the remaining decoders (sleep cmd=6, calories, activity/steps, HR/HRV/SpO2 record layouts) rather than
   inferring from ground truth. Recommended path to close out the NOW / Health decode items. Binary stored
   privately outside the repo (see Operational notes); never commit it.
-- **TODO** — Consolidate health data into a **persistent MCP store** (not per-push sessions).
+- **VERIFIED LOCALLY; REVIEW/DELIVERY PENDING** — Ring health now uses one
+  app-private `health.store.v1` document with verified legacy migration and exact
+  90-local-date retention. The consent-gated, conversation-only
+  `health.get_ring_data` tool serves bounded on-demand reads (7-day default,
+  31-day max; hourly opt-in; activity totals only), and the former immediate/
+  3-hour HTTP push is removed. Automated and A32 evidence are tracked in
+  `HANDOVER.md`; public MCP/skill publication remains NO-GO.
 - **BLOCKED** — WhatsApp in-app client. Engine, pairing UI, and plumbing all DONE (nodejs-mobile + Baileys 7
   embedded, verified in-app), but pairing is blocked by an upstream **April-2026 WhatsApp/Baileys protocol
   regression** (`link_code_companion_reg` → 400 bad-request; Baileys #2488, closed "not planned", no fix).

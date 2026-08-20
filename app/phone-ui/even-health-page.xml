@@ -119,7 +119,7 @@
             <Button text="Export JSON" tap="{{ onExportJsonTap }}" class="m-t-12" />
             <GridLayout columns="*,auto" class="control-row m-t-8">
                 <StackLayout col="0" verticalAlignment="center">
-                    <Label text="Send to Hermes" class="control-row-label" />
+                    <Label text="Allow assistant health access" class="control-row-label" />
                     <Label text="{{ hermesConsentSub }}" class="control-row-sublabel" textWrap="true" />
                 </StackLayout>
                 <Switch col="1" checked="{{ hermesConsent }}" verticalAlignment="center" />

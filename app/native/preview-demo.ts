@@ -15,10 +15,8 @@ import { ringHealthStore, type RingHealthSnapshot } from "../health/ring-health-
 import { dateKeyOf, type DailyHealthSummary } from "../health/health-history";
 import { type HourlyPoint } from "../health/health-hourly";
 import { isPreviewOnlyMode } from "../phone-ui/onboarding-state";
+import { clearHealthData, replaceHealthDocument } from "./health-store";
 
-const HOURLY_KEY = "health.hourly.v1";
-const HISTORY_KEY = "health.history.v1";
-const ACTIVITY_KEY = "health.activity.v1";
 const DEMO_FLAG = "preview.demoSeeded";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -98,8 +96,7 @@ function demoSnapshot(nowMs: number): RingHealthSnapshot {
 export function seedPreviewDemo(nowMs: number = Date.now()): void {
   if (!isPreviewOnlyMode()) return;
   if (!ApplicationSettings.getBoolean(DEMO_FLAG, false)) {
-    ApplicationSettings.setString(HOURLY_KEY, JSON.stringify(demoHourly(nowMs)));
-    ApplicationSettings.setString(HISTORY_KEY, JSON.stringify(demoHistory(nowMs)));
+    replaceHealthDocument({ history: demoHistory(nowMs), hourly: demoHourly(nowMs), activity: null });
     ApplicationSettings.setBoolean(DEMO_FLAG, true);
   }
   ringHealthStore.seedMock(demoSnapshot(nowMs));
@@ -112,9 +109,8 @@ export function isPreviewDemoSeeded(): boolean {
 
 /** Delete every trace of the preview demo data (called on exiting preview). */
 export function clearPreviewDemo(): void {
-  ApplicationSettings.remove(HOURLY_KEY);
-  ApplicationSettings.remove(HISTORY_KEY);
-  ApplicationSettings.remove(ACTIVITY_KEY);
+  // Also removes leftover legacy fragments if this demo was already migrated.
+  clearHealthData();
   ApplicationSettings.remove(DEMO_FLAG);
   ringHealthStore.reset();
 }

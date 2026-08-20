@@ -6,6 +6,32 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 ## 0. Latest continuation (2026-08-20)
 
+### Persistent ring-health pull candidate (local, review pending)
+
+Branch `feature/persistent-health-mcp-t_3e9c4645` is implementing the planned
+push-to-pull replacement from baseline `ae89fd5`. Ring health now has one
+canonical app-private `health.store.v1` document, independently validated legacy
+migration with exact read-back before old-key removal, and exact 90-local-date
+retention. The new conversation-only `health.get_ring_data` registry/MCP tool is
+hidden and rejected without persisted consent, rechecks consent inside its
+handler, defaults to seven days, caps requests at 31 days, and projects current
+activity totals without slots or identifiers. The Health toggle now describes
+on-demand reads and local retention; all immediate/periodic `/health` HTTP push
+code and its timer are removed. Explicit JSON file export remains user-driven.
+
+Verification is green: the required focused command passes 47/47 tests, the full
+suite passes 164/164, `npm run typecheck` passes, and the JDK 21 / Android SDK 35
+debug build completes at the normal ignored APK path. The debug APK installed and
+launched on USB A32 `RFCR707RQGV`; the package process remained alive with zero
+bounded package-log uncaught/fatal markers and zero former health-push markers.
+The attached install exposed no app-private preference data through `run-as`, so
+pre-upgrade chart preservation and consent persistence could not be truthfully
+observed on this device run; synthetic adapter/MCP tests cover those paths. A safe
+configured synthetic on-device MCP endpoint was not available, so no personal
+health was sent over the current plaintext external transport. Independent
+`g2-reviewer` review is pending; nothing was pushed and no PR was opened. The
+repository-wide public MCP/skill publication gate remains NO-GO.
+
 Seven self-contained items were completed on the `hermes-g2` branch/current
 working tree:
 

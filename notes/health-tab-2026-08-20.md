@@ -14,10 +14,15 @@ can export / share it. Everything renders with plain NativeScript core views
 - `app/health/health-history.ts` — pure `DailyHealthSummary` logging:
   `summarizeDay`, `upsertSummary` (merge, never erase with nulls),
   `computeBaselines` (14-day, min n=3), `historyToCsv`.
-- `app/native/health-export.ts` — the only IO adapter: load/record history
-  (ApplicationSettings `health.history.v1`, 90-day cap), write+share CSV
-  (Android ACTION_SEND), push to the Hermes bridge, and the Hermes **consent**
-  flag (`health.hermes.consent.v1`, off by default).
+- `app/health/health-store.ts` — pure validation, exact local-calendar retention,
+  merge, bounded query, and privacy projection for the v1 document.
+- `app/native/health-store.ts` — sole persistence owner. It stores one app-private
+  `health.store.v1` JSON document shaped `{ version: 1, updatedAtMs,
+  retentionDays: 90, history, hourly, activity }`; consent remains separately at
+  `health.hermes.consent.v1` and defaults off.
+- `app/native/health-export.ts` — explicit user file export through Android
+  ACTION_SEND/FileProvider. The file contains the full canonical document plus
+  `exportedAtMs`; this user action may include local activity slots.
 - `app/health/ring-health-store.ts` — live snapshot assembled from notify
   frames; exposes latest-per-metric plus the day's `heartRateSeries` /
   `spo2Series` / `hrvSeries` for the charts. Framework-agnostic (runs under Node).
@@ -44,15 +49,36 @@ can export / share it. Everything renders with plain NativeScript core views
 - Sleep card: gated behind a lock until the cmd=6 sleep decoder is validated.
 - Supporting tiles: SpO2, HRV, Temperature (nightly variation vs baseline),
   Battery.
-- Export CSV button + "Send to Hermes" consent toggle.
+- Export JSON button + "Allow assistant health access" consent toggle.
 
-## Consent / Hermes sync
+## Persistence, retention, migration, and assistant access
 
-Off by default. When enabled it pushes the consolidated history as a full-state
-upsert on enable and every **3 hours** (not per-minute). The push is a
-best-effort HTTP POST today; the intended end state is a **pull** model — expose
-ring health as an MCP tool on the phone that Hermes reads on demand, so no
-per-push agent sessions. See the `hermes-g2-mcp-skill-review` memory.
+The canonical store retains today plus the previous 89 **local calendar dates**.
+Validation and pruning run on every read and write: future, stale, malformed,
+non-finite, or out-of-range rows are dropped; same-day/hour partial updates merge
+without null/absence erasing an existing metric. Data is durable across process
+death and app relaunch, but not uninstall or Android app-data clear.
+
+On first load, the adapter independently parses the former
+`health.history.v1`, `health.hourly.v1`, and `health.activity.v1` fragments,
+normalizes them into `health.store.v1`, and removes the old keys only after an
+exact write/read-back verification. Failed or unverifiable writes leave every
+legacy key intact. Once a canonical value exists it is authoritative.
+
+Assistant access is off by default. Enabling it exposes the conversation-only,
+read-only `health.get_ring_data` phone tool to the configured assistant; there
+is no immediate, timer-driven, or background health upload. The defaults are an
+inclusive seven-day range ending today with hourly detail omitted. Callers may
+request 1–31 days, an end date inside the retained 90-day window, and explicit
+hourly detail. MCP activity output contains current-day totals only—never slots,
+day-base/timezone metadata, raw frames, device/account identifiers, settings, or
+credentials. Revocation immediately removes/rejects the tool and does **not**
+delete local history.
+
+This private configured pull path does not close the repository-wide MCP
+publication gates. The external bridge still lacks the required secure
+transport/server and turn-generation proof, so public MCP/skill publication
+remains **NO-GO**.
 
 ## Lifecycle note
 

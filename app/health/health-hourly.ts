@@ -6,7 +6,7 @@
  * the app grows a real per-hour record across days.
  *
  * No NativeScript imports (unit-tested under Node). The impure load/save/record
- * wrappers live in app/native/health-export.ts.
+ * wrappers live in app/native/health-store.ts.
  */
 
 import { dateKeyOf } from "./health-history";
