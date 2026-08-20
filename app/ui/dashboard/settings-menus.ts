@@ -45,6 +45,7 @@ import {
   timeFormatSetting,
   toggleSettingMenuItem,
   uiFontSetting,
+  notificationFontSizeSetting,
   verticalPositionSetting,
   voiceProviderSetting,
   screenTimeoutSetting,
@@ -80,6 +81,8 @@ function settingsSections(): SettingsSection[] {
         enumSettingMenuItem(timeFormatSetting),
         // Selects the UI body typeface (Terminus vs proportional TerminusV).
         enumSettingMenuItem(uiFontSetting),
+        // Text size for on-glass notifications (list, detail, new-notification popups).
+        enumSettingMenuItem(notificationFontSizeSetting),
       ],
     },
     {

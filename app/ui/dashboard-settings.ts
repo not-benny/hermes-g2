@@ -435,6 +435,27 @@ export const notificationAllowedPackagesSetting = new ConfigSettingString({
   description: "Apps allowed when Notification filter is set to Selected apps. Manage this list from the Android Glasses Controls page.",
 });
 
+export const NOTIFICATION_FONT_SIZE_VALUES = ["small", "medium", "large"] as const;
+export type NotificationFontSize = (typeof NOTIFICATION_FONT_SIZE_VALUES)[number];
+
+const notificationFontSizeLabels: Record<NotificationFontSize, string> = {
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+};
+
+export const notificationFontSizeSetting = new ConfigSettingEnum<NotificationFontSize>({
+  id: "notification-font-size",
+  label: "Notification text size",
+  storageKey: "notifications.fontSize",
+  defaultValue: "small",
+  values: NOTIFICATION_FONT_SIZE_VALUES,
+  formatValue: (value) => notificationFontSizeLabels[value] ?? value,
+  description:
+    "Text size for notifications on the glasses: the Notifications list, the detail view, and " +
+    "new-notification popups. Small matches the rest of the UI.",
+});
+
 export function parseNotificationAllowedPackages(value = notificationAllowedPackagesSetting.get()): string[] {
   return value
     .split(",")
