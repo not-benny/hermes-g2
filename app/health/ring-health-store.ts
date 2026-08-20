@@ -19,6 +19,7 @@ import {
   reassembleHealthFrames,
   decodeRingBattery,
   decodeRingFirmwareVersion,
+  isCanonicalRingInnerFrame,
   RING_HEALTH_CMD,
   type Bytes,
   type RingActivitySample,
@@ -35,6 +36,48 @@ export interface RingActivitySnapshot {
   activeCalories: number;
   totalCalories: number;
   restingCalories: number;
+}
+
+/** Rebuild a persisted/live activity snapshot from canonical source fields. */
+export function canonicalizeActivitySnapshot(value: unknown, nowMs = Date.now()): RingActivitySnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<RingActivitySnapshot>;
+  const base = candidate.dayBaseSec;
+  const timezone = candidate.timezoneOffsetMinutes;
+  if (!Number.isInteger(base) || !Number.isInteger(timezone) || !Array.isArray(candidate.slots)) return null;
+  if (timezone! < -14 * 60 || timezone! > 14 * 60) return null;
+  const nowSec = Math.floor(nowMs / 1000);
+  const expectedBase = Math.floor((nowSec + timezone! * 60) / 86400) * 86400 - timezone! * 60;
+  if (base !== expectedBase) return null;
+
+  const bySlot = new Map<number, RingActivitySample>();
+  for (const raw of candidate.slots) {
+    if (
+      !raw || !Number.isInteger(raw.slot) || raw.slot < 0 || raw.slot > 143 ||
+      !Number.isInteger(raw.steps) || raw.steps < 0 || raw.steps > 0xffff ||
+      !Number.isInteger(raw.activeCalories) || raw.activeCalories < 0 || raw.activeCalories > 0xffff ||
+      !Number.isInteger(raw.totalCalories) || raw.totalCalories < raw.activeCalories || raw.totalCalories > 0xffff
+    ) return null;
+    bySlot.set(raw.slot, {
+      slot: raw.slot,
+      timestampSec: base! + raw.slot * 600,
+      steps: raw.steps,
+      activeCalories: raw.activeCalories,
+      totalCalories: raw.totalCalories,
+      restingCalories: raw.totalCalories - raw.activeCalories,
+    });
+  }
+  const slots = Array.from(bySlot.values()).sort((a, b) => a.slot - b.slot);
+  if (slots.length === 0) return null;
+  return {
+    slots,
+    dayBaseSec: base!,
+    timezoneOffsetMinutes: timezone!,
+    totalSteps: slots.reduce((sum, slot) => sum + slot.steps, 0),
+    activeCalories: slots.reduce((sum, slot) => sum + slot.activeCalories, 0),
+    totalCalories: slots.reduce((sum, slot) => sum + slot.totalCalories, 0),
+    restingCalories: slots.reduce((sum, slot) => sum + slot.restingCalories, 0),
+  };
 }
 
 /** Latest decoded ring values. Null until the metric has been seen. */
@@ -98,6 +141,8 @@ export class RingHealthStore {
   private listeners = new Set<(snapshot: RingHealthSnapshot) => void>();
   private log: (line: string) => void = () => {};
 
+  constructor(private readonly nowMs: () => number = () => Date.now()) {}
+
   /** Route decode diagnostics into the app log (optional). */
   setLog(log: (line: string) => void): void {
     this.log = log;
@@ -109,8 +154,9 @@ export class RingHealthStore {
 
   /** Restore today's validated activity buckets from device-local persistence. */
   restoreActivity(activity: RingActivitySnapshot | null): void {
-    if (!activity) return;
-    this.snapshotState = { ...this.snapshotState, activity };
+    const canonical = canonicalizeActivitySnapshot(activity, this.nowMs());
+    if (!canonical) return;
+    this.snapshotState = { ...this.snapshotState, activity: canonical };
     this.emit();
   }
 
@@ -183,7 +229,7 @@ export class RingHealthStore {
           this.snapshotState = {
             ...this.snapshotState,
             batteryPercent: percent,
-            updatedAtMs: Date.now(),
+            updatedAtMs: this.nowMs(),
           };
           this.emit();
         }
@@ -197,7 +243,7 @@ export class RingHealthStore {
           this.snapshotState = {
             ...this.snapshotState,
             firmwareVersion: version,
-            updatedAtMs: Date.now(),
+            updatedAtMs: this.nowMs(),
           };
           this.emit();
         }
@@ -210,36 +256,22 @@ export class RingHealthStore {
     if (!metric) return; // sleep (cmd 6) and unknown cmds: layout not decoded yet.
 
     if (metric === "activity") {
-      // Captured rich daily activity batches are pushes (status=2), not ACKs.
-      if (parsed.status !== 2) return;
+      // Only the confirmed rich daily push layout may populate native totals.
+      if (parsed.status !== 2 || parsed.subCmd !== 1 || !isCanonicalRingInnerFrame(inner)) return;
       const daily = decodeDailyData(parsed.data, "activity");
-      // A zero day base is the ring's preliminary/unanchored push. Reject other
-      // implausible headers rather than replacing fallback values with garbage.
-      if (
-        daily.base === 0 ||
-        daily.records.length === 0 ||
-        daily.timezoneOffsetMinutes < -14 * 60 ||
-        daily.timezoneOffsetMinutes > 14 * 60 ||
-        (daily.base + daily.timezoneOffsetMinutes * 60) % 86400 !== 0
-      ) return;
       const previous = this.snapshotState.activity?.dayBaseSec === daily.base
         ? this.snapshotState.activity.slots
         : [];
-      const bySlot = new Map(previous.map((slot) => [slot.slot, slot]));
-      for (const slot of daily.records) bySlot.set(slot.slot, slot);
-      const slots = Array.from(bySlot.values()).sort((a, b) => a.slot - b.slot);
+      const activity = canonicalizeActivitySnapshot({
+        dayBaseSec: daily.base,
+        timezoneOffsetMinutes: daily.timezoneOffsetMinutes,
+        slots: [...previous, ...daily.records],
+      }, this.nowMs());
+      if (!activity) return;
       this.snapshotState = {
         ...this.snapshotState,
-        activity: {
-          slots,
-          dayBaseSec: daily.base,
-          timezoneOffsetMinutes: daily.timezoneOffsetMinutes,
-          totalSteps: slots.reduce((sum, slot) => sum + slot.steps, 0),
-          activeCalories: slots.reduce((sum, slot) => sum + slot.activeCalories, 0),
-          totalCalories: slots.reduce((sum, slot) => sum + slot.totalCalories, 0),
-          restingCalories: slots.reduce((sum, slot) => sum + slot.restingCalories, 0),
-        },
-        updatedAtMs: Date.now(),
+        activity,
+        updatedAtMs: this.nowMs(),
       };
       this.emit();
       return;
@@ -250,7 +282,7 @@ export class RingHealthStore {
       const newest = latestByHour(daily.records);
       if (!newest) return;
       const series = [...daily.records].sort((a, b) => a.hourIdx - b.hourIdx);
-      this.snapshotState = { ...this.snapshotState, hrv: newest, hrvSeries: series, updatedAtMs: Date.now() };
+      this.snapshotState = { ...this.snapshotState, hrv: newest, hrvSeries: series, updatedAtMs: this.nowMs() };
       this.emit();
       return;
     }
@@ -266,7 +298,7 @@ export class RingHealthStore {
     } else if (metric === "spo2") {
       seriesPatch = { spo2Series: series };
     }
-    this.snapshotState = { ...this.snapshotState, [metric]: newest, ...seriesPatch, updatedAtMs: Date.now() };
+    this.snapshotState = { ...this.snapshotState, [metric]: newest, ...seriesPatch, updatedAtMs: this.nowMs() };
     this.emit();
   }
 

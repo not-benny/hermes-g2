@@ -18,7 +18,7 @@ const storeJs = transpile(read("app/health/ring-health-store.ts")).replace(
   JSON.stringify(parserUrl),
 );
 const { ringCrc32 } = await import(parserUrl);
-const { RingHealthStore } = await import(dataUrl(storeJs));
+const { RingHealthStore, canonicalizeActivitySnapshot } = await import(dataUrl(storeJs));
 
 // --- wire-format builders (layout per notes/ring-health-protocol) -----------
 
@@ -35,9 +35,22 @@ function buildInner(module, cmd, subCmd, status, data) {
   inner[7] = subCmd;
   inner[8] = innerLen & 0xff;
   inner[9] = (innerLen >>> 8) & 0xff;
-  // crc16 at [10..11] is not validated by the parser; leave zero.
   inner.set(data, 12);
+  const crc16 = ringCrc16Modbus(inner);
+  inner[10] = crc16 & 0xff;
+  inner[11] = (crc16 >>> 8) & 0xff;
   return inner;
+}
+
+function ringCrc16Modbus(bytes) {
+  const copy = Uint8Array.from(bytes);
+  copy[10] = 0; copy[11] = 0;
+  let crc = 0xffff;
+  for (const byte of copy) {
+    crc ^= byte;
+    for (let i = 0; i < 8; i++) crc = (crc & 1) ? (crc >>> 1) ^ 0xa001 : crc >>> 1;
+  }
+  return crc & 0xffff;
 }
 
 /** Split an inner buffer into notify frames, fragIndex counting down to 0. */
@@ -205,6 +218,46 @@ test("activity push without a day base remains gated off", () => {
   const data = activityPayload(0, 0, [{ slot: 19, steps: 5, activeCalories: 5, totalCalories: 23 }]);
   for (const frame of fragments(buildInner(2, 5, 1, 2, data))) store.ingestFrame(frame);
   assert.equal(store.snapshot().activity, null);
+});
+
+test("activity ingestion rejects non-daily, bad-inner-CRC, and non-current-day frames", () => {
+  const nowMs = 1_787_224_000_000;
+  const store = new RingHealthStore(() => nowMs);
+  const currentBase = 1_787_180_400;
+  const data = activityPayload(60, currentBase, [{ slot: 71, steps: 5, activeCalories: 3, totalCalories: 15 }]);
+  for (const frame of fragments(buildInner(2, 5, 2, 2, data))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().activity, null, "point subcommand rejected");
+
+  const badCrcInner = buildInner(2, 5, 1, 2, data);
+  badCrcInner[10] ^= 0xff;
+  for (const frame of fragments(badCrcInner)) store.ingestFrame(frame);
+  assert.equal(store.snapshot().activity, null, "bad inner CRC rejected");
+
+  const future = activityPayload(60, currentBase + 86400, [{ slot: 71, steps: 5, activeCalories: 3, totalCalories: 15 }]);
+  for (const frame of fragments(buildInner(2, 5, 1, 2, future))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().activity, null, "future day rejected");
+});
+
+test("persisted activity is deduplicated and all derived fields are rebuilt", () => {
+  const nowMs = 1_787_224_000_000;
+  const base = 1_787_180_400;
+  const canonical = canonicalizeActivitySnapshot({
+    dayBaseSec: base,
+    timezoneOffsetMinutes: 60,
+    slots: [
+      { slot: 71, timestampSec: 1, steps: 2, activeCalories: 3, totalCalories: 15, restingCalories: 999 },
+      { slot: 71, timestampSec: 2, steps: 5, activeCalories: 4, totalCalories: 16, restingCalories: 999 },
+    ],
+  }, nowMs);
+  assert.deepEqual(canonical, {
+    dayBaseSec: base,
+    timezoneOffsetMinutes: 60,
+    slots: [{ slot: 71, timestampSec: base + 71 * 600, steps: 5, activeCalories: 4, totalCalories: 16, restingCalories: 12 }],
+    totalSteps: 5,
+    activeCalories: 4,
+    totalCalories: 16,
+    restingCalories: 12,
+  });
 });
 
 test("interleaved batches both decode", () => {

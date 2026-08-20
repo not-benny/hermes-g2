@@ -61,6 +61,10 @@ frame).
 
 **Inner CRC (CRC-16/MODBUS):** reflected polynomial (table constant `0xC0C1`),
 init `0xFFFF`, computed over the inner frame with its own crc slot pre-zeroed.
+This is the verified CRC on captured ring-to-phone rich frames and is what the
+activity ingestion gate validates. The legacy outbound builder still emits its
+CCITT-derived field (the ring appears not to enforce that inner field); do not
+conflate it with the verified incoming MODBUS checksum or the outer CRC-32C.
 
 ## 4. Command table
 

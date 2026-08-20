@@ -164,6 +164,27 @@ export function ringCrc32(bytes: Bytes): number {
   return c >>> 0;
 }
 
+/** Incoming inner-frame CRC-16/MODBUS with its own slot treated as zero. */
+export function ringCrc16Modbus(inner: Bytes): number {
+  let crc = 0xffff;
+  for (let i = 0; i < inner.length; i++) {
+    const byte = i === 10 || i === 11 ? 0 : inner[i];
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc & 1) !== 0 ? (crc >>> 1) ^ 0xa001 : crc >>> 1;
+    }
+  }
+  return crc & 0xffff;
+}
+
+/** Strict activity-envelope gate; general legacy decoders remain lenient. */
+export function isCanonicalRingInnerFrame(inner: Bytes): boolean {
+  if (inner.length < 12 || inner[0] !== 0x64 || inner[2] !== 0x64) return false;
+  const declared = u16le(inner, 8);
+  if (declared !== inner.length) return false;
+  return u16le(inner, 10) === ringCrc16Modbus(inner);
+}
+
 // --- fragment reassembly ---------------------------------------------------
 
 /**

@@ -30,6 +30,9 @@ working tree:
   active kcal, total kcal, and derived resting kcal; merges and persists buckets
   by local day; uses native active kcal as primary with Keytel as fallback; and
   drains captured `packetAck` cursors through a bounded worker-thread queue.
+  Activity ingestion requires the exact daily push envelope, incoming MODBUS
+  inner CRC, and current local day. Persisted buckets are canonicalized, and
+  packet cursors are generation-bound across reconnects.
 - **R1 MTU contract:** direct-ring connect already requested MTU 247 after
   service discovery and before notification subscription/health probing. The
   result is now logged as `ok` or `fallback`, and a source-contract regression
@@ -43,10 +46,11 @@ working tree:
   offer Open Even settings + Retry R1; opening settings starts a bounded release
   poll that clears the warning and retries R1 once Even releases Bluetooth.
 
-Verification on the continuation checkout: all 131 tests passed, TypeScript
-typechecking passed, and a debug Android build completed with Android SDK 35 and
-JDK 21. APK: `platforms/android/app/build/outputs/apk/debug/app-debug.apk`, SHA-256
-`eba31d24d7230f06373fbf4f0c887e11df0c1db422447bce0cd72b705cd95bc1`.
+Verification on the combined continuation checkout: all 133 tests passed,
+TypeScript typechecking passed, and a debug Android build completed with Android
+SDK 35 and JDK 21 at `platforms/android/app/build/outputs/apk/debug/app-debug.apk`.
+Debug APK builds are not reproducible, so no build-instance hash is treated as a
+canonical release identity.
 JDK 26 is present but fails this Gradle stack's `jlink` step; use
 `JAVA_HOME=/usr/lib/jvm/java-21-openjdk` and `ANDROID_HOME=/home/benny/Android/Sdk`.
 

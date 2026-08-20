@@ -93,7 +93,16 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private boolean ringHealthProbeSent = false;
     // packetAck cursors are captured on the BLE callback and drained only by
     // the communicator worker, so notify handling never performs a nested write.
-    private final ArrayDeque<byte[]> ringPacketAckQueue = new ArrayDeque<>();
+    private static final class RingPacketAckCursor {
+        final byte[] payload;
+        final int generation;
+        RingPacketAckCursor(byte[] payload, int generation) {
+            this.payload = payload;
+            this.generation = generation;
+        }
+    }
+    private final ArrayDeque<RingPacketAckCursor> ringPacketAckQueue = new ArrayDeque<>();
+    private int ringConnectionGeneration = 0;
     // Re-poll the ring health GETs periodically: the ring auto-connects while
     // off-head (empty window), so a one-shot poll never sees worn data. Re-firing
     // every RING_HEALTH_POLL_INTERVAL_MS means data arrives on the next poll once
@@ -1334,6 +1343,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     ringHealthProbeSent = false;
                     lastRingHealthPollMs = 0;
                     lastRingCurrentHrPollMs = 0;
+                    ringConnectionGeneration++;
                     ringPacketAckQueue.clear();
                     ringReconnectAfterMs = Math.max(ringReconnectAfterMs,
                         SystemClock.elapsedRealtime() + ConnectionOptions.RING_RECONNECT_DELAY_MS);
@@ -1567,6 +1577,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
 
         synchronized (lock) {
+            ringConnectionGeneration++;
+            ringPacketAckQueue.clear();
             ringConnected = true;
             ringNotificationsReady = true;
             ringReconnectAfterMs = 0;
@@ -1748,8 +1760,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         payload[4] = frame[8];
         payload[5] = frame[9];
         synchronized (lock) {
+            if (!ringConnected || !ringNotificationsReady) return;
             if (ringPacketAckQueue.size() >= 16) ringPacketAckQueue.removeFirst();
-            ringPacketAckQueue.addLast(payload);
+            ringPacketAckQueue.addLast(new RingPacketAckCursor(payload, ringConnectionGeneration));
         }
         interruptibleSleep.interrupt();
     }
@@ -1757,16 +1770,28 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     /** Worker-thread drain for queued read-only packet cursors. */
     private void drainRingPacketAcks() {
         while (true) {
-            byte[] payload;
+            RingPacketAckCursor cursor;
             synchronized (lock) {
-                if (!ringConnected) {
+                if (!ringConnected || !ringNotificationsReady) {
                     ringPacketAckQueue.clear();
                     return;
                 }
-                payload = ringPacketAckQueue.pollFirst();
+                cursor = ringPacketAckQueue.pollFirst();
             }
-            if (payload == null) return;
-            sendRingCommand("packetAck", 0x01, 0x00, 0x7e, 0x01, payload);
+            if (cursor == null) return;
+            sendRingPacketAck(cursor);
+        }
+    }
+
+    /** Final lifecycle gate is held through the packetAck BLE side effect. */
+    private void sendRingPacketAck(RingPacketAckCursor cursor) {
+        synchronized (lock) {
+            if (
+                !ringConnected ||
+                !ringNotificationsReady ||
+                cursor.generation != ringConnectionGeneration
+            ) return;
+            sendRingCommand("packetAck", 0x01, 0x00, 0x7e, 0x01, cursor.payload);
         }
     }
 
@@ -3303,6 +3328,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         ringHealthProbeSent = false;
         lastRingHealthPollMs = 0;
         lastRingCurrentHrPollMs = 0;
+        ringConnectionGeneration++;
+        ringPacketAckQueue.clear();
         reconnectAfterMs = 0;
         ringReconnectAfterMs = 0;
         lastAckAtMs = 0;

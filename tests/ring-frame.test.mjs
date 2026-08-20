@@ -180,6 +180,17 @@ test("health pushes queue packetAck cursors and the worker drains them safely", 
   );
   assert.match(src, /queueRingPacketAck\(data\)/);
   assert.match(src, /drainRingPacketAcks\(\)/);
+  assert.match(src, /ringConnectionGeneration/);
+  assert.match(src, /sendRingPacketAck\(cursor\)/);
+  assert.match(src, /ringPacketAckQueue\.clear\(\)/);
+  const guardedStart = src.indexOf("private void sendRingPacketAck(RingPacketAckCursor cursor)");
+  const guardedEnd = src.indexOf("private void sendRingCommand(", guardedStart);
+  const guarded = src.slice(guardedStart, guardedEnd);
+  assert.match(guarded, /synchronized \(lock\)/);
+  assert.ok(
+    guarded.indexOf("cursor.generation != ringConnectionGeneration") < guarded.indexOf('sendRingCommand("packetAck"'),
+    "generation must be revalidated under the lifecycle lock at the final write boundary",
+  );
   assert.match(src, /payload\[0\] = frame\[6\]/); // module
   assert.match(src, /payload\[1\] = frame\[11\]/); // cmd
   assert.match(src, /payload\[2\] = frame\[12\]/); // subCmd
@@ -187,6 +198,6 @@ test("health pushes queue packetAck cursors and the worker drains them safely", 
   assert.match(src, /payload\[5\] = frame\[9\]/); // incoming serial high
   assert.match(
     src,
-    /sendRingCommand\("packetAck", 0x01, 0x00, 0x7e, 0x01, payload\)/,
+    /sendRingCommand\("packetAck", 0x01, 0x00, 0x7e, 0x01, cursor\.payload\)/,
   );
 });

@@ -15,7 +15,7 @@ import {
   type DaySummaryInputs,
 } from "../health/health-history";
 import { buildHourlyPoints, upsertHourly, type HourlyPoint } from "../health/health-hourly";
-import type { RingActivitySnapshot } from "../health/ring-health-store";
+import { canonicalizeActivitySnapshot, type RingActivitySnapshot } from "../health/ring-health-store";
 import {
   assistantBridgeHostSetting,
   assistantBridgePortSetting,
@@ -114,34 +114,7 @@ export function loadActivity(nowMs = Date.now()): RingActivitySnapshot | null {
   try {
     const raw = ApplicationSettings.getString(ACTIVITY_KEY, "");
     if (!raw) return null;
-    const value = JSON.parse(raw) as Partial<RingActivitySnapshot>;
-    if (
-      !Number.isInteger(value.dayBaseSec) ||
-      !Number.isInteger(value.timezoneOffsetMinutes) ||
-      !Array.isArray(value.slots) ||
-      value.timezoneOffsetMinutes! < -14 * 60 ||
-      value.timezoneOffsetMinutes! > 14 * 60 ||
-      (value.dayBaseSec! + value.timezoneOffsetMinutes! * 60) % 86400 !== 0
-    ) return null;
-    const nowSec = Math.floor(nowMs / 1000);
-    if (nowSec < value.dayBaseSec! || nowSec >= value.dayBaseSec! + 26 * 60 * 60) return null;
-    const slots = value.slots.filter((slot) =>
-      Number.isInteger(slot.slot) && slot.slot >= 0 && slot.slot < 144 &&
-      Number.isInteger(slot.steps) && slot.steps >= 0 &&
-      Number.isInteger(slot.activeCalories) && slot.activeCalories >= 0 &&
-      Number.isInteger(slot.totalCalories) && slot.totalCalories >= slot.activeCalories &&
-      slot.restingCalories === slot.totalCalories - slot.activeCalories,
-    );
-    if (slots.length !== value.slots.length) return null;
-    return {
-      slots,
-      dayBaseSec: value.dayBaseSec!,
-      timezoneOffsetMinutes: value.timezoneOffsetMinutes!,
-      totalSteps: slots.reduce((sum, slot) => sum + slot.steps, 0),
-      activeCalories: slots.reduce((sum, slot) => sum + slot.activeCalories, 0),
-      totalCalories: slots.reduce((sum, slot) => sum + slot.totalCalories, 0),
-      restingCalories: slots.reduce((sum, slot) => sum + slot.restingCalories, 0),
-    };
+    return canonicalizeActivitySnapshot(JSON.parse(raw), nowMs);
   } catch {
     return null;
   }
