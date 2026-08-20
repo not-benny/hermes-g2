@@ -80,10 +80,16 @@ export class ConfigViewModel extends Observable {
     return this._discoveryLog;
   }
 
+  /** Collapse the log panel until a scan/load populates it (no empty black box). */
+  get discoveryLogVisibility(): string {
+    return this._discoveryLog ? "visible" : "collapse";
+  }
+
   set discoveryLog(value: string) {
     if (this._discoveryLog !== value) {
       this._discoveryLog = value;
       this.notifyPropertyChange("discoveryLog", value);
+      this.notifyPropertyChange("discoveryLogVisibility", this.discoveryLogVisibility);
     }
   }
 

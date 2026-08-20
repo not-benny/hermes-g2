@@ -47,10 +47,10 @@
         <item name="actionMenuTextColor">#FFFFFF</item>
     </style>
 
-    <style name="NativeScriptToolbarPopupTheme" parent="ThemeOverlay.AppCompat.Light">
-        <item name="android:colorBackground">#FFFFFF</item>
-        <item name="android:textColorPrimary">#222222</item>
-        <item name="android:textColorSecondary">#555555</item>
-        <item name="colorControlNormal">#222222</item>
+    <style name="NativeScriptToolbarPopupTheme" parent="ThemeOverlay.AppCompat.Dark">
+        <item name="android:colorBackground">#172019</item>
+        <item name="android:textColorPrimary">#EAF2EC</item>
+        <item name="android:textColorSecondary">#9BB0A5</item>
+        <item name="colorControlNormal">#EAF2EC</item>
     </style>
 </resources>

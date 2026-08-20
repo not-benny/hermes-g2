@@ -39,6 +39,11 @@ NavigationButton {
 Label {
   color: #EAF2EC;
   font-family: "Saira", "Roboto", sans-serif;
+  /* The @nativescript/theme core sets `Label { text-transform: capitalize }`,
+     which Title-Cases every label (e.g. "Configure The Mac Addresses", and even
+     "WhatsApp" -> "Whatsapp"). Render text as written; the .section-label /
+     .tile-metric classes opt back into uppercase where wanted. */
+  text-transform: none;
 }
 
 TextField,
@@ -192,6 +197,15 @@ TabView {
 .divider {
   background-color: #24312A;
   height: 1;
+}
+
+/* Synthetic-gesture demo grid (Glasses tab): 3 narrow columns, so shrink the
+   text a touch and trim horizontal padding to keep "Microphone" / "Double-click"
+   on one line instead of wrapping mid-word. */
+.gesture-grid Button {
+  font-size: 13;
+  padding: 12 4;
+  margin: 3;
 }
 
 /* --- Batch H: real-control rows ---------------------------------------- */

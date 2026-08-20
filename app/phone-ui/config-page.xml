@@ -20,8 +20,8 @@
         </StackLayout>
 
         <GridLayout row="4" columns="*,*" class="m-t-16">
-            <Button col="0" text="Load paired devices" tap="{{ onLoadPairedTap }}" class="-primary" isEnabled="{{ canDiscover }}" />
-            <Button col="1" text="Scan nearby" tap="{{ onScanTap }}" class="-primary" isEnabled="{{ canDiscover }}" />
+            <Button col="0" text="Load paired devices" tap="{{ onLoadPairedTap }}" isEnabled="{{ canDiscover }}" />
+            <Button col="1" text="Scan nearby" tap="{{ onScanTap }}" isEnabled="{{ canDiscover }}" />
         </GridLayout>
 
         <Label row="5" text="{{ status }}" class="m-t-16" textWrap="true" />
@@ -31,7 +31,7 @@
             <Button col="1" text="Back" tap="{{ onBackTap }}" />
         </GridLayout>
 
-        <ScrollView row="7" class="m-t-16">
+        <ScrollView row="7" class="m-t-16" visibility="{{ discoveryLogVisibility }}">
             <Label text="{{ discoveryLog }}" textWrap="true" verticalAlignment="top" />
         </ScrollView>
     </GridLayout>
