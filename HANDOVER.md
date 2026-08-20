@@ -6,7 +6,7 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 ## 0. Latest continuation (2026-08-20)
 
-Two self-contained NOW items were completed on the `hermes-g2` branch:
+Three self-contained items were completed on the `hermes-g2` branch:
 
 - **Raw ring-frame security gate:** `sendRawRingFrame()` now fails closed before
   writing to `bae80012`. It accepts only a complete canonical single-frame
@@ -20,18 +20,20 @@ Two self-contained NOW items were completed on the `hermes-g2` branch:
   release Even's Bluetooth access during Hermes use, and keep Even installed for
   provisioning and official maintenance. This closes the remaining T4 release
   gate.
+- **Read-only R1 firmware version:** Hermes now sends `system/deviceInfo(0x02)`
+  after session open, decodes the first NUL-padded 16-byte ASCII field from the
+  CRC-valid ack, and displays it in phone Glasses Controls. Verified live on the
+  A32 with the connected R1 as `2.2.8.0002`. No firmware-write behavior exists.
 
-Verification on the continuation checkout: all 114 tests passed, TypeScript
+Verification on the continuation checkout: all 119 tests passed, TypeScript
 typechecking passed, and a debug Android build completed with Android SDK 35 and
 JDK 21. JDK 26 is present on the machine but fails this Gradle stack's `jlink`
 step; use `JAVA_HOME=/usr/lib/jvm/java-21-openjdk` for builds.
 
-**Next recommended item:** add the safe, read-only R1 firmware-version display.
-Send `system/deviceInfo` (`module=1`, `cmd=0`, `subCmd=0x02`) after session open,
-decode the first NUL-padded 16-byte ASCII field from its ack (observed
-`2.2.8.0002`), and surface it in the phone's Glasses Controls page. The captured
-ack confirming this layout is documented in `notes/ring-firmware-update-design.md`;
-do not add any firmware-write behavior.
+**Next recommended item:** reverse and validate the `cmd=5` activity payload
+against the existing 10-minute `steps.csv` and `calories.csv` ground truth, then
+make ring-native steps/calories primary while retaining Keytel as fallback. The
+unvalidated stride-7 decoder remains gated off until that correlation is proven.
 
 ## 1. What this project is
 
@@ -91,7 +93,6 @@ In-repo, the ring-health work is:
 
 ## 4. What is pending (see ROADMAP.md for the full list)
 
-- Safe read-only ring firmware-version display (`deviceInfo`, subCmd `0x02`).
 - `cmd=5` activity/steps/calories byte-layout RE. UNBLOCKED: we have the 10-minute
   ground truth (steps.csv, calories.csv with resting/active split, 144 slots/day).
 - `cmd=6` sleep decode. Schema + stage map known (0=Wake/1=REM/2=Light/3=Deep, 30s

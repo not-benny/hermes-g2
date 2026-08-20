@@ -93,8 +93,10 @@ session-open frame is hardcoded/universal (not per-device).
   FaceclawBleCommunicator.java ~1700–1746). Prerequisite to T1 and independently valuable. RE work.
 - **TODO** — **T3 Non-Even glasses onboarding** — a glasses pair/flash path that doesn't route through
   Even's disconnect step.
-- **TODO** — Ring firmware **version display** (safe near-term win from T1 research): add a non-blocklisted
-  deviceInfo(0x02) read to DISPLAY the ring firmware version (observed 2.2.8.0002). No write, no risk.
+- **DONE** (2026-08-20, on-device verified) — Ring firmware **version display**: Hermes sends the safe,
+  non-blocklisted `deviceInfo(0x02)` GET after session open, decodes the first NUL-padded 16-byte ASCII field,
+  and displays the live version in Glasses Controls. Verified on the A32 against the connected R1 (`2.2.8.0002`);
+  the captured response was CRC-valid and no firmware-write behavior was added.
 
 ### Platform / vision groundwork
 - **TODO** — **MCP / skill review** — audit and publish the relevant skills/MCPs. Flagship use case = the
@@ -178,6 +180,10 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
 ---
 
 ## Recently landed (this session — full detail in the archive)
+- **Read-only R1 firmware-version display — DONE** (2026-08-20, verified on-device): added the safe
+  `system/deviceInfo(0x02)` GET after session open, decoded its first NUL-padded 16-byte ASCII field, and surfaced
+  it in phone Glasses Controls. The A32 received a CRC-valid ack and rendered `R1 firmware: 2.2.8.0002`; 119 tests,
+  TypeScript typechecking, and the Android debug build pass. No firmware/DFU write path was added.
 - **Honest setup README / T4 — DONE** (2026-08-20): first-time users are told to provision in Even, disconnect
   the glasses, release Even's Bluetooth access, keep the app installed for maintenance, and then onboard in
   Hermes. The README and in-app wizard now tell the same story.

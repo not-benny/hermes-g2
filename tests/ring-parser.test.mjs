@@ -15,6 +15,7 @@ const {
   parseInnerFrame,
   decodeDailyData,
   decodeRingBattery,
+  decodeRingFirmwareVersion,
   decodeTemperatureDetail,
   decodeSleep,
   RING_HEALTH_CMD,
@@ -226,6 +227,24 @@ test("a multi-packet SpO2 frame reassembles and decodes end to end", () => {
 test("decodeRingBattery reads the battery percent from data[0]", () => {
   // deviceStatus data region, battery percent in the first byte (0x61 = 97).
   assert.equal(decodeRingBattery(hexToBytes("61020100000000")), 97);
+});
+
+test("decodeRingFirmwareVersion reads the first NUL-padded 16-byte ASCII field", () => {
+  const field = Uint8Array.from([
+    ...new TextEncoder().encode("2.2.8.0002"),
+    0, 0, 0, 0, 0, 0,
+    ...new TextEncoder().encode("ignored trailing device data"),
+  ]);
+  assert.equal(decodeRingFirmwareVersion(field), "2.2.8.0002");
+});
+
+test("decodeRingFirmwareVersion rejects non-printable bytes", () => {
+  assert.equal(decodeRingFirmwareVersion(Uint8Array.from([0x32, 0x2e, 0x01, 0])), "");
+});
+
+test("decodeRingFirmwareVersion never reads past the 16-byte field", () => {
+  const bytes = new TextEncoder().encode("1234567890abcdefTRAILING");
+  assert.equal(decodeRingFirmwareVersion(bytes), "1234567890abcdef");
 });
 
 // --- unobserved layouts ----------------------------------------------------

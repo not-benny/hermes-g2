@@ -363,6 +363,22 @@ export function decodeRingBattery(deviceStatusData: Bytes): number {
   return deviceStatusData[0];
 }
 
+/**
+ * Firmware version from a deviceInfo response payload.
+ *
+ * The first field is a NUL-padded 16-byte ASCII string (observed 2.2.8.0002).
+ * Ignore later device metadata fields in the same response.
+ */
+export function decodeRingFirmwareVersion(deviceInfoData: Bytes): string {
+  const chars: string[] = [];
+  const end = Math.min(16, deviceInfoData.length);
+  for (let i = 0; i < end && deviceInfoData[i] !== 0; i++) {
+    if (deviceInfoData[i] < 0x20 || deviceInfoData[i] > 0x7e) return "";
+    chars.push(String.fromCharCode(deviceInfoData[i]));
+  }
+  return chars.join("");
+}
+
 // --- unobserved layouts (stubs) --------------------------------------------
 
 /**

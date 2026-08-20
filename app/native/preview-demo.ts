@@ -71,6 +71,7 @@ function demoSnapshot(nowMs: number): RingHealthSnapshot {
     hrv: hrvSeries[hrvSeries.length - 1],
     activity: { slots: [], totalSteps: 6480 },
     batteryPercent: 84,
+    firmwareVersion: null,
     updatedAtMs: nowMs,
     heartRateSeries: series,
     spo2Series,

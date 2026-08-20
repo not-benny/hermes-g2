@@ -22,6 +22,7 @@ import {
   uiFontSetting,
 } from "../ui/dashboard-settings";
 import { type RingConnectionState } from "../native/faceclaw-communicator";
+import { ringHealthStore } from "../health/ring-health-store";
 
 type ControlsPhase = DashboardSnapshot["phase"];
 
@@ -42,6 +43,7 @@ export class GlassesControlsViewModel extends Observable {
   private _ringConnectionState: RingConnectionState = "not-configured";
   private unsubscribeSnapshot: (() => void) | null = null;
   private unsubscribeSettings: (() => void) | null = null;
+  private unsubscribeRingHealth: (() => void) | null = null;
   // SegmentedBar items are static per enum (values never change), so build them
   // once and reuse - rebuilding on every getter read would churn the bar.
   private readonly itemsCache = new Map<ConfigSettingEnum<string>, SegmentedBarItem[]>();
@@ -50,6 +52,9 @@ export class GlassesControlsViewModel extends Observable {
     super();
     this.unsubscribeSnapshot = dashboardController.subscribe((snapshot) => this.applySnapshot(snapshot));
     this.unsubscribeSettings = onAnySettingChanged(() => this.refreshSettingLabels());
+    this.unsubscribeRingHealth = ringHealthStore.onChange(() => {
+      this.notifyPropertyChange("ringFirmwareVersion", this.ringFirmwareVersion);
+    });
   }
 
   dispose(): void {
@@ -57,6 +62,8 @@ export class GlassesControlsViewModel extends Observable {
     this.unsubscribeSnapshot = null;
     this.unsubscribeSettings?.();
     this.unsubscribeSettings = null;
+    this.unsubscribeRingHealth?.();
+    this.unsubscribeRingHealth = null;
   }
 
   get status(): string {
@@ -115,6 +122,11 @@ export class GlassesControlsViewModel extends Observable {
 
   get ringStatus(): string {
     return RING_STATUS_LABELS[this._ringConnectionState];
+  }
+
+  get ringFirmwareVersion(): string {
+    const version = ringHealthStore.snapshot().firmwareVersion;
+    return `R1 firmware: ${version ?? "waiting for device info"}`;
   }
 
   get ringSensitivitySliderValue(): number { return this.enumIndex(ringSensitivitySetting); }

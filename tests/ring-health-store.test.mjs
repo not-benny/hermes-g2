@@ -110,6 +110,25 @@ test("deviceStatus response populates the ring battery percent", () => {
   assert.equal(store.snapshot().batteryPercent, 97);
 });
 
+test("deviceInfo response populates the read-only ring firmware version", () => {
+  const store = new RingHealthStore();
+  const version = new TextEncoder().encode("2.2.8.0002");
+  const data = new Uint8Array(32);
+  data.set(version);
+  const inner = buildInner(1, 0, 2, 3, data);
+  for (const frame of fragments(inner)) store.ingestFrame(frame);
+  assert.equal(store.snapshot().firmwareVersion, "2.2.8.0002");
+});
+
+test("deviceInfo push status cannot populate the firmware version", () => {
+  const store = new RingHealthStore();
+  const data = new Uint8Array(16);
+  data.set(new TextEncoder().encode("2.2.8.0002"));
+  const inner = buildInner(1, 0, 2, 2, data); // status=push, not ack
+  for (const frame of fragments(inner)) store.ingestFrame(frame);
+  assert.equal(store.snapshot().firmwareVersion, null);
+});
+
 test("interleaved batches both decode", () => {
   const store = new RingHealthStore();
   const hrFrames = fragments(buildInner(2, 1, 1, 3, dailyHealth(70, [{ hourIdx: 10, avg: 70, max: 75, min: 65 }])), null);

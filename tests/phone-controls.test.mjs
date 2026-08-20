@@ -34,6 +34,22 @@ test("phone UI exposes safe live glasses controls", () => {
   assert.match(controlsModel, /onReconnectRingTap/);
   assert.match(controller, /reconnectRing/);
   assert.match(communicator, /requestRingReconnect/);
+
+  const nativeCommunicator = read(
+    "App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java",
+  );
+  assert.match(controlsPage, /\{\{ ringFirmwareVersion \}\}/);
+  assert.match(controlsModel, /ringHealthStore\.onChange/);
+  assert.match(controlsModel, /get ringFirmwareVersion\(\)/);
+  assert.match(
+    nativeCommunicator,
+    /sendRingCommand\("deviceInfo GET \(firmware version\)", 0x01, 0x00, 0x02, 0x00, null\)/,
+  );
+  const sessionStart = nativeCommunicator.indexOf("if (openSession) {");
+  const pairAuth = nativeCommunicator.indexOf('sendRawRingFrame("pairAuth (session open)"', sessionStart);
+  const deviceInfo = nativeCommunicator.indexOf('sendRingCommand("deviceInfo GET (firmware version)"', pairAuth);
+  const healthEnable = nativeCommunicator.indexOf('sendRingCommand("healthEnable SET"', deviceInfo);
+  assert.ok(sessionStart >= 0 && pairAuth > sessionStart && deviceInfo > pairAuth && healthEnable > deviceInfo);
 });
 
 test("notification filtering applies to the mirrored list, tray, and alerts", () => {

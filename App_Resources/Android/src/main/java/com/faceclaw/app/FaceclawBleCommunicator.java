@@ -1650,6 +1650,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             sendRawRingFrame("pairAuth (session open)", hexToBytes("00971953f964016401000000080d003f0101"));
             ringProbeGap();
             ringProbeGap();
+            // Safe read-only metadata request. The deviceInfo ack's first
+            // NUL-padded 16-byte ASCII field is the ring firmware version.
+            sendRingCommand("deviceInfo GET (firmware version)", 0x01, 0x00, 0x02, 0x00, null);
+            ringProbeGap();
             // Enable health tracking + the live "point" push stream so the ring
             // records hourly data and streams current HR when worn. subCmd 0x0e
             // (healthSettings) is not blocklisted; payload = epoch secs u32 LE at

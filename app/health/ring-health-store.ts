@@ -18,6 +18,7 @@ import {
   parseInnerFrame,
   reassembleHealthFrames,
   decodeRingBattery,
+  decodeRingFirmwareVersion,
   RING_HEALTH_CMD,
   type Bytes,
   type RingActivitySample,
@@ -40,6 +41,8 @@ export interface RingHealthSnapshot {
   activity: { slots: RingActivitySample[]; totalSteps: number } | null;
   /** Ring battery percent from the deviceStatus response. */
   batteryPercent: number | null;
+  /** Read-only firmware version from the deviceInfo response. */
+  firmwareVersion: string | null;
   /** Wall-clock ms of the last applied update, null before the first. */
   updatedAtMs: number | null;
   /** The day's full hourly record arrays (for insights + sparklines). */
@@ -59,6 +62,7 @@ const EMPTY: RingHealthSnapshot = {
   hrv: null,
   activity: null,
   batteryPercent: null,
+  firmwareVersion: null,
   updatedAtMs: null,
   heartRateSeries: [],
   spo2Series: [],
@@ -75,6 +79,7 @@ const MODULE_SYSTEM = 1;
 const MODULE_HEALTH = 2;
 const CMD_SYSTEM = 0;
 const SUBCMD_DEVICE_STATUS = 1;
+const SUBCMD_DEVICE_INFO = 2;
 
 export class RingHealthStore {
   private snapshotState: RingHealthSnapshot = { ...EMPTY };
@@ -161,6 +166,20 @@ export class RingHealthStore {
           this.snapshotState = {
             ...this.snapshotState,
             batteryPercent: percent,
+            updatedAtMs: Date.now(),
+          };
+          this.emit();
+        }
+      } else if (
+        parsed.cmd === CMD_SYSTEM &&
+        parsed.subCmd === SUBCMD_DEVICE_INFO &&
+        parsed.status === 3
+      ) {
+        const version = decodeRingFirmwareVersion(parsed.data);
+        if (version) {
+          this.snapshotState = {
+            ...this.snapshotState,
+            firmwareVersion: version,
             updatedAtMs: Date.now(),
           };
           this.emit();

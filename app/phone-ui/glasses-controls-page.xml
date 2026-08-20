@@ -46,6 +46,7 @@
                 <Button col="1" text="Open compass" tap="{{ onOpenCompassTap }}" isEnabled="{{ canControl }}" />
             </GridLayout>
             <Label text="{{ ringStatus }}" textWrap="true" class="m-t-12" />
+            <Label text="{{ ringFirmwareVersion }}" textWrap="true" class="m-t-4" />
             <StackLayout class="control-row">
                 <GridLayout columns="*,auto">
                     <Label col="0" text="Ring sensitivity" class="control-row-label" />
