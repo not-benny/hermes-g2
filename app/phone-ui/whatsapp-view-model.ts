@@ -34,7 +34,10 @@ export class WhatsAppViewModel extends Observable {
 
   constructor() {
     super();
-    this._phoneNumber = ApplicationSettings.getString(PAIR_PHONE_PREF, "");
+    // Stored as bare E.164 digits; display with the leading + so the field
+    // reads naturally and the phone keypad's + can be edited in.
+    const storedDigits = ApplicationSettings.getString(PAIR_PHONE_PREF, "");
+    this._phoneNumber = storedDigits ? `+${storedDigits}` : "";
     void this.refreshStatus();
     this.statusTimer = setInterval(() => void this.refreshStatus(), STATUS_POLL_MS);
   }
@@ -75,10 +78,18 @@ export class WhatsAppViewModel extends Observable {
   async onGetCode(): Promise<void> {
     const digits = this._phoneNumber.replace(/[^0-9]/g, "");
     if (digits.length < 8) {
-      this.setStatus("Enter your full number including country code (digits only).");
+      this.setStatus("Enter your full number in international format, e.g. +447700900123.");
+      return;
+    }
+    // A valid international (E.164) number never starts with 0 - a leading 0 is
+    // the national trunk prefix. Reject it: pairing 07597... instead of 447597...
+    // mints a code for a number WhatsApp cannot resolve, so the link fails.
+    if (digits.startsWith("0")) {
+      this.setStatus("Use your international number (country code first, e.g. +44...), not the 0-prefixed national form.");
       return;
     }
     ApplicationSettings.setString(PAIR_PHONE_PREF, digits);
+    this.phoneNumber = `+${digits}`;
     this.setBusy(true);
     this.setStatus("Requesting a pairing code...");
     this.showCode("");
