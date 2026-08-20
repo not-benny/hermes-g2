@@ -7,7 +7,7 @@
  * survive) until unhidden from the Apps card's menu.
  */
 
-import { getDefaultMediumFont, getDefaultSmallFont, getFont } from "../../graphics/bdffont";
+import { getDefaultSmallFont, getFont, type BdfFont } from "../../graphics/bdffont";
 import { GrayImage } from "../../graphics/image";
 import {
   type DashboardInputEvent,
@@ -60,45 +60,66 @@ export type HealthOptions = {
   setSurfaceVisible: (visible: boolean) => void;
 };
 
-/** Display-only layer: a readiness hero plus a labelled list of ring vitals. */
+/** Centre a string of `font` horizontally around cx and draw it at baseline y. */
+function drawCentered(img: GrayImage, font: BdfFont, cx: number, y: number, text: string, value: number): void {
+  img.drawText(font, Math.round(cx - font.measureText(text) / 2), y, text, value);
+}
+
+/**
+ * Display-only layer. Built for the standard 288px band but filled with big,
+ * blocky numbers + a readiness bar rather than small text and dead space: a
+ * readiness hero up top, a large HR readout, and a row of big metric tiles.
+ */
 class HealthCardLayer implements Layer {
   paint(ctx: LayerContext, _paintBelow: PaintBelow): GrayImage {
-    const { width, height } = ctx.stack.getBaseSize();
-    const img = new GrayImage(width, height, 0);
+    const W = ctx.stack.getBaseSize().width;
+    const H = ctx.stack.getBaseSize().height;
+    const img = new GrayImage(W, H, 0);
     const big = getFont("terminus32");
-    const medium = getDefaultMediumFont();
+    const med = getFont("terminus24");
     const small = getDefaultSmallFont();
     const s = ringHealthStore.snapshot();
     const r = liveReadiness();
+    const M = 16;
 
-    // --- readiness hero ---
-    img.drawText(small, 16, 6, "READINESS", 150);
+    // --- readiness hero: label, big score, verdict, and a filled bar ---------
+    img.drawText(small, M, 4, "READINESS", 150);
     const scoreStr = r.score === null ? "--" : String(r.score);
-    img.drawText(big, 16, 22, scoreStr, 245);
-    const numRight = 16 + big.measureText(scoreStr);
-    if (r.score !== null) img.drawText(small, numRight + 8, 44, "/ 100", 130);
+    img.drawText(big, M, 18, scoreStr, 250);
+    const afterScore = M + big.measureText(scoreStr) + 14;
     const verdict = r.score === null ? "Not enough data yet" : VERDICT[r.band];
-    img.drawText(medium, numRight + 8, 22, verdict, 215);
+    img.drawText(med, afterScore, 22, verdict, 220);
+    if (r.score !== null) img.drawText(small, afterScore, 46, "out of 100", 130);
 
-    const divY = 64;
-    img.fillRect(16, divY, width - 32, 1, 55);
+    const barY = 58;
+    const barH = 18;
+    img.fillRoundedRect(M, barY, W - 2 * M, barH, 45, barH / 2);
+    if (r.score !== null) {
+      const fillW = Math.max(barH, Math.round((W - 2 * M) * (r.score / 100)));
+      img.fillRoundedRect(M, barY, fillW, barH, 205, barH / 2);
+    }
 
-    // --- metrics, spread to fill the height ---
+    // --- big HR readout ------------------------------------------------------
     const hr = s.currentHr ?? s.heartRate?.avg ?? null;
-    const rows: Array<[string, string]> = [
-      ["Heart rate", hr === null ? "--" : `${hr} bpm`],
-      ["Ring battery", s.batteryPercent === null ? "--" : `${s.batteryPercent}%`],
-      ["SpO2", s.spo2 ? `${s.spo2.avg}%` : "--"],
-      ["HRV", s.hrv ? `${s.hrv.avg} ms` : "--"],
-      ["Steps", s.activity ? String(s.activity.totalSteps) : "--"],
-    ];
+    const hrY = barY + barH + 12;
+    img.drawText(big, M, hrY, hr === null ? "--" : String(hr), 245);
+    const hrNumW = big.measureText(hr === null ? "--" : String(hr));
+    img.drawText(small, M + hrNumW + 8, hrY + 4, "bpm", 150);
+    img.drawText(small, M + hrNumW + 8, hrY + 20, "heart rate", 120);
 
-    const top = divY + 14;
-    const rowH = Math.max(28, Math.floor((height - top - 6) / rows.length));
-    rows.forEach(([label, value], i) => {
-      const y = top + i * rowH;
-      img.drawText(small, 16, y + 5, label, 150);
-      img.drawText(medium, width - 16 - medium.measureText(value), y, value, 230);
+    // --- metric tiles: big value + small label, spread across the width ------
+    const tiles: Array<[string, string]> = [
+      [s.batteryPercent === null ? "--" : `${s.batteryPercent}`, "ring %"],
+      [s.spo2 ? `${s.spo2.avg}` : "--", "SpO2 %"],
+      [s.hrv ? `${s.hrv.avg}` : "--", "HRV ms"],
+      [s.activity ? String(s.activity.totalSteps) : "--", "steps"],
+    ];
+    const tileTop = hrY + big.lineHeight + 8;
+    const tileW = W / tiles.length;
+    tiles.forEach(([value, label], i) => {
+      const cx = i * tileW + tileW / 2;
+      drawCentered(img, med, cx, tileTop, value, 235);
+      drawCentered(img, small, cx, tileTop + 24, label, 140);
     });
 
     return img;
@@ -118,9 +139,6 @@ export function createHealthWindow(options: HealthOptions): ShellWindow {
     iconLetter: "H",
     icon: "activity",
     closeable: false,
-    // Full-height: a data-rich dashboard card that fills the lens rather than
-    // the standard 288px band.
-    heightMode: "max",
     actions: options.actions,
     baseLayer: new YieldAtRootLayer(new HealthCardLayer()),
     submitFrame: options.submitFrame,
