@@ -75,8 +75,14 @@ export class GlassesControlsViewModel extends Observable {
     return `Screen timeout: ${screenTimeoutSetting.displayValue()}`;
   }
 
-  get lockLabel(): string {
-    return `Lock screen: ${lockScreenEnabledSetting.get() ? "On" : "Off"}`;
+  get lockScreenChecked(): boolean {
+    return lockScreenEnabledSetting.get();
+  }
+  set lockScreenChecked(value: boolean) {
+    if (value === lockScreenEnabledSetting.get()) return; // guard the notify->write loop
+    lockScreenEnabledSetting.set(value);
+    this.notifyPropertyChange("lockScreenChecked", value);
+    this.setStatus(`Lock screen ${value ? "enabled" : "disabled"}.`);
   }
 
   get verticalPositionLabel(): string {
@@ -104,8 +110,14 @@ export class GlassesControlsViewModel extends Observable {
     return `Ring sensitivity: ${ringSensitivitySetting.displayValue()}`;
   }
 
-  get voiceControlLabel(): string {
-    return `Voice control: ${voiceControlEnabledSetting.get() ? "On" : "Off"}`;
+  get voiceControlChecked(): boolean {
+    return voiceControlEnabledSetting.get();
+  }
+  set voiceControlChecked(value: boolean) {
+    if (value === voiceControlEnabledSetting.get()) return;
+    voiceControlEnabledSetting.set(value);
+    this.notifyPropertyChange("voiceControlChecked", value);
+    this.setStatus(`Voice control ${value ? "enabled" : "disabled"}.`);
   }
 
   get uiFontLabel(): string {
@@ -120,8 +132,14 @@ export class GlassesControlsViewModel extends Observable {
     return `Wakeword: ${wakeWordActionSetting.displayValue()}`;
   }
 
-  get voiceRecordingLabel(): string {
-    return `Save voice recordings: ${saveVoiceRecordingsSetting.get() ? "On" : "Off"}`;
+  get saveVoiceRecordingsChecked(): boolean {
+    return saveVoiceRecordingsSetting.get();
+  }
+  set saveVoiceRecordingsChecked(value: boolean) {
+    if (value === saveVoiceRecordingsSetting.get()) return;
+    saveVoiceRecordingsSetting.set(value);
+    this.notifyPropertyChange("saveVoiceRecordingsChecked", value);
+    this.setStatus(`Voice recording diagnostics ${value ? "enabled" : "disabled"}.`);
   }
 
   get notificationFilterLabel(): string {
@@ -157,11 +175,6 @@ export class GlassesControlsViewModel extends Observable {
   onTimeoutTap(): void {
     screenTimeoutSetting.set(screenTimeoutSetting.next());
     this.setStatus(`Set screen timeout to ${screenTimeoutSetting.displayValue()}.`);
-  }
-
-  onLockScreenTap(): void {
-    lockScreenEnabledSetting.toggle();
-    this.setStatus(`Lock screen ${lockScreenEnabledSetting.get() ? "enabled" : "disabled"}.`);
   }
 
   onVerticalPositionTap(): void {
@@ -209,11 +222,6 @@ export class GlassesControlsViewModel extends Observable {
     this.setStatus(`Voice provider set to ${voiceProviderSetting.displayValue()}.`);
   }
 
-  onVoiceControlTap(): void {
-    voiceControlEnabledSetting.toggle();
-    this.setStatus(`Voice control ${voiceControlEnabledSetting.get() ? "enabled" : "disabled"}.`);
-  }
-
   onUiFontTap(): void {
     uiFontSetting.set(uiFontSetting.next());
     this.setStatus(`Font set to ${uiFontSetting.displayValue()}.`);
@@ -222,11 +230,6 @@ export class GlassesControlsViewModel extends Observable {
   onWakeWordActionTap(): void {
     wakeWordActionSetting.set(wakeWordActionSetting.next());
     this.setStatus(`Wakeword action set to ${wakeWordActionSetting.displayValue()}.`);
-  }
-
-  onSaveVoiceRecordingTap(): void {
-    saveVoiceRecordingsSetting.toggle();
-    this.setStatus(`Voice recording diagnostics ${saveVoiceRecordingsSetting.get() ? "enabled" : "disabled"}.`);
   }
 
   async onTestVoiceInputTap(): Promise<void> {
@@ -277,17 +280,17 @@ export class GlassesControlsViewModel extends Observable {
     for (const property of [
       "brightnessLabel",
       "timeoutLabel",
-      "lockLabel",
+      "lockScreenChecked",
       "verticalPositionLabel",
       "timeFormatLabel",
       "batteryDisplayLabel",
       "dashboardSizeLabel",
       "ringSensitivityLabel",
-      "voiceControlLabel",
+      "voiceControlChecked",
       "uiFontLabel",
       "voiceProviderLabel",
       "wakeWordActionLabel",
-      "voiceRecordingLabel",
+      "saveVoiceRecordingsChecked",
       "notificationFilterLabel",
       "selectedAppsLabel",
       "notificationFontSizeLabel",

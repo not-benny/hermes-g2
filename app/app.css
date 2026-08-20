@@ -185,6 +185,44 @@ ActivityIndicator {
   height: 1;
 }
 
+/* --- Batch H: real-control rows ---------------------------------------- */
+/* A settings row: label on the left, a real control (Switch/SegmentedBar/
+   Slider) on the right, or a full-width control below the label. Replaces the
+   old tap-to-cycle buttons. */
+.control-row {
+  margin-top: 8;
+  padding: 10 12;
+  background-color: #172019;
+  border-color: #24312A;
+  border-width: 1;
+  border-radius: 8;
+}
+
+.control-row-label {
+  color: #EAF2EC;
+  font-size: 16;
+  vertical-align: center;
+}
+
+.control-row-sublabel {
+  color: #9BB0A5;
+  font-size: 12;
+}
+
+.control-row-value {
+  color: #57D8A6;
+  font-size: 14;
+  vertical-align: center;
+  text-align: right;
+}
+
+SegmentedBar {
+  color: #9BB0A5;
+  selected-background-color: #57D8A6;
+  background-color: #1E2A22;
+  font-size: 14;
+}
+
 /*
  * Stands in for the lens preview when showing it would be misleading (silent
  * mode, or a disconnect explained by a flat battery). Sized by the view model
