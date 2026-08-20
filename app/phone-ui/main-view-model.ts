@@ -407,6 +407,10 @@ export class MainViewModel extends Observable {
     Frame.topmost()?.navigate("phone-ui/even-health-page");
   }
 
+  onWhatsAppTap(): void {
+    Frame.topmost()?.navigate("phone-ui/whatsapp-page");
+  }
+
   async onInstallFirmwareTap(): Promise<void> {
     await this.openFlashPage("install");
   }

@@ -1,0 +1,32 @@
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" unloaded="unloaded">
+    <ActionBar title="WhatsApp" />
+    <ScrollView>
+        <StackLayout class="p-20">
+            <Label text="{{ status }}" textWrap="true" class="m-b-16" />
+
+            <!-- Number entry + request -->
+            <StackLayout visibility="{{ formVisibility }}">
+                <Label text="Link your WhatsApp to Hermes G2 as a companion device. Enter your number with country code (digits only)." textWrap="true" class="m-b-8" />
+                <TextField text="{{ phoneNumber }}" hint="447700900123" keyboardType="number" class="input m-b-12" />
+                <Button text="Get pairing code" tap="{{ onGetCode }}" isEnabled="{{ canPair }}" class="-primary" />
+            </StackLayout>
+
+            <!-- Live code + countdown -->
+            <StackLayout visibility="{{ codeVisibility }}" class="m-t-8">
+                <Label text="Enter this code in WhatsApp" textWrap="true" class="h2" />
+                <Label text="{{ code }}" class="m-t-8 m-b-4" fontSize="34" fontWeight="bold" letterSpacing="0.2" />
+                <Label text="{{ countdownLabel }}" class="m-b-12" />
+                <Label text="WhatsApp: Settings &gt; Linked devices &gt; Link a device &gt; Link with phone number instead." textWrap="true" class="m-b-12" />
+                <Button text="Get a new code" tap="{{ onGetCode }}" isEnabled="{{ canPair }}" />
+            </StackLayout>
+
+            <!-- Linked -->
+            <StackLayout visibility="{{ linkedVisibility }}" class="m-t-8">
+                <Label text="{{ linkedUser }}" textWrap="true" class="h2" />
+                <Label text="Hermes G2 is now a linked device on your WhatsApp." textWrap="true" class="m-t-8" />
+            </StackLayout>
+
+            <Button text="Back" tap="{{ onBackTap }}" class="m-t-24" />
+        </StackLayout>
+    </ScrollView>
+</Page>
