@@ -42,14 +42,20 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   correct, it is NOT an open root cause). Command table confirmed: module system=1 / health=2 / sport=3;
   health cmd HR=1 / SpO2=2 / temp=3 / HRV=4 / activity=5 / sleep=6, subCmd daily=1; battery = deviceStatus
   data[0]. HR/SpO2 hourly record = [hourIdx u8][avg u8][max u8][min u8]; HRV record = [hourIdx u8][avg u16 LE]
-  [max u16 LE][min u16 LE]; header count@0, base/timestamp@7, live current@11. Matches Hermes' current decoder
+  [max u16 LE][min u16 LE]; header count@0, opaque word@7, live current@11. Matches Hermes' current decoder
   and is regression-tested, so HR / HRV / SpO2 decode is CONFIRMED-by-RE. Full byte-verified spec lives
   privately at `ground-truth-private/firmware/re/DECODE-SPEC.md` (repo-excluded).
-- **TODO** (unblocked, awaiting capture) — Sleep (cmd=6) decode. Schema and stage map fully known: 0=Wake,
-  1=REM, 2=Light, 3=Deep at 30s epochs; total/wake/rem/light/deep seconds; body_temp_delta. Remaining work: a
-  real overnight worn-ring capture correlated to a ring1Notify DB session (Ben will signal when he has sleep
-  data), then map cmd=6 frame bytes onto the schema. `decodeSleep` stays a throwing stub until then; do NOT
-  guess-and-ship the layout. See `notes/ring-sleep-frames-2026-08-20.md`.
+- **RESEARCH** — Sleep (cmd=6) type-2 relative intervals are confirmed from
+  three CRC-valid frames, three one-to-one `ring1Notify` span matches, and the
+  firmware storage/serializer chain. The frames are separate interval-only
+  sessions: u32 start/end at data offsets 12/16, in seconds. Their absolute
+  reference is not in the payload and is neither activity's confirmed
+  local-midnight epoch base nor the opaque non-activity daily word at offset 7.
+  Full decode remains blocked on a matching CRC-valid type-1 frame for the
+  existing non-empty-stage DB row and proof of the absolute-base handoff.
+  `decodeSleep` stays a throwing stub, cmd=6 stays unmapped/ignored, and a later
+  reviewed implementation card is required. See
+  `notes/ring-sleep-frames-2026-08-20.md`.
 - **NOTE** — Skin temperature is a daily, sparse metric (frequently absent or zero), consistent with the
   earlier nightly/reserved read. Low priority; there is no per-epoch temperature stream beyond the sleep
   record's body_temp_delta field.

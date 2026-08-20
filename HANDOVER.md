@@ -6,7 +6,7 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 ## 0. Latest continuation (2026-08-20)
 
-Seven self-contained items were completed on the `hermes-g2` branch/current
+Eight self-contained items were completed on the `hermes-g2` branch/current
 working tree:
 
 - **Raw ring-frame security gate:** `sendRawRingFrame()` now fails closed before
@@ -63,12 +63,28 @@ working tree:
   array bounds/schema-valued extra properties are enforced; owner fallback,
   top-level protocol-version/socket closure, and auth timeout are covered. Full
   suite: 144 tests.
+- **R1 cmd=6 interval evidence:** three complete CRC-valid type-2 notifications
+  each match one distinct `ring1Notify` database session by interval span. The
+  firmware storage/serializer chain independently copies data-offset 12/16 as
+  ordered start/end fields in seconds and emits one stored session per callback.
+  Type 2 deliberately omits summaries/stages. The absolute reference is absent,
+  differs among records, and is neither UTC/local midnight; a matching type-1
+  stage-bearing frame is still missing. Sleep therefore remains fail-closed.
 
 Verification on the combined continuation checkout: all 133 tests passed,
 TypeScript typechecking passed, and a debug Android build completed with Android
 SDK 35 and JDK 21 at `platforms/android/app/build/outputs/apk/debug/app-debug.apk`.
 Debug APK builds are not reproducible, so no build-instance hash is treated as a
 canonical release identity.
+
+Cmd=6 research verification on the frozen candidate: the focused parser suite
+passes 20/20; `npm run typecheck` passes; and `npm run build` completes with SDK
+35/JDK 21 at the same debug APK path. The full suite passes 142/144. Its two
+activity-store failures are the unchanged baseline at `ae89fd5`: the fixed
+2026-08-20 activity vectors crossed the local-day gate after the system clock
+reached 2026-08-21, so the store correctly returns null. No activity source or
+test was changed by this research item. The A32 evidence snapshot was read-only,
+temporary, and deleted; no fresh BLE capture or app launch was needed.
 JDK 26 is present but fails this Gradle stack's `jlink` step; use
 `JAVA_HOME=/usr/lib/jvm/java-21-openjdk` and `ANDROID_HOME=/home/benny/Android/Sdk`.
 
@@ -79,8 +95,10 @@ typecheck, and a combined Android build, and was installed on the A32.
 **Next recommended item:** continue the external assistant bridge/MCP hardening:
 add authenticated secure transport/server proof, then bind MCP calls to unique
 live turn generations and add cancellation/idempotency for timed-out mutations.
-`glasses.render_view` and its skill stay blocked until those global gates close. After Benny provides a worn
-overnight capture, correlate `cmd=6` against the matching export.
+`glasses.render_view` and its skill stay blocked until those global gates close.
+For sleep, capture one complete type-1 cmd=6 notification matching the existing
+non-empty-stage ring1Notify row and identify the absolute-base handoff; do not
+implement the decoder before a separate reviewed card.
 
 ## 1. What this project is
 
@@ -142,10 +160,11 @@ In-repo, the ring-health work is:
 
 ## 4. What is pending (see ROADMAP.md for the full list)
 
-- `cmd=6` sleep decode is deliberately deferred until Benny wears the ring
-  overnight. Schema + stage map known (0=Wake/1=REM/2=Light/3=Deep, 30s
-  epochs, total/wake/rem/light/deep seconds, body_temp_delta). Needs a real overnight
-  capture correlated to a live DB session. `decodeSleep` stays a throwing stub.
+- `cmd=6` type-2 interval endpoints are confirmed in seconds, but their absolute
+  reference and the type-1 summary/stage layout are not. The exact missing input
+  is a CRC-valid type-1 notification correlated to the existing non-empty-stage
+  ring1Notify row plus the absolute-base handoff. `decodeSleep` stays a throwing
+  stub; cmd=6 remains unmapped and ignored.
 - Request-layer MTU 247, `packetAck`, and the 15-second HR-only current refresh
   are implemented.
 - Even firmware auto-track cron: the check_firmware API accepts the account JWT

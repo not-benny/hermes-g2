@@ -11,7 +11,7 @@ decoder was WRONG: it read record 0 roughly right by luck, then produced garbage
 ```
 [0]        count            (u8)  number of hour records
 [1..6]     reserved         (6 bytes, zero)
-[7..10]    base             (u32 LE, meaning TBD; low byte varies per metric)
+[7..10]    base             (u32 LE, opaque header word; meaning remains unproved)
 [11..]     current          live/instant reading: u8 for HR/SpO2, u16 LE for HRV
 [then N records]
   HR / SpO2 record (4 bytes):  [hourIdx u8][avg u8][max u8][min u8]
@@ -22,6 +22,10 @@ decoder was WRONG: it read record 0 roughly right by luck, then produced garbage
 The `current` value (frame header, not a record) is the ring's live reading —
 this is the byte the old decoder misread as a record's `.latest` (the 112-vs-range
 bug). The Even app discards it; we can surface it as the live current HR.
+
+Do not conflate this non-activity offset-7 word with the activity command's
+confirmed local-midnight epoch base or cmd=6's unresolved interval reference.
+Firmware and wire evidence have not established a timestamp meaning for it.
 
 ## Golden vectors (real captures, hex = inner-frame `data`)
 
