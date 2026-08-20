@@ -8,7 +8,7 @@
  * WhatsApp API (pairing, chats, send, media, reactions) lands on top of this.
  */
 
-import { Http, Utils } from "@nativescript/core";
+import { ApplicationSettings, Http, Utils } from "@nativescript/core";
 
 declare const com: any;
 
@@ -33,6 +33,53 @@ export function startWhatsAppNode(): void {
     console.log(`[whatsapp-node] runtime start requested on 127.0.0.1:${NODE_PORT}`);
   } catch (error) {
     console.error(`[whatsapp-node] failed to start runtime: ${error}`);
+  }
+}
+
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  return { authorization: `Bearer ${token}`, ...(extra ?? {}) };
+}
+
+/**
+ * Request a WhatsApp pairing code for a phone number (E.164 digits). The engine
+ * starts the socket and calls requestPairingCode; the 8-char code is returned
+ * and logged. The user enters it in WhatsApp > Linked devices > Link with phone
+ * number. Resolves null on failure.
+ */
+export async function requestWhatsAppPairing(phoneNumber: string): Promise<string | null> {
+  try {
+    const res = await Http.request({
+      url: `http://127.0.0.1:${NODE_PORT}/pair`,
+      method: "POST",
+      headers: authHeaders({ "content-type": "application/json" }),
+      content: JSON.stringify({ phoneNumber }),
+      timeout: 30000,
+    });
+    const body = JSON.parse(res.content?.toString() || "{}");
+    if (body.ok && body.code) {
+      console.log(`[whatsapp-node] PAIRING CODE = ${body.code}  (enter in WhatsApp > Linked devices > Link with phone number)`);
+      return body.code;
+    }
+    console.error(`[whatsapp-node] pair failed: ${res.content}`);
+    return null;
+  } catch (error) {
+    console.error(`[whatsapp-node] pair error: ${error}`);
+    return null;
+  }
+}
+
+/** Current engine/link status. */
+export async function whatsAppStatus(): Promise<any | null> {
+  try {
+    const res = await Http.request({
+      url: `http://127.0.0.1:${NODE_PORT}/status`,
+      method: "GET",
+      headers: authHeaders(),
+      timeout: 2000,
+    });
+    return JSON.parse(res.content?.toString() || "{}");
+  } catch {
+    return null;
   }
 }
 

@@ -279,6 +279,17 @@ tasks.register("prepareFaceclawNode") {
       from file("$nmDir/bin/$faceclawAbi/libnode.so")
       into faceclawJniLibsDir
     }
+    // 16 KB page-size (Android 15) swap: the prebuilt nodejs-mobile libnode.so is
+    // only 4 KB-aligned. When a 16 KB-aligned build is available (the merged
+    // nodejs-mobile PR #154 once released as 18.20.4+16kb-fix, or a from-source
+    // build), drop it at native/node/libnode-16kb.so and it is used instead - no
+    // other change needed. A naive re-align of the 4 KB binary is unsafe (its
+    // LOAD segments are not 16 KB-congruent), so this is a binary swap.
+    def libnode16kb = file("$projectDir/src/main/native/node/libnode-16kb.so")
+    if (libnode16kb.exists()) {
+      println "using 16 KB-aligned libnode override"
+      copy { from libnode16kb; into faceclawJniLibsDir; rename { "libnode.so" } }
+    }
 
     def ndkRoot = faceclawFindNdkRoot()
     if (ndkRoot == null || !ndkRoot.exists()) {

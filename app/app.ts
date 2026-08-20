@@ -6,7 +6,8 @@ purpose of the file is to pass control to the app’s first module.
 
 import { Application } from '@nativescript/core'
 import { registerShareIntentHandler } from './native/share-intents'
-import { startWhatsAppNode, whatsAppNodeHealth } from './native/whatsapp-node'
+import { ApplicationSettings } from '@nativescript/core'
+import { startWhatsAppNode, whatsAppNodeHealth, requestWhatsAppPairing } from './native/whatsapp-node'
 
 registerShareIntentHandler()
 
@@ -17,6 +18,11 @@ Application.on(Application.launchEvent, () => {
     startWhatsAppNode()
     void whatsAppNodeHealth().then((health) => {
       if (health) console.log(`[whatsapp-node] engine up: node ${health.node} ${health.arch}`)
+      // Milestone 1c: if a pair-phone is staged (dev: set the whatsapp.pairPhone
+      // pref), request a pairing code once the engine is up. The pretty pairing
+      // screen is a later batch; this drives the first live link.
+      const pairPhone = ApplicationSettings.getString('whatsapp.pairPhone', '')
+      if (health && pairPhone) void requestWhatsAppPairing(pairPhone)
     })
   } catch (error) {
     console.error(`[whatsapp-node] boot hook failed: ${error}`)
