@@ -3,6 +3,8 @@ package com.faceclaw.app;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.RemoteInput;
+import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -365,6 +367,18 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
     }
 
     public static boolean invokeNotificationAction(String key, int actionIndex) {
+        return invokeNotificationAction(key, actionIndex, null);
+    }
+
+    /**
+     * Fire a notification action. For a plain action (Like, Mark as read) the
+     * PendingIntent is sent as-is. For a direct-reply action - one that carries
+     * a RemoteInput (Reply, some Comment/Like variants) - a bare send is a
+     * no-op: the receiver reads its text from a RemoteInput results bundle that
+     * must be attached. `replyText` supplies that text; without it such an
+     * action cannot complete, so we refuse rather than silently do nothing.
+     */
+    public static boolean invokeNotificationAction(String key, int actionIndex, String replyText) {
         FaceclawMediaNotificationListenerService service = activeService;
         StatusBarNotification statusBarNotification = findActiveNotificationByKey(service, key);
         if (statusBarNotification == null || statusBarNotification.getNotification() == null) {
@@ -374,12 +388,30 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
         if (actions == null || actionIndex < 0 || actionIndex >= actions.length) {
             return false;
         }
-        PendingIntent intent = actions[actionIndex].actionIntent;
+        Notification.Action action = actions[actionIndex];
+        PendingIntent intent = action.actionIntent;
         if (intent == null) {
             return false;
         }
+        RemoteInput[] remoteInputs = action.getRemoteInputs();
+        boolean needsReply = remoteInputs != null && remoteInputs.length > 0;
         try {
-            intent.send();
+            if (needsReply) {
+                if (replyText == null || service == null) {
+                    // Caller should have prompted for text (action.hasRemoteInput);
+                    // firing without it would open the app or drop the reply.
+                    return false;
+                }
+                Intent fillIn = new Intent();
+                Bundle results = new Bundle();
+                for (RemoteInput remoteInput : remoteInputs) {
+                    results.putCharSequence(remoteInput.getResultKey(), replyText);
+                }
+                RemoteInput.addResultsToIntent(remoteInputs, fillIn, results);
+                intent.send(service, 0, fillIn);
+            } else {
+                intent.send();
+            }
             return true;
         } catch (PendingIntent.CanceledException e) {
             Log.w(TAG, "notification action pending intent was canceled", e);
@@ -811,10 +843,15 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
                 if (title.isEmpty()) {
                     continue;
                 }
+                RemoteInput[] remoteInputs = action.getRemoteInputs();
+                boolean hasRemoteInput = remoteInputs != null && remoteInputs.length > 0;
                 JSONObject actionJson = new JSONObject();
                 actionJson.put("index", index);
                 actionJson.put("title", title);
                 actionJson.put("enabled", action.actionIntent != null);
+                // A reply/direct-input action (its intent needs a filled
+                // RemoteInput); the glasses prompt for text before firing it.
+                actionJson.put("hasRemoteInput", hasRemoteInput);
                 actionsJson.put(actionJson);
             }
         }

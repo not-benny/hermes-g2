@@ -17,6 +17,7 @@ import {
 import { isNotificationListenerEnabled } from "../native/notification-access";
 import { noteStaleDataUsed, renderPassAllowsStaleData } from "../util/render-freshness";
 import { type DashboardInputEvent, type Layer, type LayerContext, type PaintBelow } from "./layers";
+import { VoiceInputLayer } from "./shell/voice-input";
 
 const PAGE_X = 12;
 const PAGE_Y = 12;
@@ -217,14 +218,51 @@ export class SingleNotificationLayer implements Layer {
     if (item.kind === "back") {
       this.close(ctx);
     } else if (item.kind === "action") {
-      invokeNotificationAction(this.notificationKey, item.action.index);
-      if (!readActiveNotifications(MAX_NOTIFICATIONS).some((item) => item.key === this.notificationKey)) {
-        this.closeUnavailableNotification(ctx);
+      if (item.action.hasRemoteInput) {
+        // A reply/direct-input action: capture a spoken reply first, then fire
+        // the action with the transcript filled into its RemoteInput.
+        this.startReply(ctx, item.action);
+      } else {
+        invokeNotificationAction(this.notificationKey, item.action.index);
+        if (!readActiveNotifications(MAX_NOTIFICATIONS).some((item) => item.key === this.notificationKey)) {
+          this.closeUnavailableNotification(ctx);
+        }
       }
     } else if (item.kind === "dismiss") {
       dismissNotification(this.notificationKey);
       this.closeUnavailableNotification(ctx);
     }
+  }
+
+  /**
+   * Capture a spoken reply and fire a direct-reply action with it. Reuses the
+   * shell voice dialog (mic + transcription + Send/Discard menu); Send fills
+   * the transcript into the action's RemoteInput on the Java side.
+   */
+  private startReply(ctx: LayerContext, action: AndroidNotificationAction): void {
+    const key = this.notificationKey;
+    const voice = new VoiceInputLayer({
+      actions: ctx.actions,
+      onClosed: () => {},
+      dismiss: () => ctx.stack.popIfTop((top) => top === voice),
+      sendTargets: [
+        {
+          id: "notification-reply",
+          label: `Reply: ${action.title}`,
+          onSend: (text: string) => {
+            const reply = text.trim();
+            if (!reply) return;
+            invokeNotificationAction(key, action.index, reply);
+            if (!readActiveNotifications(MAX_NOTIFICATIONS).some((item) => item.key === key)) {
+              this.closeUnavailableNotification(ctx);
+            }
+          },
+        },
+      ],
+      finishOnClick: true,
+    });
+    ctx.stack.push(voice);
+    voice.startCapture();
   }
 
   /** Leave the detail view, whatever hosts it. */
