@@ -130,7 +130,7 @@ session-open frame is hardcoded/universal (not per-device).
 
 ### Release / repo
 - **IN-PROGRESS** — Q: the 1.0.0 `CHANGELOG.md` is drafted. The debug preview APK and GitHub Release remain
-  pending, followed by the held awesome-list PRs. Keep the public repo evolving (currently at 6f8556b).
+  pending, followed by the held awesome-list PRs. Keep the public repo evolving.
 
 ---
 

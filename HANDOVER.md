@@ -7,7 +7,8 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 ## 0. Latest continuation (2026-08-20)
 
 The 1.0.0 development-preview changelog is drafted in `CHANGELOG.md` on the
-dedicated local branch `wt/t_4491cd1f`, based on `ae89fd5`. It is user-facing,
+dedicated local branch `wt/t_4491cd1f`, based on `ae89fd5`; the stale repository
+SHA wording in the release roadmap was removed during review rework. It is user-facing,
 keeps the Unreleased date honest, and records the setup rules, safety gates,
 verified health/companion capabilities, and known hardware- or upstream-blocked
 limitations. `ROADMAP.md` now marks only the changelog portion of Q as drafted;
@@ -23,18 +24,17 @@ end-to-end hardware validation; public MCP/skill exposure and generic
 `glasses.render_view` are unavailable; firmware flash/recovery is not validated;
 and debug APK builds are not reproducible.
 
-Fresh release-gate validation from this documentation-only checkout:
+Fresh release-gate validation from this documentation-only checkout (after the
+review correction; the final frozen commit is created from these three files):
 
 - `npm test` — **PASS**, 144 tests passed, 0 failed.
-- `npm run typecheck` — **FAIL**, existing NativeScript Android ambient-type
+- `npm run typecheck` — **FAIL**, 35 existing NativeScript Android ambient-type
   errors (`android`, `androidx`, `java`, and `Array.create`) across unchanged
   application files.
 - `JAVA_HOME=/usr/lib/jvm/java-21-openjdk ANDROID_HOME=/home/benny/Android/Sdk npm run build` — **FAIL** with the same 35 existing TypeScript ambient-type errors; no application files were changed to address them.
-- `git diff --check` — **PASS**. The tracked diff is limited to
-  `CHANGELOG.md`, `ROADMAP.md`, and `HANDOVER.md`; no APK, tag, release, or
-  hardware operation was created or performed.
+- `git diff --check ae89fd5..HEAD` — **PASS**; the changelog heading/section-order check — **PASS**; the tracked diff is limited to `CHANGELOG.md`, `ROADMAP.md`, and `HANDOVER.md`; no APK, tag, release, or hardware operation was created or performed.
 
-The next step is independent review. Nothing has been pushed, and only a
+The next step is independent review of the frozen docs-only commit. Nothing has been pushed, and only a
 separate reviewer-created delivery card after approval may push or open/update
 a PR or GitHub Release.
 
