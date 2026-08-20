@@ -34,3 +34,4 @@ App_Resources/Android/src/main/assets/faceclaw-voice-asr/
 # pull_config.sh output: the phone's live settings, including API keys
 faceclaw_settings.xml
 hermes_g2_settings.xml
+App_Resources/Android/whatsapp-node/node_modules/

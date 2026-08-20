@@ -326,6 +326,11 @@ tasks.register("prepareFaceclawNode") {
   }
 }
 
+// The in-app WhatsApp engine (Baileys) + node_modules is shipped as a single
+// prebuilt zip asset (src/main/assets/whatsapp-node.zip), regenerated from
+// App_Resources/Android/whatsapp-node/ by whatsapp-node/build-zip.sh whenever
+// the engine source changes (the source dir is not copied into the generated
+// gradle project, so this is kept out of the build).
 android {
   compileSdkVersion 35
   buildToolsVersion "35"

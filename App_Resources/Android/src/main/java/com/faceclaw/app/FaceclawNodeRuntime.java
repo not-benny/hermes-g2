@@ -1,14 +1,19 @@
 package com.faceclaw.app;
 
 import android.content.Context;
-import android.content.res.AssetManager;
+import android.content.pm.PackageManager;
 import android.util.Log;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * Hosts an embedded Node.js runtime (nodejs-mobile libnode.so) that runs the
@@ -19,7 +24,8 @@ import java.io.OutputStream;
  */
 public final class FaceclawNodeRuntime {
     private static final String TAG = "FaceclawNode";
-    private static final String ASSET_DIR = "whatsapp-node";
+    private static final String ASSET_ZIP = "whatsapp-node.zip";
+    private static final String PROJECT_DIR = "whatsapp-node";
 
     static {
         // libnode.so must load first (node-bridge links against it).
@@ -68,16 +74,21 @@ public final class FaceclawNodeRuntime {
             Log.e(TAG, "failed to unpack node project", e);
             return;
         }
-        final String mainJs = new File(projectDir, "main.js").getAbsolutePath();
+        // boot.js installs globalThis.crypto (WebCrypto) then imports main.js.
+        final String mainJs = new File(projectDir, "boot.js").getAbsolutePath();
         final String portArg = Integer.toString(port);
         final String tokenArg = token == null ? "" : token;
+        // App-private, persistent WhatsApp session (Android has no usable $HOME).
+        final File sessionDir = new File(context.getFilesDir(), "whatsapp/session");
+        sessionDir.mkdirs();
+        final String sessionArg = sessionDir.getAbsolutePath();
         started = true;
 
         Thread thread = new Thread(new Runnable() {
             @Override public void run() {
                 Log.i(TAG, "starting node: " + mainJs + " --port " + portArg);
                 int code = nativeStartNode(new String[] {
-                    "node", mainJs, "--port", portArg, "--token", tokenArg
+                    "node", mainJs, "--port", portArg, "--token", tokenArg, "--session", sessionArg
                 });
                 Log.w(TAG, "node runtime exited with code " + code);
                 synchronized (FaceclawNodeRuntime.this) {
@@ -90,43 +101,77 @@ public final class FaceclawNodeRuntime {
     }
 
     /**
-     * Copy assets/whatsapp-node into filesDir/whatsapp-node. Overwrites each
-     * build so app updates ship a fresh engine; node_modules (added later) are
-     * copied the same way.
+     * Unzip assets/whatsapp-node.zip (the engine + its node_modules) into
+     * filesDir/whatsapp-node. Re-unzips only when the app has been updated
+     * (keyed on lastUpdateTime), so normal launches skip the ~33MB extract.
      */
     private File unpackProject(Context context) throws IOException {
-        File dest = new File(context.getFilesDir(), ASSET_DIR);
-        copyAssetDir(context.getAssets(), ASSET_DIR, dest);
+        File dest = new File(context.getFilesDir(), PROJECT_DIR);
+        File stampFile = new File(dest, ".stamp");
+        String stamp = currentStamp(context);
+
+        if (new File(dest, "main.js").exists() && stamp.equals(readStamp(stampFile))) {
+            return dest;
+        }
+        Log.i(TAG, "unpacking whatsapp engine (stamp " + stamp + ")");
+        deleteRecursive(dest);
+        if (!dest.mkdirs()) throw new IOException("could not create " + dest);
+        unzipAsset(context, ASSET_ZIP, dest);
+        try (FileWriter w = new FileWriter(stampFile)) { w.write(stamp); }
         return dest;
     }
 
-    private void copyAssetDir(AssetManager assets, String assetPath, File dest) throws IOException {
-        String[] children = assets.list(assetPath);
-        if (children == null || children.length == 0) {
-            // It's a file (or empty). If it opens as a stream, copy it.
-            copyAssetFile(assets, assetPath, dest);
-            return;
-        }
-        if (!dest.exists() && !dest.mkdirs()) {
-            throw new IOException("could not create " + dest);
-        }
-        for (String child : children) {
-            copyAssetDir(assets, assetPath + "/" + child, new File(dest, child));
+    private String currentStamp(Context context) {
+        try {
+            return Long.toString(context.getPackageManager()
+                .getPackageInfo(context.getPackageName(), 0).lastUpdateTime);
+        } catch (PackageManager.NameNotFoundException e) {
+            return "0";
         }
     }
 
-    private void copyAssetFile(AssetManager assets, String assetPath, File dest) throws IOException {
-        File parent = dest.getParentFile();
-        if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            throw new IOException("could not create " + parent);
+    private String readStamp(File stampFile) {
+        if (!stampFile.exists()) return "";
+        try (BufferedReader r = new BufferedReader(new FileReader(stampFile))) {
+            String line = r.readLine();
+            return line == null ? "" : line.trim();
+        } catch (IOException e) {
+            return "";
         }
-        try (InputStream in = assets.open(assetPath);
-             OutputStream out = new FileOutputStream(dest)) {
-            byte[] buf = new byte[16 * 1024];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                out.write(buf, 0, n);
+    }
+
+    private void unzipAsset(Context context, String assetName, File dest) throws IOException {
+        byte[] buf = new byte[64 * 1024];
+        try (ZipInputStream zin = new ZipInputStream(context.getAssets().open(assetName))) {
+            ZipEntry entry;
+            while ((entry = zin.getNextEntry()) != null) {
+                File out = new File(dest, entry.getName());
+                // Guard against path traversal.
+                if (!out.getCanonicalPath().startsWith(dest.getCanonicalPath() + File.separator)) {
+                    throw new IOException("bad zip entry: " + entry.getName());
+                }
+                if (entry.isDirectory()) {
+                    out.mkdirs();
+                } else {
+                    File parent = out.getParentFile();
+                    if (parent != null) parent.mkdirs();
+                    try (OutputStream os = new FileOutputStream(out)) {
+                        int n;
+                        while ((n = zin.read(buf)) > 0) os.write(buf, 0, n);
+                    }
+                }
+                zin.closeEntry();
             }
         }
+    }
+
+    private void deleteRecursive(File f) {
+        if (f == null || !f.exists()) return;
+        File[] children = f.listFiles();
+        if (children != null) {
+            for (File c : children) deleteRecursive(c);
+        }
+        // Best-effort.
+        f.delete();
     }
 }
