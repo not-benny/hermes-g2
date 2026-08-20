@@ -8,6 +8,7 @@ import {
   notificationAllowedPackagesSetting,
   notificationFilterModeSetting,
   notificationFontSizeSetting,
+  dashboardSizeSetting,
   onAnySettingChanged,
   ringSensitivitySetting,
   saveVoiceRecordingsSetting,
@@ -125,6 +126,10 @@ export class GlassesControlsViewModel extends Observable {
     return `Notification text size: ${notificationFontSizeSetting.displayValue()}`;
   }
 
+  get dashboardSizeLabel(): string {
+    return `Dashboard size: ${dashboardSizeSetting.displayValue()}`;
+  }
+
   async onWakeScreenTap(): Promise<void> {
     const woke = await dashboardController.wakeGlassesScreen();
     this.setStatus(woke ? "Screen awake." : "Could not wake the glasses session.");
@@ -219,6 +224,11 @@ export class GlassesControlsViewModel extends Observable {
     this.setStatus(`Notification text size set to ${notificationFontSizeSetting.displayValue()}.`);
   }
 
+  onDashboardSizeTap(): void {
+    dashboardSizeSetting.set(dashboardSizeSetting.next());
+    this.setStatus(`Dashboard size set to ${dashboardSizeSetting.displayValue()}. Reopen an app to apply.`);
+  }
+
   onOpenNotificationAppsTap(): void {
     Frame.topmost()?.navigate("phone-ui/notification-apps-page");
   }
@@ -251,6 +261,7 @@ export class GlassesControlsViewModel extends Observable {
       "verticalPositionLabel",
       "timeFormatLabel",
       "batteryDisplayLabel",
+      "dashboardSizeLabel",
       "ringSensitivityLabel",
       "voiceProviderLabel",
       "wakeWordActionLabel",

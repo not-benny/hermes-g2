@@ -1,5 +1,5 @@
 import { G2_LENS_HEIGHT, G2_LENS_WIDTH } from "../../graphics/image";
-import { verticalPositionSetting } from "../dashboard-settings";
+import { dashboardSizeSetting, verticalPositionSetting } from "../dashboard-settings";
 
 /** Top bar: 24px notification icons plus a little padding. */
 export const TOP_BAR_HEIGHT = 28;
@@ -56,6 +56,15 @@ export function minWindowTop(): number {
 /** Top edge (y) of a window's top bar; max-height windows pin to the screen top. */
 export function windowTop(mode: WindowHeightMode): number {
   return mode === "max" ? 0 : minWindowTop();
+}
+
+/**
+ * Default height mode for windows that do not force one, from the Dashboard
+ * size setting: "full" fills the whole screen height, "standard" keeps the
+ * stock 288px band. Windows that force a mode (e.g. Terminal = max) ignore this.
+ */
+export function windowDefaultHeightMode(): WindowHeightMode {
+  return dashboardSizeSetting.get() === "full" ? "max" : "min";
 }
 
 /** App-content viewport size for a height mode (independent of vertical position). */

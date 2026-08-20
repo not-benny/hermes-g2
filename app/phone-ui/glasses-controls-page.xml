@@ -15,6 +15,7 @@
             <Button text="{{ verticalPositionLabel }}" tap="{{ onVerticalPositionTap }}" class="m-t-8" />
             <Button text="{{ timeFormatLabel }}" tap="{{ onTimeFormatTap }}" class="m-t-8" />
             <Button text="{{ batteryDisplayLabel }}" tap="{{ onBatteryDisplayTap }}" class="m-t-8" />
+            <Button text="{{ dashboardSizeLabel }}" tap="{{ onDashboardSizeTap }}" class="m-t-8" />
 
             <Label text="Sensors &amp; connection" class="h2 m-t-20" />
             <Label text="{{ wearStatus }}" textWrap="true" class="m-t-8" />

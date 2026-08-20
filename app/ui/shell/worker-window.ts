@@ -2,7 +2,7 @@ import { GrayImage } from "../../graphics/image";
 import { windowIcon } from "./chrome-layer";
 import { type IconName } from "../../graphics/icons";
 import { toolRegistry, type ToolResult, type ToolSpec } from "../../assistant/tool-registry";
-import { appViewportSize, type WindowHeightMode } from "./geometry";
+import { appViewportSize, windowDefaultHeightMode, type WindowHeightMode } from "./geometry";
 import { shell, type ShellWindow } from "./shell";
 
 /**
@@ -279,7 +279,7 @@ export class WorkerAppHost {
   /** Open a window of this app and register it with the shell. */
   openWindow(spec: WorkerWindowSpec): ShellWindow {
     const surfaceId = `window:${spec.windowId}`;
-    const heightMode = spec.heightMode ?? "min";
+    const heightMode = spec.heightMode ?? windowDefaultHeightMode();
     this.openWindows.add(spec.windowId);
     this.post({
       type: "open-window",

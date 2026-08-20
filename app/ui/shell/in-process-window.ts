@@ -6,7 +6,7 @@ import { type MenuItem } from "../menu";
 import { WindowMenuLayer } from "../window-menu";
 import { windowIcon } from "./chrome-layer";
 import { type IconName } from "../../graphics/icons";
-import { appViewportSize, type WindowHeightMode } from "./geometry";
+import { appViewportSize, windowDefaultHeightMode, type WindowHeightMode } from "./geometry";
 import { shell, type ShellWindow } from "./shell";
 
 /**
@@ -86,7 +86,7 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
       }
     })();
   };
-  const heightMode = options.heightMode ?? "min";
+  const heightMode = options.heightMode ?? windowDefaultHeightMode();
   const stack = new LayerStack(
     options.baseLayer,
     { ...options.actions, requestRender },

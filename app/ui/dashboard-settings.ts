@@ -327,6 +327,20 @@ export const verticalPositionSetting = new ConfigSettingEnum<VerticalPosition>({
     "Where standard (reduced-height) windows sit vertically within the display area, to position them within your field of view. Full-height windows such as terminal views always use the whole screen.",
 });
 
+export type DashboardSize = "standard" | "full";
+
+export const dashboardSizeSetting = new ConfigSettingEnum<DashboardSize>({
+  id: "dashboard-size",
+  label: "Dashboard size",
+  storageKey: "display.dashboardSize",
+  defaultValue: "standard",
+  values: ["standard", "full"],
+  formatValue: (value) => (value === "full" ? "Full screen" : "Standard"),
+  description:
+    "How much of the display windows fill. Standard uses the stock 288px band (with the vertical " +
+    "Window position). Full uses the whole screen height. Terminal always uses full height.",
+});
+
 export const voiceControlEnabledSetting = new ConfigSettingBoolean({
   id: "voice-control-enabled",
   label: "Enable",

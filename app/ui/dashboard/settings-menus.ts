@@ -46,6 +46,7 @@ import {
   toggleSettingMenuItem,
   uiFontSetting,
   notificationFontSizeSetting,
+  dashboardSizeSetting,
   beepsEnabledSetting,
   beepVolumeSetting,
   beepEventSettings,
@@ -86,6 +87,8 @@ function settingsSections(): SettingsSection[] {
         enumSettingMenuItem(uiFontSetting),
         // Text size for on-glass notifications (list, detail, new-notification popups).
         enumSettingMenuItem(notificationFontSizeSetting),
+        // Standard 288px band vs full-screen-height windows.
+        enumSettingMenuItem(dashboardSizeSetting),
       ],
     },
     {
