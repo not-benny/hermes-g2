@@ -8,44 +8,49 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 ### Direct-R1 worker isolation candidate (2026-08-21)
 
-- Local branch `work/t_c1971fa9-ring-worker` now has candidate commits
-  `0accf5f` and `0475383` (not pushed; no PR). Every optional direct-R1 connect,
+- Local rework branch `work/t_535a9f1f-ring-worker-rework` now has candidate
+  commits `0accf5f`, `0475383`, `abd7787`, and `680dbf1` (not pushed; no PR).
+  Every optional direct-R1 connect,
   discovery/MTU/subscription wait, battery read, health poll, packetAck drain,
   and ring write runs on the single `FaceclawRingLink` worker. The glasses
   `FaceclawBleCommunicator` loop and initial glasses connect path perform no
   direct-ring work.
 - Direct-ring lifecycle, timers, generation, battery, and bounded packetAck
-  state are protected by a distinct `ringLock`. Shutdown interrupts both Java
-  workers before bounded joins and crosses the final ring-write barrier before
-  resetting state or closing BLE. Delayed writes and probe gaps revalidate the
-  captured ring generation and stop on cancellation.
+  state are protected by a distinct `ringLock`. Following the first independent
+  review, teardown now installs a durable `stopping` gate before the framebuffer
+  release wait, wakes and interrupts the ring worker immediately, and revalidates
+  that gate at every direct-ring entry/GATT stage/final write. A separate
+  lifecycle lock serializes `start()` across the complete teardown. Both bounded
+  joins must report their workers dead before thread fields or session state are
+  reset or the BLE manager is closed; a live/timed-out worker leaves the object
+  fail-closed in stopping state for a later teardown retry. Delayed writes and
+  probe gaps still revalidate the captured ring generation and stop on cancellation.
 - `FaceclawBleManager` now serializes complete operations per address while a
   short static Bluetooth API lock protects only immediate Android GATT API
   initiation. Different-address callback waits no longer block glasses writes,
   and callbacks from an obsolete GATT are ignored.
-- Verification on the frozen `0475383` checkout: focused ring contracts 17/17,
-  full suite 148/148, `npm run typecheck` PASS, and JDK 21 / Android SDK 35 debug
-  build PASS. APK: `platforms/android/app/build/outputs/apk/debug/app-debug.apk`.
-  The two initial clean-worktree typecheck/build attempts lacked the ignored
-  `node_modules` link and reproduced 35 missing NativeScript ambient-type errors;
-  after linking the existing dependency tree into the isolated verification
-  worktree, the exact commands passed.
-- A32 USB (`SM_A326B`) install and launch passed. Runtime process evidence showed
-  `FaceclawBleCommunicator` and `FaceclawRingLink` as separate threads. In the
-  connected-R1 run, the ring worker used TID 2486 while glasses display writes
-  used TID 2485; a glasses frame completed during the ring connect window. The
-  R1 reached ready with MTU 247, returned CRC-valid read-only firmware, health,
-  and device-status responses, the full poll completed, the phone UI reported
-  `Connected.`, and later 15-second current-HR refresh ran on the ring worker.
-  The optional SIG battery characteristic remained absent, preserving the safe
-  fallback. Frame timings were pulled to `/tmp/t_535a9f1f-frame-timings.txt` and
-  no MAC-bearing/raw health log is tracked.
-- A reversible ring timeout could not be safely induced without physical handling
-  during this headless run. No pairing/ownership, permission, MAC, firmware/DFU,
-  reset, power, or destructive operation was attempted; Even Bluetooth remained
-  revoked. Connected-path thread/interleaving evidence is therefore the available
-  hardware proof, and timeout/retry hardware proof remains an explicit limitation.
-- Review state: implementation is ready for mandatory `g2-reviewer` review.
+- Rework verification on `680dbf1`: focused ring contracts 18/18 and full suite
+  149/149 passed; `npm run typecheck` passed after linking the existing ignored
+  dependency tree into the isolated worktree; and the JDK 21 / Android SDK 35
+  debug build passed. APK:
+  `platforms/android/app/build/outputs/apk/debug/app-debug.apk` (335,917,511 bytes).
+  `git diff --check` passed and the added-line hardcoded-secret, shell-injection,
+  eval/exec, and unsafe-deserialization scan found zero matches.
+- Rework install/launch passed on the USB A32 (`SM_A326B`, serial recorded only in
+  the task handoff). A natural, non-induced initial R1 connection failure lasted
+  2.557 seconds on ring TID 25864; 43 glasses frame/write log lines completed on
+  display TID 25863 inside that exact failure window. Automatic retry then reached
+  ready with MTU 247 and both notifications, followed by 13 CRC-valid read-only
+  responses, one full health poll, and three 15-second current-HR requests. The
+  phone UI showed Hermes and `Connected`; no fatal runtime error or incomplete
+  teardown was logged. Frame timings were pulled to
+  `/tmp/t_535a9f1f-rework-frame-timings.txt` (23,289 bytes).
+- No timeout was fabricated and no pairing/ownership, permission, MAC,
+  firmware/DFU, reset, power, or destructive operation was attempted; Even
+  Bluetooth remained revoked. The MAC/raw-health log remains untracked under
+  `/tmp` and must not be committed.
+- Review state: GPT-5.6 Sol medium-effort review of `abd7787` requested lifecycle
+  rework; `680dbf1` addresses those findings and is ready for mandatory re-review.
   Only a reviewer-created delivery card may authorize push/PR. Remaining latency
   siblings are the non-blocking wake barrier and shorter `waitForFrameFinished`.
 
