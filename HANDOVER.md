@@ -32,7 +32,9 @@ working tree:
   drains captured `packetAck` cursors through a bounded worker-thread queue.
   Activity ingestion requires the exact daily push envelope, incoming MODBUS
   inner CRC, and current local day. Persisted buckets are canonicalized, and
-  packet cursors are generation-bound across reconnects.
+  packet cursors are generation-bound across reconnects. Explicit test coverage
+  proves both stale (previous day) and future day bases are rejected, closing
+  the regression-coverage gap from commit `6b812fd`.
 - **R1 MTU contract:** direct-ring connect already requested MTU 247 after
   service discovery and before notification subscription/health probing. The
   result is now logged as `ok` or `fallback`, and a source-contract regression

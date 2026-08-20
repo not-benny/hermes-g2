@@ -236,6 +236,10 @@ test("activity ingestion rejects non-daily, bad-inner-CRC, and non-current-day f
   const future = activityPayload(60, currentBase + 86400, [{ slot: 71, steps: 5, activeCalories: 3, totalCalories: 15 }]);
   for (const frame of fragments(buildInner(2, 5, 1, 2, future))) store.ingestFrame(frame);
   assert.equal(store.snapshot().activity, null, "future day rejected");
+
+  const stale = activityPayload(60, currentBase - 86400, [{ slot: 71, steps: 5, activeCalories: 3, totalCalories: 15 }]);
+  for (const frame of fragments(buildInner(2, 5, 1, 2, stale))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().activity, null, "stale day rejected");
 });
 
 test("persisted activity is deduplicated and all derived fields are rebuilt", () => {
