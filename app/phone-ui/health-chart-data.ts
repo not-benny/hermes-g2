@@ -61,8 +61,8 @@ export interface HourHr {
 export function buildHrDayBars(
   hours: HourHr[],
   restingHr: number | null,
-): { bars: ChartBar[]; baselineFrac: number | null } {
-  if (hours.length === 0) return { bars: [], baselineFrac: null };
+): { bars: ChartBar[]; baselineFrac: number | null; domain: { min: number; max: number } | null } {
+  if (hours.length === 0) return { bars: [], baselineFrac: null, domain: null };
   let lo = Infinity;
   let hi = -Infinity;
   for (const h of hours) {
@@ -83,7 +83,12 @@ export function buildHrDayBars(
     midFrac: frac(h.avg, dMin, dMax),
     color: hrZoneColor(h.avg),
   }));
-  return { bars, baselineFrac: restingHr === null ? null : frac(restingHr, dMin, dMax) };
+  return {
+    bars,
+    baselineFrac: restingHr === null ? null : frac(restingHr, dMin, dMax),
+    // The padded axis range, for drawing bpm scale labels.
+    domain: { min: Math.round(dMin), max: Math.round(dMax) },
+  };
 }
 
 /**

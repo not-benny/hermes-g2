@@ -74,21 +74,36 @@ function drawCentered(img: GrayImage, font: BdfFont, cx: number, y: number, text
   img.drawText(font, Math.round(cx - font.measureText(text) / 2), y, text, value);
 }
 
-/** Draw the day's HR as a min-max range chart with average markers + resting line. */
-function drawHrChart(img: GrayImage, x: number, y: number, w: number, h: number, hours: HourHr[], restingHr: number | null): void {
-  const { bars, baselineFrac } = buildHrDayBars(hours, restingHr);
+/**
+ * Draw the day's HR as a min-max range chart with average markers + a dashed
+ * resting-HR line, plus a left gutter of bpm scale labels (top = max, bottom =
+ * min) so the bars have units.
+ */
+function drawHrChart(img: GrayImage, x: number, y: number, w: number, h: number, hours: HourHr[], restingHr: number | null, small: BdfFont): void {
+  const { bars, baselineFrac, domain } = buildHrDayBars(hours, restingHr);
+  const gutter = 32;
+  const cx0 = x + gutter;
+  const cw = w - gutter;
+
+  // y-axis bpm scale (units)
+  if (domain) {
+    img.drawText(small, x, y - 2, String(domain.max), 135);
+    img.drawText(small, x, y + h - 13, String(domain.min), 135);
+    img.drawText(small, x, y + Math.round(h / 2) - 6, "bpm", 95);
+  }
+
   if (baselineFrac !== null) {
     const by = y + Math.round((1 - baselineFrac) * h);
-    for (let px = x; px < x + w; px += 6) img.fillRect(px, by, 3, 1, 70);
+    for (let px = cx0; px < x + w; px += 6) img.fillRect(px, by, 3, 1, 70);
   }
   for (const b of bars) {
-    const cx = x + Math.round(b.xFrac * w);
+    const bx = cx0 + Math.round(b.xFrac * cw);
     const top = y + Math.round((1 - b.highFrac) * h);
     const bot = y + Math.round((1 - b.lowFrac) * h);
-    img.fillRect(cx, top, 3, Math.max(2, bot - top), 150);
+    img.fillRect(bx, top, 3, Math.max(2, bot - top), 150);
     if (b.midFrac != null) {
       const my = y + Math.round((1 - b.midFrac) * h);
-      img.fillRect(cx - 1, my - 1, 5, 3, 240);
+      img.fillRect(bx - 1, my - 1, 5, 3, 240);
     }
   }
 }
@@ -144,30 +159,33 @@ class HealthCardLayer implements Layer {
       img.drawText(small, W - M - small.measureText(ctxStr), hrY + 10, ctxStr, 150);
     }
 
-    // --- metric strip pinned near the bottom (values + labels fully visible) -
-    const labelY = H - 18;
-    const valueY = labelY - 24;
+    // --- 24h HR range chart (shrunk on Y, with a bpm scale) -----------------
+    const chartTop = hrY + 42;
+    // Leave ~58px below the chart for the metric strip so labels never clip.
+    const chartH = Math.min(64, H - 58 - chartTop);
+    const haveChart = hours.length > 0 && chartH >= 24;
+    if (haveChart) {
+      img.drawText(small, M, chartTop - 12, "LAST 24H", 110);
+      drawHrChart(img, M, chartTop, W - 2 * M, chartH, hours, hrI.restingHr, small);
+    }
+
+    // --- metric strip sits just below the chart (no dead gap, no clipping) ---
+    const dividerY = (haveChart ? chartTop + chartH : hrY + big.lineHeight) + 10;
+    const valueY = dividerY + 10;
+    const labelY = valueY + 24;
     const tiles: Array<[string, string]> = [
       [s.batteryPercent === null ? "--" : `${s.batteryPercent}`, "ring %"],
       [s.spo2 ? `${s.spo2.avg}` : "--", "SpO2 %"],
       [s.hrv ? `${s.hrv.avg}` : "--", "HRV ms"],
       [s.activity ? String(s.activity.totalSteps) : "--", "steps"],
     ];
-    img.fillRect(M, valueY - 8, W - 2 * M, 1, 45);
+    img.fillRect(M, dividerY, W - 2 * M, 1, 45);
     const tileW = W / tiles.length;
     tiles.forEach(([value, label], i) => {
       const cx = i * tileW + tileW / 2;
       drawCentered(img, med, cx, valueY, value, 235);
       drawCentered(img, small, cx, labelY, label, 140);
     });
-
-    // --- 24h HR range chart (shrunk on Y; sits between the HR row + strip) ---
-    const chartTop = hrY + 42;
-    const chartH = Math.min(64, valueY - 14 - chartTop);
-    if (hours.length && chartH >= 24) {
-      img.drawText(small, M, chartTop - 12, "LAST 24H", 110);
-      drawHrChart(img, M, chartTop, W - 2 * M, chartH, hours, hrI.restingHr);
-    }
 
     return img;
   }
