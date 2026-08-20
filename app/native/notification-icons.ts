@@ -41,6 +41,8 @@ export type AndroidNotificationAction = {
   index: number;
   title: string;
   enabled: boolean;
+  /** The action carries a RemoteInput: it needs reply text before firing. */
+  hasRemoteInput: boolean;
 };
 
 export type AndroidNotification = {
@@ -237,13 +239,18 @@ function parseNotificationAppsJson(json: string): AndroidNotificationApp[] {
   }
 }
 
-export function invokeNotificationAction(notificationKey: string, actionIndex: number): boolean {
+export function invokeNotificationAction(
+  notificationKey: string,
+  actionIndex: number,
+  replyText?: string,
+): boolean {
   if (!global.isAndroid || !notificationKey) return false;
   invalidateIconCaches();
   return Boolean(
     com.faceclaw.app.FaceclawMediaNotificationListenerService.invokeNotificationAction(
       notificationKey,
       Math.round(actionIndex),
+      replyText ?? null,
     ),
   );
 }
@@ -339,5 +346,6 @@ function normalizeAction(value: any): AndroidNotificationAction | null {
     index,
     title,
     enabled: Boolean(value.enabled),
+    hasRemoteInput: Boolean(value.hasRemoteInput),
   };
 }

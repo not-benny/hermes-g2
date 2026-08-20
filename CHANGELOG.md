@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-08-20 (feature batch)
+
+- Notification actions from the glasses now work: picking Reply opens the
+  voice input to dictate a response (sent via the notification's direct-reply
+  input), and plain actions like Like or Mark as read fire directly.
+- Media Browse library picker can hide junk sources: a per-source show/hide
+  list, reachable from the phone Glasses Controls page and from an on-glass
+  Manage sources menu, so the picker only lists the media apps you use.
+- Notification text size is adjustable (small, medium, large) from both the
+  on-glass Display menu and the phone Glasses Controls page.
+- Glasses buzzer feedback: distinct beep patterns for notifications, assistant
+  replies and errors, timers, and connect/disconnect, with a master switch, a
+  volume level, and per-event toggles in an on-glass Sounds section.
+
 ## 2026-08-20 (later the same day)
 
 Live ring health in the HUD, verified on hardware.

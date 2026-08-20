@@ -7,6 +7,7 @@ import {
   lockScreenEnabledSetting,
   notificationAllowedPackagesSetting,
   notificationFilterModeSetting,
+  notificationFontSizeSetting,
   onAnySettingChanged,
   ringSensitivitySetting,
   saveVoiceRecordingsSetting,
@@ -120,6 +121,10 @@ export class GlassesControlsViewModel extends Observable {
     return `Selected apps: ${notificationAllowedPackagesSetting.displayValue()}`;
   }
 
+  get notificationFontSizeLabel(): string {
+    return `Notification text size: ${notificationFontSizeSetting.displayValue()}`;
+  }
+
   async onWakeScreenTap(): Promise<void> {
     const woke = await dashboardController.wakeGlassesScreen();
     this.setStatus(woke ? "Screen awake." : "Could not wake the glasses session.");
@@ -209,8 +214,17 @@ export class GlassesControlsViewModel extends Observable {
     this.setStatus(`Notification filter set to ${notificationFilterModeSetting.displayValue()}.`);
   }
 
+  onNotificationFontSizeTap(): void {
+    notificationFontSizeSetting.set(notificationFontSizeSetting.next());
+    this.setStatus(`Notification text size set to ${notificationFontSizeSetting.displayValue()}.`);
+  }
+
   onOpenNotificationAppsTap(): void {
     Frame.topmost()?.navigate("phone-ui/notification-apps-page");
+  }
+
+  onOpenMediaAppsTap(): void {
+    Frame.topmost()?.navigate("phone-ui/media-apps-page");
   }
 
   onBackTap(): void {
@@ -243,6 +257,7 @@ export class GlassesControlsViewModel extends Observable {
       "voiceRecordingLabel",
       "notificationFilterLabel",
       "selectedAppsLabel",
+      "notificationFontSizeLabel",
     ]) {
       this.notifyPropertyChange(property, (this as any)[property]);
     }

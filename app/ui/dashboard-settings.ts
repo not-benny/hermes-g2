@@ -1,4 +1,5 @@
 import { GESTURE_DOUBLE_CLICK } from "./gestures";
+import { BEEP_EVENTS, type BeepEvent } from "./event-beeps";
 import {
   getBooleanSetting,
   getStringSetting,
@@ -435,6 +436,71 @@ export const notificationAllowedPackagesSetting = new ConfigSettingString({
   description: "Apps allowed when Notification filter is set to Selected apps. Manage this list from the Android Glasses Controls page.",
 });
 
+// ---- Beeps / buzzer feedback ----
+// BEEP_EVENTS (keys, defaults, labels) live in event-beeps.ts so a worker
+// isolate can gate beeps without importing this heavy module.
+export const beepsEnabledSetting = new ConfigSettingBoolean({
+  id: "beeps-enabled",
+  label: "Beeps",
+  storageKey: "beeps.enabled",
+  defaultValue: true,
+  description:
+    "Master switch for glasses buzzer feedback (notifications, assistant, timers, connect/disconnect).",
+});
+
+export const BEEP_VOLUME_VALUES = ["low", "medium", "high"] as const;
+export type BeepVolume = (typeof BEEP_VOLUME_VALUES)[number];
+
+const beepVolumeLabels: Record<BeepVolume, string> = { low: "Low", medium: "Medium", high: "High" };
+
+export const beepVolumeSetting = new ConfigSettingEnum<BeepVolume>({
+  id: "beep-volume",
+  label: "Beep volume",
+  storageKey: "beeps.volume",
+  defaultValue: "medium",
+  values: BEEP_VOLUME_VALUES,
+  formatValue: (value) => beepVolumeLabels[value] ?? value,
+  description: "Loudness of the piezo buzzer. The G2 piezo has a small volume range.",
+});
+
+// Per-event toggles, generated from the BEEP_EVENTS table (one source of truth).
+export const beepEventSettings: Record<BeepEvent, ConfigSettingBoolean> = Object.fromEntries(
+  (Object.keys(BEEP_EVENTS) as BeepEvent[]).map((event) => {
+    const def = BEEP_EVENTS[event];
+    return [
+      event,
+      new ConfigSettingBoolean({
+        id: `beep-${event}`,
+        label: def.label,
+        storageKey: def.storageKey,
+        defaultValue: def.defaultOn,
+        description: def.description,
+      }),
+    ];
+  }),
+) as Record<BeepEvent, ConfigSettingBoolean>;
+
+export const NOTIFICATION_FONT_SIZE_VALUES = ["small", "medium", "large"] as const;
+export type NotificationFontSize = (typeof NOTIFICATION_FONT_SIZE_VALUES)[number];
+
+const notificationFontSizeLabels: Record<NotificationFontSize, string> = {
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+};
+
+export const notificationFontSizeSetting = new ConfigSettingEnum<NotificationFontSize>({
+  id: "notification-font-size",
+  label: "Notification text size",
+  storageKey: "notifications.fontSize",
+  defaultValue: "small",
+  values: NOTIFICATION_FONT_SIZE_VALUES,
+  formatValue: (value) => notificationFontSizeLabels[value] ?? value,
+  description:
+    "Text size for notifications on the glasses: the Notifications list, the detail view, and " +
+    "new-notification popups. Small matches the rest of the UI.",
+});
+
 export function parseNotificationAllowedPackages(value = notificationAllowedPackagesSetting.get()): string[] {
   return value
     .split(",")
@@ -444,6 +510,45 @@ export function parseNotificationAllowedPackages(value = notificationAllowedPack
 
 function normalizeNotificationAllowedPackages(value: string | null | undefined): string {
   return Array.from(new Set(parseNotificationAllowedPackages(value ?? ""))).sort().join(",");
+}
+
+// Media "Browse library" source hiding. Unlike the notification allow-list, this
+// is a HIDE set: empty means every discovered media-browser app is shown, and a
+// package is added only to hide its junk source (Bixby, Edge, TikTok, ...) from
+// the picker. Mirrors the notification-apps management page.
+export const mediaHiddenPackagesSetting = new ConfigSettingString({
+  id: "media-hidden-packages",
+  label: "Hidden media sources",
+  storageKey: "music.hiddenBrowsablePackages",
+  defaultValue: "",
+  normalize: normalizeMediaHiddenPackages,
+  formatValue: (value) => `${parseMediaHiddenPackages(value).length} hidden`,
+  description: "Media-browser apps hidden from the Music Browse library picker. Manage from the Android Glasses Controls page.",
+});
+
+export function parseMediaHiddenPackages(value = mediaHiddenPackagesSetting.get()): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => /^[A-Za-z0-9._-]+$/.test(item));
+}
+
+function normalizeMediaHiddenPackages(value: string | null | undefined): string {
+  return Array.from(new Set(parseMediaHiddenPackages(value ?? ""))).sort().join(",");
+}
+
+/** True when a media-browser package is hidden from the Browse library picker. */
+export function isMediaSourceHidden(packageName: string): boolean {
+  return parseMediaHiddenPackages().includes(packageName);
+}
+
+/** Add or remove a package from the hidden media-source set. */
+export function setMediaSourceHidden(packageName: string, hidden: boolean): void {
+  if (!/^[A-Za-z0-9._-]+$/.test(packageName)) return;
+  const set = new Set(parseMediaHiddenPackages());
+  if (hidden) set.add(packageName);
+  else set.delete(packageName);
+  mediaHiddenPackagesSetting.set(Array.from(set).sort().join(","));
 }
 
 export type AssistantBackendKind = "direct" | "external";
@@ -494,6 +599,85 @@ export const assistantBridgeTokenSetting = new ConfigSettingString({
   glassesEditTitle: "Edit Hermes token",
   formatValue: (value) => (value ? `${value.slice(0, 6)}...` : "(not set)"),
   description: "Shared secret that must match the Hermes Agent bridge token.",
+});
+
+// Even account + cloud-API signing config for the ring-health integration
+// (see app/native/even-api.ts). The account fields are the user's Even login;
+// the signing fields are the embedded API credentials the official app uses,
+// supplied by the user (masked). The auth token is filled in after login.
+export const evenAccountEmailSetting = new ConfigSettingString({
+  id: "even-account-email",
+  label: "Even account email",
+  storageKey: "even.account.email",
+  defaultValue: "",
+  editorTitle: "Even account email or phone",
+  description: "The email (or phone) for your Even Realities account, used to fetch ring health from Even's cloud.",
+});
+
+export const evenAccountPasswordSetting = new ConfigSettingString({
+  id: "even-account-password",
+  label: "Even account password",
+  storageKey: "even.account.password",
+  defaultValue: "",
+  editorTitle: "Even account password",
+  glassesEditTitle: "Edit Even password",
+  formatValue: (value) => (value ? "••••••••" : "(not set)"),
+  description: "Your Even Realities account password. Stored on-device and sent (encrypted) only to Even's login API.",
+});
+
+export const evenApiAppIdSetting = new ConfigSettingString({
+  id: "even-api-app-id",
+  label: "Even API app id",
+  storageKey: "even.api.appId",
+  defaultValue: "",
+  formatValue: (value) => (value ? `${value.slice(0, 6)}...` : "(not set)"),
+  description: "Even API app_id (from the official app). Required for request signing.",
+});
+
+export const evenApiAccessKeySetting = new ConfigSettingString({
+  id: "even-api-access-key",
+  label: "Even API access key",
+  storageKey: "even.api.accessKey",
+  defaultValue: "",
+  formatValue: (value) => (value ? `${value.slice(0, 6)}...` : "(not set)"),
+  description: "Even API accessKey (from the official app). Required for request signing.",
+});
+
+export const evenApiAccessSecretSetting = new ConfigSettingString({
+  id: "even-api-access-secret",
+  label: "Even API access secret",
+  storageKey: "even.api.accessSecret",
+  defaultValue: "",
+  formatValue: (value) => (value ? `${value.slice(0, 4)}...` : "(not set)"),
+  description: "Even API accessKeySecret (from the official app) — the HMAC-SHA256 signing key.",
+});
+
+export const evenApiAesKeySetting = new ConfigSettingString({
+  id: "even-api-aes-key",
+  label: "Even password AES key",
+  storageKey: "even.api.aesKey",
+  defaultValue: "",
+  formatValue: (value) => (value ? `${value.slice(0, 4)}...` : "(not set)"),
+  description: "32-byte AES-256-CBC key the app uses to encrypt the login password.",
+});
+
+export const evenApiAesIvSetting = new ConfigSettingString({
+  id: "even-api-aes-iv",
+  label: "Even password AES IV",
+  storageKey: "even.api.aesIv",
+  defaultValue: "",
+  formatValue: (value) => (value ? `${value.slice(0, 4)}...` : "(not set)"),
+  description: "16-byte AES-CBC IV paired with the password AES key.",
+});
+
+// Written by the client after a successful login; not user-editable in practice.
+export const evenAuthTokenSetting = new ConfigSettingString({
+  id: "even-auth-token",
+  label: "Even auth token",
+  storageKey: "even.api.authToken",
+  defaultValue: "",
+  formatValue: (value) => (value ? "(signed in)" : "(signed out)"),
+  description: "Bearer token from the last successful Even login.",
 });
 
 export const assistantAllowProactiveSetting = new ConfigSettingBoolean({

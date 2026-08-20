@@ -36,7 +36,9 @@
             <Label text="Notification filtering" class="h2 m-t-20" />
             <Button text="{{ notificationFilterLabel }}" tap="{{ onNotificationFilterModeTap }}" class="m-t-8" />
             <Label text="{{ selectedAppsLabel }}" textWrap="true" class="m-t-8" />
+            <Button text="{{ notificationFontSizeLabel }}" tap="{{ onNotificationFontSizeTap }}" class="m-t-8" />
             <Button text="Manage notification apps" tap="{{ onOpenNotificationAppsTap }}" class="m-t-8" />
+            <Button text="Manage media sources" tap="{{ onOpenMediaAppsTap }}" class="m-t-8" />
 
             <Button text="Back" tap="{{ onBackTap }}" class="m-t-24" />
         </StackLayout>

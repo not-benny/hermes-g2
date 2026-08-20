@@ -14,6 +14,7 @@ import {
 } from "../../native/timer-notifications";
 import type { DashboardInputEvent } from "../../ui/layers";
 import { defaultWindowMenuItems, WindowMenu } from "../../ui/window-menu";
+import { playEventBeep } from "../../ui/event-beeps";
 import type { WorkerAppMessage, WorkerAppReply } from "../../ui/shell/worker-window";
 import type { ToolResult, ToolSpec } from "../../assistant/tool-registry";
 import {
@@ -458,6 +459,13 @@ function expireTimer(timer: CountdownTimer, renderWindows = true): void {
   timer.expired = true;
   timer.expiryTimeout = null;
   fireTimerNotification(timer.id, formatDuration(timer.durationMs));
+  // Worker isolate: play through the Java singleton directly (same pattern as
+  // the game workers). The phone-side timer notification already vibrates, so
+  // this only adds the on-glass beep.
+  void playEventBeep("timer", (payload) => {
+    const communicator = com.faceclaw.app.FaceclawBleCommunicator.getActive();
+    if (communicator) communicator.playBuzzerSequence((payload as Uint8Array).buffer);
+  });
   for (const window of windows.values()) {
     post({ type: "set-attention", windowId: window.windowId, attention: true });
     updateRenderTimer(window);

@@ -9,7 +9,8 @@ import {
   GESTURE_SCROLL_DOWN,
   GESTURE_SCROLL_UP,
 } from "../../ui/gestures";
-import { MenuLayer, drawSelectionHighlight, drawSubmenuIndicator } from "../../ui/menu";
+import { MenuLayer, drawSelectionHighlight, drawSubmenuIndicator, drawToggleMenuItem, type MenuItem } from "../../ui/menu";
+import { isMediaSourceHidden, setMediaSourceHidden } from "../../ui/dashboard-settings";
 import { EdgeBounce, EdgeWrapScroller } from "../../ui/edge-scroll";
 import {
   mediaControllerBridge,
@@ -96,7 +97,7 @@ class MusicAppLayer implements Layer {
 
     if (!media.available) {
       image.drawText(font, 24, 16, "No active media session.", 180);
-      if (mediaBrowserBridge.listBrowsableApps().length) {
+      if (mediaBrowserBridge.listVisibleBrowsableApps().length) {
         image.drawText(font, 24, 34, "Click to browse a music app's library,", 150);
         image.drawText(font, 24, 48, "or start playback on the phone.", 150);
         image.drawText(font, 20, height - 16, `${GESTURE_CLICK} browse   ${GESTURE_DOUBLE_CLICK} back`, 110);
@@ -295,8 +296,7 @@ class MusicAppLayer implements Layer {
    * otherwise offer a picker first.
    */
   private openBrowse(ctx: LayerContext): void {
-    const apps = mediaBrowserBridge.listBrowsableApps(true);
-    if (!apps.length) return;
+    const visible = mediaBrowserBridge.listVisibleBrowsableApps(true);
     const pushBrowser = (target: LayerContext, app: MediaBrowserApp) => {
       target.stack.push(
         new MediaBrowseLayer({
@@ -306,22 +306,55 @@ class MusicAppLayer implements Layer {
         }),
       );
     };
-    if (apps.length === 1) {
-      pushBrowser(ctx, apps[0]!);
+    // A lone visible source with nothing hidden: skip the picker entirely. If
+    // sources are hidden, keep the picker so "Manage sources" stays reachable.
+    if (visible.length === 1 && mediaBrowserBridge.listBrowsableApps().length === 1) {
+      pushBrowser(ctx, visible[0]!);
       return;
     }
-    ctx.stack.push(
-      new MenuLayer(
-        "Browse library",
-        apps.map((app) => ({
-          label: app.appName,
-          onSelect: (menuCtx: LayerContext) => {
-            menuCtx.stack.pop();
-            pushBrowser(menuCtx, app);
-          },
-        })),
-      ),
-    );
+    if (!visible.length && !mediaBrowserBridge.listBrowsableApps().length) return;
+    const items: MenuItem[] = visible.map((app) => ({
+      label: app.appName,
+      onSelect: (menuCtx: LayerContext) => {
+        menuCtx.stack.pop();
+        pushBrowser(menuCtx, app);
+      },
+    }));
+    items.push({
+      label: "Manage sources...",
+      onSelect: (menuCtx: LayerContext) => this.openManageSources(menuCtx),
+    });
+    ctx.stack.push(new MenuLayer("Browse library", items));
+  }
+
+  /**
+   * Toggle which discovered media-browser apps appear in the picker. Every
+   * source is listed with a show/hide switch; the picker filters by the hidden
+   * set (mirrors the phone-side notification-source management).
+   */
+  private openManageSources(ctx: LayerContext): void {
+    const font = getDefaultSmallFont();
+    // Items are static (one per discovered app); the switch reflects live
+    // hidden-state read in render, so a toggle just flips the set and repaints.
+    const items = mediaBrowserBridge.listBrowsableApps().map((app): MenuItem => ({
+      label: app.appName || app.packageName,
+      onSelect: (menuCtx: LayerContext) => {
+        setMediaSourceHidden(app.packageName, !isMediaSourceHidden(app.packageName));
+        menuCtx.actions.requestRender();
+      },
+      render: ({ image, x, y, width, selected }) =>
+        drawToggleMenuItem(
+          image,
+          font,
+          x,
+          y,
+          width,
+          app.appName || app.packageName,
+          !isMediaSourceHidden(app.packageName),
+          selected,
+        ),
+    }));
+    ctx.stack.push(new MenuLayer("Media sources", items));
   }
 
   private buildActions(media: MediaControllerState, queue: MediaQueueItem[]): MusicAction[] {
@@ -333,7 +366,7 @@ class MusicAppLayer implements Layer {
         enabled: media.canPlayPause,
       },
       { kind: "playlist", label: "Playlist", enabled: queue.length > 0 },
-      { kind: "browse", label: "Browse library", enabled: mediaBrowserBridge.listBrowsableApps().length > 0 },
+      { kind: "browse", label: "Browse library", enabled: mediaBrowserBridge.listVisibleBrowsableApps().length > 0 },
       { kind: "volume", label: volume >= 0 ? `Volume (${volume})` : "Volume", enabled: volume >= 0 },
       { kind: "next", label: "Next track", enabled: media.canSkipNext },
       { kind: "previous", label: "Previous track", enabled: media.canSkipPrevious },

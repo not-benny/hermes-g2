@@ -45,6 +45,10 @@ import {
   timeFormatSetting,
   toggleSettingMenuItem,
   uiFontSetting,
+  notificationFontSizeSetting,
+  beepsEnabledSetting,
+  beepVolumeSetting,
+  beepEventSettings,
   verticalPositionSetting,
   voiceProviderSetting,
   screenTimeoutSetting,
@@ -80,6 +84,8 @@ function settingsSections(): SettingsSection[] {
         enumSettingMenuItem(timeFormatSetting),
         // Selects the UI body typeface (Terminus vs proportional TerminusV).
         enumSettingMenuItem(uiFontSetting),
+        // Text size for on-glass notifications (list, detail, new-notification popups).
+        enumSettingMenuItem(notificationFontSizeSetting),
       ],
     },
     {
@@ -87,6 +93,20 @@ function settingsSections(): SettingsSection[] {
       items: [
         // Throttles ring/touchpad scrolling; lower levels tame a runaway swipe.
         enumSettingMenuItem(ringSensitivitySetting),
+      ],
+    },
+    {
+      label: "Sounds",
+      items: [
+        toggleSettingMenuItem(beepsEnabledSetting), // master
+        enumSettingMenuItem(beepVolumeSetting),
+        toggleSettingMenuItem(beepEventSettings.notification),
+        toggleSettingMenuItem(beepEventSettings.assistantReply),
+        toggleSettingMenuItem(beepEventSettings.assistantError),
+        toggleSettingMenuItem(beepEventSettings.assistantTool),
+        toggleSettingMenuItem(beepEventSettings.timer),
+        toggleSettingMenuItem(beepEventSettings.connect),
+        toggleSettingMenuItem(beepEventSettings.disconnect),
       ],
     },
     {
