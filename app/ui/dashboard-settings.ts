@@ -446,6 +446,45 @@ function normalizeNotificationAllowedPackages(value: string | null | undefined):
   return Array.from(new Set(parseNotificationAllowedPackages(value ?? ""))).sort().join(",");
 }
 
+// Media "Browse library" source hiding. Unlike the notification allow-list, this
+// is a HIDE set: empty means every discovered media-browser app is shown, and a
+// package is added only to hide its junk source (Bixby, Edge, TikTok, ...) from
+// the picker. Mirrors the notification-apps management page.
+export const mediaHiddenPackagesSetting = new ConfigSettingString({
+  id: "media-hidden-packages",
+  label: "Hidden media sources",
+  storageKey: "music.hiddenBrowsablePackages",
+  defaultValue: "",
+  normalize: normalizeMediaHiddenPackages,
+  formatValue: (value) => `${parseMediaHiddenPackages(value).length} hidden`,
+  description: "Media-browser apps hidden from the Music Browse library picker. Manage from the Android Glasses Controls page.",
+});
+
+export function parseMediaHiddenPackages(value = mediaHiddenPackagesSetting.get()): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => /^[A-Za-z0-9._-]+$/.test(item));
+}
+
+function normalizeMediaHiddenPackages(value: string | null | undefined): string {
+  return Array.from(new Set(parseMediaHiddenPackages(value ?? ""))).sort().join(",");
+}
+
+/** True when a media-browser package is hidden from the Browse library picker. */
+export function isMediaSourceHidden(packageName: string): boolean {
+  return parseMediaHiddenPackages().includes(packageName);
+}
+
+/** Add or remove a package from the hidden media-source set. */
+export function setMediaSourceHidden(packageName: string, hidden: boolean): void {
+  if (!/^[A-Za-z0-9._-]+$/.test(packageName)) return;
+  const set = new Set(parseMediaHiddenPackages());
+  if (hidden) set.add(packageName);
+  else set.delete(packageName);
+  mediaHiddenPackagesSetting.set(Array.from(set).sort().join(","));
+}
+
 export type AssistantBackendKind = "direct" | "external";
 
 const assistantBackendLabels: Record<AssistantBackendKind, string> = {

@@ -1,5 +1,7 @@
 import { Utils } from "@nativescript/core";
 
+import { parseMediaHiddenPackages } from "../ui/dashboard-settings";
+
 declare const com: any;
 
 export type MediaBrowserApp = {
@@ -57,6 +59,16 @@ export class FaceclawMediaBrowserBridge {
       this.appsCache = [];
     }
     return this.appsCache;
+  }
+
+  /**
+   * Browsable apps with the user's hidden sources removed. The picker and its
+   * gates use this; the management page uses the raw listBrowsableApps so every
+   * discovered source stays toggleable.
+   */
+  listVisibleBrowsableApps(refresh = false): MediaBrowserApp[] {
+    const hidden = new Set(parseMediaHiddenPackages());
+    return this.listBrowsableApps(refresh).filter((app) => !hidden.has(app.packageName));
   }
 
   /**

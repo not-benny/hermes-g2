@@ -213,6 +213,10 @@ export class GlassesControlsViewModel extends Observable {
     Frame.topmost()?.navigate("phone-ui/notification-apps-page");
   }
 
+  onOpenMediaAppsTap(): void {
+    Frame.topmost()?.navigate("phone-ui/media-apps-page");
+  }
+
   onBackTap(): void {
     Frame.topmost()?.navigate({ moduleName: "phone-ui/main-page", clearHistory: true });
   }
