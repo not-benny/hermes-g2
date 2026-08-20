@@ -159,7 +159,7 @@ export class WhatsAppViewModel extends Observable {
     }
     if (!this._code && !this._busy) {
       if (s.lastError === "pairing_failed_401") {
-        this.setStatus("Last attempt was rejected. Tap Get pairing code to retry cleanly.");
+        this.setStatus("WhatsApp rejected the attempt - this is its rate limit from repeated tries. Wait a few minutes, then request ONE code and enter it right away.");
       } else if (s.state === "connecting" || s.state === "pairing") {
         this.setStatus("Connecting to WhatsApp...");
       } else {

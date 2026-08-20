@@ -22,7 +22,13 @@ const TOKEN = getArg('token', '');
 const SESSION_DIR = getArg('session', path.join(process.env.HOME || '.', 'whatsapp', 'session'));
 fs.mkdirSync(SESSION_DIR, { recursive: true });
 
-const logger = pino({ level: 'warn' });
+// Route Baileys' own logs to logcat (via console.log -> stdout) at debug level.
+// The pairing handshake and its failures are logged by Baileys at info/debug,
+// so a quieter level hides exactly the errors we need when a link fails.
+const logger = pino(
+  { level: 'debug' },
+  { write: (s) => { try { console.log('[baileys] ' + String(s).trim()); } catch {} } },
+);
 
 let sock = null;
 let connectionState = 'idle';      // idle | connecting | connected | disconnected | logged_out

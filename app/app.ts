@@ -6,23 +6,20 @@ purpose of the file is to pass control to the app’s first module.
 
 import { Application } from '@nativescript/core'
 import { registerShareIntentHandler } from './native/share-intents'
-import { ApplicationSettings } from '@nativescript/core'
-import { startWhatsAppNode, whatsAppNodeHealth, requestWhatsAppPairing } from './native/whatsapp-node'
+import { startWhatsAppNode, whatsAppNodeHealth } from './native/whatsapp-node'
 
 registerShareIntentHandler()
 
-// Milestone 1a: boot the embedded Node WhatsApp engine and confirm the loopback
-// server answers. Best-effort; never blocks app startup.
+// Boot the embedded Node WhatsApp engine and confirm the loopback server
+// answers. Best-effort; never blocks app startup. Pairing is user-initiated
+// from the WhatsApp page - the engine auto-connects on boot only when already
+// linked, so there is NO auto-pair here (an auto-pair would race the page's
+// Get-pairing-code button and churn the session, breaking the link).
 Application.on(Application.launchEvent, () => {
   try {
     startWhatsAppNode()
     void whatsAppNodeHealth().then((health) => {
       if (health) console.log(`[whatsapp-node] engine up: node ${health.node} ${health.arch}`)
-      // Milestone 1c: if a pair-phone is staged (dev: set the whatsapp.pairPhone
-      // pref), request a pairing code once the engine is up. The pretty pairing
-      // screen is a later batch; this drives the first live link.
-      const pairPhone = ApplicationSettings.getString('whatsapp.pairPhone', '')
-      if (health && pairPhone) void requestWhatsAppPairing(pairPhone)
     })
   } catch (error) {
     console.error(`[whatsapp-node] boot hook failed: ${error}`)
