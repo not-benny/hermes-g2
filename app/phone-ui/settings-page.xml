@@ -13,6 +13,9 @@
             <Label text="Devices" class="section-label" />
             <Button text="Configure devices" tap="{{ onDevicesTap }}" class="m-t-8" />
 
+            <Label text="Health" class="section-label m-t-20" />
+            <Button text="Health profile (for calorie estimate)" tap="{{ onHealthProfileTap }}" class="m-t-8" />
+
             <Label text="Credentials" class="section-label m-t-20" />
             <Button text="API keys &amp; bridge" tap="{{ onApiKeysTap }}" class="m-t-8" />
             <Button text="WhatsApp" tap="{{ onWhatsAppTap }}" class="m-t-8" />

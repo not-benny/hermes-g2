@@ -30,6 +30,7 @@ export class SettingsViewModel extends Observable {
   onDevicesTap(): void { Frame.topmost()?.navigate("phone-ui/config-page"); }
   onApiKeysTap(): void { Frame.topmost()?.navigate("phone-ui/api-keys-page"); }
   onWhatsAppTap(): void { Frame.topmost()?.navigate("phone-ui/whatsapp-page"); }
+  onHealthProfileTap(): void { Frame.topmost()?.navigate("phone-ui/health-profile-page"); }
 
   // --- preview mode ----------------------------------------------------------
   get previewModeVisibility(): "visible" | "collapse" { return isPreviewOnlyMode() ? "visible" : "collapse"; }
