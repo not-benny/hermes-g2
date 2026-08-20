@@ -10,8 +10,9 @@
  *
  * Wire format was reverse-engineered from a real capture and validated end to
  * end: every multi-packet frame reassembled and every crc32 matched its batch
- * id. The temperature-detail and sleep layouts were not observed on-device and
- * are left as marked stubs rather than guessed.
+ * id. Temperature has no separate record (it rides the stride-9 hourly layout);
+ * only the sleep-stage layout remains unobserved and is left as a marked stub
+ * rather than guessed.
  */
 
 /** A byte source: anything indexable that yields 0..255 values. */
@@ -361,16 +362,15 @@ export function decodeRingBattery(deviceStatusData: Bytes): number {
 // --- unobserved layouts (stubs) --------------------------------------------
 
 /**
- * TODO: temperature-detail record layout is not yet decoded.
- *
- * The hourly temperature summary rides the stride-9 layout via
- * decodeDailyData(payload, "temperature"). A separate high-resolution
- * temperature-detail record was never observed on-device (the ring was not worn
- * long enough), so its byte layout is unknown. Do not guess it. Capture a real
- * temperature-detail frame, confirm the stride, then implement here.
+ * There is NO separate temperature-detail record (RE conclusion, specs/
+ * even-protocol.md 2026-08-20). Temperature rides the same stride-9 hourly
+ * layout as HR / SpO2 (cmd=3) and decodes via decodeDailyData(payload,
+ * "temperature") the moment the ring is worn - no dedicated frame or extra
+ * code. This defensive stub only exists so a stray caller fails loudly rather
+ * than inventing a layout that does not exist; nothing should call it.
  */
 export function decodeTemperatureDetail(_payload: Bytes): never {
-  throw new Error("ring temperature-detail layout not yet observed");
+  throw new Error("no separate ring temperature-detail record; use the stride-9 hourly path");
 }
 
 /**
