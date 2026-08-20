@@ -41,10 +41,22 @@ test("Even Health is a direct-BLE readiness dashboard reachable from the Health 
   assert.match(vm, /get readinessValue\(\): string/);
   assert.match(vm, /get currentHrValue\(\): string/);
   assert.match(vm, /get batteryValue\(\): string/);
-  // Historic logging + export are wired from the tab.
+  // Historic logging + JSON export are wired from the tab.
   assert.match(vm, /recordHealthDay/);
-  assert.match(vm, /shareHealthCsv/);
+  assert.match(vm, /shareHealthJson/);
   assert.match(vm, /pushHealthToHermes/);
+  assert.match(xml, /Export JSON/);
+  assert.doesNotMatch(xml, /Export CSV/); // consolidated to a single JSON export
+
+  // Export shares a REAL file via the FileProvider (content:// EXTRA_STREAM),
+  // not the CSV text inline (EXTRA_TEXT) -- the file must land as an attachment.
+  const exp = read("app/native/health-export.ts");
+  assert.match(exp, /FileProvider\.getUriForFile/);
+  assert.match(exp, /EXTRA_STREAM/);
+  assert.doesNotMatch(exp, /EXTRA_TEXT/);
+  const manifest = read("App_Resources/Android/src/main/AndroidManifest.xml");
+  assert.match(manifest, /androidx\.core\.content\.FileProvider/);
+  assert.match(manifest, /\.fileprovider/);
 
   // The readiness hero ring gauge is built into an AbsoluteLayout mount.
   assert.match(vm, /buildRing\(page: Page\)/);

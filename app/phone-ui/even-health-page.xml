@@ -99,7 +99,7 @@
             </GridLayout>
 
             <!-- [F] export + sharing -->
-            <Button text="Export CSV" tap="{{ onExportCsvTap }}" class="m-t-12" />
+            <Button text="Export JSON" tap="{{ onExportJsonTap }}" class="m-t-12" />
             <GridLayout columns="*,auto" class="control-row m-t-8">
                 <StackLayout col="0" verticalAlignment="center">
                     <Label text="Send to Hermes" class="control-row-label" />

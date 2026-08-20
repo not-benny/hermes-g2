@@ -97,5 +97,16 @@
 			android:name="com.faceclaw.app.FaceclawTimerReceiver"
 			android:enabled="true"
 			android:exported="false" />
+		<!-- Serves exported files (e.g. health CSV/JSON) as content:// URIs so they
+		     can be shared as real file attachments instead of inline text. -->
+		<provider
+			android:name="androidx.core.content.FileProvider"
+			android:authorities="__PACKAGE__.fileprovider"
+			android:exported="false"
+			android:grantUriPermissions="true">
+			<meta-data
+				android:name="android.support.FILE_PROVIDER_PATHS"
+				android:resource="@xml/file_paths" />
+		</provider>
 	</application>
 </manifest>

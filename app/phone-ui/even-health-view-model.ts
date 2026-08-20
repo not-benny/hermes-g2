@@ -21,7 +21,7 @@ import {
 import {
   loadHealthHistory,
   recordHealthDay,
-  shareHealthCsv,
+  shareHealthJson,
   pushHealthToHermes,
   getHermesConsent,
   setHermesConsent,
@@ -308,8 +308,8 @@ export class EvenHealthViewModel extends Observable {
   get batteryValue(): string { return this.health.batteryPercent === null ? "--" : String(this.health.batteryPercent); }
 
   // --- export + sharing ------------------------------------------------------
-  onExportCsvTap(): void {
-    try { shareHealthCsv(); } catch (e) { console.error(`[health] csv export failed: ${e}`); }
+  onExportJsonTap(): void {
+    try { shareHealthJson(); } catch (e) { console.error(`[health] json export failed: ${e}`); }
   }
 
   /** Consent toggle: off by default, nothing leaves the device until turned on. */
