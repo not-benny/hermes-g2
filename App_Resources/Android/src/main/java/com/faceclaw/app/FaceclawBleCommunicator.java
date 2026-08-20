@@ -91,6 +91,12 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     // per connection. Reset on ring disconnect so a reconnect re-arms it.
     private int ringWriteSeq = 0;
     private boolean ringHealthProbeSent = false;
+    // Re-poll the ring health GETs periodically: the ring auto-connects while
+    // off-head (empty window), so a one-shot poll never sees worn data. Re-firing
+    // every RING_HEALTH_POLL_INTERVAL_MS means data arrives on the next poll once
+    // the ring is actually worn.
+    private long lastRingHealthPollMs = 0;
+    private static final long RING_HEALTH_POLL_INTERVAL_MS = 60_000L;
     private final SecureRandom ringRandom = new SecureRandom();
     private boolean sessionReady;
     private boolean fixedLayoutCreated;
@@ -1035,6 +1041,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     continue;
                 }
 
+                maybeReRingHealthPoll();
                 long sleepMs = driveSession();
                 if (sleepMs > 0) {
                     interruptibleSleep.sleep(sleepMs);
@@ -1315,6 +1322,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 if (!connected) {
                     ringBattery = -1;
                     ringHealthProbeSent = false;
+                    lastRingHealthPollMs = 0;
                     ringReconnectAfterMs = Math.max(ringReconnectAfterMs,
                         SystemClock.elapsedRealtime() + ConnectionOptions.RING_RECONNECT_DELAY_MS);
                     emitBatteryState(headsetBattery, headsetCharging, ringBattery);
@@ -1485,7 +1493,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         try {
             connectRing();
             refreshRingBattery();
-            probeRingHealth();
+            // The health poll is driven periodically from the run loop
+            // (maybeReRingHealthPoll) so it re-fires once the ring is worn.
         } catch (Throwable t) {
             // Close the wedged GATT so the next attempt gets a fresh connectGatt;
             // a cached half-open handle re-fails discoverServices forever.
@@ -1605,31 +1614,64 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
      * packetAck(0x7e) pull loop (next stage); THIS stage fires the GETs so the
      * first response frames can be captured to reverse the daily-data byte layout.
      */
+    /**
+     * Re-fire the ring health poll every RING_HEALTH_POLL_INTERVAL_MS while the
+     * ring is connected, so worn hourly HR/SpO2/HRV/activity/sleep arrive on the
+     * next poll (a one-shot poll misses everything because the ring auto-connects
+     * off-head). Runs on the communicator loop thread, like the initial poll.
+     */
+    private void maybeReRingHealthPoll() {
+        if (!ringConnected || !RING_HEALTH_PROBE_ENABLED) {
+            return;
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastRingHealthPollMs < RING_HEALTH_POLL_INTERVAL_MS) {
+            return;
+        }
+        lastRingHealthPollMs = now;
+        probeRingHealth();
+    }
+
     private void probeRingHealth() {
         if (!RING_HEALTH_PROBE_ENABLED) {
             return;
         }
+        boolean openSession;
         synchronized (lock) {
-            if (ringHealthProbeSent) {
-                return;
-            }
+            openSession = !ringHealthProbeSent;
             ringHealthProbeSent = true;
-            ringWriteSeq = 1; // fresh serialId per connection, like the app
+            if (openSession) {
+                ringWriteSeq = 1; // fresh serialId per connection, like the app
+            }
         }
-        logLine("ring health sync START — pairAuth + health GETs; NEEDS exclusive ring (stop com.even.sg). watch bae80013");
-        // pairAuth: verbatim golden frame (CRC-32 verified) opens the command session.
-        sendRawRingFrame("pairAuth (session open)", hexToBytes("00971953f964016401000000080d003f0101"));
-        ringProbeGap();
-        ringProbeGap();
-        // Health data GETs: module=health(2), subCmd=daily(1), status=req, no payload.
-        // cmd: heartRate=1 spo2=2 temperature=3 hrv=4 activity=5 sleep=6.
+        if (openSession) {
+            logLine("ring health session open — pairAuth + enable; NEEDS exclusive ring (stop com.even.sg). watch bae80013");
+            // pairAuth: verbatim golden frame (CRC-32 verified) opens the command session.
+            sendRawRingFrame("pairAuth (session open)", hexToBytes("00971953f964016401000000080d003f0101"));
+            ringProbeGap();
+            ringProbeGap();
+            // Enable health tracking + the live "point" push stream so the ring
+            // records hourly data and streams current HR when worn. subCmd 0x0e
+            // (healthSettings) is not blocklisted; payload = epoch secs u32 LE at
+            // [0..3], enable=0x01 at [4], zeros after.
+            long epoch = System.currentTimeMillis() / 1000L;
+            byte[] enable = new byte[24];
+            enable[0] = (byte) (epoch & 0xff);
+            enable[1] = (byte) ((epoch >> 8) & 0xff);
+            enable[2] = (byte) ((epoch >> 16) & 0xff);
+            enable[3] = (byte) ((epoch >> 24) & 0xff);
+            enable[4] = 0x01;
+            sendRingCommand("healthEnable SET", 0x01, 0x00, 0x0e, 0x01, enable);
+            ringProbeGap();
+        }
+        // Health data GETs (re-fired every poll): module=health(2), subCmd=daily(1),
+        // status=req, no payload. cmd: heartRate=1 spo2=2 hrv=4 activity=5 sleep=6.
+        // Temperature (cmd 3) is RESERVED - the ring skips it - so it is not requested.
         sendRingCommand("heartRate/daily GET", 0x02, 0x01, 0x01, 0x00, null);
         ringProbeGap();
         sendRingCommand("spo2/daily GET", 0x02, 0x02, 0x01, 0x00, null);
         ringProbeGap();
         sendRingCommand("hrv/daily GET", 0x02, 0x04, 0x01, 0x00, null);
-        ringProbeGap();
-        sendRingCommand("temperature/daily GET", 0x02, 0x03, 0x01, 0x00, null);
         ringProbeGap();
         sendRingCommand("activity/daily GET", 0x02, 0x05, 0x01, 0x00, null);
         ringProbeGap();
@@ -1638,7 +1680,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         // deviceStatus GET: module=system(1), cmd=system(0), subCmd=deviceStatus(1).
         // The status=3 response carries the ring battery percent in data[0].
         sendRingCommand("deviceStatus GET (battery)", 0x01, 0x00, 0x01, 0x00, null);
-        logLine("ring health sync SENT — watch bae80013 for decoded FRAME replies (raw= hex)");
+        logLine("ring health poll SENT — watch bae80013 for decoded FRAME replies (raw= hex)");
     }
 
     /** ~200ms spacing between probe frames so the ring can answer each in turn. */
@@ -3141,6 +3183,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         ringNotificationsReady = false;
         ringBattery = -1;
         ringHealthProbeSent = false;
+        lastRingHealthPollMs = 0;
         reconnectAfterMs = 0;
         ringReconnectAfterMs = 0;
         lastAckAtMs = 0;
