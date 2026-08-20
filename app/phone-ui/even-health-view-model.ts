@@ -10,7 +10,8 @@ import {
   temperatureInsights,
   type InsightInputs,
 } from "../health/health-insights";
-import { computeBaselines } from "../health/health-history";
+import { computeBaselines, dateKeyOf } from "../health/health-history";
+import { hourlyForDay, type HourlyPoint } from "../health/health-hourly";
 import {
   renderColumnChart,
   buildHrDayBars,
@@ -21,11 +22,16 @@ import {
 import {
   loadHealthHistory,
   recordHealthDay,
+  recordHourly,
+  loadHourly,
   shareHealthJson,
   pushHealthToHermes,
   getHermesConsent,
   setHermesConsent,
 } from "../native/health-export";
+
+/** Minimal per-hour shape (hourIdx + avg/max/min) the insights + charts consume. */
+type RingHour = { hourIdx: number; avg: number; max: number; min: number };
 
 const RING_STATUS_LABELS: Record<RingConnectionState, string> = {
   "not-configured": "Ring: no address configured",
@@ -67,9 +73,13 @@ export class EvenHealthViewModel extends Observable {
   private hermesTimer: ReturnType<typeof setInterval> | null = null;
   private hrChartHost: AbsoluteLayout | null = null;
   private trendChartHost: AbsoluteLayout | null = null;
+  /** Today's accumulated hourly history (survives empty polls + relaunches). */
+  private hourlyToday: HourlyPoint[] = hourlyForDay(loadHourly(), dateKeyOf(Date.now()));
 
   constructor() {
     super();
+    // Render whatever we've already accumulated before the first live poll.
+    this.refresh();
     this.offHealth = ringHealthStore.onChange((snapshot) => {
       this.health = snapshot;
       this.refresh();
@@ -143,9 +153,7 @@ export class EvenHealthViewModel extends Observable {
   private paintHrChart(): void {
     const host = this.hrChartHost;
     if (!host) return;
-    const hours: HourHr[] = this.health.heartRateSeries.map((s) => ({
-      hourIdx: s.hourIdx, min: s.min, max: s.max, avg: s.avg,
-    }));
+    const hours: HourHr[] = this.hrHours().map((h) => ({ hourIdx: h.hourIdx, min: h.min, max: h.max, avg: h.avg }));
     const { bars, baselineFrac } = buildHrDayBars(hours, this.hrI.restingHr);
     renderColumnChart(host, bars, { midColor: "#EAF2EC", baselineFrac, baselineColor: "#3A4A40" });
   }
@@ -161,13 +169,24 @@ export class EvenHealthViewModel extends Observable {
     renderColumnChart(host, bars, { minBarHeight: 4 });
   }
 
+  // --- accumulated-hourly accessors ------------------------------------------
+  private hrHours(): RingHour[] { return this.hourlyToday.filter((p) => p.hr).map((p) => ({ hourIdx: p.hourIdx, ...p.hr! })); }
+  private spo2Hours(): RingHour[] { return this.hourlyToday.filter((p) => p.spo2).map((p) => ({ hourIdx: p.hourIdx, ...p.spo2! })); }
+  private hrvHours(): RingHour[] { return this.hourlyToday.filter((p) => p.hrv).map((p) => ({ hourIdx: p.hourIdx, ...p.hrv! })); }
+  private latestHour(hours: RingHour[]): RingHour | null {
+    let n: RingHour | null = null;
+    for (const h of hours) if (!n || h.hourIdx >= n.hourIdx) n = h;
+    return n;
+  }
+  private spo2Latest: RingHour | null = null;
+  private hrvLatest: RingHour | null = null;
+
   // --- insight computation ---------------------------------------------------
   private inputs(): InsightInputs {
-    const history = loadHealthHistory();
-    const baselines = computeBaselines(history, Date.now());
+    const baselines = computeBaselines(loadHealthHistory(), Date.now());
     return {
-      heartRate: this.health.heartRateSeries,
-      hrv: this.health.hrvSeries,
+      heartRate: this.hrHours(),
+      hrv: this.hrvHours(),
       sleep: null, // gated until the cmd=6 sleep decoder is validated on worn data
       liveHr: this.health.currentHr,
       bodyTempC: this.health.bodyTempC,
@@ -177,6 +196,12 @@ export class EvenHealthViewModel extends Observable {
   }
 
   private refresh(): void {
+    // Persist this poll's hours into the rolling hourly store, then read back the
+    // accumulated day so the tab reflects everything gathered (not just this poll,
+    // which is often empty once the ring has already handed over its cache).
+    recordHourly(this.health.heartRateSeries, this.health.spo2Series, this.health.hrvSeries, Date.now());
+    this.hourlyToday = hourlyForDay(loadHourly(), dateKeyOf(Date.now()));
+
     const i = this.inputs();
     const hr = heartRateInsights(i);
     const sleep = sleepInsights(i);
@@ -186,18 +211,18 @@ export class EvenHealthViewModel extends Observable {
     const band = BAND[readiness.band];
     this.readinessColor = readiness.score === null ? TRACK : band.color;
 
-    const spo2 = this.health.spo2;
-    const hrvNewest = this.health.hrv;
+    this.spo2Latest = this.latestHour(this.spo2Hours());
+    this.hrvLatest = this.latestHour(this.hrvHours());
 
-    // Log the day (merge-safe) once there's real data.
-    if (this.health.updatedAtMs !== null) {
+    // Log the daily summary (merge-safe) once there's data (live or accumulated).
+    if (this.health.updatedAtMs !== null || this.hourlyToday.length > 0) {
       recordHealthDay({
         hr, sleep, readiness,
-        hrvAvg: hrvNewest?.avg ?? null,
-        spo2Avg: spo2?.avg ?? null,
+        hrvAvg: this.hrvLatest?.avg ?? null,
+        spo2Avg: this.spo2Latest?.avg ?? null,
         steps: this.health.activity?.totalSteps ?? null,
         bodyTempC: this.health.bodyTempC,
-        updatedAtMs: this.health.updatedAtMs,
+        updatedAtMs: this.health.updatedAtMs ?? Date.now(),
       });
     }
 
@@ -219,7 +244,8 @@ export class EvenHealthViewModel extends Observable {
   // --- connection strip ------------------------------------------------------
   get ringStatusLabel(): string { return RING_STATUS_LABELS[this.ringState]; }
   get lastUpdatedLabel(): string {
-    return this.health.updatedAtMs === null ? "No ring data yet" : `Updated ${relativeTime(this.health.updatedAtMs)}`;
+    if (this.health.updatedAtMs !== null) return `Updated ${relativeTime(this.health.updatedAtMs)}`;
+    return this.hourlyToday.length > 0 ? "Showing saved data" : "No ring data yet";
   }
   get ringDotClass(): string { return this.ringState === "ready" ? "dot-on" : "dot-off"; }
   get batteryChipLabel(): string {
@@ -228,8 +254,11 @@ export class EvenHealthViewModel extends Observable {
   get batteryChipVisibility(): "visible" | "collapse" {
     return this.health.batteryPercent === null ? "collapse" : "visible";
   }
+  private get hasData(): boolean {
+    return this.health.updatedAtMs !== null || this.hourlyToday.length > 0;
+  }
   get emptyStateVisibility(): "visible" | "collapse" {
-    return this.health.updatedAtMs === null ? "visible" : "collapse";
+    return this.hasData ? "collapse" : "visible";
   }
 
   // --- readiness hero --------------------------------------------------------
@@ -266,7 +295,7 @@ export class EvenHealthViewModel extends Observable {
   }
   /** Hide the 24h chart until there's at least one hourly record to plot. */
   get hrChartVisibility(): "visible" | "collapse" {
-    return this.health.heartRateSeries.length ? "visible" : "collapse";
+    return this.hrHours().length ? "visible" : "collapse";
   }
 
   // --- readiness trend (grows with history) ----------------------------------
@@ -294,8 +323,8 @@ export class EvenHealthViewModel extends Observable {
   }
 
   // --- supporting tiles ------------------------------------------------------
-  get spo2Value(): string { return this.health.spo2 ? String(this.health.spo2.avg) : "--"; }
-  get hrvValue(): string { return this.health.hrv ? String(this.health.hrv.avg) : "--"; }
+  get spo2Value(): string { return this.spo2Latest ? String(this.spo2Latest.avg) : "--"; }
+  get hrvValue(): string { return this.hrvLatest ? String(this.hrvLatest.avg) : "--"; }
   get temperatureValue(): string {
     return this.tempI.deviationC === null
       ? (this.tempI.currentC === null ? "--" : this.tempI.currentC.toFixed(1))

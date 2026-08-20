@@ -45,6 +45,11 @@ test("Even Health is a direct-BLE readiness dashboard reachable from the Health 
   assert.match(vm, /recordHealthDay/);
   assert.match(vm, /shareHealthJson/);
   assert.match(vm, /pushHealthToHermes/);
+  // Hourly accumulation: each poll persists its hours and the tab reads back the
+  // accumulated day (survives empty polls + relaunches), not just the live poll.
+  assert.match(vm, /recordHourly/);
+  assert.match(vm, /hourlyForDay/);
+  assert.match(vm, /hrHours\(\)/); // insights + chart read the accumulated hours
   assert.match(xml, /Export JSON/);
   assert.doesNotMatch(xml, /Export CSV/); // consolidated to a single JSON export
 
@@ -54,6 +59,7 @@ test("Even Health is a direct-BLE readiness dashboard reachable from the Health 
   assert.match(exp, /FileProvider\.getUriForFile/);
   assert.match(exp, /EXTRA_STREAM/);
   assert.doesNotMatch(exp, /EXTRA_TEXT/);
+  assert.match(exp, /hourly: loadHourly\(\)/); // export + push include the hourly series
   const manifest = read("App_Resources/Android/src/main/AndroidManifest.xml");
   assert.match(manifest, /androidx\.core\.content\.FileProvider/);
   assert.match(manifest, /\.fileprovider/);

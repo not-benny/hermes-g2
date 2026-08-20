@@ -14,6 +14,7 @@ import {
   type DailyHealthSummary,
   type DaySummaryInputs,
 } from "../health/health-history";
+import { buildHourlyPoints, upsertHourly, type HourlyPoint } from "../health/health-hourly";
 import {
   assistantBridgeHostSetting,
   assistantBridgePortSetting,
@@ -21,6 +22,7 @@ import {
 } from "../ui/dashboard-settings";
 
 const HISTORY_KEY = "health.history.v1";
+const HOURLY_KEY = "health.hourly.v1";
 const MAX_DAYS = 90;
 
 /**
@@ -69,9 +71,49 @@ export function recordHealthDay(inputs: DaySummaryInputs): DailyHealthSummary[] 
   return history;
 }
 
+/** Minimal per-hour record shape from the ring parser (hourIdx + avg/max/min). */
+type RingHour = { hourIdx: number; avg: number; max: number; min: number };
+
+export function loadHourly(): HourlyPoint[] {
+  try {
+    const raw = ApplicationSettings.getString(HOURLY_KEY, "");
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as HourlyPoint[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHourly(points: HourlyPoint[]): void {
+  try {
+    ApplicationSettings.setString(HOURLY_KEY, JSON.stringify(points));
+  } catch (error) {
+    console.error(`[health-export] hourly save failed: ${error}`);
+  }
+}
+
+/**
+ * Merge this poll's hour records into the persisted hourly history (accumulate,
+ * never erase) and save. This is what turns the ring's transient recent-hours
+ * push into a lasting hour-by-hour record across days.
+ */
+export function recordHourly(hr: RingHour[], spo2: RingHour[], hrv: RingHour[], nowMs: number): HourlyPoint[] {
+  const points = buildHourlyPoints(hr, spo2, hrv, nowMs);
+  const stored = loadHourly();
+  if (points.length === 0) return stored;
+  const merged = upsertHourly(stored, points, nowMs, MAX_DAYS);
+  saveHourly(merged);
+  return merged;
+}
+
 /** The consolidated export document (JSON): the same shape the Hermes push sends. */
 function healthExportDocument(): string {
-  return JSON.stringify({ source: "hermes-g2", exportedAt: dateKeyOf(Date.now()), history: loadHealthHistory() }, null, 2);
+  return JSON.stringify(
+    { source: "hermes-g2", exportedAt: dateKeyOf(Date.now()), history: loadHealthHistory(), hourly: loadHourly() },
+    null,
+    2,
+  );
 }
 
 /** Write the history to a JSON file in the app documents dir; returns the path. */
@@ -139,7 +181,7 @@ export async function pushHealthToHermes(): Promise<boolean> {
         "content-type": "application/json",
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
-      content: JSON.stringify({ source: "hermes-g2", history: loadHealthHistory() }),
+      content: JSON.stringify({ source: "hermes-g2", history: loadHealthHistory(), hourly: loadHourly() }),
       timeout: 8000,
     });
     const ok = typeof res.statusCode === "number" && res.statusCode >= 200 && res.statusCode < 300;
