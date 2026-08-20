@@ -344,6 +344,22 @@ SegmentedBar {
 .onb-todo {
   color: #F5C542;
 }
+.onb-card {
+  background-color: #172019;
+  border-color: #24312A;
+  border-width: 1;
+  border-radius: 16;
+  padding: 24;
+}
+.onb-icon {
+  font-size: 40;
+  margin-bottom: 4;
+}
+.onb-body {
+  font-size: 15;
+  color: #C9D6CE;
+  line-height: 4;
+}
 
 /*
  * Stands in for the lens preview when showing it would be misleading (silent

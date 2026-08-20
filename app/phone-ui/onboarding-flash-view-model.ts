@@ -54,7 +54,7 @@ export class OnboardingFlashViewModel extends Observable {
     this._status =
       this.mode === "uninstall"
         ? "This connects to your glasses, asks for confirmation on the lens, then downloads and reflashes the " +
-          "official firmware — removing Hermes G2 custom features."
+          "official firmware - removing Hermes G2 custom features."
         : "This connects to your glasses, asks for confirmation on the lens, then downloads, verifies, and flashes " +
           "Hermes G2 custom firmware.";
   }
@@ -344,7 +344,7 @@ export class OnboardingFlashViewModel extends Observable {
       this.headline = "Firmware Ready";
       this.status =
         `The ${this.noun} is prepared and verified (${result.bytes.toLocaleString()} bytes).\n\n` +
-        "Tap Flash Now to write it to your glasses. Keep both lenses powered on and nearby — " +
+        "Tap Flash Now to write it to your glasses. Keep both lenses powered on and nearby - " +
         "each lens takes a few minutes, and the glasses will reboot when each lens finishes. " +
         "Do not close the app during flashing.";
       this.appendLog(`saved to ${result.path}`);
@@ -434,7 +434,7 @@ export class OnboardingFlashViewModel extends Observable {
         : 0;
     this.progress = ((lensIndex + withinLens) / 2) * 100;
     this.status =
-      `Flashing ${progress.lens} lens — part ${progress.componentIndex}/${progress.componentCount}, ` +
+      `Flashing ${progress.lens} lens - part ${progress.componentIndex}/${progress.componentCount}, ` +
       `block ${progress.blockIndex}/${progress.blockCount}. Keep the glasses on and nearby.`;
   }
 

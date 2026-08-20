@@ -1,4 +1,4 @@
-import { Frame, Observable, SegmentedBarItem } from "@nativescript/core";
+import { Application, Frame, Observable, SegmentedBarItem } from "@nativescript/core";
 
 import { onAnySettingChanged, uiFontSetting } from "../ui/dashboard-settings";
 import { isPreviewOnlyMode, setPreviewOnlyMode, setOnboardingCompleted } from "./onboarding-state";
@@ -42,7 +42,11 @@ export class SettingsViewModel extends Observable {
     clearPreviewDemo();
     setPreviewOnlyMode(false);
     setOnboardingCompleted(false);
-    Frame.topmost()?.navigate({ moduleName: "phone-ui/onboarding-page", clearHistory: true });
+    // Navigate the ROOT frame, not Frame.topmost() (which is this Settings tab's
+    // frame): onboarding must replace the whole shell, or it renders inside the
+    // tab and Finish nests a second shell -> a double tab bar.
+    const root = Application.getRootView() as Frame;
+    root?.navigate({ moduleName: "phone-ui/onboarding-page", clearHistory: true });
   }
 
   get uiFontItems(): SegmentedBarItem[] {

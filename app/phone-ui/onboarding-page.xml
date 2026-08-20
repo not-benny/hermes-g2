@@ -13,11 +13,13 @@
         </StackLayout>
 
         <ScrollView row="1">
-            <StackLayout>
-                <Image src="res://logo" stretch="aspectFit" height="140" horizontalAlignment="center" visibility="{{ logoVisibility }}" class="m-t-24" />
-                <Label text="{{ headline }}" class="h1 text-center m-t-24" textWrap="true" />
-                <Label text="{{ tagline }}" class="text-center m-t-8" textWrap="true" visibility="{{ taglineVisibility }}" />
-                <Label text="{{ body }}" class="m-t-24" textWrap="true" />
+            <StackLayout verticalAlignment="center" class="p-8">
+              <StackLayout class="onb-card">
+                <Image src="res://logo" stretch="aspectFit" height="120" horizontalAlignment="center" visibility="{{ logoVisibility }}" />
+                <Label text="{{ stepIcon }}" class="onb-icon text-center" visibility="{{ iconVisibility }}" />
+                <Label text="{{ headline }}" class="h2 text-center m-t-8" textWrap="true" />
+                <Label text="{{ tagline }}" class="text-center muted m-t-8" textWrap="true" visibility="{{ taglineVisibility }}" />
+                <Label text="{{ body }}" class="onb-body m-t-16" textWrap="true" />
 
                 <!-- permissions (step 4) -->
                 <StackLayout visibility="{{ permsVisibility }}" class="m-t-16">
@@ -46,6 +48,7 @@
                         <Button col="1" text="Allow" tap="{{ onGrantBattery }}" isEnabled="{{ batteryButtonEnabled }}" verticalAlignment="center" />
                     </GridLayout>
                 </StackLayout>
+              </StackLayout>
             </StackLayout>
         </ScrollView>
 

@@ -78,8 +78,8 @@ const STEP_CONTENT: Record<OnboardingStep, StepContent> = {
     tagline: "",
     body:
       "Hermes runs on G2 glasses flashed with Hermes custom firmware.\n\n" +
-      "• Flash firmware — install it now and use Hermes for real. Hermes connects to your glasses, asks for confirmation on the lens, then downloads and prepares the firmware.\n" +
-      "• Preview only — explore the interface on your phone's screen; nothing is written to a headset.\n\n" +
+      "• Flash firmware - install it now and use Hermes for real. Hermes connects to your glasses, asks for confirmation on the lens, then downloads and prepares the firmware.\n" +
+      "• Preview only - explore the interface on your phone's screen; nothing is written to a headset.\n\n" +
       "Flashing replaces the official firmware and, like any firmware update, carries a risk of bricking the device. Make sure you disconnected the glasses in the Even app (previous step).",
     primaryLabel: "Flash firmware",
     secondaryLabel: "Preview only",
@@ -92,6 +92,9 @@ const STEP_CONTENT: Record<OnboardingStep, StepContent> = {
 
 const GRANTED = "Granted";
 const NEEDED = "Not granted yet";
+
+// A friendly visual anchor per step (step 1 uses the logo instead).
+const STEP_ICON: Record<OnboardingStep, string> = { 1: "", 2: "📄", 3: "🔗", 4: "🔐", 5: "⚡" };
 
 export class OnboardingViewModel extends Observable {
   private _step: OnboardingStep = 1;
@@ -107,7 +110,7 @@ export class OnboardingViewModel extends Observable {
       this.setStep((this._step + 1) as OnboardingStep);
       return;
     }
-    // Step 5 primary: begin flashing — configure device addresses, then unpair
+    // Step 5 primary: begin flashing - configure device addresses, then unpair
     // the official app, then check firmware and flash.
     Frame.topmost()?.navigate({
       moduleName: "phone-ui/config-page",
@@ -174,6 +177,8 @@ export class OnboardingViewModel extends Observable {
   get secondaryVisibility(): "visible" | "collapse" { return STEP_CONTENT[this._step].showSecondary ? "visible" : "collapse"; }
   get permsVisibility(): "visible" | "collapse" { return STEP_CONTENT[this._step].showPerms ? "visible" : "collapse"; }
   get stepLabel(): string { return `Step ${this._step} of ${TOTAL_STEPS}`; }
+  get stepIcon(): string { return STEP_ICON[this._step]; }
+  get iconVisibility(): "visible" | "collapse" { return STEP_ICON[this._step] ? "visible" : "collapse"; }
 
   // Progress dots (fixed at 5): filled up to and including the current step.
   get dot1Class(): string { return this.dotClass(1); }
@@ -191,7 +196,7 @@ export class OnboardingViewModel extends Observable {
 
   private publish(): void {
     for (const p of [
-      "headline", "tagline", "body", "primaryLabel", "secondaryLabel", "stepLabel",
+      "headline", "tagline", "body", "primaryLabel", "secondaryLabel", "stepLabel", "stepIcon", "iconVisibility",
       "logoVisibility", "taglineVisibility", "secondaryVisibility", "permsVisibility",
       "dot1Class", "dot2Class", "dot3Class", "dot4Class", "dot5Class",
     ]) {
