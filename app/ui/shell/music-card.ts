@@ -146,14 +146,22 @@ export class MusicCardLayer implements Layer {
   private art: GrayImage | null = null;
   private artKey = "";
   private readonly skip = new SkipConfirm(SKIP_CONFIRM_MS);
+  private offMedia: (() => void) | null = null;
 
   constructor(private readonly options: MusicCardOptions) {
     this.startAnimTicker(); // begin the drop immediately
+    // Repaint when playback state flips (play/pause) or metadata changes, so the
+    // middle glyph and seek position track the live state rather than a stale
+    // snapshot taken right after a tap (playPause resolves before the flip lands).
+    this.offMedia = mediaControllerBridge.onStateChange(() => this.options.actions.requestRender());
   }
 
-  paint(ctx: LayerContext, paintBelow: PaintBelow): GrayImage {
+  paint(ctx: LayerContext, _paintBelow: PaintBelow): GrayImage {
     this.ctx = ctx;
-    const image = paintBelow(); // shell surface (value 0 = transparent)
+    // Own the whole screen: an opaque black surface so only the card shows (the
+    // dashboard/UI below is hidden), not paintBelow() which would show it through.
+    const { width, height } = ctx.stack.getBaseSize();
+    const image = new GrayImage(width, height, SHELL_OPAQUE_BLACK);
     const media = mediaControllerBridge.snapshot();
     const top = Math.round(this.offsetY(Date.now()));
 
@@ -222,6 +230,8 @@ export class MusicCardLayer implements Layer {
       this.dismissTimer = null;
     }
     this.ticking = false;
+    this.offMedia?.();
+    this.offMedia = null;
   }
 
   /** Called by shell.openMusicCard when a new track arrives while shown. */
