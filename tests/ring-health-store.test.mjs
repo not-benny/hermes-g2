@@ -68,15 +68,12 @@ function u32le(value) {
 }
 
 /**
-
- * Daily payload: [count u8][interval u16 LE][base_ts u32 LE] + stride-9
- * records [ts u32][latest][hourIdx][avg][max][min].
+ * Daily payload (real layout): [count u8][6 reserved][base u32 LE][current u8]
+ * + 4-byte records [hourIdx][avg][max][min]. See ring-daily-layout notes.
  */
-function dailyStride9(records) {
-  const bytes = [records.length, 60, 0, ...u32le(1_700_000_000)];
-  for (const r of records) {
-    bytes.push(...u32le(r.ts), r.latest, r.hourIdx ?? 0, r.avg ?? 0, r.max ?? 0, r.min ?? 0);
-  }
+function dailyHealth(current, records) {
+  const bytes = [records.length, 0, 0, 0, 0, 0, 0, ...u32le(0x628a), current & 0xff];
+  for (const r of records) bytes.push(r.hourIdx ?? 0, r.avg ?? 0, r.max ?? 0, r.min ?? 0);
   return new Uint8Array(bytes);
 }
 
@@ -87,10 +84,10 @@ test("heart-rate daily push decodes across fragments and picks the newest record
   const events = [];
   store.onChange((snapshot) => events.push(snapshot));
 
-  const payload = dailyStride9([
-    { ts: 1000, latest: 88 },
-    { ts: 2000, latest: 111, avg: 113, max: 116, min: 111 },
-    { ts: 1500, latest: 95 },
+  const payload = dailyHealth(106, [
+    { hourIdx: 4, avg: 73, max: 88, min: 59 },
+    { hourIdx: 6, avg: 113, max: 116, min: 111 }, // highest hour -> newest
+    { hourIdx: 5, avg: 95, max: 99, min: 90 },
   ]);
   const inner = buildInner(2, 1, 1, 3, payload); // module=health, cmd=heartRate
   const frames = fragments(inner, [10, inner.length - 10]);
@@ -99,8 +96,10 @@ test("heart-rate daily push decodes across fragments and picks the newest record
   assert.equal(events.length, 1, "one change event per applied batch");
   const hr = store.snapshot().heartRate;
   assert.ok(hr, "heart rate populated");
-  assert.equal(hr.latest, 111, "newest-by-ts record wins");
+  assert.equal(hr.avg, 113, "newest-by-hour record wins");
   assert.equal(hr.max, 116);
+  assert.equal(store.snapshot().currentHr, 106, "frame current -> currentHr");
+  assert.equal(store.snapshot().heartRateSeries.length, 3, "full day series kept");
   assert.equal(store.snapshot().spo2, null, "other metrics untouched");
 });
 
@@ -113,15 +112,15 @@ test("deviceStatus response populates the ring battery percent", () => {
 
 test("interleaved batches both decode", () => {
   const store = new RingHealthStore();
-  const hrFrames = fragments(buildInner(2, 1, 1, 3, dailyStride9([{ ts: 10, latest: 70 }])), null);
-  const spo2Inner = buildInner(2, 2, 1, 3, dailyStride9([{ ts: 20, latest: 98 }]));
+  const hrFrames = fragments(buildInner(2, 1, 1, 3, dailyHealth(70, [{ hourIdx: 10, avg: 70, max: 75, min: 65 }])), null);
+  const spo2Inner = buildInner(2, 2, 1, 3, dailyHealth(98, [{ hourIdx: 20, avg: 98, max: 99, min: 96 }]));
   const spo2Frames = fragments(spo2Inner, [6, spo2Inner.length - 6]);
   // spo2 head, then the whole hr batch, then the spo2 tail.
   store.ingestFrame(spo2Frames[0]);
   for (const frame of hrFrames) store.ingestFrame(frame);
   store.ingestFrame(spo2Frames[1]);
-  assert.equal(store.snapshot().heartRate?.latest, 70);
-  assert.equal(store.snapshot().spo2?.latest, 98);
+  assert.equal(store.snapshot().heartRate?.avg, 70);
+  assert.equal(store.snapshot().spo2?.avg, 98);
 });
 
 test("garbage, unknown metrics and CRC mismatches are dropped without throwing", () => {
@@ -137,7 +136,7 @@ test("garbage, unknown metrics and CRC mismatches are dropped without throwing",
   for (const frame of sleep) store.ingestFrame(frame);
 
   // Corrupt a payload byte after computing the batch id: CRC must reject it.
-  const inner = buildInner(2, 1, 1, 3, dailyStride9([{ ts: 5, latest: 60 }]));
+  const inner = buildInner(2, 1, 1, 3, dailyHealth(60, [{ hourIdx: 5, avg: 60, max: 65, min: 55 }]));
   const [frame] = fragments(inner);
   frame[frame.length - 1] ^= 0xff;
   store.ingestFrame(frame);

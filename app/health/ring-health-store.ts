@@ -179,20 +179,25 @@ export class RingHealthStore {
 
     if (metric === "hrv") {
       const daily = decodeDailyData(parsed.data, "hrv");
-      const newest = latestByTs(daily.records);
+      const newest = latestByHour(daily.records);
       if (!newest) return;
-      const series = [...daily.records].sort((a, b) => a.ts - b.ts);
+      const series = [...daily.records].sort((a, b) => a.hourIdx - b.hourIdx);
       this.snapshotState = { ...this.snapshotState, hrv: newest, hrvSeries: series, updatedAtMs: Date.now() };
       this.emit();
       return;
     }
 
     const daily = decodeDailyData(parsed.data, metric);
-    const newest = latestByTs(daily.records);
+    const newest = latestByHour(daily.records);
     if (!newest) return;
-    const series = [...daily.records].sort((a, b) => a.ts - b.ts);
-    const seriesPatch =
-      metric === "heartRate" ? { heartRateSeries: series } : metric === "spo2" ? { spo2Series: series } : {};
+    const series = [...daily.records].sort((a, b) => a.hourIdx - b.hourIdx);
+    let seriesPatch: Partial<RingHealthSnapshot> = {};
+    if (metric === "heartRate") {
+      // The frame header carries the ring's live/current reading; surface it.
+      seriesPatch = { heartRateSeries: series, currentHr: daily.current };
+    } else if (metric === "spo2") {
+      seriesPatch = { spo2Series: series };
+    }
     this.snapshotState = { ...this.snapshotState, [metric]: newest, ...seriesPatch, updatedAtMs: Date.now() };
     this.emit();
   }
@@ -205,10 +210,10 @@ export class RingHealthStore {
   }
 }
 
-function latestByTs<T extends { ts: number }>(records: T[]): T | null {
+function latestByHour<T extends { hourIdx: number }>(records: T[]): T | null {
   let newest: T | null = null;
   for (const record of records) {
-    if (!newest || record.ts >= newest.ts) newest = record;
+    if (!newest || record.hourIdx >= newest.hourIdx) newest = record;
   }
   return newest;
 }

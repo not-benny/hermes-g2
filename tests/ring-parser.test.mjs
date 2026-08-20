@@ -68,9 +68,18 @@ function toFragments(inner, chunkSize) {
   return frames;
 }
 
-// Build a daily-push payload: [count u8][interval u16 LE][base_ts u32 LE][records].
-function buildDailyPayload(interval, baseTs, records) {
-  return Uint8Array.from([records.length, ...u16(interval), ...u32(baseTs), ...records.flat()]);
+// Daily-push header: [count u8][6 reserved][base u32 LE][current][records].
+// HR/SpO2 record = [hour, avg, max, min] (u8); HRV record = [hour, avg u16,
+// max u16, min u16]; activity records start right after the 6-byte reserved gap.
+function buildHealthPayload(base, current, records) {
+  return Uint8Array.from([records.length, 0, 0, 0, 0, 0, 0, ...u32(base), current & 0xff, ...records.flat()]);
+}
+function buildHrvPayload(base, current, records) {
+  const recBytes = records.flatMap(([h, a, mx, mn]) => [h, ...u16(a), ...u16(mx), ...u16(mn)]);
+  return Uint8Array.from([records.length, 0, 0, 0, 0, 0, 0, ...u32(base), ...u16(current), ...recBytes]);
+}
+function buildActivityPayload(records) {
+  return Uint8Array.from([records.length, 0, 0, 0, 0, 0, 0, ...records.flat()]);
 }
 
 // --- CRC-32 --------------------------------------------------------------
@@ -88,7 +97,7 @@ test("ringCrc32 reproduces a documented frame's stored transport checksum", () =
 // --- fragment reassembly ---------------------------------------------------
 
 test("reassembleHealthFrames rebuilds the inner buffer and validates crc32==batchId", () => {
-  const data = buildDailyPayload(60, 1700000000, [[...u32(1700000000), 70, 21, 72, 80, 66]]);
+  const data = buildHealthPayload(0x628a, 70, [[21, 72, 80, 66]]);
   const inner = buildInner(2, 1, 1, 2, 0x10, data);
   // Split across several fragments to exercise multi-packet reassembly.
   const frames = toFragments(inner, 8);
@@ -99,29 +108,29 @@ test("reassembleHealthFrames rebuilds the inner buffer and validates crc32==batc
 });
 
 test("reassembleHealthFrames accepts fragments in any arrival order", () => {
-  const inner = buildInner(2, 2, 1, 2, 0x11, buildDailyPayload(60, 1700000000, []));
+  const inner = buildInner(2, 2, 1, 2, 0x11, buildHealthPayload(0, 0, []));
   const frames = toFragments(inner, 6).reverse();
   const { inner: out } = reassembleHealthFrames(frames);
   assert.deepEqual(Array.from(out), Array.from(inner));
 });
 
 test("reassembleHealthFrames rejects a corrupted payload", () => {
-  const inner = buildInner(2, 1, 1, 2, 0x12, buildDailyPayload(60, 1700000000, []));
+  const inner = buildInner(2, 1, 1, 2, 0x12, buildHealthPayload(0, 0, []));
   const frames = toFragments(inner, 32);
   frames[0][6] ^= 0xff; // flip a payload byte so the crc no longer matches
   assert.throws(() => reassembleHealthFrames(frames), /CRC mismatch/);
 });
 
 test("reassembleHealthFrames rejects fragments from different batches", () => {
-  const a = toFragments(buildInner(2, 1, 1, 2, 1, buildDailyPayload(60, 1, [])), 32)[0];
-  const b = toFragments(buildInner(2, 2, 1, 2, 2, buildDailyPayload(60, 1, [])), 32)[0];
+  const a = toFragments(buildInner(2, 1, 1, 2, 1, buildHealthPayload(0, 0, [])), 32)[0];
+  const b = toFragments(buildInner(2, 2, 1, 2, 2, buildHealthPayload(0, 0, [])), 32)[0];
   assert.throws(() => reassembleHealthFrames([a, b]), /batch mismatch/);
 });
 
 // --- inner-frame envelope --------------------------------------------------
 
 test("parseInnerFrame unwraps module/cmd/subCmd/status and the data region", () => {
-  const data = buildDailyPayload(60, 1700000000, []);
+  const data = buildHealthPayload(0, 0, []);
   const inner = buildInner(2, 4, 1, 2, 0x2a, data);
   const f = parseInnerFrame(inner);
   assert.equal(f.module, 2);
@@ -135,87 +144,81 @@ test("parseInnerFrame unwraps module/cmd/subCmd/status and the data region", () 
 
 // --- daily-push decode -----------------------------------------------------
 
-test("decodeDailyData decodes the documented SpO2 example to 97 percent", () => {
-  // Public spec example: [count][interval=60][base_ts][record...][trailing].
-  // The record's latest/avg/max/min are all 0x61 = 97, hour index 0x15 = 21.
-  const payload = hexToBytes("01 3c00 f0e3846a 4f0b866a 61 15 61 61 61 00000000");
-  const decoded = decodeDailyData(payload, "spo2");
-  assert.equal(decoded.metric, "spo2");
-  assert.equal(decoded.interval, 60);
-  assert.equal(decoded.count, 1);
-  assert.equal(decoded.records.length, 1);
-  const r = decoded.records[0];
-  assert.equal(r.latest, 97);
-  assert.equal(r.avg, 97);
-  assert.equal(r.max, 97);
-  assert.equal(r.min, 97);
-  assert.equal(r.hourIdx, 21);
+// These vectors are REAL frames captured off the R1 on 2026-08-20 (exclusive
+// access) and cross-checked against the Even app's decoded health.sqlite. See
+// notes/ring-daily-layout-2026-08-20.md.
+
+test("decodeDailyData decodes a real heart-rate frame (4-byte records + live current)", () => {
+  const payload = hexToBytes("03000000000000da6200006a0449583b05697a570668715800000000");
+  const d = decodeDailyData(payload, "heartRate");
+  assert.equal(d.metric, "heartRate");
+  assert.equal(d.count, 3);
+  assert.equal(d.current, 106); // frame header live reading (was misread as a record before)
+  assert.equal(d.records.length, 3);
+  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 73, max: 88, min: 59 });
+  assert.deepEqual(d.records[1], { hourIdx: 5, avg: 105, max: 122, min: 87 });
+  assert.deepEqual(d.records[2], { hourIdx: 6, avg: 104, max: 113, min: 88 });
+  for (const r of d.records) assert.ok(r.min <= r.avg && r.avg <= r.max); // internally consistent
 });
 
-test("decodeDailyData round-trips a synthetic heart-rate batch (stride 9)", () => {
-  const ts0 = 1700000000;
-  const records = [
-    [...u32(ts0), 60, 8, 62, 70, 55],
-    [...u32(ts0 + 3600), 65, 9, 66, 72, 58],
-  ];
-  const payload = buildDailyPayload(60, ts0, records);
+test("decodeDailyData decodes a real SpO2 frame with sparse (non-contiguous) hours", () => {
+  const payload = hexToBytes("020000000000008a6200006204616161065f5f5f00000000");
+  const d = decodeDailyData(payload, "spo2");
+  assert.equal(d.count, 2);
+  assert.equal(d.current, 98);
+  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 97, max: 97, min: 97 });
+  assert.deepEqual(d.records[1], { hourIdx: 6, avg: 95, max: 95, min: 95 }); // hour 5 absent
+});
+
+test("decodeDailyData decodes a real HRV frame (u16 values + u16 current)", () => {
+  const payload = hexToBytes("03000000000000b3620000270004350035003500056200620062000641004100410000000000");
+  const d = decodeDailyData(payload, "hrv");
+  assert.equal(d.count, 3);
+  assert.equal(d.current, 39);
+  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 53, max: 53, min: 53 });
+  assert.deepEqual(d.records[1], { hourIdx: 5, avg: 98, max: 98, min: 98 });
+  assert.deepEqual(d.records[2], { hourIdx: 6, avg: 65, max: 65, min: 65 });
+});
+
+test("decodeDailyData stops at the record count and ignores trailing bytes", () => {
+  const payload = buildHealthPayload(0x1234, 70, [[8, 62, 70, 55], [9, 66, 72, 58]]);
+  payload[0] = 1; // header says 1 record; the second must be ignored
   const decoded = decodeDailyData(payload, "heartRate");
-  assert.equal(decoded.metric, "heartRate");
-  assert.equal(decoded.interval, 60);
-  assert.equal(decoded.baseTs, ts0);
-  assert.equal(decoded.records.length, 2);
-  assert.deepEqual(decoded.records[0], { ts: ts0, latest: 60, hourIdx: 8, avg: 62, max: 70, min: 55 });
-  assert.equal(decoded.records[1].hourIdx, 9);
-  assert.equal(decoded.records[1].min, 58);
-});
-
-test("decodeDailyData round-trips a synthetic HRV batch (stride 13)", () => {
-  const ts0 = 1700000000;
-  const records = [[...u32(ts0), ...u16(55), 21, ...u16(1), ...u16(2), ...u16(3)]];
-  const payload = buildDailyPayload(60, ts0, records);
-  const decoded = decodeDailyData(payload, "hrv");
   assert.equal(decoded.records.length, 1);
-  const r = decoded.records[0];
-  assert.equal(r.ts, ts0);
-  assert.equal(r.latest, 55);
-  assert.equal(r.hourIdx, 21);
-  assert.equal(r.field1, 1);
-  assert.equal(r.field2, 2);
-  assert.equal(r.field3, 3);
+  assert.deepEqual(decoded.records[0], { hourIdx: 8, avg: 62, max: 70, min: 55 });
 });
 
-test("decodeDailyData round-trips a synthetic activity batch (stride 7)", () => {
-  const records = [
+test("decodeDailyData drops a truncated final record instead of reading past the buffer", () => {
+  const full = buildHealthPayload(0, 70, [[8, 62, 70, 55], [9, 66, 72, 58]]);
+  const truncated = full.subarray(0, full.length - 2); // chop the last record's tail
+  const decoded = decodeDailyData(truncated, "heartRate");
+  assert.equal(decoded.records.length, 1);
+});
+
+test("decodeDailyData decodes an activity batch (stride 7 after the header)", () => {
+  const payload = buildActivityPayload([
     [126, ...u16(0), ...u16(2), ...u16(15)],
     [127, ...u16(47), ...u16(12), ...u16(25)],
-  ];
-  const payload = buildDailyPayload(60, 1700000000, records);
+  ]);
   const decoded = decodeDailyData(payload, "activity");
   assert.equal(decoded.records.length, 2);
   assert.deepEqual(decoded.records[0], { slot: 126, steps: 0, f1: 2, f2: 15 });
   assert.deepEqual(decoded.records[1], { slot: 127, steps: 47, f1: 12, f2: 25 });
 });
 
-test("decodeDailyData stops at the record count and ignores trailing bytes", () => {
-  const payload = buildDailyPayload(60, 1700000000, [[...u32(1700000000), 60, 8, 62, 70, 55]]);
-  const withTrailing = Uint8Array.from([...payload, 0, 0, 0, 0]);
-  const decoded = decodeDailyData(withTrailing, "heartRate");
-  assert.equal(decoded.records.length, 1);
-});
-
 // --- end-to-end: reassemble then decode ------------------------------------
 
 test("a multi-packet SpO2 frame reassembles and decodes end to end", () => {
-  const ts0 = 1700003600;
-  const payload = buildDailyPayload(60, ts0, [[...u32(ts0), 98, 21, 97, 99, 96]]);
+  const payload = buildHealthPayload(0x628a, 98, [[21, 97, 99, 96]]);
   const inner = buildInner(2, 2, 1, 2, 0x20, payload);
   const frames = toFragments(inner, 7);
   const { inner: out } = reassembleHealthFrames(frames);
   const env = parseInnerFrame(out);
   assert.equal(RING_HEALTH_CMD[env.cmd], "spo2");
   const decoded = decodeDailyData(env.data, "spo2");
-  assert.equal(decoded.records[0].latest, 98);
-  assert.equal(decoded.records[0].min, 96);
+  assert.equal(decoded.count, 1);
+  assert.equal(decoded.current, 98);
+  assert.deepEqual(decoded.records[0], { hourIdx: 21, avg: 97, max: 99, min: 96 });
 });
 
 // --- device status ---------------------------------------------------------

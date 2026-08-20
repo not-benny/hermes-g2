@@ -193,7 +193,7 @@ export class EvenHealthViewModel extends Observable {
     if (this.health.updatedAtMs !== null) {
       recordHealthDay({
         hr, sleep, readiness,
-        hrvAvg: hrvNewest?.latest ?? null,
+        hrvAvg: hrvNewest?.avg ?? null,
         spo2Avg: spo2?.avg ?? null,
         steps: this.health.activity?.totalSteps ?? null,
         bodyTempC: this.health.bodyTempC,
@@ -294,8 +294,8 @@ export class EvenHealthViewModel extends Observable {
   }
 
   // --- supporting tiles ------------------------------------------------------
-  get spo2Value(): string { return this.health.spo2 ? String(this.health.spo2.latest) : "--"; }
-  get hrvValue(): string { return this.health.hrv ? String(this.health.hrv.latest) : "--"; }
+  get spo2Value(): string { return this.health.spo2 ? String(this.health.spo2.avg) : "--"; }
+  get hrvValue(): string { return this.health.hrv ? String(this.health.hrv.avg) : "--"; }
   get temperatureValue(): string {
     return this.tempI.deviationC === null
       ? (this.tempI.currentC === null ? "--" : this.tempI.currentC.toFixed(1))

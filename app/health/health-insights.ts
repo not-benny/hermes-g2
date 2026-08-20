@@ -226,7 +226,7 @@ export function readinessScore(i: InsightInputs): ReadinessInsights {
   const sleep = sleepInsights(i);
   const temp = temperatureInsights(i);
   const hrvRecs = i.hrv ?? [];
-  const hrvAvg = hrvRecs.length ? mean(hrvRecs.map((r) => r.latest)) : null;
+  const hrvAvg = hrvRecs.length ? mean(hrvRecs.map((r) => r.avg)) : null;
 
   const contributors: Contributor[] = [
     {

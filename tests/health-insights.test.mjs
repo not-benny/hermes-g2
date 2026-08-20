@@ -16,16 +16,16 @@ const { heartRateInsights, sleepInsights, readinessScore, temperatureInsights } 
 
 // Real HR hourly series (Even DB, 08-18 14:00..22:00): avg/max/min per hour.
 const HR = [
-  { ts: 1, hourIdx: 14, latest: 87, avg: 87, min: 71, max: 107 },
-  { ts: 2, hourIdx: 15, latest: 102, avg: 102, min: 88, max: 115 },
-  { ts: 3, hourIdx: 16, latest: 96, avg: 96, min: 80, max: 116 },
-  { ts: 4, hourIdx: 17, latest: 104, avg: 104, min: 100, max: 107 },
-  { ts: 5, hourIdx: 18, latest: 106, avg: 106, min: 97, max: 119 },
-  { ts: 6, hourIdx: 19, latest: 105, avg: 105, min: 103, max: 108 },
-  { ts: 7, hourIdx: 20, latest: 115, avg: 115, min: 111, max: 121 },
-  { ts: 8, hourIdx: 22, latest: 98, avg: 98, min: 76, max: 116 },
+  { hourIdx: 14, avg: 87, min: 71, max: 107 },
+  { hourIdx: 15, avg: 102, min: 88, max: 115 },
+  { hourIdx: 16, avg: 96, min: 80, max: 116 },
+  { hourIdx: 17, avg: 104, min: 100, max: 107 },
+  { hourIdx: 18, avg: 106, min: 97, max: 119 },
+  { hourIdx: 19, avg: 105, min: 103, max: 108 },
+  { hourIdx: 20, avg: 115, min: 111, max: 121 },
+  { hourIdx: 22, avg: 98, min: 76, max: 116 },
 ];
-const HRV = [{ ts: 1, hourIdx: 22, latest: 45, field1: 0, field2: 0, field3: 0 }];
+const HRV = [{ hourIdx: 22, avg: 45, min: 40, max: 54 }];
 // Real sleep sessions from the Even DB.
 const GOOD_NIGHT = {
   startTs: 1000, endTs: 1000 + 481 * 60, totalSleepMin: 447, timeInBedMin: 481,

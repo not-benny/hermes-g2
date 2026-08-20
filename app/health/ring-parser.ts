@@ -36,15 +36,12 @@ export const RING_HEALTH_CMD: Record<number, RingMetric> = {
 };
 
 /**
- * One hourly HR / SpO2 / temperature record (stride 9). Values are direct:
- * bpm for heart rate, percent for SpO2.
+ * One hourly HR / SpO2 / temperature record. Each record is 4 bytes:
+ * [hourIdx u8][avg u8][max u8][min u8]. Values are direct: bpm for heart rate,
+ * percent for SpO2. See notes/ring-daily-layout-2026-08-20.md.
  */
 export interface RingHealthSample {
-  /** Record timestamp, epoch seconds. */
-  ts: number;
-  /** Most recent reading in the hour. */
-  latest: number;
-  /** Hour-of-day index the record belongs to. */
+  /** Hour-of-day index the record belongs to (0..23). */
   hourIdx: number;
   /** Hourly average. */
   avg: number;
@@ -54,18 +51,19 @@ export interface RingHealthSample {
   min: number;
 }
 
-/** One HRV record (stride 13). `latest` is in milliseconds. */
+/**
+ * One HRV record. Each record is 7 bytes: [hourIdx u8][avg u16 LE][max u16 LE]
+ * [min u16 LE]. Values are milliseconds.
+ */
 export interface RingHrvSample {
-  /** Record timestamp, epoch seconds. */
-  ts: number;
-  /** Most recent HRV reading, milliseconds. */
-  latest: number;
-  /** Hour-of-day index the record belongs to. */
+  /** Hour-of-day index the record belongs to (0..23). */
   hourIdx: number;
-  /** Three trailing u16 fields whose exact meaning is not yet pinned down. */
-  field1: number;
-  field2: number;
-  field3: number;
+  /** Hourly average HRV, milliseconds. */
+  avg: number;
+  /** Hourly maximum HRV, milliseconds. */
+  max: number;
+  /** Hourly minimum HRV, milliseconds. */
+  min: number;
 }
 
 /**
@@ -86,12 +84,13 @@ export interface RingActivitySample {
 /** Decoded daily-push payload for a single metric. */
 export interface RingDailyData<T = RingHealthSample> {
   metric: RingMetric;
-  /** Sampling interval in minutes (observed 60). */
-  interval: number;
-  /** Base timestamp for the batch, epoch seconds. */
-  baseTs: number;
-  /** Record count declared by the payload header. */
+  /** Record count declared by the payload header ([0]). */
   count: number;
+  /** Header u32 at [7..10]; exact meaning TBD (varies per metric). */
+  base: number;
+  /** The frame's live/current reading (header, not a record): u8 for HR/SpO2,
+   *  u16 for HRV. null when the payload is too short to carry it. */
+  current: number | null;
   records: T[];
 }
 
@@ -256,18 +255,29 @@ export function parseInnerFrame(inner: Bytes): RingInnerFrame {
 
 // --- daily-push payload ----------------------------------------------------
 
-const HEALTH_STRIDE_9 = 9;
-const HRV_STRIDE = 13;
-const ACTIVITY_STRIDE = 7;
-/** Records begin after [count u8][interval u16 LE][base_ts u32 LE]. */
-const DAILY_HEADER_LEN = 7;
+// Header before the records (notes/ring-daily-layout-2026-08-20.md):
+//   [0]      count  u8
+//   [1..6]   reserved (zero)
+//   [7..10]  base   u32 LE (meaning TBD; low byte varies per metric)
+//   [11..]   current reading (u8 HR/SpO2, u16 LE HRV), then the records.
+const DAILY_BASE_OFF = 7;
+const DAILY_CURRENT_OFF = 11;
+/** HR / SpO2 / temperature record: [hourIdx u8][avg u8][max u8][min u8]. */
+const HEALTH_REC_OFF = 12;
+const HEALTH_REC_STRIDE = 4;
+/** HRV record: [hourIdx u8][avg u16 LE][max u16 LE][min u16 LE]. */
+const HRV_REC_OFF = 13;
+const HRV_REC_STRIDE = 7;
+/** Activity/steps layout is not yet validated against ground truth; kept as the
+ *  earlier stride-7 read after the 7-byte header. TODO: RE and confirm. */
+const ACTIVITY_REC_OFF = 7;
+const ACTIVITY_REC_STRIDE = 7;
 
 /**
  * Decode a daily-push payload for a single metric.
  *
- * `payload` is the inner-frame data region (RingInnerFrame.data). Header:
- *   [count u8][interval u16 LE = minutes][base_ts u32 LE = epoch seconds]
- * followed by fixed-stride records selected by metric.
+ * `payload` is the inner-frame data region (RingInnerFrame.data). See the header
+ * layout above; records are selected by metric.
  */
 export function decodeDailyData(
   payload: Bytes,
@@ -285,63 +295,57 @@ export function decodeDailyData(
   payload: Bytes,
   metric: RingMetric,
 ): RingDailyData<RingHealthSample | RingHrvSample | RingActivitySample> {
-  if (payload.length < DAILY_HEADER_LEN) {
-    throw new Error(
-      `ring daily payload too short: ${payload.length} bytes`,
-    );
+  if (payload.length < DAILY_CURRENT_OFF) {
+    throw new Error(`ring daily payload too short: ${payload.length} bytes`);
   }
   const count = payload[0];
-  const interval = u16le(payload, 1);
-  const baseTs = u32le(payload, 3);
-  const recs = payload.subarray(DAILY_HEADER_LEN);
+  const base = u32le(payload, DAILY_BASE_OFF);
 
   if (metric === "hrv") {
+    const current = payload.length >= HRV_REC_OFF ? u16le(payload, DAILY_CURRENT_OFF) : null;
     const records: RingHrvSample[] = [];
     for (let i = 0; i < count; i++) {
-      const o = i * HRV_STRIDE;
-      if (o + HRV_STRIDE > recs.length) break;
+      const o = HRV_REC_OFF + i * HRV_REC_STRIDE;
+      if (o + HRV_REC_STRIDE > payload.length) break;
       records.push({
-        ts: u32le(recs, o),
-        latest: u16le(recs, o + 4),
-        hourIdx: recs[o + 6],
-        field1: u16le(recs, o + 7),
-        field2: u16le(recs, o + 9),
-        field3: u16le(recs, o + 11),
+        hourIdx: payload[o],
+        avg: u16le(payload, o + 1),
+        max: u16le(payload, o + 3),
+        min: u16le(payload, o + 5),
       });
     }
-    return { metric, interval, baseTs, count, records };
+    return { metric, count, base, current, records };
   }
 
   if (metric === "activity") {
     const records: RingActivitySample[] = [];
     for (let i = 0; i < count; i++) {
-      const o = i * ACTIVITY_STRIDE;
-      if (o + ACTIVITY_STRIDE > recs.length) break;
+      const o = ACTIVITY_REC_OFF + i * ACTIVITY_REC_STRIDE;
+      if (o + ACTIVITY_REC_STRIDE > payload.length) break;
       records.push({
-        slot: recs[o],
-        steps: u16le(recs, o + 1),
-        f1: u16le(recs, o + 3),
-        f2: u16le(recs, o + 5),
+        slot: payload[o],
+        steps: u16le(payload, o + 1),
+        f1: u16le(payload, o + 3),
+        f2: u16le(payload, o + 5),
       });
     }
-    return { metric, interval, baseTs, count, records };
+    return { metric, count, base, current: null, records };
   }
 
-  // heartRate / spo2 / temperature all share the stride-9 layout.
+  // heartRate / spo2 / temperature: single-byte avg/max/min per hour.
+  const current = payload.length >= HEALTH_REC_OFF ? payload[DAILY_CURRENT_OFF] : null;
   const records: RingHealthSample[] = [];
   for (let i = 0; i < count; i++) {
-    const o = i * HEALTH_STRIDE_9;
-    if (o + HEALTH_STRIDE_9 > recs.length) break;
+    const o = HEALTH_REC_OFF + i * HEALTH_REC_STRIDE;
+    if (o + HEALTH_REC_STRIDE > payload.length) break;
     records.push({
-      ts: u32le(recs, o),
-      latest: recs[o + 4],
-      hourIdx: recs[o + 5],
-      avg: recs[o + 6],
-      max: recs[o + 7],
-      min: recs[o + 8],
+      hourIdx: payload[o],
+      avg: payload[o + 1],
+      max: payload[o + 2],
+      min: payload[o + 3],
     });
   }
-  return { metric, interval, baseTs, count, records };
+  return { metric, count, base, current, records };
 }
 
 // --- device status ---------------------------------------------------------
