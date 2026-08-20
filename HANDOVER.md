@@ -6,7 +6,7 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 ## 0. Latest continuation (2026-08-20)
 
-Six self-contained items were completed on the `hermes-g2` branch/current
+Seven self-contained items were completed on the `hermes-g2` branch/current
 working tree:
 
 - **Raw ring-frame security gate:** `sendRawRingFrame()` now fails closed before
@@ -38,11 +38,15 @@ working tree:
   heart-rate daily/current-hour GET every 15 seconds, matching the observed Even
   cadence. Full HR/SpO2/HRV/activity/sleep/battery polling remains at 60 seconds,
   and a full poll resets the fast timer so it never immediately duplicates HR.
+- **Ring-contention recovery UX:** direct R1 connection failures now surface the
+  same Even-app warning as glasses write failures. Main, Controls, and Health all
+  offer Open Even settings + Retry R1; opening settings starts a bounded release
+  poll that clears the warning and retries R1 once Even releases Bluetooth.
 
-Verification on the continuation checkout: all 128 tests passed, TypeScript
+Verification on the continuation checkout: all 131 tests passed, TypeScript
 typechecking passed, and a debug Android build completed with Android SDK 35 and
 JDK 21. APK: `platforms/android/app/build/outputs/apk/debug/app-debug.apk`, SHA-256
-`6678b5f3a85e380a53683df7061b37803f5dadb33565602684e7917a2fe2b140`.
+`eba31d24d7230f06373fbf4f0c887e11df0c1db422447bce0cd72b705cd95bc1`.
 JDK 26 is present but fails this Gradle stack's `jlink` step; use
 `JAVA_HOME=/usr/lib/jvm/java-21-openjdk` and `ANDROID_HOME=/home/benny/Android/Sdk`.
 
@@ -51,8 +55,8 @@ its resulting commit as a new frozen candidate and run independent review; do
 not cite `1e73fee` as covering these newer changes.
 
 **Next recommended item:** while sleep is deliberately deferred until Benny
-wears the ring overnight, audit/finish the ring-contention UX (S6). After the
-overnight capture exists, correlate `cmd=6` against the matching Even export.
+wears the ring overnight, do the MCP/skill review queued under Platform/vision.
+After the overnight capture exists, correlate `cmd=6` against the matching export.
 
 ## 1. What this project is
 

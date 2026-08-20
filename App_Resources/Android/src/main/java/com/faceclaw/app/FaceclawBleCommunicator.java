@@ -1517,6 +1517,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             long backoffMs;
             int attempt;
             synchronized (lock) {
+                maybeEmitEvenAppConflictLocked("ring connect failed");
                 ringConnected = false;
                 ringNotificationsReady = false;
                 ringConsecutiveFailures++;
@@ -3500,7 +3501,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private void maybeEmitEvenAppConflictLocked(String reason) {
-        if (!"write failed".equals(reason)) {
+        if (!"write failed".equals(reason) && !"ring connect failed".equals(reason)) {
             return;
         }
         long now = SystemClock.elapsedRealtime();
@@ -3514,7 +3515,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             return;
         }
         lastEvenAppConflictAtMs = now;
-        emitEvenAppConflict("The Even Realities app still appears to be running. It can hold the glasses BLE link and cause Hermes G2 write failures. Open its app settings and force stop it, then reconnect Hermes G2.");
+        emitEvenAppConflict("The Even Realities app still appears to be running. It can hold the R1 ring or glasses BLE link, cause Hermes G2 write failures, or prevent R1 connecting. Open its app settings and force stop it, then retry R1.");
     }
 
     private void emitEvenAppConflict(String message) {

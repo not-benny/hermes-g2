@@ -191,6 +191,7 @@ class DashboardController {
   private screenTimeoutTimer: ReturnType<typeof setInterval> | null = null;
   private evenHubSuspendTimer: ReturnType<typeof setTimeout> | null = null;
   private brightnessDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private evenAppReleasePollTimer: ReturnType<typeof setInterval> | null = null;
   private evenHubSessionSuspended = false;
   private evenHubResumePromise: Promise<boolean> | null = null;
   private faceclawWakeLeaseSupported = false;
@@ -915,6 +916,34 @@ class DashboardController {
 
   openEvenAppSettings(): void {
     openEvenAppSettings();
+    this.startEvenAppReleasePoll();
+  }
+
+  /** Re-check that Even released Bluetooth, then immediately retry the R1. */
+  async retryRingAfterEvenAppStop(): Promise<boolean> {
+    this.refreshEvenAppStatus();
+    if (this.evenNotificationActive) return false;
+    return this.reconnectRing();
+  }
+
+  private startEvenAppReleasePoll(): void {
+    this.clearEvenAppReleasePoll();
+    let checksLeft = 30;
+    this.evenAppReleasePollTimer = setInterval(() => {
+      this.refreshEvenAppStatus();
+      if (this.evenNotificationActive && --checksLeft > 0) return;
+      this.clearEvenAppReleasePoll();
+      if (!this.evenNotificationActive && this.phase === "connected") {
+        void this.reconnectRing();
+      }
+    }, 2_000);
+  }
+
+  private clearEvenAppReleasePoll(): void {
+    if (this.evenAppReleasePollTimer) {
+      clearInterval(this.evenAppReleasePollTimer);
+      this.evenAppReleasePollTimer = null;
+    }
   }
 
   setActiveTextSettingValue(value: string): void {
@@ -1243,6 +1272,7 @@ class DashboardController {
   }
 
   async disconnect(): Promise<void> {
+    this.clearEvenAppReleasePoll();
     if (this.phase === "disconnected" || this.phase === "disconnecting") return;
 
     // Beep while the transport is still up (phase is still "connected" here);

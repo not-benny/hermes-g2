@@ -105,7 +105,9 @@ session-open frame is hardcoded/universal (not per-device).
 
 ### Smaller backlog (do not lose)
 - **TODO** — S5 Ring pair/unpair + direct phone-to-ring link management UI (ties to T2).
-- **TODO** — S6 Ring-health contention UX (Even app vs Hermes single-central) — surface / handle gracefully.
+- **DONE** (2026-08-20) — S6 Ring-health contention UX: direct R1 failures and glasses write failures surface
+  an Even-app warning on Main, Controls, and Health with Open settings + Retry R1 actions. Opening settings
+  starts a bounded release poll; once Even releases Bluetooth, the warning clears and R1 retries automatically.
 - **TODO** — S7 Voice-assistant bridge validate end-to-end ("Hey Even" → bridge → agent); bridge now works,
   path was never hardware-tested.
 - **DEFER** — S3 `foregroundServiceType` refinement (FaceclawForegroundService.java ~110) — current

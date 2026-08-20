@@ -24,6 +24,7 @@
                     <StackLayout visibility="{{ evenAppConflictWarningVisibility }}">
                         <Label text="{{ evenAppConflictMessage }}" textWrap="true" />
                         <Button text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" class="-primary" />
+                        <Button text="Retry R1" tap="{{ onRetryRingTap }}" />
                     </StackLayout>
                     <StackLayout visibility="{{ firmwareWarningVisibility }}">
                         <Label text="{{ firmwareWarningMessage }}" textWrap="true" />
@@ -57,6 +58,7 @@
                 <StackLayout visibility="{{ evenAppConflictWarningVisibility }}">
                     <Label text="{{ evenAppConflictMessage }}" textWrap="true" />
                     <Button text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" class="-primary" />
+                    <Button text="Retry R1" tap="{{ onRetryRingTap }}" />
                 </StackLayout>
                 <Label text="{{ firmwareWarningMessage }}" textWrap="true" visibility="{{ firmwareWarningVisibility }}" />
                 <StackLayout visibility="{{ batteryOptimizationWarningVisibility }}">

@@ -41,6 +41,7 @@ export class GlassesControlsViewModel extends Observable {
   private _glassesWorn: boolean | null = null;
   private _glassesLocked = false;
   private _ringConnectionState: RingConnectionState = "not-configured";
+  private _evenAppConflictMessage = "";
   private unsubscribeSnapshot: (() => void) | null = null;
   private unsubscribeSettings: (() => void) | null = null;
   private unsubscribeRingHealth: (() => void) | null = null;
@@ -122,6 +123,11 @@ export class GlassesControlsViewModel extends Observable {
 
   get ringStatus(): string {
     return RING_STATUS_LABELS[this._ringConnectionState];
+  }
+
+  get evenAppConflictMessage(): string { return this._evenAppConflictMessage; }
+  get evenAppConflictWarningVisibility(): "visible" | "collapse" {
+    return this._evenAppConflictMessage ? "visible" : "collapse";
   }
 
   get ringFirmwareVersion(): string {
@@ -217,6 +223,15 @@ export class GlassesControlsViewModel extends Observable {
     this.setStatus(queued ? "R1 reconnect requested." : "R1 needs a configured address and an active glasses session.");
   }
 
+  onOpenEvenAppSettingsTap(): void {
+    dashboardController.openEvenAppSettings();
+  }
+
+  async onRetryRingTap(): Promise<void> {
+    const queued = await dashboardController.retryRingAfterEvenAppStop();
+    this.setStatus(queued ? "R1 reconnect requested." : "Force stop Even first, then retry R1.");
+  }
+
   onVoiceProviderTap(): void {
     voiceProviderSetting.set(voiceProviderSetting.next());
     this.setStatus(`Voice provider set to ${voiceProviderSetting.displayValue()}.`);
@@ -246,7 +261,11 @@ export class GlassesControlsViewModel extends Observable {
     this._glassesWorn = snapshot.glassesWorn;
     this._glassesLocked = snapshot.glassesLocked;
     this._ringConnectionState = snapshot.ringConnectionState;
-    for (const property of ["status", "canControl", "screenActionLabel", "wearStatus", "ringStatus"]) {
+    this._evenAppConflictMessage = snapshot.evenAppConflictMessage;
+    for (const property of [
+      "status", "canControl", "screenActionLabel", "wearStatus", "ringStatus",
+      "evenAppConflictMessage", "evenAppConflictWarningVisibility",
+    ]) {
       this.notifyPropertyChange(property, (this as any)[property]);
     }
   }

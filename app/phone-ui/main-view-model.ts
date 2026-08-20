@@ -456,6 +456,11 @@ export class MainViewModel extends Observable {
     dashboardController.openEvenAppSettings();
   }
 
+  async onRetryRingTap(): Promise<void> {
+    const queued = await dashboardController.retryRingAfterEvenAppStop();
+    this.status = queued ? "R1 reconnect requested." : "Force stop Even first, then retry R1.";
+  }
+
   async onSyntheticUpTap(): Promise<void> {
     await dashboardController.injectSyntheticRingInput("scroll-up");
   }

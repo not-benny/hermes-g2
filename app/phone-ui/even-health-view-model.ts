@@ -67,6 +67,7 @@ const HERMES_PUSH_INTERVAL_MS = 3 * 60 * 60 * 1000;
 export class EvenHealthViewModel extends Observable {
   private health: RingHealthSnapshot = ringHealthStore.snapshot();
   private ringState: RingConnectionState = "not-configured";
+  private evenAppConflictMessageState = "";
   private offHealth: (() => void) | null = null;
   private offDashboard: (() => void) | null = null;
   private ringDots: Label[] = [];
@@ -87,8 +88,12 @@ export class EvenHealthViewModel extends Observable {
       this.refresh();
     });
     this.offDashboard = dashboardController.subscribe((snapshot: DashboardSnapshot) => {
-      if (snapshot.ringConnectionState === this.ringState) return;
+      if (
+        snapshot.ringConnectionState === this.ringState &&
+        snapshot.evenAppConflictMessage === this.evenAppConflictMessageState
+      ) return;
       this.ringState = snapshot.ringConnectionState;
+      this.evenAppConflictMessageState = snapshot.evenAppConflictMessage;
       this.refresh();
     });
     if (getHermesConsent()) this.startHermesTimer();
@@ -256,6 +261,15 @@ export class EvenHealthViewModel extends Observable {
   get batteryChipVisibility(): "visible" | "collapse" {
     return this.health.batteryPercent === null ? "collapse" : "visible";
   }
+  get evenAppConflictMessage(): string { return this.evenAppConflictMessageState; }
+  get evenAppConflictWarningVisibility(): "visible" | "collapse" {
+    return this.evenAppConflictMessageState ? "visible" : "collapse";
+  }
+  onOpenEvenAppSettingsTap(): void { dashboardController.openEvenAppSettings(); }
+  async onRetryRingTap(): Promise<void> {
+    const queued = await dashboardController.retryRingAfterEvenAppStop();
+    if (!queued) console.log("[health] R1 retry blocked until Even is stopped");
+  }
   private get hasData(): boolean {
     return this.health.updatedAtMs !== null || this.hourlyToday.length > 0;
   }
@@ -383,6 +397,7 @@ export class EvenHealthViewModel extends Observable {
 
 const NOTIFY = [
   "ringStatusLabel", "lastUpdatedLabel", "ringDotClass", "batteryChipLabel", "batteryChipVisibility", "emptyStateVisibility",
+  "evenAppConflictMessage", "evenAppConflictWarningVisibility",
   "readinessValue", "readinessOutOf", "readinessVerdict", "readinessBlurb", "driverChips", "driverChipsVisibility",
   "currentHrValue", "currentHrSource", "restingHrLabel", "hrRangeLabel", "hrTrendLabel", "hrChartVisibility",
   "trendChartVisibility", "trendEmptyVisibility", "trendEmptyLabel",

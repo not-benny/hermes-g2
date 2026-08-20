@@ -12,6 +12,14 @@
                 <Label col="2" text="{{ batteryChipLabel }}" class="health-batt-chip" visibility="{{ batteryChipVisibility }}" verticalAlignment="center" />
             </GridLayout>
 
+            <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="card m-t-12">
+                <Label text="{{ evenAppConflictMessage }}" textWrap="true" />
+                <GridLayout columns="*,*" class="m-t-4">
+                    <Button col="0" text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" />
+                    <Button col="1" text="Retry R1" tap="{{ onRetryRingTap }}" />
+                </GridLayout>
+            </StackLayout>
+
             <Label text="Waiting for the ring to sync. Connect the glasses session and wear the ring; live values appear here."
                    textWrap="true" class="muted m-t-12" visibility="{{ emptyStateVisibility }}" />
 

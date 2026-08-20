@@ -47,6 +47,13 @@
             </GridLayout>
             <Label text="{{ ringStatus }}" textWrap="true" class="m-t-12" />
             <Label text="{{ ringFirmwareVersion }}" textWrap="true" class="m-t-4" />
+            <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="m-t-8">
+                <Label text="{{ evenAppConflictMessage }}" textWrap="true" />
+                <GridLayout columns="*,*" class="m-t-4">
+                    <Button col="0" text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" />
+                    <Button col="1" text="Retry R1" tap="{{ onRetryRingTap }}" />
+                </GridLayout>
+            </StackLayout>
             <StackLayout class="control-row">
                 <GridLayout columns="*,auto">
                     <Label col="0" text="Ring sensitivity" class="control-row-label" />
