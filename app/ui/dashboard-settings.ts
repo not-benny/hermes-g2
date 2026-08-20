@@ -1,4 +1,5 @@
 import { GESTURE_DOUBLE_CLICK } from "./gestures";
+import { BEEP_EVENTS, type BeepEvent } from "./event-beeps";
 import {
   getBooleanSetting,
   getStringSetting,
@@ -434,6 +435,50 @@ export const notificationAllowedPackagesSetting = new ConfigSettingString({
   formatValue: (value) => `${parseNotificationAllowedPackages(value).length} app${parseNotificationAllowedPackages(value).length === 1 ? "" : "s"}`,
   description: "Apps allowed when Notification filter is set to Selected apps. Manage this list from the Android Glasses Controls page.",
 });
+
+// ---- Beeps / buzzer feedback ----
+// BEEP_EVENTS (keys, defaults, labels) live in event-beeps.ts so a worker
+// isolate can gate beeps without importing this heavy module.
+export const beepsEnabledSetting = new ConfigSettingBoolean({
+  id: "beeps-enabled",
+  label: "Beeps",
+  storageKey: "beeps.enabled",
+  defaultValue: true,
+  description:
+    "Master switch for glasses buzzer feedback (notifications, assistant, timers, connect/disconnect).",
+});
+
+export const BEEP_VOLUME_VALUES = ["low", "medium", "high"] as const;
+export type BeepVolume = (typeof BEEP_VOLUME_VALUES)[number];
+
+const beepVolumeLabels: Record<BeepVolume, string> = { low: "Low", medium: "Medium", high: "High" };
+
+export const beepVolumeSetting = new ConfigSettingEnum<BeepVolume>({
+  id: "beep-volume",
+  label: "Beep volume",
+  storageKey: "beeps.volume",
+  defaultValue: "medium",
+  values: BEEP_VOLUME_VALUES,
+  formatValue: (value) => beepVolumeLabels[value] ?? value,
+  description: "Loudness of the piezo buzzer. The G2 piezo has a small volume range.",
+});
+
+// Per-event toggles, generated from the BEEP_EVENTS table (one source of truth).
+export const beepEventSettings: Record<BeepEvent, ConfigSettingBoolean> = Object.fromEntries(
+  (Object.keys(BEEP_EVENTS) as BeepEvent[]).map((event) => {
+    const def = BEEP_EVENTS[event];
+    return [
+      event,
+      new ConfigSettingBoolean({
+        id: `beep-${event}`,
+        label: def.label,
+        storageKey: def.storageKey,
+        defaultValue: def.defaultOn,
+        description: def.description,
+      }),
+    ];
+  }),
+) as Record<BeepEvent, ConfigSettingBoolean>;
 
 export const NOTIFICATION_FONT_SIZE_VALUES = ["small", "medium", "large"] as const;
 export type NotificationFontSize = (typeof NOTIFICATION_FONT_SIZE_VALUES)[number];

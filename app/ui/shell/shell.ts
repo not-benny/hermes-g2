@@ -32,6 +32,7 @@ import { ShellChromeLayer, sidebarLeftColumnUsed, type ShellChromeState, type Sh
 import { EdgeBounce, EdgeWrapScroller } from "../edge-scroll";
 import { ShellModalLayer } from "./modal-layer";
 import { ToolDebugMenuLayer } from "./tool-debug-layer";
+import { playEventBeep } from "../event-beeps";
 import { toolRegistry } from "../../assistant/tool-registry";
 import {
   MIN_WINDOW_HEIGHT,
@@ -1025,9 +1026,18 @@ class Shell {
     layer.startTurn();
     session.sendUtterance(text, this.buildAssistantContext(), {
       onTextDelta: (delta, textSoFar) => layer.onTextDelta(delta, textSoFar),
-      onToolActivity: (label) => layer.onToolActivity(label),
-      onTurnDone: () => layer.onTurnDone(),
-      onError: (message) => layer.onError(message),
+      onToolActivity: (label) => {
+        void playEventBeep("assistantTool", this.config.actions.playBuzzerSequence);
+        layer.onToolActivity(label);
+      },
+      onTurnDone: () => {
+        void playEventBeep("assistantReply", this.config.actions.playBuzzerSequence);
+        layer.onTurnDone();
+      },
+      onError: (message) => {
+        void playEventBeep("assistantError", this.config.actions.playBuzzerSequence);
+        layer.onError(message);
+      },
     });
   }
 

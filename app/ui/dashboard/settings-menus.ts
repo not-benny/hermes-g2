@@ -46,6 +46,9 @@ import {
   toggleSettingMenuItem,
   uiFontSetting,
   notificationFontSizeSetting,
+  beepsEnabledSetting,
+  beepVolumeSetting,
+  beepEventSettings,
   verticalPositionSetting,
   voiceProviderSetting,
   screenTimeoutSetting,
@@ -90,6 +93,20 @@ function settingsSections(): SettingsSection[] {
       items: [
         // Throttles ring/touchpad scrolling; lower levels tame a runaway swipe.
         enumSettingMenuItem(ringSensitivitySetting),
+      ],
+    },
+    {
+      label: "Sounds",
+      items: [
+        toggleSettingMenuItem(beepsEnabledSetting), // master
+        enumSettingMenuItem(beepVolumeSetting),
+        toggleSettingMenuItem(beepEventSettings.notification),
+        toggleSettingMenuItem(beepEventSettings.assistantReply),
+        toggleSettingMenuItem(beepEventSettings.assistantError),
+        toggleSettingMenuItem(beepEventSettings.assistantTool),
+        toggleSettingMenuItem(beepEventSettings.timer),
+        toggleSettingMenuItem(beepEventSettings.connect),
+        toggleSettingMenuItem(beepEventSettings.disconnect),
       ],
     },
     {

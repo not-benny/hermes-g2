@@ -24,6 +24,7 @@ import { registerNavigateTools } from "../assistant/navigate-tools";
 import { registerRoamTools } from "../assistant/roam-tools";
 import { assistantBridge } from "../assistant/bridge-client";
 import { ringHealthStore } from "../health/ring-health-store";
+import { playEventBeep } from "../ui/event-beeps";
 import { registerWindowTools } from "../assistant/window-tools";
 import { registerTimerTools } from "../assistant/timer-tools";
 import { WorkerAppHost } from "../ui/shell/worker-window";
@@ -157,6 +158,10 @@ class DashboardController {
   // Set at connect time from the persisted flag; the one-time post-onboarding
   // welcome sound plays on the first rendered frame (proof the session is warm).
   private welcomeSoundArmed = false;
+  /** One-shot: play the connect beep on the first warmed frame after connect. */
+  private connectBeepArmed = false;
+  /** Rate-limit the notification beep so a burst does not machine-gun. */
+  private lastNotificationBeepMs = 0;
 
   private communicator: FaceclawCommunicatorBridge | null = null;
   private shellRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -911,6 +916,9 @@ class DashboardController {
     this.lastInput = "waiting...";
     this.lastSys = "none yet";
     this.welcomeSoundArmed = isWelcomeSoundPending();
+    // Arm the connect beep for the first warmed frame; the welcome jingle wins
+    // on a first-ever connect (see onFrameMetrics).
+    this.connectBeepArmed = true;
     this.firmwareWarningMessage = "";
     this.glassesWorn = null;
     this.glassesLocked = false;
@@ -1048,8 +1056,12 @@ class DashboardController {
           // so the buzzer won't be dropped. Play the one-time welcome sound now.
           if (this.welcomeSoundArmed) {
             this.welcomeSoundArmed = false;
+            this.connectBeepArmed = false;
             setWelcomeSoundPending(false);
             void this.playWelcomeSound();
+          } else if (this.connectBeepArmed) {
+            this.connectBeepArmed = false;
+            void playEventBeep("connect", (p) => this.playBuzzerSequence(p));
           }
         }
       });
@@ -1198,6 +1210,11 @@ class DashboardController {
   async disconnect(): Promise<void> {
     if (this.phase === "disconnected" || this.phase === "disconnecting") return;
 
+    // Beep while the transport is still up (phase is still "connected" here);
+    // await it so the queued frame flushes before teardown. ~300ms on a manual
+    // disconnect. An unexpected drop can't beep on-glass (transport gone).
+    this.connectBeepArmed = false;
+    await playEventBeep("disconnect", (p) => this.playBuzzerSequence(p));
     this.setPhase("disconnecting");
     this.setStatus("Disconnecting...");
     this.clearDashboardTimer();
@@ -1780,6 +1797,12 @@ class DashboardController {
       this.appendLog("android notification woke the screen");
     }
     shell.openNotificationModal(notificationKey, wokeScreen);
+    // Beep alongside the modal the user actually sees (this handler already runs
+    // only for notifications that surface), rate-limited against bursts.
+    if (Date.now() - this.lastNotificationBeepMs > 1500) {
+      this.lastNotificationBeepMs = Date.now();
+      void playEventBeep("notification", (p) => this.playBuzzerSequence(p));
+    }
     this.requestShellRender();
   }
 
