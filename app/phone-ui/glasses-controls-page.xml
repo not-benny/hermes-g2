@@ -62,10 +62,7 @@
                 <Switch col="1" checked="{{ voiceControlChecked }}" />
             </GridLayout>
             <Button text="{{ voiceProviderLabel }}" tap="{{ onVoiceProviderTap }}" class="m-t-8" />
-            <StackLayout class="control-row">
-                <Label text="Wakeword action" class="control-row-label m-b-4" />
-                <SegmentedBar items="{{ wakeWordActionItems }}" selectedIndex="{{ wakeWordActionIndex }}" />
-            </StackLayout>
+            <Button text="{{ wakeWordActionLabel }}" tap="{{ onWakeWordActionTap }}" class="m-t-8" />
             <GridLayout columns="*,auto" class="control-row">
                 <Label col="0" text="Save voice recordings" class="control-row-label" />
                 <Switch col="1" checked="{{ saveVoiceRecordingsChecked }}" />
@@ -73,10 +70,7 @@
             <Button text="Test voice input" tap="{{ onTestVoiceInputTap }}" isEnabled="{{ canControl }}" class="m-t-8" />
 
             <Label text="Notification filtering" class="h2 m-t-20" />
-            <StackLayout class="control-row">
-                <Label text="Notifications" class="control-row-label m-b-4" />
-                <SegmentedBar items="{{ notificationFilterItems }}" selectedIndex="{{ notificationFilterIndex }}" />
-            </StackLayout>
+            <Button text="{{ notificationFilterLabel }}" tap="{{ onNotificationFilterModeTap }}" class="m-t-8" />
             <Label text="{{ selectedAppsLabel }}" textWrap="true" class="m-t-8" />
             <StackLayout class="control-row">
                 <Label text="Notification text size" class="control-row-label m-b-4" />

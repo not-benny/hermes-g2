@@ -76,8 +76,11 @@ export class GlassesControlsViewModel extends Observable {
   get brightnessSliderMax(): number { return this.enumSliderMax(brightnessSetting); }
   get brightnessValueLabel(): string { return brightnessSetting.displayValue(); }
 
-  get timeoutLabel(): string {
-    return `Screen timeout: ${screenTimeoutSetting.displayValue()}`;
+  // Kept as a button: 5 options ("Never" wraps) don't fit a segmented bar.
+  get timeoutLabel(): string { return `Screen timeout: ${screenTimeoutSetting.displayValue()}`; }
+  onTimeoutTap(): void {
+    screenTimeoutSetting.set(screenTimeoutSetting.next());
+    this.setStatus(`Set screen timeout to ${screenTimeoutSetting.displayValue()}.`);
   }
 
   get lockScreenChecked(): boolean {
@@ -90,8 +93,11 @@ export class GlassesControlsViewModel extends Observable {
     this.setStatus(`Lock screen ${value ? "enabled" : "disabled"}.`);
   }
 
-  get verticalPositionLabel(): string {
-    return `Window position: ${verticalPositionSetting.displayValue()}`;
+  // Kept as a button: 5 options (Top/Upper/Middle/Lower/Bottom) wrap in a bar.
+  get verticalPositionLabel(): string { return `Window position: ${verticalPositionSetting.displayValue()}`; }
+  onVerticalPositionTap(): void {
+    verticalPositionSetting.set(verticalPositionSetting.next());
+    this.setStatus(`Moved windows to ${verticalPositionSetting.displayValue()}.`);
   }
 
   get timeFormatItems(): SegmentedBarItem[] { return this.enumItems(timeFormatSetting); }
@@ -134,9 +140,12 @@ export class GlassesControlsViewModel extends Observable {
     return `Transcription: ${voiceProviderSetting.displayValue()}`;
   }
 
-  get wakeWordActionItems(): SegmentedBarItem[] { return this.enumItems(wakeWordActionSetting); }
-  get wakeWordActionIndex(): number { return this.enumIndex(wakeWordActionSetting); }
-  set wakeWordActionIndex(index: number) { this.setEnumIndex(wakeWordActionSetting, index, "wakeWordActionIndex"); }
+  // Kept as a button: its labels ("Screen on") are too long for a 3-segment bar.
+  get wakeWordActionLabel(): string { return `Wakeword: ${wakeWordActionSetting.displayValue()}`; }
+  onWakeWordActionTap(): void {
+    wakeWordActionSetting.set(wakeWordActionSetting.next());
+    this.setStatus(`Wakeword action set to ${wakeWordActionSetting.displayValue()}.`);
+  }
 
   get saveVoiceRecordingsChecked(): boolean {
     return saveVoiceRecordingsSetting.get();
@@ -148,9 +157,12 @@ export class GlassesControlsViewModel extends Observable {
     this.setStatus(`Voice recording diagnostics ${value ? "enabled" : "disabled"}.`);
   }
 
-  get notificationFilterItems(): SegmentedBarItem[] { return this.enumItems(notificationFilterModeSetting); }
-  get notificationFilterIndex(): number { return this.enumIndex(notificationFilterModeSetting); }
-  set notificationFilterIndex(index: number) { this.setEnumIndex(notificationFilterModeSetting, index, "notificationFilterIndex"); }
+  // Kept as a button: labels ("Important only", "All non-silent") wrap in a bar.
+  get notificationFilterLabel(): string { return `Notifications: ${notificationFilterModeSetting.displayValue()}`; }
+  onNotificationFilterModeTap(): void {
+    notificationFilterModeSetting.set(notificationFilterModeSetting.next());
+    this.setStatus(`Notification filter set to ${notificationFilterModeSetting.displayValue()}.`);
+  }
 
   get selectedAppsLabel(): string {
     return `Selected apps: ${notificationAllowedPackagesSetting.displayValue()}`;
@@ -171,16 +183,6 @@ export class GlassesControlsViewModel extends Observable {
 
   onBlankScreenTap(): void {
     this.setStatus(dashboardController.sleepGlassesScreen() ? "Screen blanked." : "Connect to the glasses first.");
-  }
-
-  onTimeoutTap(): void {
-    screenTimeoutSetting.set(screenTimeoutSetting.next());
-    this.setStatus(`Set screen timeout to ${screenTimeoutSetting.displayValue()}.`);
-  }
-
-  onVerticalPositionTap(): void {
-    verticalPositionSetting.set(verticalPositionSetting.next());
-    this.setStatus(`Moved windows to ${verticalPositionSetting.displayValue()}.`);
   }
 
   async onOpenCompassTap(): Promise<void> {
@@ -250,9 +252,9 @@ export class GlassesControlsViewModel extends Observable {
       "voiceControlChecked",
       "uiFontIndex",
       "voiceProviderLabel",
-      "wakeWordActionIndex",
+      "wakeWordActionLabel",
       "saveVoiceRecordingsChecked",
-      "notificationFilterIndex",
+      "notificationFilterLabel",
       "selectedAppsLabel",
       "notificationFontSizeIndex",
     ]) {
