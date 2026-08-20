@@ -31,8 +31,9 @@ public class FaceclawBleManager {
     private final BluetoothAdapter bluetoothAdapter;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    private static final Object BLUETOOTH_API_LOCK = new Object();
     private final ConcurrentHashMap<String, BluetoothGatt> gattClients = new ConcurrentHashMap<>();
-    private final Object bluetoothApiLock = new Object();
+    private final ConcurrentHashMap<String, Object> operationLocks = new ConcurrentHashMap<>();
 
     private final ConcurrentHashMap<String, CountDownLatch> connectLatches = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Boolean> connectResults = new ConcurrentHashMap<>();
@@ -72,18 +73,17 @@ public class FaceclawBleManager {
         if (address == null || address.trim().isEmpty()) {
             throw new IllegalArgumentException("address is required");
         }
-        CountDownLatch latch = new CountDownLatch(1);
-        connectLatches.put(address, latch);
-        connectResults.remove(address);
-
-        Object gattLock = gattLock(address);
+        Object operationLock = gattLock(address);
         BluetoothGatt gatt;
-        synchronized (gattLock) {
+        synchronized (operationLock) {
             BluetoothGatt existing = gattClients.get(address);
             if (existing != null) {
-                connectLatches.remove(address);
                 return true;
             }
+
+            CountDownLatch latch = new CountDownLatch(1);
+            connectLatches.put(address, latch);
+            connectResults.remove(address);
 
             final BluetoothDevice device = bluetoothAdapter.getRemoteDevice(address);
             if (device == null) {
@@ -91,13 +91,15 @@ public class FaceclawBleManager {
                 throw new IllegalArgumentException("remote device not found: " + address);
             }
 
-            gatt = device.connectGatt(
-                context,
-                false,
-                gattCallback,
-                BluetoothDevice.TRANSPORT_LE,
-                BluetoothDevice.PHY_LE_2M|BluetoothDevice.PHY_LE_1M
-            );
+            synchronized (BLUETOOTH_API_LOCK) {
+                gatt = device.connectGatt(
+                    context,
+                    false,
+                    gattCallback,
+                    BluetoothDevice.TRANSPORT_LE,
+                    BluetoothDevice.PHY_LE_2M|BluetoothDevice.PHY_LE_1M
+                );
+            }
             if (gatt != null) {
                 gattClients.put(address, gatt);
             }
@@ -111,8 +113,10 @@ public class FaceclawBleManager {
                 connectLatches.remove(address);
                 connectResults.remove(address);
                 gattClients.remove(address, gatt);
-                gatt.disconnect();
-                gatt.close();
+                synchronized (BLUETOOTH_API_LOCK) {
+                    gatt.disconnect();
+                    gatt.close();
+                }
                 return false;
             }
 
@@ -125,7 +129,9 @@ public class FaceclawBleManager {
     public boolean requestConnectionPriority(String address, int priority) {
         synchronized (gattLock(address)) {
             BluetoothGatt gatt = requireGatt(address);
-            return gatt.requestConnectionPriority(priority);
+            synchronized (BLUETOOTH_API_LOCK) {
+                return gatt.requestConnectionPriority(priority);
+            }
         }
     }
 
@@ -136,7 +142,10 @@ public class FaceclawBleManager {
             mtuStatuses.remove(address);
 
             BluetoothGatt gatt = requireGatt(address);
-            boolean started = gatt.requestMtu(mtu);
+            boolean started;
+            synchronized (BLUETOOTH_API_LOCK) {
+                started = gatt.requestMtu(mtu);
+            }
             if (!started) {
                 mtuLatches.remove(address);
                 return false;
@@ -159,7 +168,10 @@ public class FaceclawBleManager {
             servicesStatuses.remove(address);
 
             BluetoothGatt gatt = requireGatt(address);
-            boolean started = gatt.discoverServices();
+            boolean started;
+            synchronized (BLUETOOTH_API_LOCK) {
+                started = gatt.discoverServices();
+            }
             if (!started) {
                 servicesLatches.remove(address);
                 return false;
@@ -185,7 +197,11 @@ public class FaceclawBleManager {
 
             BluetoothGatt gatt = requireGatt(address);
             BluetoothGattCharacteristic characteristic = requireCharacteristic(gatt, characteristicUuid);
-            if (!gatt.readCharacteristic(characteristic)) {
+            boolean started;
+            synchronized (BLUETOOTH_API_LOCK) {
+                started = gatt.readCharacteristic(characteristic);
+            }
+            if (!started) {
                 readLatches.remove(address);
                 return null;
             }
@@ -232,7 +248,10 @@ public class FaceclawBleManager {
             BluetoothGatt gatt = requireGatt(address);
             BluetoothGattCharacteristic characteristic = requireCharacteristic(gatt, characteristicUuid);
 
-            boolean notificationSet = gatt.setCharacteristicNotification(characteristic, enable);
+            boolean notificationSet;
+            synchronized (BLUETOOTH_API_LOCK) {
+                notificationSet = gatt.setCharacteristicNotification(characteristic, enable);
+            }
             if (!notificationSet) {
                 descriptorLatches.remove(address);
                 return false;
@@ -247,7 +266,10 @@ public class FaceclawBleManager {
             descriptor.setValue(enable
                     ? BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                     : BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE);
-            boolean started = gatt.writeDescriptor(descriptor);
+            boolean started;
+            synchronized (BLUETOOTH_API_LOCK) {
+                started = gatt.writeDescriptor(descriptor);
+            }
             if (!started) {
                 descriptorLatches.remove(address);
                 descriptorStatuses.remove(address);
@@ -307,7 +329,10 @@ public class FaceclawBleManager {
             writeStatuses.remove(address);
 
             long currentTime = System.currentTimeMillis();
-            int result = gatt.writeCharacteristic(characteristic, data, writeType);
+            int result;
+            synchronized (BLUETOOTH_API_LOCK) {
+                result = gatt.writeCharacteristic(characteristic, data, writeType);
+            }
             long timeAsleep = System.currentTimeMillis() - currentTime;
             //Log.i(TAG, "writeCharacteristic: spent " + timeAsleep + "ms");
 
@@ -362,14 +387,16 @@ public class FaceclawBleManager {
     }
 
     public void disconnect(String address) {
-        Object gattLock = gattLock(address);
-        synchronized (gattLock) {
+        Object operationLock = gattLock(address);
+        synchronized (operationLock) {
             BluetoothGatt gatt = gattClients.remove(address);
             if (gatt == null) {
                 return;
             }
-            gatt.disconnect();
-            gatt.close();
+            synchronized (BLUETOOTH_API_LOCK) {
+                gatt.disconnect();
+                gatt.close();
+            }
         }
     }
 
@@ -408,9 +435,7 @@ public class FaceclawBleManager {
     }
 
     private Object gattLock(String address) {
-        // Android's Bluetooth stack has process-wide command-pipeline constraints on some devices.
-        // Keep every BluetoothGatt API call serialized globally, even for different MAC addresses.
-        return bluetoothApiLock;
+        return operationLocks.computeIfAbsent(address, ignored -> new Object());
     }
 
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
@@ -418,6 +443,12 @@ public class FaceclawBleManager {
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             Log.i(TAG, "onConnectionStateChange: status=" + status + " newState=" + newState);
             String address = gatt.getDevice().getAddress();
+
+            // A callback from a timed-out/closed GATT must never satisfy a newer
+            // same-address operation or resurrect its communicator state.
+            if (!isCurrentGatt(address, gatt)) {
+                return;
+            }
 
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 connectResults.put(address, true);
@@ -435,18 +466,24 @@ public class FaceclawBleManager {
                 if (latch != null) {
                     latch.countDown();
                 }
-                Object gattLock = gattLock(address);
-                synchronized (gattLock) {
-                    gattClients.remove(address, gatt);
-                    gatt.close();
+                Object operationLock = gattLock(address);
+                boolean removed;
+                synchronized (operationLock) {
+                    removed = gattClients.remove(address, gatt);
+                    synchronized (BLUETOOTH_API_LOCK) {
+                        gatt.close();
+                    }
                 }
-                dispatchConnectionState(address, false);
+                if (removed) {
+                    dispatchConnectionState(address, false);
+                }
             }
         }
 
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
             String address = gatt.getDevice().getAddress();
+            if (!isCurrentGatt(address, gatt)) return;
             servicesStatuses.put(address, status);
             CountDownLatch latch = servicesLatches.remove(address);
             if (latch != null) {
@@ -457,6 +494,7 @@ public class FaceclawBleManager {
         @Override
         public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
             String address = gatt.getDevice().getAddress();
+            if (!isCurrentGatt(address, gatt)) return;
             mtuStatuses.put(address, status);
             CountDownLatch latch = mtuLatches.remove(address);
             if (latch != null) {
@@ -472,6 +510,7 @@ public class FaceclawBleManager {
         @Override
         public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
             String address = gatt.getDevice().getAddress();
+            if (!isCurrentGatt(address, gatt)) return;
             descriptorStatuses.put(address, status);
             CountDownLatch latch = descriptorLatches.remove(address);
             if (latch != null) {
@@ -482,6 +521,7 @@ public class FaceclawBleManager {
         @Override
         public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
             String address = gatt.getDevice().getAddress();
+            if (!isCurrentGatt(address, gatt)) return;
             writeStatuses.put(address, status);
             CountDownLatch latch = writeLatches.remove(address);
             if (latch != null) {
@@ -491,26 +531,38 @@ public class FaceclawBleManager {
 
         @Override
         public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value, int status) {
-            finishCharacteristicRead(gatt.getDevice().getAddress(), value, status);
+            String address = gatt.getDevice().getAddress();
+            if (!isCurrentGatt(address, gatt)) return;
+            finishCharacteristicRead(address, value, status);
         }
 
         @Deprecated
         @Override
         public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
-            finishCharacteristicRead(gatt.getDevice().getAddress(), characteristic.getValue(), status);
+            String address = gatt.getDevice().getAddress();
+            if (!isCurrentGatt(address, gatt)) return;
+            finishCharacteristicRead(address, characteristic.getValue(), status);
         }
 
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value) {
-            dispatchNotification(gatt.getDevice().getAddress(), characteristic.getUuid().toString(), value);
+            String address = gatt.getDevice().getAddress();
+            if (!isCurrentGatt(address, gatt)) return;
+            dispatchNotification(address, characteristic.getUuid().toString(), value);
         }
 
         @Deprecated
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-            dispatchNotification(gatt.getDevice().getAddress(), characteristic.getUuid().toString(), characteristic.getValue());
+            String address = gatt.getDevice().getAddress();
+            if (!isCurrentGatt(address, gatt)) return;
+            dispatchNotification(address, characteristic.getUuid().toString(), characteristic.getValue());
         }
     };
+
+    private boolean isCurrentGatt(String address, BluetoothGatt gatt) {
+        return gatt != null && gattClients.get(address) == gatt;
+    }
 
     private void finishCharacteristicRead(String address, byte[] value, int status) {
         readStatuses.put(address, status);
