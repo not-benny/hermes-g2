@@ -34,7 +34,6 @@
             <Button text="Fetch latest health" tap="{{ onFetchHealthTap }}" class="m-t-8" />
             <Label text="{{ health }}" textWrap="true" class="m-t-12" />
 
-            <Button text="Back" tap="{{ onBackTap }}" class="m-t-24" />
         </StackLayout>
     </ScrollView>
 </Page>

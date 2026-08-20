@@ -128,10 +128,10 @@ export class ConfigViewModel extends Observable {
       frame?.navigate({ moduleName: "phone-ui/onboarding-page", clearHistory: true });
       return;
     }
-    Frame.topmost()?.navigate({
-      moduleName: "phone-ui/main-page",
-      clearHistory: true,
-    });
+    // Settings-tab sub-page: return to the Settings hub within the tab frame.
+    const frame = Frame.topmost();
+    if (frame?.canGoBack()) frame.goBack();
+    else frame?.navigate({ moduleName: "phone-ui/settings-page", clearHistory: true });
   }
 
   onSaveTap(): void {

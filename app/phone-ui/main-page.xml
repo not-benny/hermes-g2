@@ -1,11 +1,6 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" loaded="loaded" unloaded="unloaded">
     <ActionBar title="Hermes G2">
         <ActionItem text="{{ buttonLabel }}" tap="{{ onTap }}" isEnabled="{{ canRun }}" android.position="popup" />
-        <ActionItem text="Configure devices" tap="{{ onConfigureTap }}" isEnabled="{{ canRun }}" android.position="popup" />
-        <ActionItem text="Glasses controls" tap="{{ onGlassesControlsTap }}" android.position="popup" />
-        <ActionItem text="API keys" tap="{{ onApiKeysTap }}" android.position="popup" />
-        <ActionItem text="Even Health" tap="{{ onEvenHealthTap }}" android.position="popup" />
-        <ActionItem text="WhatsApp" tap="{{ onWhatsAppTap }}" android.position="popup" />
         <ActionItem text="Take screenshot" tap="{{ onTakeScreenshotTap }}" android.position="popup" />
         <ActionItem text="Record screen" tap="{{ onRecordScreenTap }}" android.position="popup" />
         <ActionItem text="Uninstall custom firmware" tap="{{ onUninstallFirmwareTap }}" isEnabled="{{ canRun }}" android.position="popup" />

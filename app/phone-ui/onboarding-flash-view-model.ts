@@ -482,8 +482,11 @@ export class OnboardingFlashViewModel extends Observable {
     }
     this.disposePrompt();
     this.disposeFlasher();
+    // Onboarding install finishes on the root frame -> enter the tab shell. A
+    // user-initiated flash ran inside the Glasses tab frame -> main-page there
+    // just resets that tab.
     Frame.topmost()?.navigate({
-      moduleName: "phone-ui/main-page",
+      moduleName: this.fromOnboarding ? "phone-ui/shell-page" : "phone-ui/main-page",
       clearHistory: true,
     });
   }

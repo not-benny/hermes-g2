@@ -85,7 +85,7 @@ export class OnboardingViewModel extends Observable {
       setPreviewOnlyMode(true);
       setOnboardingCompleted(true);
       Frame.topmost()?.navigate({
-        moduleName: "phone-ui/main-page",
+        moduleName: "phone-ui/shell-page",
         clearHistory: true,
       });
     }

@@ -105,7 +105,7 @@ export class WhatsAppViewModel extends Observable {
   }
 
   onBackTap(): void {
-    Frame.topmost()?.navigate({ moduleName: "phone-ui/main-page", clearHistory: true });
+    Frame.topmost()?.goBack();
   }
 
   private showCode(code: string): void {

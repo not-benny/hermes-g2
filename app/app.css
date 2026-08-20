@@ -95,6 +95,15 @@ ActivityIndicator {
   color: #57D8A6;
 }
 
+/* Bottom tab bar (the 4-tab shell) */
+TabView {
+  tab-background-color: #101512;
+  tab-text-color: #9BB0A5;
+  selected-tab-text-color: #57D8A6;
+  android-selected-tab-highlight-color: #57D8A6;
+  tab-text-font-size: 12;
+}
+
 /* --- Additive opt-in component classes ---------------------------------- */
 
 .btn {

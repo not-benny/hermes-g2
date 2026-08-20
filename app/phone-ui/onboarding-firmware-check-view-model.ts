@@ -232,7 +232,7 @@ export class OnboardingFirmwareCheckViewModel extends Observable {
     setOnboardingCompleted(true);
     this.disposeProbe();
     Frame.topmost()?.navigate({
-      moduleName: "phone-ui/main-page",
+      moduleName: "phone-ui/shell-page",
       clearHistory: true,
     });
   }
@@ -242,7 +242,7 @@ export class OnboardingFirmwareCheckViewModel extends Observable {
     setOnboardingCompleted(true);
     this.disposeProbe();
     Frame.topmost()?.navigate({
-      moduleName: "phone-ui/main-page",
+      moduleName: "phone-ui/shell-page",
       clearHistory: true,
     });
   }
