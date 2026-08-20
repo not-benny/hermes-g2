@@ -221,6 +221,10 @@ class Shell {
   // scroll and dropped with a tap. null when not reordering. The moved order is
   // the window array order, which onWindowsChanged persists like any switch.
   private reorderingWindowId: string | null = null;
+  // Quick-close mode: long-press a sidebar card to arm it, then scroll to pick a
+  // card and tap to close it. Double-tap exits. Lets windows be closed fast
+  // without focusing each and walking its menu.
+  private closingActive = false;
   // Ring-sensitivity throttle: timestamp of the last honored scroll. A physical
   // swipe fires a burst of scroll events; at lower sensitivity we drop the ones
   // that arrive within the configured interval so one swipe steps once or twice.
@@ -471,6 +475,7 @@ class Shell {
   sleep(): void {
     if (!this.screenOn) return;
     this.cancelEscapeMenuTimer();
+    this.closingActive = false;
     this.screenOn = false;
     this.stack.clearToBase();
     // clearToBase pops the card and fires its onRemoved (timers cleared); null
@@ -668,6 +673,23 @@ class Shell {
       if (this.reorderingWindowId !== null) {
         return { shell: true, window: false };
       }
+      // A long-press on the sidebar arms quick-close mode (scroll to pick, tap
+      // to close, double-tap to exit). The window menu stays reachable by first
+      // clicking a card to focus its window, then long-pressing.
+      if (
+        this.focus === "sidebar" &&
+        !this.closingActive &&
+        this.stack.isAtBase() &&
+        !this.activeVoiceLayer &&
+        this.hasCloseableWindow()
+      ) {
+        this.closingActive = true;
+        // Keep the escape-menu timer so a longer hold still opens it (which
+        // supersedes close mode); a quick long-press-and-release stays in close.
+        this.startEscapeMenuTimer();
+        this.config.requestShellRender();
+        return { shell: true, window: false };
+      }
       this.startEscapeMenuTimer();
       if (this.activeVoiceLayer || !this.stack.isAtBase()) {
         return { shell: true, window: false };
@@ -769,7 +791,39 @@ class Shell {
     return this.screenOn && this.foregroundWindow()?.windowId === windowId;
   }
 
+  /** Any window the user can close (i.e. not the pinned launcher). */
+  private hasCloseableWindow(): boolean {
+    return this.windows.some((w) => w.closeable !== false);
+  }
+
   private handleSidebarInput(event: DashboardInputEvent): ShellInputOutcome {
+    // Quick-close mode: scroll picks a card, tap closes it, double-tap exits.
+    if (this.closingActive) {
+      switch (event.type) {
+        case "scroll-up":
+          this.moveSelection(-1);
+          return { shell: true, window: false };
+        case "scroll-down":
+          this.moveSelection(1);
+          return { shell: true, window: false };
+        case "click": {
+          const window = this.windows[this.selectedIndex];
+          if (window && window.closeable !== false) {
+            this.closeWindow(window.windowId);
+            // Stay armed while there is still something to close; else exit.
+            if (!this.hasCloseableWindow()) this.closingActive = false;
+          }
+          this.config.requestShellRender();
+          return { shell: true, window: false };
+        }
+        case "double-click":
+          this.closingActive = false;
+          this.config.requestShellRender();
+          return { shell: true, window: false };
+        default:
+          return { shell: false, window: false };
+      }
+    }
     // While a tab is picked up, scroll moves it and a tap (or double-tap) drops
     // it; the screen-sleep double-tap is suspended so a drop can't sleep.
     if (this.reorderingWindowId !== null) {
@@ -1181,6 +1235,8 @@ class Shell {
    */
   private openEscapeMenu(): void {
     if (!this.screenOn || this.activeVoiceLayer || !this.stack.isAtBase()) return;
+    // A longer hold opening the escape menu supersedes quick-close mode.
+    this.closingActive = false;
     const foreground = this.foregroundWindow();
     if (!foreground) return;
     const items: MenuItem[] = [];
@@ -1237,6 +1293,7 @@ class Shell {
       selectedIndex: this.selectedIndex,
       focus: this.focus,
       sidebarBounceY: this.sidebarBounce.offsetPx(),
+      closing: this.closingActive,
       ...this.reorderChromeState(),
       foregroundHeightMode: this.foregroundWindow()?.heightMode ?? "min",
       battery: this.battery,
