@@ -1,0 +1,202 @@
+name: Apply clean-validation fixes
+
+on:
+  push:
+    branches:
+      - fix/clean-main-validation-regressions
+    paths:
+      - .github/workflows/apply-clean-validation-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/clean-main-validation-regressions
+          fetch-depth: 1
+          clean: true
+
+      - name: Apply the reviewed deterministic fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          readme = Path("README.md")
+          text = readme.read_text(encoding="utf-8")
+          old = """Hermes currently works alongside the official Even Realities app rather than
+          replacing it completely:
+          """
+          new = """Hermes currently works alongside the official Even Realities app rather than
+          replacing it completely. Complete first-time setup in Even before handing the
+          devices over to Hermes:
+          """
+          if old not in text:
+              raise SystemExit("README setup paragraph not found")
+          readme.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          Path("tests/calories.test.mjs").write_text('''import assert from "node:assert/strict";
+          import { readFileSync } from "node:fs";
+          import test from "node:test";
+          import ts from "typescript";
+
+          const source = readFileSync(new URL("../app/health/calories.ts", import.meta.url), "utf8");
+          const js = ts.transpileModule(source, {
+            compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+          }).outputText;
+          const { kcalPerMinute, estimateActiveCalories } = await import(
+            "data:text/javascript;base64," + Buffer.from(js).toString("base64")
+          );
+
+          const MALE = { weightKg: 75, ageYears: 30, sex: "male" };
+          const FEMALE = { weightKg: 65, ageYears: 30, sex: "female" };
+
+          test("kcalPerMinute follows the Keytel regression (male + female)", () => {
+            // Male 75kg/30, HR 120: (-55.0969 + 0.6309*120 + 0.1988*75 + 0.2017*30)/4.184
+            assert.ok(Math.abs(kcalPerMinute(120, MALE) - 9.94) < 0.05);
+            // Female 65kg/30, HR 120: (-20.4022 + 0.4472*120 - 0.1263*65 + 0.074*30)/4.184
+            assert.ok(Math.abs(kcalPerMinute(120, FEMALE) - 6.52) < 0.05);
+          });
+
+          test("kcalPerMinute clamps to zero at low HR (regression can go negative)", () => {
+            assert.equal(kcalPerMinute(35, { weightKg: 50, ageYears: 20, sex: "male" }), 0);
+          });
+
+          test("kcalPerMinute rises with heart rate", () => {
+            assert.ok(kcalPerMinute(140, MALE) > kcalPerMinute(80, MALE));
+          });
+
+          test("estimateActiveCalories counts only burn above the resting-HR baseline", () => {
+            // Two hours at 120 bpm with resting 60: each hour = (rate@120 - rate@60) * 60.
+            const active = (kcalPerMinute(120, MALE) - kcalPerMinute(60, MALE)) * 60;
+            assert.equal(estimateActiveCalories([{ avg: 120 }, { avg: 120 }], MALE, 60), Math.round(active * 2));
+            // A sedentary hour at resting contributes ~0 (not a full basal burn).
+            assert.equal(estimateActiveCalories([{ avg: 62 }], MALE, 62), 0);
+            assert.equal(estimateActiveCalories([], MALE, 60), 0);
+          });
+          ''', encoding="utf-8")
+
+          Path("tests/health-charts.test.mjs").write_text('''import assert from "node:assert/strict";
+          import { readFileSync } from "node:fs";
+          import test from "node:test";
+          import ts from "typescript";
+
+          const source = readFileSync(new URL("../app/phone-ui/health-chart-data.ts", import.meta.url), "utf8");
+          const js = ts.transpileModule(source, {
+            compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+          }).outputText;
+          const {
+            clamp01,
+            frac,
+            hrZoneColor,
+            readinessColor,
+            buildHrDayBars,
+            buildTrendBars,
+          } = await import("data:text/javascript;base64," + Buffer.from(js).toString("base64"));
+
+          test("frac maps a value across its domain to 0..1 and clamps", () => {
+            assert.equal(frac(50, 0, 100), 0.5);
+            assert.equal(frac(0, 0, 100), 0);
+            assert.equal(frac(100, 0, 100), 1);
+            assert.equal(frac(-10, 0, 100), 0);
+            assert.equal(frac(999, 0, 100), 1);
+          });
+
+          test("frac guards a degenerate (flat / inverted) domain", () => {
+            assert.equal(frac(5, 10, 10), 0);
+            assert.equal(frac(5, 10, 0), 0);
+          });
+
+          test("clamp01 pins to the unit interval", () => {
+            assert.equal(clamp01(-0.2), 0);
+            assert.equal(clamp01(1.5), 1);
+            assert.equal(clamp01(0.3), 0.3);
+          });
+
+          test("hrZoneColor buckets bpm into rest/normal/elevated/high", () => {
+            assert.equal(hrZoneColor(52), "#4C9DF5");
+            assert.equal(hrZoneColor(72), "#57D8A6");
+            assert.equal(hrZoneColor(120), "#F5C542");
+            assert.equal(hrZoneColor(150), "#E5484D");
+          });
+
+          test("readinessColor matches the hero band thresholds (65 / 40)", () => {
+            assert.equal(readinessColor(90), "#57D8A6");
+            assert.equal(readinessColor(65), "#57D8A6");
+            assert.equal(readinessColor(64), "#F5C542");
+            assert.equal(readinessColor(40), "#F5C542");
+            assert.equal(readinessColor(39), "#E5484D");
+          });
+
+          test("buildHrDayBars places each hour by hourIdx and marks the average", () => {
+            const hours = [
+              { hourIdx: 0, min: 58, max: 66, avg: 61 },
+              { hourIdx: 12, min: 70, max: 92, avg: 80 },
+              { hourIdx: 23, min: 60, max: 68, avg: 63 },
+            ];
+            const { bars, baselineFrac } = buildHrDayBars(hours, 59);
+            assert.equal(bars.length, 3);
+            assert.equal(bars[0].xFrac, 0);
+            assert.equal(bars[2].xFrac, 1);
+            assert.equal(bars[1].xFrac, 12 / 23);
+            assert.ok(bars[1].highFrac > bars[0].highFrac);
+            assert.ok(bars[1].midFrac > bars[0].midFrac);
+            assert.equal(bars[1].color, "#57D8A6");
+            assert.ok(baselineFrac !== null && baselineFrac >= 0 && baselineFrac <= 1);
+          });
+
+          test("buildHrDayBars returns nothing for an empty day", () => {
+            const { bars, baselineFrac } = buildHrDayBars([], 60);
+            assert.equal(bars.length, 0);
+            assert.equal(baselineFrac, null);
+          });
+
+          test("buildTrendBars drops null days but keeps their x-slot honest", () => {
+            const bars = buildTrendBars([80, null, 40, 90], readinessColor);
+            assert.equal(bars.length, 3);
+            assert.equal(bars[0].xFrac, 0 / 3);
+            assert.equal(bars[1].xFrac, 2 / 3);
+            assert.equal(bars[2].xFrac, 3 / 3);
+            assert.equal(bars[0].highFrac, 0.8);
+            assert.equal(bars[1].color, "#F5C542");
+          });
+
+          test("buildTrendBars centres a single day", () => {
+            const bars = buildTrendBars([72], readinessColor);
+            assert.equal(bars.length, 1);
+            assert.equal(bars[0].xFrac, 0.5);
+          });
+          ''', encoding="utf-8")
+
+          ring_test = Path("tests/ring-health-store.test.mjs")
+          text = ring_test.read_text(encoding="utf-8")
+          replacements = {
+              "const inner = buildInner(2, 1, 1, 3, payload); // module=health, cmd=heartRate":
+                  "const inner = buildInner(2, 1, 1, 2, payload); // module=health, cmd=heartRate, status=push",
+              "const hrFrames = fragments(buildInner(2, 1, 1, 3, dailyHealth(70, [{ hourIdx: 10, avg: 70, max: 75, min: 65 }])), null);":
+                  "const hrFrames = fragments(buildInner(2, 1, 1, 2, dailyHealth(70, [{ hourIdx: 10, avg: 70, max: 75, min: 65 }])), null);",
+              "const spo2Inner = buildInner(2, 2, 1, 3, dailyHealth(98, [{ hourIdx: 20, avg: 98, max: 99, min: 96 }]));":
+                  "const spo2Inner = buildInner(2, 2, 1, 2, dailyHealth(98, [{ hourIdx: 20, avg: 98, max: 99, min: 96 }]));",
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f"ring-health-store fixture not found: {old}")
+              text = text.replace(old, new, 1)
+          ring_test.write_text(text, encoding="utf-8")
+          PY
+
+          rm -- .github/workflows/apply-clean-validation-fixes.yml
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- README.md tests/calories.test.mjs tests/health-charts.test.mjs tests/ring-health-store.test.mjs .github/workflows/apply-clean-validation-fixes.yml
+          git diff --cached --check
+          git commit -m "test: repair clean Node 20 validation regressions"
+          git push origin HEAD:fix/clean-main-validation-regressions
