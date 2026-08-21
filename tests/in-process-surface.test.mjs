@@ -60,14 +60,17 @@ test("in-process adapter registers, gates, invokes, notifies, and tears down too
   foreground = false;
   assert.deepEqual(registry.listTools().map((spec) => spec.name), ["app.demo.open"]);
   assert.match((await registry.callTool("app.demo.focus", {})).error, /not currently available/);
+  registry.fireToolsChanged();
+  assert.equal(changes, 2);
   foreground = true;
   assert.equal((await registry.callTool("app.demo.focus", {})).ok, true);
-  assert.equal(changes, 1);
+  registry.fireToolsChanged();
+  assert.equal(changes, 3);
   remove();
   assert.deepEqual(registry.listTools(), []);
   assert.match((await registry.callTool("app.demo.open", {})).error, /Unknown tool/);
   remove();
-  assert.equal(changes, 2);
+  assert.equal(changes, 4);
 
   // The registry's existing same-name fallback remains intact for two live windows.
   registerInProcessTools(registry, "old", "same", { specs: [openSpec], invoke: () => ({ ok: true, content: "old" }) }, () => true);
@@ -77,4 +80,5 @@ test("in-process adapter registers, gates, invokes, notifies, and tears down too
 
   assert.match(window, /\(\) => shell\.foregroundWindow\(\)\?\.windowId === options\.windowId/);
   assert.match(window, /if \(closed\) return;\s*closed = true;\s*removeTools\(\);/);
+  assert.match(window, /setForeground: \(foreground\) => \{[\s\S]*toolRegistry\.fireToolsChanged\(\);/);
 });

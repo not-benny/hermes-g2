@@ -179,8 +179,9 @@ pull the log + the Even app's built-in health-data export zip, and validate.
 
 ## 8. Direct in-process assistant tool registration (local review candidate)
 
-- Candidate branch: `work/t_2c2d05f9-inprocess-tools-rework`, implementation commit
-  `8ba024d`, based on
+- Candidate branch: `work/t_2c2d05f9-inprocess-tools-rework`, replacement frozen
+  commit chain `4b99bb8` (implementation), `8ba024d` (behavioral coverage),
+  and the final handover/verification commit (HEAD), based on
   `origin/hermes-g2@ae89fd5e398a78ce9a7d00c66a47d92d02812319`. The in-process
   window adapter accepts optional unprefixed `open`/`foreground` declarations,
   uses the shared `ToolRegistry`, prefixes names as `app.<appId>.*`, and checks

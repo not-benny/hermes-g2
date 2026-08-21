@@ -208,6 +208,9 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
     markSurfaceReady,
     setForeground: (foreground) => {
       options.setSurfaceVisible(foreground);
+      // Foreground availability is dynamic; notify assistant clients whenever
+      // the shell changes this window's focus so their tool list is refreshed.
+      toolRegistry.fireToolsChanged();
     },
   };
   return { window, stack, requestRender, markSurfaceReady };
