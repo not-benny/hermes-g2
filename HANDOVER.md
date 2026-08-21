@@ -1,5 +1,16 @@
 # Hermes G2 handover (2026-08-21)
 
+## WhatsApp pairing options evaluation (2026-08-21)
+
+Added `notes/whatsapp-pairing-options-2026-08.md`. The safe recommendation is to
+shelve live WhatsApp pairing and keep batches 3–6 paused while monitoring the
+embedded link-code repair path; the existing Hermes Agent bridge is not a
+WhatsApp bridge and cannot be reused as a QR shortcut. A host-side QR bridge is
+technically feasible only as a new, separately authorized service with its own
+session custody, authenticated encrypted transport, QR/status relay, and
+validation gates. No production pairing, live-link batch, credential migration,
+or bridge enablement was performed.
+
 ## WhatsApp link-code regression investigation (2026-08-21)
 
 Added `notes/whatsapp-link-code-regression-2026-08.md` and reconciled the WhatsApp blocker in `ROADMAP.md`.
