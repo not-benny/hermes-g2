@@ -1,0 +1,16 @@
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" class="shell-page" actionBarHidden="true">
+    <TabView id="shellTabs" androidTabsPosition="bottom" selectedIndex="0">
+        <TabViewItem title="Glasses">
+            <Frame defaultPage="phone-ui/main-page" />
+        </TabViewItem>
+        <TabViewItem title="Health">
+            <Frame defaultPage="phone-ui/even-health-page" />
+        </TabViewItem>
+        <TabViewItem title="Controls">
+            <Frame defaultPage="phone-ui/glasses-controls-page" />
+        </TabViewItem>
+        <TabViewItem title="Settings">
+            <Frame defaultPage="phone-ui/settings-page" />
+        </TabViewItem>
+    </TabView>
+</Page>

@@ -1,0 +1,30 @@
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" unloaded="unloaded">
+    <ActionBar title="Settings" />
+    <ScrollView>
+        <StackLayout class="p-20">
+            <StackLayout visibility="{{ previewModeVisibility }}">
+                <Label text="Preview mode" class="section-label" />
+                <Label text="You are exploring Hermes with anonymous demo data and no glasses connected. Exit preview to set up your real glasses; all demo data is deleted."
+                       class="muted m-t-4" textWrap="true" />
+                <Button text="Exit preview mode" tap="{{ onExitPreviewTap }}" class="m-t-8" />
+                <StackLayout class="divider m-t-20" />
+            </StackLayout>
+
+            <Label text="Devices" class="section-label" />
+            <Button text="Configure devices" tap="{{ onDevicesTap }}" class="m-t-8" />
+
+            <Label text="Health" class="section-label m-t-20" />
+            <Button text="Health profile (for calorie estimate)" tap="{{ onHealthProfileTap }}" class="m-t-8" />
+
+            <Label text="Credentials" class="section-label m-t-20" />
+            <Button text="API keys &amp; bridge" tap="{{ onApiKeysTap }}" class="m-t-8" />
+            <Button text="WhatsApp" tap="{{ onWhatsAppTap }}" class="m-t-8" />
+
+            <Label text="Appearance" class="section-label m-t-20" />
+            <StackLayout class="control-row">
+                <Label text="Font" class="control-row-label m-b-4" />
+                <SegmentedBar items="{{ uiFontItems }}" selectedIndex="{{ uiFontIndex }}" />
+            </StackLayout>
+        </StackLayout>
+    </ScrollView>
+</Page>

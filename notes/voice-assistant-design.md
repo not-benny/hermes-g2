@@ -4,13 +4,13 @@ Status: design draft, 2026-07-19; revised 2026-07-24 (tool availability
 ontology, misc fixes); revised 2026-08-01 (external bridge landed).
 **Phases 1 and 2 are implemented**, and **phase 3 + the OpenClaw part of
 phase 4 landed 2026-08-01** with one architecture change: the bridge server
-is not a standalone package - it *is* the OpenClaw plugin
+is not a standalone package — it *is* the OpenClaw plugin
 (`~/repositories/faceclaw-agent-bridge`, installed on the OpenClaw host).
 The plugin hosts the websocket endpoint the phone dials into, runs
 utterances as embedded OpenClaw agent turns (`runEmbeddedAgent` with a
 dedicated session, default key `faceclaw:glasses`), and exposes the
 glasses' MCP-served tools to the agent via two fixed meta-tools
-(`glasses_list_tools` / `glasses_call` - fixed names because OpenClaw's
+(`glasses_list_tools` / `glasses_call` — fixed names because OpenClaw's
 manifest `contracts.tools` wants static declarations, while the glasses
 toolset is dynamic). The generic "MCP face for any agent" from the original
 design is unbuilt; the wire protocol is unchanged, so a standalone bridge
@@ -50,12 +50,12 @@ availability ontology" below):
   input.
 - **STT**: `voiceControlBridge` with onboard Moonshine, Whisper, or ElevenLabs
   cloud.
-- **LLM client**: `streamAnthropicMessage` (app/native/anthropic.ts) - raw
+- **LLM client**: `streamAnthropicMessage` (app/native/anthropic.ts) — raw
   SSE streaming over `FaceclawSseRequest`. Text-only today; no tool use.
 - **Worker app protocol**: `WorkerAppMessage`/`WorkerAppReply`
-  (app/ui/shell/worker-window.ts) - small-JSON postMessage protocol between
+  (app/ui/shell/worker-window.ts) — small-JSON postMessage protocol between
   shell and app workers; the natural place to add tool declarations.
-- **Dial-out websocket precedent**: `G2MirrorClient` - JSON over a websocket
+- **Dial-out websocket precedent**: `G2MirrorClient` — JSON over a websocket
   to a server on the user's machine (tailscale host/port/token settings).
   The external-agent bridge should copy this shape.
 
@@ -130,7 +130,7 @@ without changing the tool protocol, which is already async message passing.
 ```ts
 type ToolAvailability =
   | "always"      // system tools; no app involved
-  | "installed"   // app tool, live whenever the app is installed -
+  | "installed"   // app tool, live whenever the app is installed —
                   //   the app need not have any window open
   | "open"        // app tool, live while the app has a window open,
                   //   foreground or backgrounded
@@ -170,7 +170,7 @@ Mechanics per tier:
 - **`installed`** tools cannot be declared by the worker (it may not be
   running), so they are declared statically alongside the app's launcher
   registration. Two handler flavors: (a) a shell-side handler function
-  registered with the entry - right for tools that don't actually need the
+  registered with the entry — right for tools that don't actually need the
   app UI (timers, starting playback); (b) *launch-on-call*: the shell opens
   the app (as if launched from the launcher), waits for its `set-tools`
   declaration, then proxies the call. Start with (a) only; (b) adds a
@@ -178,7 +178,7 @@ Mechanics per tier:
 - **`open`** and **`foreground`** tools are declared by the running app via
   `set-tools` (worker apps) or direct registration (in-process windows).
   The registry filters `foreground` tools by whether the declaring app owns
-  the current foreground window at list time and again at call time -
+  the current foreground window at list time and again at call time —
   a `foreground` tool called after a foreground swap fails with a normal tool
   error rather than acting on a window the user is no longer looking at.
 - A tier is a *floor*, not a routing rule: an `installed` tool stays listed
@@ -243,7 +243,7 @@ Registry rules:
   shadow system tools or each other.
 - The shell enforces `timeoutMs` on the postMessage round-trip; a hung
   worker yields a tool error, not a hung turn (same philosophy as input
-  handling - the shell must survive a stuck app).
+  handling — the shell must survive a stuck app).
 - In-process shell apps (calendar, music, ...) register handlers directly
   with the registry; the worker protocol is just the remote flavor of the
   same registration.
@@ -253,13 +253,13 @@ Registry rules:
   call to a tool that just vanished returns a normal tool error the model
   can react to.
 
-First app to wire up: the terminal -
+First app to wire up: the terminal —
 `app.terminal.send_input` (type into the attached session; `open`,
-proactive: false - "rerun the build" should work while the terminal is
+proactive: false — "rerun the build" should work while the terminal is
 backgrounded), `app.terminal.read_screen` (current grid contents; `open`),
 `app.terminal.list_sessions` (`open`). This immediately enables "tell the
 terminal to rerun the build" style commands and doubles as the reference
-implementation - deliberately all `open`-tier; the first `foreground` tool
+implementation — deliberately all `open`-tier; the first `foreground` tool
 should come from an app where focus genuinely matters (teleprompt scrolling).
 
 ## Direct mode: agent loop on the phone
@@ -277,7 +277,7 @@ Extend `app/native/anthropic.ts`:
 3. **Session state**: history kept in memory per `AssistantSession`,
    trimmed from the head past a token budget. Sessions idle-expire
    (~10 min) so a new PTT starts fresh; "Follow-up" continues the session.
-4. **System prompt**: glasses context - output renders on a 576×288
+4. **System prompt**: glasses context — output renders on a 576×288
    monochrome HUD, so answer in 1–3 short sentences, no markdown, no lists
    unless asked; prefer acting via tools over describing; current time,
    foreground app, and screen state are injected per turn.
@@ -288,7 +288,7 @@ Extend `app/native/anthropic.ts`:
 
 ### Topology
 
-The phone **dials out** (g2mirror pattern - phones don't accept inbound
+The phone **dials out** (g2mirror pattern — phones don't accept inbound
 connections reliably; tailscale host + port + token settings) to a small
 **bridge server** co-located with the user's agent. One websocket, JSON
 frames, three multiplexed channels:
@@ -309,7 +309,7 @@ On the `mcp` channel the **phone is an MCP server** (MCP roles come from the
 initialize handshake, not from who dialed). It serves `tools/list` from the
 ToolRegistry, `tools/call` into it, and emits `tools/list_changed` on
 foreground changes. This means the agent-side integration needs zero
-Faceclaw-specific tool code - the glasses appear as a normal MCP server.
+Faceclaw-specific tool code — the glasses appear as a normal MCP server.
 
 ### Agent-side adapters
 
@@ -327,7 +327,7 @@ sibling of g2mirror) with two faces:
      on a dedicated "glasses" channel/session and relays the streamed reply.
    - **Hermes**: equivalent module against its session API.
    - **Fallback adapter**: spawn a configured CLI (e.g. `claude -p --resume`)
-     per turn - lowest-fidelity but makes the bridge useful with no plugin.
+     per turn — lowest-fidelity but makes the bridge useful with no plugin.
 
 Utterance `ctx` carries `{foregroundApp, screenOn, localTime}` so the remote
 agent has the same situational grounding the direct loop gets in its system
@@ -336,7 +336,7 @@ prompt.
 ### Proactive agent actions
 
 Because the MCP channel is live whenever the bridge is connected, the
-external agent can call glasses tools **outside a voice turn** - e.g. push a
+external agent can call glasses tools **outside a voice turn** — e.g. push a
 notification to the lenses when a long job finishes. Gating:
 
 - Only tools marked `proactive: true` are callable outside an active turn
@@ -345,8 +345,8 @@ notification to the lenses when a long job finishes. Gating:
   `installed` tool (e.g. `timer.set`) works anytime, while a proactive call
   to an `open`/`foreground` tool whose app isn't in the right state gets the
   same tool error a mid-turn call would.
-- Master setting `assistant.allowProactive` (default on - it's a marquee
-  feature - but visible and easy to turn off).
+- Master setting `assistant.allowProactive` (default on — it's a marquee
+  feature — but visible and easy to turn off).
 - Proactive display actions are rate-limited (e.g. 6/min) and never turn
   the screen on unless the user enabled that specifically.
 
@@ -372,7 +372,7 @@ New "Assistant" section in dashboard settings:
 - The phone enforces all tool gating (proactive flags, rate limits,
   timeouts). The bridge and agent are treated as honest-but-fallible.
 - Tool results may contain private data (calendar, notifications); external
-  mode ships them to the user's own machine only - no third-party hop. In
+  mode ships them to the user's own machine only — no third-party hop. In
   direct mode they go to the Anthropic API like any other request content.
 - App tools execute inside the app's worker with the app's existing
   privileges; the registry adds no new capability beyond what the app could
@@ -380,7 +380,7 @@ New "Assistant" section in dashboard settings:
 
 ## Implementation plan
 
-**Phase 1 - direct assistant, system tools only.** ✅ Landed 2026-07-24
+**Phase 1 — direct assistant, system tools only.** ✅ Landed 2026-07-24
 (builds + typechecks; not yet hardware-tested).
 ToolRegistry (`app/assistant/tool-registry.ts`) with the full availability-tier
 model but only `always` tools wired; 8 system tools (`glasses.get_state`,
@@ -395,7 +395,7 @@ default highlight and wakeword skip-confirmation auto-send;
 *Deliverable: speak wakeword, ask "what's on my calendar", get an answer
 on-lens.*
 
-**Phase 2 - app tools.** ✅ Landed 2026-07-25 (builds + typechecks; not yet
+**Phase 2 — app tools.** ✅ Landed 2026-07-25 (builds + typechecks; not yet
 hardware-tested).
 Worker protocol extended with `set-tools` / `tool-result` (WorkerAppReply) and
 `tool-call` (WorkerAppMessage). `ToolRegistry.setAppTools`/`removeAppTools`
@@ -411,14 +411,14 @@ on the active view (foregrounded → last-active → sole view). *Deliverable:
 "run the build again" typed into the terminal even while it's backgrounded.*
 
 *Not yet done from the Phase 2 design:* `installed`-tier registration on
-launcher entries (no `installed` app tool exists yet - timer stays deferred);
+launcher entries (no `installed` app tool exists yet — timer stays deferred);
 in-process-window tool registration (only worker apps wired); the per-window
 same-name collision handling (the terminal sidesteps it by declaring all tools
 on the single hub window).
 
-**Phase 3 - external bridge.** ✅ Landed 2026-08-01 (see the status note at
+**Phase 3 — external bridge.** ✅ Landed 2026-08-01 (see the status note at
 the top for the architecture change: bridge server == OpenClaw plugin).
-Phone side: `app/assistant/bridge-client.ts` (`assistantBridge` singleton -
+Phone side: `app/assistant/bridge-client.ts` (`assistantBridge` singleton —
 dial-out FaceclawWebSocket, hello/token auth, auto-reconnect with 1s→60s
 backoff, started at boot by the dashboard controller when configured),
 `app/assistant/mcp-server.ts` (MCP over the `mcp` channel: initialize /
@@ -433,16 +433,16 @@ Server side: `~/repositories/faceclaw-agent-bridge` (own repo/package).
 (`test/fake-phone.js`): auth, streamed turns, and both tool directions
 work; a real model turn needs the OpenClaw instance to have provider auth.*
 
-**Phase 4 - OpenClaw/Hermes adapters + proactive polish.** Partially landed
+**Phase 4 — OpenClaw/Hermes adapters + proactive polish.** Partially landed
 2026-08-01: the OpenClaw adapter is the plugin itself (no separate chat
 adapter needed); proactive gating + rate limits and `tools/list_changed`
-are done. Remaining: Hermes (or generic-agent) support - likely a
+are done. Remaining: Hermes (or generic-agent) support — likely a
 standalone bridge speaking the same wire protocol with an MCP face +
 CLI chat adapter; session persistence questions across reconnects
 (currently: OpenClaw session is persistent, phone session is UI-only).
 
 **Hardware-test TODO (external mode):** end-to-end on the real phone +
-glasses against serac - connect status, a streamed turn, cancel, follow-up,
+glasses against serac — connect status, a streamed turn, cancel, follow-up,
 proactive `glasses.show_alert` from another OpenClaw channel, and behavior
 across phone network transitions (the reconnect backoff is untested on
 device).
@@ -454,13 +454,13 @@ device).
   design questions here; maybe multi-turn conversations take the form of an
   Assistant app.
 - Launch-on-call for `installed`-tier tools that genuinely need the app UI
-  (open the app, await `set-tools`, proxy the call) - deferred until a tool
+  (open the app, await `set-tools`, proxy the call) — deferred until a tool
   needs it.
 - `glasses.read_screen` fidelity beyond app-reported summaries? We probably
   don't want to do OCR, but we might do something like extending the draw-text
   draw call with an on-by-default option that also appends the drawn text to
   a string that gets submitted along with the frame.
 - Whether assistant conversations should be reviewable in the phone UI
-  (transcript log) - probably yes, cheap once sessions are objects. The
+  (transcript log) — probably yes, cheap once sessions are objects. The
   natural UI home for this would be inside an Assistant app window.
 

@@ -18,6 +18,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
+import android.view.KeyEvent;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -155,6 +156,26 @@ public class FaceclawMediaController {
                     controls.play();
             }
         }
+    }
+
+    /**
+     * Resume the last media session when none is currently active. Dispatches a
+     * KEYCODE_MEDIA_PLAY down+up pair, which the system routes to the most
+     * recently active media app's MEDIA_BUTTON receiver (even if its process is
+     * dead) - the same path a Bluetooth headset play button uses. Fire and
+     * forget: no feedback if nothing handles it; the UI just waits for a session
+     * to appear.
+     */
+    public void resumeLast() {
+        if (audioManager == null) {
+            return;
+        }
+        long now = SystemClock.uptimeMillis();
+        audioManager.dispatchMediaKeyEvent(
+            new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY, 0));
+        audioManager.dispatchMediaKeyEvent(
+            new KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY, 0));
+        Log.i("FaceclawMedia", "resumeLast: dispatched KEYCODE_MEDIA_PLAY");
     }
 
     public void skipNext() {

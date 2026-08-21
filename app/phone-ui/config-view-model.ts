@@ -80,10 +80,16 @@ export class ConfigViewModel extends Observable {
     return this._discoveryLog;
   }
 
+  /** Collapse the log panel until a scan/load populates it (no empty black box). */
+  get discoveryLogVisibility(): string {
+    return this._discoveryLog ? "visible" : "collapse";
+  }
+
   set discoveryLog(value: string) {
     if (this._discoveryLog !== value) {
       this._discoveryLog = value;
       this.notifyPropertyChange("discoveryLog", value);
+      this.notifyPropertyChange("discoveryLogVisibility", this.discoveryLogVisibility);
     }
   }
 
@@ -128,10 +134,10 @@ export class ConfigViewModel extends Observable {
       frame?.navigate({ moduleName: "phone-ui/onboarding-page", clearHistory: true });
       return;
     }
-    Frame.topmost()?.navigate({
-      moduleName: "phone-ui/main-page",
-      clearHistory: true,
-    });
+    // Settings-tab sub-page: return to the Settings hub within the tab frame.
+    const frame = Frame.topmost();
+    if (frame?.canGoBack()) frame.goBack();
+    else frame?.navigate({ moduleName: "phone-ui/settings-page", clearHistory: true });
   }
 
   onSaveTap(): void {

@@ -46,6 +46,10 @@ import {
   toggleSettingMenuItem,
   uiFontSetting,
   notificationFontSizeSetting,
+  dashboardSizeSetting,
+  deepgramApiKeySetting,
+  notificationFilterModeSetting,
+  voiceControlEnabledSetting,
   beepsEnabledSetting,
   beepVolumeSetting,
   beepEventSettings,
@@ -86,6 +90,8 @@ function settingsSections(): SettingsSection[] {
         enumSettingMenuItem(uiFontSetting),
         // Text size for on-glass notifications (list, detail, new-notification popups).
         enumSettingMenuItem(notificationFontSizeSetting),
+        // Standard 288px band vs full-screen-height windows.
+        enumSettingMenuItem(dashboardSizeSetting),
       ],
     },
     {
@@ -112,6 +118,8 @@ function settingsSections(): SettingsSection[] {
     {
       label: "Voice",
       items: [
+        // Master switch: off disables wakeword detection and voice input entirely.
+        toggleSettingMenuItem(voiceControlEnabledSetting),
         enumSettingMenuItem(wakeWordActionSetting),
         enumSettingMenuItem(voiceProviderSetting),
       ],
@@ -138,8 +146,16 @@ function settingsSections(): SettingsSection[] {
         textSettingMenuItem(elevenLabsApiKeySetting),
         textSettingMenuItem(openAiApiKeySetting),
         textSettingMenuItem(sonioxApiKeySetting),
+        textSettingMenuItem(deepgramApiKeySetting),
         textSettingMenuItem(anthropicApiKeySetting),
         textSettingMenuItem(mapboxApiKeySetting),
+      ],
+    },
+    {
+      label: "Notifications",
+      items: [
+        // The filter mode was phone-only; the app list stays phone-side (needs PackageManager).
+        enumSettingMenuItem(notificationFilterModeSetting),
       ],
     },
     {

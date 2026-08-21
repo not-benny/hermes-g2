@@ -148,6 +148,36 @@ public class MessageBuilder {
         );
     }
 
+    OutboundMessage setGlassGridDistance(int distance) {
+        int magic = magicPool.allocate();
+        return new OutboundMessage(
+            "glass-grid-distance-control",
+            "glass grid distance=" + distance,
+            BleProtocol.SID_G2_SETTING,
+            BleProtocol.FLAG_REQUEST,
+            magic,
+            BleProtocol.buildSetGlassGridDistance(magic, distance),
+            ACK_TIMEOUT_MS,
+            -1,
+            false
+        );
+    }
+
+    OutboundMessage setGlassGridHeight(int height) {
+        int magic = magicPool.allocate();
+        return new OutboundMessage(
+            "glass-grid-height-control",
+            "glass grid height=" + height,
+            BleProtocol.SID_G2_SETTING,
+            BleProtocol.FLAG_REQUEST,
+            magic,
+            BleProtocol.buildSetGlassGridHeight(magic, height),
+            ACK_TIMEOUT_MS,
+            -1,
+            false
+        );
+    }
+
     public OutboundMessage setWearDetection(boolean enabled) {
         int magic = magicPool.allocate();
         return new OutboundMessage(

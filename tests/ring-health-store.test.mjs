@@ -18,7 +18,7 @@ const storeJs = transpile(read("app/health/ring-health-store.ts")).replace(
   JSON.stringify(parserUrl),
 );
 const { ringCrc32 } = await import(parserUrl);
-const { RingHealthStore } = await import(dataUrl(storeJs));
+const { RingHealthStore, canonicalizeActivitySnapshot } = await import(dataUrl(storeJs));
 
 // --- wire-format builders (layout per notes/ring-health-protocol) -----------
 
@@ -35,9 +35,22 @@ function buildInner(module, cmd, subCmd, status, data) {
   inner[7] = subCmd;
   inner[8] = innerLen & 0xff;
   inner[9] = (innerLen >>> 8) & 0xff;
-  // crc16 at [10..11] is not validated by the parser; leave zero.
   inner.set(data, 12);
+  const crc16 = ringCrc16Modbus(inner);
+  inner[10] = crc16 & 0xff;
+  inner[11] = (crc16 >>> 8) & 0xff;
   return inner;
+}
+
+function ringCrc16Modbus(bytes) {
+  const copy = Uint8Array.from(bytes);
+  copy[10] = 0; copy[11] = 0;
+  let crc = 0xffff;
+  for (const byte of copy) {
+    crc ^= byte;
+    for (let i = 0; i < 8; i++) crc = (crc & 1) ? (crc >>> 1) ^ 0xa001 : crc >>> 1;
+  }
+  return crc & 0xffff;
 }
 
 /** Split an inner buffer into notify frames, fragIndex counting down to 0. */
@@ -68,14 +81,24 @@ function u32le(value) {
 }
 
 /**
-
- * Daily payload: [count u8][interval u16 LE][base_ts u32 LE] + stride-9
- * records [ts u32][latest][hourIdx][avg][max][min].
+ * Daily payload (real layout): [count u8][6 reserved][base u32 LE][current u8]
+ * + 4-byte records [hourIdx][avg][max][min]. See ring-daily-layout notes.
  */
-function dailyStride9(records) {
-  const bytes = [records.length, 60, 0, ...u32le(1_700_000_000)];
+function dailyHealth(current, records) {
+  const bytes = [records.length, 0, 0, 0, 0, 0, 0, ...u32le(0x628a), current & 0xff];
+  for (const r of records) bytes.push(r.hourIdx ?? 0, r.avg ?? 0, r.max ?? 0, r.min ?? 0);
+  return new Uint8Array(bytes);
+}
+
+function activityPayload(timezoneOffsetMinutes, dayBaseSec, records) {
+  const bytes = [records.length, timezoneOffsetMinutes & 0xff, (timezoneOffsetMinutes >>> 8) & 0xff, ...u32le(dayBaseSec)];
   for (const r of records) {
-    bytes.push(...u32le(r.ts), r.latest, r.hourIdx ?? 0, r.avg ?? 0, r.max ?? 0, r.min ?? 0);
+    bytes.push(
+      r.slot,
+      r.steps & 0xff, (r.steps >>> 8) & 0xff,
+      r.activeCalories & 0xff, (r.activeCalories >>> 8) & 0xff,
+      r.totalCalories & 0xff, (r.totalCalories >>> 8) & 0xff,
+    );
   }
   return new Uint8Array(bytes);
 }
@@ -87,10 +110,10 @@ test("heart-rate daily push decodes across fragments and picks the newest record
   const events = [];
   store.onChange((snapshot) => events.push(snapshot));
 
-  const payload = dailyStride9([
-    { ts: 1000, latest: 88 },
-    { ts: 2000, latest: 111, avg: 113, max: 116, min: 111 },
-    { ts: 1500, latest: 95 },
+  const payload = dailyHealth(106, [
+    { hourIdx: 4, avg: 73, max: 88, min: 59 },
+    { hourIdx: 6, avg: 113, max: 116, min: 111 }, // highest hour -> newest
+    { hourIdx: 5, avg: 95, max: 99, min: 90 },
   ]);
   const inner = buildInner(2, 1, 1, 3, payload); // module=health, cmd=heartRate
   const frames = fragments(inner, [10, inner.length - 10]);
@@ -99,8 +122,10 @@ test("heart-rate daily push decodes across fragments and picks the newest record
   assert.equal(events.length, 1, "one change event per applied batch");
   const hr = store.snapshot().heartRate;
   assert.ok(hr, "heart rate populated");
-  assert.equal(hr.latest, 111, "newest-by-ts record wins");
+  assert.equal(hr.avg, 113, "newest-by-hour record wins");
   assert.equal(hr.max, 116);
+  assert.equal(store.snapshot().currentHr, 106, "frame current -> currentHr");
+  assert.equal(store.snapshot().heartRateSeries.length, 3, "full day series kept");
   assert.equal(store.snapshot().spo2, null, "other metrics untouched");
 });
 
@@ -111,17 +136,145 @@ test("deviceStatus response populates the ring battery percent", () => {
   assert.equal(store.snapshot().batteryPercent, 97);
 });
 
+test("deviceInfo response populates the read-only ring firmware version", () => {
+  const store = new RingHealthStore();
+  const version = new TextEncoder().encode("2.2.8.0002");
+  const data = new Uint8Array(32);
+  data.set(version);
+  const inner = buildInner(1, 0, 2, 3, data);
+  for (const frame of fragments(inner)) store.ingestFrame(frame);
+  assert.equal(store.snapshot().firmwareVersion, "2.2.8.0002");
+});
+
+test("deviceInfo push status cannot populate the firmware version", () => {
+  const store = new RingHealthStore();
+  const data = new Uint8Array(16);
+  data.set(new TextEncoder().encode("2.2.8.0002"));
+  const inner = buildInner(1, 0, 2, 2, data); // status=push, not ack
+  for (const frame of fragments(inner)) store.ingestFrame(frame);
+  assert.equal(store.snapshot().firmwareVersion, null);
+});
+
+test("confirmed activity push populates steps and ring-native calorie totals", () => {
+  const dayBaseSec = 1_787_180_400;
+  const store = new RingHealthStore(() => (dayBaseSec + 12 * 60 * 60) * 1000);
+  const data = activityPayload(60, dayBaseSec, [
+    { slot: 67, steps: 5, activeCalories: 5, totalCalories: 23 },
+    { slot: 68, steps: 18, activeCalories: 5, totalCalories: 17 },
+  ]);
+  const inner = buildInner(2, 5, 1, 2, data);
+  for (const frame of fragments(inner)) store.ingestFrame(frame);
+  assert.deepEqual(store.snapshot().activity, {
+    slots: [
+      { slot: 67, timestampSec: dayBaseSec + 67 * 600, steps: 5, activeCalories: 5, totalCalories: 23, restingCalories: 18 },
+      { slot: 68, timestampSec: dayBaseSec + 68 * 600, steps: 18, activeCalories: 5, totalCalories: 17, restingCalories: 12 },
+    ],
+    dayBaseSec,
+    timezoneOffsetMinutes: 60,
+    totalSteps: 23,
+    activeCalories: 10,
+    totalCalories: 40,
+    restingCalories: 30,
+  });
+});
+
+test("activity ACK status cannot populate native totals", () => {
+  const store = new RingHealthStore();
+  const data = activityPayload(60, 1_787_180_400, [
+    { slot: 71, steps: 1, activeCalories: 3, totalCalories: 15 },
+  ]);
+  for (const frame of fragments(buildInner(2, 5, 1, 3, data))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().activity, null);
+});
+
+test("activity pushes merge by day and replace duplicate slots", () => {
+  const dayBaseSec = 1_787_180_400;
+  const store = new RingHealthStore(() => (dayBaseSec + 12 * 60 * 60) * 1000);
+  const ingest = (records) => {
+    const data = activityPayload(60, dayBaseSec, records);
+    for (const frame of fragments(buildInner(2, 5, 1, 2, data))) store.ingestFrame(frame);
+  };
+  ingest([{ slot: 71, steps: 0, activeCalories: 3, totalCalories: 15 }]);
+  ingest([
+    { slot: 71, steps: 2, activeCalories: 4, totalCalories: 16 },
+    { slot: 72, steps: 9, activeCalories: 6, totalCalories: 19 },
+  ]);
+  assert.deepEqual(store.snapshot().activity, {
+    slots: [
+      { slot: 71, timestampSec: dayBaseSec + 71 * 600, steps: 2, activeCalories: 4, totalCalories: 16, restingCalories: 12 },
+      { slot: 72, timestampSec: dayBaseSec + 72 * 600, steps: 9, activeCalories: 6, totalCalories: 19, restingCalories: 13 },
+    ],
+    dayBaseSec,
+    timezoneOffsetMinutes: 60,
+    totalSteps: 11,
+    activeCalories: 10,
+    totalCalories: 35,
+    restingCalories: 25,
+  });
+});
+
+test("activity push without a day base remains gated off", () => {
+  const store = new RingHealthStore();
+  const data = activityPayload(0, 0, [{ slot: 19, steps: 5, activeCalories: 5, totalCalories: 23 }]);
+  for (const frame of fragments(buildInner(2, 5, 1, 2, data))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().activity, null);
+});
+
+test("activity ingestion rejects non-daily, bad-inner-CRC, and non-current-day frames", () => {
+  const nowMs = 1_787_224_000_000;
+  const store = new RingHealthStore(() => nowMs);
+  const currentBase = 1_787_180_400;
+  const data = activityPayload(60, currentBase, [{ slot: 71, steps: 5, activeCalories: 3, totalCalories: 15 }]);
+  for (const frame of fragments(buildInner(2, 5, 2, 2, data))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().activity, null, "point subcommand rejected");
+
+  const badCrcInner = buildInner(2, 5, 1, 2, data);
+  badCrcInner[10] ^= 0xff;
+  for (const frame of fragments(badCrcInner)) store.ingestFrame(frame);
+  assert.equal(store.snapshot().activity, null, "bad inner CRC rejected");
+
+  const future = activityPayload(60, currentBase + 86400, [{ slot: 71, steps: 5, activeCalories: 3, totalCalories: 15 }]);
+  for (const frame of fragments(buildInner(2, 5, 1, 2, future))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().activity, null, "future day rejected");
+
+  const stale = activityPayload(60, currentBase - 86400, [{ slot: 71, steps: 5, activeCalories: 3, totalCalories: 15 }]);
+  for (const frame of fragments(buildInner(2, 5, 1, 2, stale))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().activity, null, "stale day rejected");
+});
+
+test("persisted activity is deduplicated and all derived fields are rebuilt", () => {
+  const nowMs = 1_787_224_000_000;
+  const base = 1_787_180_400;
+  const canonical = canonicalizeActivitySnapshot({
+    dayBaseSec: base,
+    timezoneOffsetMinutes: 60,
+    slots: [
+      { slot: 71, timestampSec: 1, steps: 2, activeCalories: 3, totalCalories: 15, restingCalories: 999 },
+      { slot: 71, timestampSec: 2, steps: 5, activeCalories: 4, totalCalories: 16, restingCalories: 999 },
+    ],
+  }, nowMs);
+  assert.deepEqual(canonical, {
+    dayBaseSec: base,
+    timezoneOffsetMinutes: 60,
+    slots: [{ slot: 71, timestampSec: base + 71 * 600, steps: 5, activeCalories: 4, totalCalories: 16, restingCalories: 12 }],
+    totalSteps: 5,
+    activeCalories: 4,
+    totalCalories: 16,
+    restingCalories: 12,
+  });
+});
+
 test("interleaved batches both decode", () => {
   const store = new RingHealthStore();
-  const hrFrames = fragments(buildInner(2, 1, 1, 3, dailyStride9([{ ts: 10, latest: 70 }])), null);
-  const spo2Inner = buildInner(2, 2, 1, 3, dailyStride9([{ ts: 20, latest: 98 }]));
+  const hrFrames = fragments(buildInner(2, 1, 1, 3, dailyHealth(70, [{ hourIdx: 10, avg: 70, max: 75, min: 65 }])), null);
+  const spo2Inner = buildInner(2, 2, 1, 3, dailyHealth(98, [{ hourIdx: 20, avg: 98, max: 99, min: 96 }]));
   const spo2Frames = fragments(spo2Inner, [6, spo2Inner.length - 6]);
   // spo2 head, then the whole hr batch, then the spo2 tail.
   store.ingestFrame(spo2Frames[0]);
   for (const frame of hrFrames) store.ingestFrame(frame);
   store.ingestFrame(spo2Frames[1]);
-  assert.equal(store.snapshot().heartRate?.latest, 70);
-  assert.equal(store.snapshot().spo2?.latest, 98);
+  assert.equal(store.snapshot().heartRate?.avg, 70);
+  assert.equal(store.snapshot().spo2?.avg, 98);
 });
 
 test("garbage, unknown metrics and CRC mismatches are dropped without throwing", () => {
@@ -137,7 +290,7 @@ test("garbage, unknown metrics and CRC mismatches are dropped without throwing",
   for (const frame of sleep) store.ingestFrame(frame);
 
   // Corrupt a payload byte after computing the batch id: CRC must reject it.
-  const inner = buildInner(2, 1, 1, 3, dailyStride9([{ ts: 5, latest: 60 }]));
+  const inner = buildInner(2, 1, 1, 3, dailyHealth(60, [{ hourIdx: 5, avg: 60, max: 65, min: 55 }]));
   const [frame] = fragments(inner);
   frame[frame.length - 1] ^= 0xff;
   store.ingestFrame(frame);

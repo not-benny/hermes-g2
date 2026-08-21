@@ -15,6 +15,7 @@ const {
   parseInnerFrame,
   decodeDailyData,
   decodeRingBattery,
+  decodeRingFirmwareVersion,
   decodeTemperatureDetail,
   decodeSleep,
   RING_HEALTH_CMD,
@@ -68,9 +69,28 @@ function toFragments(inner, chunkSize) {
   return frames;
 }
 
-// Build a daily-push payload: [count u8][interval u16 LE][base_ts u32 LE][records].
-function buildDailyPayload(interval, baseTs, records) {
-  return Uint8Array.from([records.length, ...u16(interval), ...u32(baseTs), ...records.flat()]);
+// Vital header: [count][timezone i16][day base u32][current timestamp u32]
+// [current value][records]. Legacy vectors use zero timezone/day metadata.
+function buildHealthPayload(currentTimestampSec, current, records, timezoneOffsetMinutes = 0, dayBaseSec = 0) {
+  return Uint8Array.from([
+    records.length, ...u16(timezoneOffsetMinutes), ...u32(dayBaseSec),
+    ...u32(currentTimestampSec), current & 0xff, ...records.flat(),
+  ]);
+}
+function buildHrvPayload(currentTimestampSec, current, records, timezoneOffsetMinutes = 0, dayBaseSec = 0) {
+  const recBytes = records.flatMap(([h, a, mx, mn]) => [h, ...u16(a), ...u16(mx), ...u16(mn)]);
+  return Uint8Array.from([
+    records.length, ...u16(timezoneOffsetMinutes), ...u32(dayBaseSec),
+    ...u32(currentTimestampSec), ...u16(current), ...recBytes,
+  ]);
+}
+function buildActivityPayload(timezoneOffsetMinutes, dayBaseSec, records) {
+  return Uint8Array.from([
+    records.length,
+    ...u16(timezoneOffsetMinutes),
+    ...u32(dayBaseSec),
+    ...records.flat(),
+  ]);
 }
 
 // --- CRC-32 --------------------------------------------------------------
@@ -88,7 +108,7 @@ test("ringCrc32 reproduces a documented frame's stored transport checksum", () =
 // --- fragment reassembly ---------------------------------------------------
 
 test("reassembleHealthFrames rebuilds the inner buffer and validates crc32==batchId", () => {
-  const data = buildDailyPayload(60, 1700000000, [[...u32(1700000000), 70, 21, 72, 80, 66]]);
+  const data = buildHealthPayload(0x628a, 70, [[21, 72, 80, 66]]);
   const inner = buildInner(2, 1, 1, 2, 0x10, data);
   // Split across several fragments to exercise multi-packet reassembly.
   const frames = toFragments(inner, 8);
@@ -99,29 +119,29 @@ test("reassembleHealthFrames rebuilds the inner buffer and validates crc32==batc
 });
 
 test("reassembleHealthFrames accepts fragments in any arrival order", () => {
-  const inner = buildInner(2, 2, 1, 2, 0x11, buildDailyPayload(60, 1700000000, []));
+  const inner = buildInner(2, 2, 1, 2, 0x11, buildHealthPayload(0, 0, []));
   const frames = toFragments(inner, 6).reverse();
   const { inner: out } = reassembleHealthFrames(frames);
   assert.deepEqual(Array.from(out), Array.from(inner));
 });
 
 test("reassembleHealthFrames rejects a corrupted payload", () => {
-  const inner = buildInner(2, 1, 1, 2, 0x12, buildDailyPayload(60, 1700000000, []));
+  const inner = buildInner(2, 1, 1, 2, 0x12, buildHealthPayload(0, 0, []));
   const frames = toFragments(inner, 32);
   frames[0][6] ^= 0xff; // flip a payload byte so the crc no longer matches
   assert.throws(() => reassembleHealthFrames(frames), /CRC mismatch/);
 });
 
 test("reassembleHealthFrames rejects fragments from different batches", () => {
-  const a = toFragments(buildInner(2, 1, 1, 2, 1, buildDailyPayload(60, 1, [])), 32)[0];
-  const b = toFragments(buildInner(2, 2, 1, 2, 2, buildDailyPayload(60, 1, [])), 32)[0];
+  const a = toFragments(buildInner(2, 1, 1, 2, 1, buildHealthPayload(0, 0, [])), 32)[0];
+  const b = toFragments(buildInner(2, 2, 1, 2, 2, buildHealthPayload(0, 0, [])), 32)[0];
   assert.throws(() => reassembleHealthFrames([a, b]), /batch mismatch/);
 });
 
 // --- inner-frame envelope --------------------------------------------------
 
 test("parseInnerFrame unwraps module/cmd/subCmd/status and the data region", () => {
-  const data = buildDailyPayload(60, 1700000000, []);
+  const data = buildHealthPayload(0, 0, []);
   const inner = buildInner(2, 4, 1, 2, 0x2a, data);
   const f = parseInnerFrame(inner);
   assert.equal(f.module, 2);
@@ -135,87 +155,146 @@ test("parseInnerFrame unwraps module/cmd/subCmd/status and the data region", () 
 
 // --- daily-push decode -----------------------------------------------------
 
-test("decodeDailyData decodes the documented SpO2 example to 97 percent", () => {
-  // Public spec example: [count][interval=60][base_ts][record...][trailing].
-  // The record's latest/avg/max/min are all 0x61 = 97, hour index 0x15 = 21.
-  const payload = hexToBytes("01 3c00 f0e3846a 4f0b866a 61 15 61 61 61 00000000");
-  const decoded = decodeDailyData(payload, "spo2");
-  assert.equal(decoded.metric, "spo2");
-  assert.equal(decoded.interval, 60);
-  assert.equal(decoded.count, 1);
-  assert.equal(decoded.records.length, 1);
-  const r = decoded.records[0];
-  assert.equal(r.latest, 97);
-  assert.equal(r.avg, 97);
-  assert.equal(r.max, 97);
-  assert.equal(r.min, 97);
-  assert.equal(r.hourIdx, 21);
+// Synthetic legacy/unanchored vectors preserve fallback behavior without
+// committing captured health readings.
+test("decodeDailyData decodes synthetic heart-rate records + live current", () => {
+  const payload = buildHealthPayload(0, 70, [[4, 60, 70, 50], [6, 62, 72, 52]]);
+  const d = decodeDailyData(payload, "heartRate");
+  assert.equal(d.metric, "heartRate");
+  assert.equal(d.count, 2);
+  assert.equal(d.current, 70);
+  assert.equal(d.records.length, 2);
+  assert.equal(d.timezoneOffsetMinutes, 0);
+  assert.equal(d.dayBaseSec, 0);
+  assert.equal(d.currentTimestampSec, null);
+  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 60, max: 70, min: 50, timestampSec: null, timezoneOffsetMinutes: null });
+  assert.deepEqual(d.records[1], { hourIdx: 6, avg: 62, max: 72, min: 52, timestampSec: null, timezoneOffsetMinutes: null });
+  for (const r of d.records) assert.ok(r.min <= r.avg && r.avg <= r.max); // internally consistent
 });
 
-test("decodeDailyData round-trips a synthetic heart-rate batch (stride 9)", () => {
-  const ts0 = 1700000000;
-  const records = [
-    [...u32(ts0), 60, 8, 62, 70, 55],
-    [...u32(ts0 + 3600), 65, 9, 66, 72, 58],
-  ];
-  const payload = buildDailyPayload(60, ts0, records);
-  const decoded = decodeDailyData(payload, "heartRate");
-  assert.equal(decoded.metric, "heartRate");
-  assert.equal(decoded.interval, 60);
-  assert.equal(decoded.baseTs, ts0);
-  assert.equal(decoded.records.length, 2);
-  assert.deepEqual(decoded.records[0], { ts: ts0, latest: 60, hourIdx: 8, avg: 62, max: 70, min: 55 });
-  assert.equal(decoded.records[1].hourIdx, 9);
-  assert.equal(decoded.records[1].min, 58);
+test("decodeDailyData decodes synthetic sparse SpO2 hours", () => {
+  const payload = buildHealthPayload(0, 98, [[4, 97, 98, 96], [6, 96, 98, 95]]);
+  const d = decodeDailyData(payload, "spo2");
+  assert.equal(d.count, 2);
+  assert.equal(d.current, 98);
+  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 97, max: 98, min: 96, timestampSec: null, timezoneOffsetMinutes: null });
+  assert.deepEqual(d.records[1], { hourIdx: 6, avg: 96, max: 98, min: 95, timestampSec: null, timezoneOffsetMinutes: null });
 });
 
-test("decodeDailyData round-trips a synthetic HRV batch (stride 13)", () => {
-  const ts0 = 1700000000;
-  const records = [[...u32(ts0), ...u16(55), 21, ...u16(1), ...u16(2), ...u16(3)]];
-  const payload = buildDailyPayload(60, ts0, records);
-  const decoded = decodeDailyData(payload, "hrv");
-  assert.equal(decoded.records.length, 1);
-  const r = decoded.records[0];
-  assert.equal(r.ts, ts0);
-  assert.equal(r.latest, 55);
-  assert.equal(r.hourIdx, 21);
-  assert.equal(r.field1, 1);
-  assert.equal(r.field2, 2);
-  assert.equal(r.field3, 3);
-});
-
-test("decodeDailyData round-trips a synthetic activity batch (stride 7)", () => {
-  const records = [
-    [126, ...u16(0), ...u16(2), ...u16(15)],
-    [127, ...u16(47), ...u16(12), ...u16(25)],
-  ];
-  const payload = buildDailyPayload(60, 1700000000, records);
-  const decoded = decodeDailyData(payload, "activity");
-  assert.equal(decoded.records.length, 2);
-  assert.deepEqual(decoded.records[0], { slot: 126, steps: 0, f1: 2, f2: 15 });
-  assert.deepEqual(decoded.records[1], { slot: 127, steps: 47, f1: 12, f2: 25 });
+test("decodeDailyData decodes synthetic HRV u16 records and current", () => {
+  const payload = buildHrvPayload(0, 40, [[4, 35, 45, 25], [6, 42, 52, 32]]);
+  const d = decodeDailyData(payload, "hrv");
+  assert.equal(d.count, 2);
+  assert.equal(d.current, 40);
+  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 35, max: 45, min: 25, timestampSec: null, timezoneOffsetMinutes: null });
+  assert.deepEqual(d.records[1], { hourIdx: 6, avg: 42, max: 52, min: 32, timestampSec: null, timezoneOffsetMinutes: null });
 });
 
 test("decodeDailyData stops at the record count and ignores trailing bytes", () => {
-  const payload = buildDailyPayload(60, 1700000000, [[...u32(1700000000), 60, 8, 62, 70, 55]]);
-  const withTrailing = Uint8Array.from([...payload, 0, 0, 0, 0]);
-  const decoded = decodeDailyData(withTrailing, "heartRate");
+  const payload = buildHealthPayload(0x1234, 70, [[8, 62, 70, 55], [9, 66, 72, 58]]);
+  payload[0] = 1; // header says 1 record; the second must be ignored
+  const decoded = decodeDailyData(payload, "heartRate");
   assert.equal(decoded.records.length, 1);
+  assert.deepEqual(decoded.records[0], { hourIdx: 8, avg: 62, max: 70, min: 55, timestampSec: null, timezoneOffsetMinutes: null });
+});
+
+test("decodeDailyData anchors vital and HRV records to the validated day base", () => {
+  const dayBaseSec = 1_787_180_400;
+  const currentTimestampSec = dayBaseSec + 13 * 3600 + 120;
+  const hr = decodeDailyData(
+    buildHealthPayload(currentTimestampSec, 64, [[6, 60, 70, 55]], 60, dayBaseSec),
+    "heartRate",
+  );
+  assert.equal(hr.timezoneOffsetMinutes, 60);
+  assert.equal(hr.dayBaseSec, dayBaseSec);
+  assert.equal(hr.currentTimestampSec, currentTimestampSec);
+  assert.equal(hr.records[0].timestampSec, dayBaseSec + 6 * 3600);
+  assert.equal(hr.records[0].timezoneOffsetMinutes, 60);
+
+  const hrv = decodeDailyData(
+    buildHrvPayload(currentTimestampSec, 42, [[23, 40, 50, 30]], 60, dayBaseSec),
+    "hrv",
+  );
+  assert.equal(hrv.records[0].timestampSec, dayBaseSec + 23 * 3600);
+  assert.equal(hrv.records[0].timezoneOffsetMinutes, 60);
+});
+
+test("decodeDailyData fails closed on invalid day metadata without losing vital values", () => {
+  const aligned = 1_787_180_400;
+  const cases = [
+    buildHealthPayload(aligned + 3600, 64, [[6, 60, 70, 55]], 841, aligned),
+    buildHealthPayload(aligned + 3600, 64, [[6, 60, 70, 55]], 60, aligned + 1),
+    buildHealthPayload(aligned + 86400, 64, [[24, 60, 70, 55]], 60, aligned),
+  ];
+  for (const payload of cases) {
+    const decoded = decodeDailyData(payload, "heartRate");
+    assert.equal(decoded.current, 64);
+    assert.equal(decoded.currentTimestampSec, null);
+    assert.equal(decoded.records[0].timestampSec, null);
+  }
+});
+
+test("decodeDailyData rejects a count that declares a truncated final record", () => {
+  const full = buildHealthPayload(0, 70, [[8, 62, 70, 55], [9, 66, 72, 58]]);
+  const truncated = full.subarray(0, full.length - 2); // chop the last record's tail
+  assert.throws(() => decodeDailyData(truncated, "heartRate"), /truncated/);
+});
+
+test("decodeDailyData decodes confirmed activity slots, steps, and native calories", () => {
+  const dayBaseSec = Math.floor(Date.UTC(2030, 0, 1, 23, 0, 0) / 1000);
+  const payload = buildActivityPayload(60, dayBaseSec, [
+    [67, ...u16(5), ...u16(5), ...u16(23)],
+    [68, ...u16(18), ...u16(5), ...u16(17)],
+  ]);
+  const decoded = decodeDailyData(payload, "activity");
+  assert.equal(decoded.records.length, 2);
+  assert.equal(decoded.dayBaseSec, dayBaseSec);
+  assert.equal(decoded.timezoneOffsetMinutes, 60);
+  assert.deepEqual(decoded.records[0], {
+    slot: 67,
+    timestampSec: dayBaseSec + 67 * 600,
+    steps: 5,
+    activeCalories: 5,
+    totalCalories: 23,
+    restingCalories: 18,
+  });
+  assert.deepEqual(decoded.records[1], {
+    slot: 68,
+    timestampSec: dayBaseSec + 68 * 600,
+    steps: 18,
+    activeCalories: 5,
+    totalCalories: 17,
+    restingCalories: 12,
+  });
+});
+
+test("decodeDailyData rejects malformed activity records instead of surfacing partial totals", () => {
+  const syntheticDayBaseSec = Math.floor(Date.UTC(2030, 0, 1, 23, 0, 0) / 1000);
+  assert.throws(
+    () => decodeDailyData(buildActivityPayload(60, syntheticDayBaseSec, [[144, ...u16(1), ...u16(1), ...u16(2)]]), "activity"),
+    /slot out of range/,
+  );
+  assert.throws(
+    () => decodeDailyData(buildActivityPayload(60, syntheticDayBaseSec, [[71, ...u16(1), ...u16(16), ...u16(15)]]), "activity"),
+    /calories invalid/,
+  );
+  const truncated = buildActivityPayload(60, syntheticDayBaseSec, [[71, ...u16(1), ...u16(3), ...u16(15)]]).subarray(0, 12);
+  assert.throws(() => decodeDailyData(truncated, "activity"), /truncated/);
 });
 
 // --- end-to-end: reassemble then decode ------------------------------------
 
 test("a multi-packet SpO2 frame reassembles and decodes end to end", () => {
-  const ts0 = 1700003600;
-  const payload = buildDailyPayload(60, ts0, [[...u32(ts0), 98, 21, 97, 99, 96]]);
+  const payload = buildHealthPayload(0x628a, 98, [[21, 97, 99, 96]]);
   const inner = buildInner(2, 2, 1, 2, 0x20, payload);
   const frames = toFragments(inner, 7);
   const { inner: out } = reassembleHealthFrames(frames);
   const env = parseInnerFrame(out);
   assert.equal(RING_HEALTH_CMD[env.cmd], "spo2");
   const decoded = decodeDailyData(env.data, "spo2");
-  assert.equal(decoded.records[0].latest, 98);
-  assert.equal(decoded.records[0].min, 96);
+  assert.equal(decoded.count, 1);
+  assert.equal(decoded.current, 98);
+  assert.deepEqual(decoded.records[0], { hourIdx: 21, avg: 97, max: 99, min: 96, timestampSec: null, timezoneOffsetMinutes: null });
 });
 
 // --- device status ---------------------------------------------------------
@@ -225,9 +304,30 @@ test("decodeRingBattery reads the battery percent from data[0]", () => {
   assert.equal(decodeRingBattery(hexToBytes("61020100000000")), 97);
 });
 
-// --- unobserved layouts ----------------------------------------------------
+test("decodeRingFirmwareVersion reads the first NUL-padded 16-byte ASCII field", () => {
+  const field = Uint8Array.from([
+    ...new TextEncoder().encode("2.2.8.0002"),
+    0, 0, 0, 0, 0, 0,
+    ...new TextEncoder().encode("ignored trailing device data"),
+  ]);
+  assert.equal(decodeRingFirmwareVersion(field), "2.2.8.0002");
+});
 
-test("temperature-detail and sleep decoders are explicit unobserved stubs", () => {
-  assert.throws(() => decodeTemperatureDetail(new Uint8Array(0)), /not yet observed/);
-  assert.throws(() => decodeSleep(new Uint8Array(0)), /not yet observed/);
+test("decodeRingFirmwareVersion rejects non-printable bytes", () => {
+  assert.equal(decodeRingFirmwareVersion(Uint8Array.from([0x32, 0x2e, 0x01, 0])), "");
+});
+
+test("decodeRingFirmwareVersion never reads past the 16-byte field", () => {
+  const bytes = new TextEncoder().encode("1234567890abcdefTRAILING");
+  assert.equal(decodeRingFirmwareVersion(bytes), "1234567890abcdef");
+});
+
+// --- unavailable layouts ---------------------------------------------------
+
+test("temperature has no separate record; captured sleep remains fail-closed", () => {
+  // Temperature rides the stride-9 hourly layout (no dedicated record); the
+  // stub is a defensive never-call. Sleep frames exist, but their absolute
+  // reference and summary/stage-bearing layout are not validated.
+  assert.throws(() => decodeTemperatureDetail(new Uint8Array(0)), /no separate ring temperature-detail record/);
+  assert.throws(() => decodeSleep(new Uint8Array(0)), /captured but layout\/base not validated/);
 });

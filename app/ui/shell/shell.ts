@@ -27,13 +27,17 @@ import {
   ringSensitivitySetting,
   timeFormatSetting,
   wakeWordActionSetting,
+  voiceControlEnabledSetting,
 } from "../dashboard-settings";
 import { ShellChromeLayer, sidebarLeftColumnUsed, type ShellChromeState, type ShellChromeWindow } from "./chrome-layer";
 import { EdgeBounce, EdgeWrapScroller } from "../edge-scroll";
 import { ShellModalLayer } from "./modal-layer";
 import { ToolDebugMenuLayer } from "./tool-debug-layer";
 import { playEventBeep } from "../event-beeps";
+import { MusicCardLayer } from "./music-card";
 import { toolRegistry } from "../../assistant/tool-registry";
+import type { RenderViewState } from "../../assistant/render-view";
+import { ShellRemoteViewLayer } from "./render-view-layer";
 import {
   MIN_WINDOW_HEIGHT,
   minWindowTop,
@@ -107,11 +111,17 @@ export type ShellConfig = {
   /** Actions handed to shell overlay layers; requestRender must re-render the shell surface. */
   actions: LayerActions;
   getScreenTimeoutMs: () => number | null;
-  requestShellRender: () => void;
+  requestShellRender: () => void | Promise<void>;
+  /** Awaited delivery path for operations that must prove lens transport success. */
+  requestShellDelivery?: (isAllowed?: () => boolean) => Promise<void>;
+  /** True only while a real glasses transport/session can accept frames. */
+  isDisplayAvailable?: () => boolean;
   /** Screen on/off changed: the controller blanks/unblanks the compositor. */
   onScreenStateChanged: (on: boolean) => void;
   /** Window registered/removed or foreground changed (persists the open-app list). */
   onWindowsChanged?: () => void;
+  /** The Health side card was hidden/shown (persists the choice). */
+  onHealthHiddenChanged?: (hidden: boolean) => void;
 };
 
 /** Which surfaces need re-rendering after an input event. */
@@ -219,6 +229,10 @@ class Shell {
   // scroll and dropped with a tap. null when not reordering. The moved order is
   // the window array order, which onWindowsChanged persists like any switch.
   private reorderingWindowId: string | null = null;
+  // Quick-close mode: long-press a sidebar card to arm it, then scroll to pick a
+  // card and tap to close it. Double-tap exits. Lets windows be closed fast
+  // without focusing each and walking its menu.
+  private closingActive = false;
   // Ring-sensitivity throttle: timestamp of the last honored scroll. A physical
   // swipe fires a burst of scroll events; at lower sensitivity we drop the ones
   // that arrive within the configured interval so one swipe steps once or twice.
@@ -237,7 +251,12 @@ class Shell {
   private readonly trayIcons = new Map<string, GrayImage>();
   private activeVoiceLayer: VoiceInputLayer | null = null;
   private assistantSession: AssistantSession | null = null;
+  private musicCard: MusicCardLayer | null = null;
+  private musicCardWokeScreen = false;
   private assistantLayer: AssistantLayer | null = null;
+  private alertLayer: ShellAlertLayer | null = null;
+  private alertRevision = 0;
+  private remoteViewLayer: ShellRemoteViewLayer | null = null;
   private escapeMenuTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly actions: LayerActions = { ...noopActions };
   private config: ShellConfig = {
@@ -370,6 +389,49 @@ class Shell {
     this.config.requestShellRender();
   }
 
+  // --- Health side card ------------------------------------------------------
+  // A pinned, uncloseable card kept directly under the launcher. Hiding reuses
+  // removeWindow (which does NOT close the window, so its surface + object
+  // survive); unhiding splices the same object back at its slot.
+  private healthWindow: ShellWindow | null = null;
+  private healthHidden = false;
+
+  /** Register the Health card and place it directly under the launcher. */
+  registerHealthWindow(window: ShellWindow): void {
+    this.healthWindow = window;
+    this.insertHealthAtSlot();
+  }
+
+  /** Splice the Health card in under the launcher (idempotent). */
+  private insertHealthAtSlot(): void {
+    const w = this.healthWindow;
+    if (!w || this.windows.some((x) => x.windowId === w.windowId)) return;
+    const launcherIndex = this.windows.findIndex((x) => x.windowId === "launcher");
+    const insertAt = launcherIndex >= 0 ? launcherIndex + 1 : Math.min(1, this.windows.length);
+    this.windows.splice(insertAt, 0, w);
+    // Keep the currently-selected window selected (inverse of removeWindow's
+    // decrement) so the sidebar highlight does not jump when health reappears.
+    if (insertAt <= this.selectedIndex) this.selectedIndex++;
+    this.config.onWindowsChanged?.();
+    this.config.requestShellRender();
+  }
+
+  /** Show or hide the Health side card. */
+  setHealthHidden(hidden: boolean, opts?: { persist?: boolean }): void {
+    if (hidden === this.healthHidden) return;
+    this.healthHidden = hidden;
+    if (hidden) {
+      if (this.healthWindow) this.removeWindow(this.healthWindow.windowId);
+    } else {
+      this.insertHealthAtSlot();
+    }
+    if (opts?.persist !== false) this.config.onHealthHiddenChanged?.(hidden);
+  }
+
+  isHealthHidden(): boolean {
+    return this.healthHidden;
+  }
+
   /** Close a window by id, if it is closeable (menu actions route here). */
   closeWindow(windowId: string): void {
     const window = this.windows.find((w) => w.windowId === windowId);
@@ -467,8 +529,16 @@ class Shell {
   sleep(): void {
     if (!this.screenOn) return;
     this.cancelEscapeMenuTimer();
+    this.closingActive = false;
+    // A remote MCP view is transient and must not survive a display-off
+    // transition in retained manager state or reappear after wake.
+    this.remoteViewLayer?.close();
     this.screenOn = false;
     this.stack.clearToBase();
+    // clearToBase pops the card and fires its onRemoved (timers cleared); null
+    // the refs so an idle/external sleep can't leave a dangling card.
+    this.musicCard = null;
+    this.musicCardWokeScreen = false;
     for (const window of this.windows) {
       window.setScreenOn?.(false);
     }
@@ -493,7 +563,9 @@ class Shell {
     // An in-flight assistant turn suspends it for the same reason (a tool loop
     // can run for a while with no input); once the turn ends and the
     // Follow-up/Done menu is showing, the normal idle timeout resumes.
-    if (this.activeVoiceLayer || this.assistantSession?.isTurnActive()) {
+    if (this.activeVoiceLayer || this.assistantSession?.isTurnActive() || this.musicCard) {
+      // A live music card owns the screen (drop/hold/rise + its own dismiss
+      // timer); suspend the idle timeout so it can't race the card's own blank.
       this.lastInputAtMs = nowMs;
       return false;
     }
@@ -509,15 +581,64 @@ class Shell {
    */
   openNotificationModal(notificationKey: string, wokeScreen: boolean): void {
     if (!this.screenOn) return;
+    // A notification preempts an active music card. Evict the card first (it is
+    // always top when active) and inherit its wake ownership, so closing the
+    // notification still re-sleeps if the card is what woke the screen. Without
+    // this, the card's later rise would fail popIfTop and strand a zombie layer.
+    let owned = wokeScreen;
+    if (this.musicCard) {
+      const card = this.musicCard;
+      this.stack.popIfTop((l) => l === card);
+      if (this.musicCardWokeScreen) owned = true;
+      this.musicCard = null;
+      this.musicCardWokeScreen = false;
+    }
     const modal: ShellModalLayer = new ShellModalLayer(
       new SingleNotificationLayer(notificationKey, {
         origin: "new-notification-modal",
-        closeModal: () => this.closeNotificationModal(modal, wokeScreen),
+        closeModal: () => this.closeNotificationModal(modal, owned),
       }),
       this.config.actions,
     );
     this.stack.push(modal);
     this.config.requestShellRender();
+  }
+
+  /** Whether the screen-off now-playing card is currently up. */
+  isMusicCardActive(): boolean {
+    return this.musicCard !== null;
+  }
+
+  /**
+   * Present, or (if one is already up) refresh, the song-change card. The caller
+   * wakes the screen first. Returns false if another overlay owns the screen.
+   */
+  openMusicCard(wokeScreen: boolean): boolean {
+    if (!this.screenOn) return false;
+    if (this.musicCard) {
+      this.musicCard.onTrackChanged();
+      return true;
+    }
+    if (!this.stack.isAtBase()) return false; // notification / voice / menu owns the screen
+    const card = new MusicCardLayer({
+      actions: this.config.actions,
+      onDismissed: () => this.closeMusicCard(card),
+    });
+    this.musicCard = card;
+    this.musicCardWokeScreen = wokeScreen;
+    this.stack.push(card);
+    this.config.requestShellRender();
+    return true;
+  }
+
+  private closeMusicCard(card: MusicCardLayer): void {
+    if (this.musicCard !== card) return; // stale (already replaced/torn down)
+    this.stack.popIfTop((l) => l === card);
+    const woke = this.musicCardWokeScreen;
+    this.musicCard = null;
+    this.musicCardWokeScreen = false;
+    if (woke) this.sleep();
+    else this.config.requestShellRender();
   }
 
   private closeNotificationModal(modal: ShellModalLayer, wokeScreen: boolean): void {
@@ -560,6 +681,10 @@ class Shell {
     // Even AI app never launches, so the firmware does not power the display
     // for us either -- actions that need it wake the screen themselves.
     if (event.type === "wakeword") {
+      // Master voice switch: off ignores the wakeword entirely.
+      if (!voiceControlEnabledSetting.get()) {
+        return { shell: false, window: false };
+      }
       const action = wakeWordActionSetting.get();
       if (action === "off") {
         return { shell: false, window: false };
@@ -600,9 +725,34 @@ class Shell {
     // menu. The escape timer runs regardless of what the app does with it:
     // holding the press long enough opens the shell's own menu.
     if (event.type === "long-press") {
+      // Untrusted remote content must never trap shell input. A long press
+      // closes it before the normal escape countdown continues.
+      if (this.remoteViewLayer) {
+        const layer = this.remoteViewLayer;
+        layer.close();
+        this.startEscapeMenuTimer();
+        return { shell: true, window: false };
+      }
       // While reordering, swallow long-presses so the window menu can't open
       // over the grab; a tap (handled in the sidebar reorder branch) ends it.
       if (this.reorderingWindowId !== null) {
+        return { shell: true, window: false };
+      }
+      // A long-press on the sidebar arms quick-close mode (scroll to pick, tap
+      // to close, double-tap to exit). The window menu stays reachable by first
+      // clicking a card to focus its window, then long-pressing.
+      if (
+        this.focus === "sidebar" &&
+        !this.closingActive &&
+        this.stack.isAtBase() &&
+        !this.activeVoiceLayer &&
+        this.hasCloseableWindow()
+      ) {
+        this.closingActive = true;
+        // Keep the escape-menu timer so a longer hold still opens it (which
+        // supersedes close mode); a quick long-press-and-release stays in close.
+        this.startEscapeMenuTimer();
+        this.config.requestShellRender();
         return { shell: true, window: false };
       }
       this.startEscapeMenuTimer();
@@ -706,7 +856,39 @@ class Shell {
     return this.screenOn && this.foregroundWindow()?.windowId === windowId;
   }
 
+  /** Any window the user can close (i.e. not the pinned launcher). */
+  private hasCloseableWindow(): boolean {
+    return this.windows.some((w) => w.closeable !== false);
+  }
+
   private handleSidebarInput(event: DashboardInputEvent): ShellInputOutcome {
+    // Quick-close mode: scroll picks a card, tap closes it, double-tap exits.
+    if (this.closingActive) {
+      switch (event.type) {
+        case "scroll-up":
+          this.moveSelection(-1);
+          return { shell: true, window: false };
+        case "scroll-down":
+          this.moveSelection(1);
+          return { shell: true, window: false };
+        case "click": {
+          const window = this.windows[this.selectedIndex];
+          if (window && window.closeable !== false) {
+            this.closeWindow(window.windowId);
+            // Stay armed while there is still something to close; else exit.
+            if (!this.hasCloseableWindow()) this.closingActive = false;
+          }
+          this.config.requestShellRender();
+          return { shell: true, window: false };
+        }
+        case "double-click":
+          this.closingActive = false;
+          this.config.requestShellRender();
+          return { shell: true, window: false };
+        default:
+          return { shell: false, window: false };
+      }
+    }
     // While a tab is picked up, scroll moves it and a tap (or double-tap) drops
     // it; the screen-sleep double-tap is suspended so a drop can't sleep.
     if (this.reorderingWindowId !== null) {
@@ -855,6 +1037,8 @@ class Shell {
     handsFree?: boolean;
     defaultTarget: "assistant" | "app";
   }): void {
+    // Master voice switch: off suppresses all voice input (manual or wakeword).
+    if (!voiceControlEnabledSetting.get()) return;
     const targets = this.buildVoiceSendTargets();
     let defaultIndex = targets.findIndex((target) => target.id === options.defaultTarget);
     if (defaultIndex < 0) defaultIndex = 0;
@@ -993,11 +1177,11 @@ class Shell {
   sendToAssistant(text: string): void {
     const session = this.ensureAssistantSession();
     if (!session) {
-      this.showAlert(
+      void this.showAlert(
         assistantBackendSetting.get() === "external"
           ? "Configure the Hermes Agent bridge host and token in Settings."
           : "Set an API key or download the on-phone model in Settings.",
-      );
+      ).catch(() => { /* configuration notice is best-effort while disconnected */ });
       return;
     }
     if (!this.screenOn) this.wake("sidebar");
@@ -1084,13 +1268,95 @@ class Shell {
   }
 
   /** Show a brief text popup on the lenses (assistant show_alert / notices). */
-  showAlert(text: string): void {
-    if (!this.screenOn) this.wake("sidebar");
-    const layer = new ShellAlertLayer(text, () => {
-      this.stack.popIfTop((top) => top === layer);
+  async showAlert(text: string, signal?: AbortSignal, isSideEffectAllowed?: () => boolean): Promise<void> {
+    if (!this.screenOn) throw new Error("The glasses display is off; no alert was sent.");
+    if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) throw new Error("The alert operation was cancelled; no alert was sent.");
+    if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
+      throw new Error("The glasses are disconnected; no alert was sent.");
+    }
+    const revision = ++this.alertRevision;
+    if (this.alertLayer) this.stack.remove(this.alertLayer);
+    let layer: ShellAlertLayer;
+    const isOwner = () => this.alertRevision === revision && this.alertLayer === layer;
+    layer = new ShellAlertLayer(text, () => {
+      this.stack.remove(layer);
+      if (this.alertLayer === layer) this.alertLayer = null;
       this.config.requestShellRender();
     });
+    this.alertLayer = layer;
     this.stack.push(layer);
+    let abortReject: ((reason?: unknown) => void) | null = null;
+    const abortPromise = signal
+      ? new Promise<void>((_resolve, reject) => { abortReject = reject; })
+      : null;
+    const onAbort = () => abortReject?.(new Error("The alert operation was cancelled; no alert was sent."));
+    try {
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) onAbort();
+      if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) throw new Error("The alert operation was cancelled; no alert was sent.");
+      const delivery = this.config.requestShellDelivery
+        ? this.config.requestShellDelivery(() => isOwner() && !signal?.aborted && (!isSideEffectAllowed || isSideEffectAllowed()))
+        : Promise.resolve(this.config.requestShellRender());
+      await (abortPromise ? Promise.race([delivery, abortPromise]) : delivery);
+      if (!isOwner() || signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
+        throw new Error("The alert operation was superseded or cancelled; no alert was sent.");
+      }
+    } catch (error) {
+      this.stack.remove(layer);
+      if (this.alertLayer === layer) this.alertLayer = null;
+      try { await this.config.requestShellRender(); } catch { /* preserve transport error */ }
+      throw error;
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+    }
+  }
+
+  /** Replace the one shell-owned MCP view without waking or changing focus. */
+  async showRemoteView(
+    state: RenderViewState,
+    signal: AbortSignal | undefined,
+    isSideEffectAllowed: (() => boolean) | undefined,
+    onGesture: (type: "scroll-up" | "scroll-down" | "click", foreground: boolean) => boolean,
+    onClose: () => void,
+  ): Promise<void> {
+    if (!this.screenOn) throw new Error("The glasses display is off; no view was sent.");
+    if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
+      throw new Error("The glasses are disconnected; no view was sent.");
+    }
+    if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
+      throw new Error("The view operation is no longer current.");
+    }
+    const prior = this.remoteViewLayer;
+    const layer = new ShellRemoteViewLayer(state, onGesture, onClose);
+    if (prior) this.stack.remove(prior);
+    this.remoteViewLayer = layer;
+    this.stack.push(layer);
+    const isOwner = () =>
+      this.remoteViewLayer === layer &&
+      !signal?.aborted &&
+      (!isSideEffectAllowed || isSideEffectAllowed());
+    try {
+      const delivery = this.config.requestShellDelivery
+        ? this.config.requestShellDelivery(isOwner)
+        : Promise.resolve(this.config.requestShellRender());
+      await delivery;
+      if (!isOwner()) throw new Error("The view operation was superseded before delivery completed.");
+    } catch (error) {
+      this.stack.remove(layer);
+      if (this.remoteViewLayer === layer) {
+        this.remoteViewLayer = prior;
+        if (prior) this.stack.push(prior);
+      }
+      try { await this.config.requestShellRender(); } catch { /* preserve delivery error */ }
+      throw error;
+    }
+  }
+
+  clearRemoteView(identity: { viewId: string; revision: number }): void {
+    const layer = this.remoteViewLayer;
+    if (!layer || layer.state.viewId !== identity.viewId || layer.state.revision !== identity.revision) return;
+    this.stack.remove(layer);
+    this.remoteViewLayer = null;
     this.config.requestShellRender();
   }
 
@@ -1116,6 +1382,8 @@ class Shell {
    */
   private openEscapeMenu(): void {
     if (!this.screenOn || this.activeVoiceLayer || !this.stack.isAtBase()) return;
+    // A longer hold opening the escape menu supersedes quick-close mode.
+    this.closingActive = false;
     const foreground = this.foregroundWindow();
     if (!foreground) return;
     const items: MenuItem[] = [];
@@ -1172,6 +1440,7 @@ class Shell {
       selectedIndex: this.selectedIndex,
       focus: this.focus,
       sidebarBounceY: this.sidebarBounce.offsetPx(),
+      closing: this.closingActive,
       ...this.reorderChromeState(),
       foregroundHeightMode: this.foregroundWindow()?.heightMode ?? "min",
       battery: this.battery,

@@ -10,8 +10,10 @@
  *
  * Wire format was reverse-engineered from a real capture and validated end to
  * end: every multi-packet frame reassembled and every crc32 matched its batch
- * id. The temperature-detail and sleep layouts were not observed on-device and
- * are left as marked stubs rather than guessed.
+ * id. Temperature has no separate record (it rides the stride-9 hourly layout);
+ * captured sleep interval records still lack a validated absolute reference and
+ * stage-bearing layout, so sleep remains a marked fail-closed stub rather than
+ * being guessed.
  */
 
 /** A byte source: anything indexable that yields 0..255 values. */
@@ -35,15 +37,12 @@ export const RING_HEALTH_CMD: Record<number, RingMetric> = {
 };
 
 /**
- * One hourly HR / SpO2 / temperature record (stride 9). Values are direct:
- * bpm for heart rate, percent for SpO2.
+ * One hourly HR / SpO2 / temperature record. Each record is 4 bytes:
+ * [hourIdx u8][avg u8][max u8][min u8]. Values are direct: bpm for heart rate,
+ * percent for SpO2. See notes/ring-daily-layout-2026-08-20.md.
  */
 export interface RingHealthSample {
-  /** Record timestamp, epoch seconds. */
-  ts: number;
-  /** Most recent reading in the hour. */
-  latest: number;
-  /** Hour-of-day index the record belongs to. */
+  /** Hour-of-day index the record belongs to (0..23). */
   hourIdx: number;
   /** Hourly average. */
   avg: number;
@@ -51,47 +50,66 @@ export interface RingHealthSample {
   max: number;
   /** Hourly minimum. */
   min: number;
-}
-
-/** One HRV record (stride 13). `latest` is in milliseconds. */
-export interface RingHrvSample {
-  /** Record timestamp, epoch seconds. */
-  ts: number;
-  /** Most recent HRV reading, milliseconds. */
-  latest: number;
-  /** Hour-of-day index the record belongs to. */
-  hourIdx: number;
-  /** Three trailing u16 fields whose exact meaning is not yet pinned down. */
-  field1: number;
-  field2: number;
-  field3: number;
+  /** Absolute epoch second when the daily header contains a valid day anchor. */
+  timestampSec: number | null;
+  /** Header timezone used to derive the record's local day, or null when unanchored. */
+  timezoneOffsetMinutes: number | null;
 }
 
 /**
- * One activity/steps record (stride 7). Activity is a slot-indexed 144-hour
- * circular buffer, so `slot` is the buffer position rather than a timestamp.
+ * One HRV record. Each record is 7 bytes: [hourIdx u8][avg u16 LE][max u16 LE]
+ * [min u16 LE]. Values are milliseconds.
  */
+export interface RingHrvSample {
+  /** Hour-of-day index the record belongs to (0..23). */
+  hourIdx: number;
+  /** Hourly average HRV, milliseconds. */
+  avg: number;
+  /** Hourly maximum HRV, milliseconds. */
+  max: number;
+  /** Hourly minimum HRV, milliseconds. */
+  min: number;
+  /** Absolute epoch second when the daily header contains a valid day anchor. */
+  timestampSec: number | null;
+  /** Header timezone used to derive the record's local day, or null when unanchored. */
+  timezoneOffsetMinutes: number | null;
+}
+
+/** One confirmed 10-minute activity bucket (stride 7). */
 export interface RingActivitySample {
-  /** Circular-buffer slot index (0..143). */
+  /** Ten-minute slot within the local day (0..143). */
   slot: number;
+  /** Absolute bucket timestamp reconstructed from day base + slot * 600. */
+  timestampSec: number;
   /** Step count for the slot. */
   steps: number;
-  /** Auxiliary field 1 (units not yet pinned down). */
-  f1: number;
-  /** Auxiliary field 2 (units not yet pinned down). */
-  f2: number;
+  /** Ring-native active calories for the slot. */
+  activeCalories: number;
+  /** Ring-native total calories for the slot. */
+  totalCalories: number;
+  /** Derived total - active calories for the slot. */
+  restingCalories: number;
 }
 
 /** Decoded daily-push payload for a single metric. */
 export interface RingDailyData<T = RingHealthSample> {
   metric: RingMetric;
-  /** Sampling interval in minutes (observed 60). */
-  interval: number;
-  /** Base timestamp for the batch, epoch seconds. */
-  baseTs: number;
-  /** Record count declared by the payload header. */
+  /** Record count declared by the payload header ([0]). */
   count: number;
+  /** Signed timezone offset in minutes from header bytes [1..2]. */
+  timezoneOffsetMinutes: number;
+  /** Local-midnight epoch second from header bytes [3..6]. */
+  dayBaseSec: number;
+  /** Timestamp of the header's current value, or null when stale/invalid. */
+  currentTimestampSec: number | null;
+  /** The frame's live/current reading (header, not a record): u8 for HR/SpO2,
+   *  u16 for HRV. null when the payload is too short to carry it. */
+  current: number | null;
   records: T[];
+}
+
+export interface RingActivityData extends RingDailyData<RingActivitySample> {
+  current: null;
 }
 
 /** Unwrapped inner-frame envelope fields. */
@@ -123,6 +141,11 @@ function u16le(b: Bytes, o: number): number {
   return (b[o] | (b[o + 1] << 8)) >>> 0;
 }
 
+function i16le(b: Bytes, o: number): number {
+  const value = u16le(b, o);
+  return value & 0x8000 ? value - 0x10000 : value;
+}
+
 function u32le(b: Bytes, o: number): number {
   return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
 }
@@ -151,6 +174,27 @@ export function ringCrc32(bytes: Bytes): number {
     c = (c << 8) ^ RING_CRC32_TABLE[((c >>> 24) ^ bytes[i]) & 0xff];
   }
   return c >>> 0;
+}
+
+/** Incoming inner-frame CRC-16/MODBUS with its own slot treated as zero. */
+export function ringCrc16Modbus(inner: Bytes): number {
+  let crc = 0xffff;
+  for (let i = 0; i < inner.length; i++) {
+    const byte = i === 10 || i === 11 ? 0 : inner[i];
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc & 1) !== 0 ? (crc >>> 1) ^ 0xa001 : crc >>> 1;
+    }
+  }
+  return crc & 0xffff;
+}
+
+/** Strict activity-envelope gate; general legacy decoders remain lenient. */
+export function isCanonicalRingInnerFrame(inner: Bytes): boolean {
+  if (inner.length < 12 || inner[0] !== 0x64 || inner[2] !== 0x64) return false;
+  const declared = u16le(inner, 8);
+  if (declared !== inner.length) return false;
+  return u16le(inner, 10) === ringCrc16Modbus(inner);
 }
 
 // --- fragment reassembly ---------------------------------------------------
@@ -255,18 +299,36 @@ export function parseInnerFrame(inner: Bytes): RingInnerFrame {
 
 // --- daily-push payload ----------------------------------------------------
 
-const HEALTH_STRIDE_9 = 9;
-const HRV_STRIDE = 13;
-const ACTIVITY_STRIDE = 7;
-/** Records begin after [count u8][interval u16 LE][base_ts u32 LE]. */
-const DAILY_HEADER_LEN = 7;
+// Vital header: count, signed timezone offset, local-midnight day base, current
+// value timestamp, current value, then hourly records.
+const DAILY_TIMEZONE_OFF = 1;
+const DAILY_DAY_BASE_OFF = 3;
+const DAILY_CURRENT_TIMESTAMP_OFF = 7;
+const DAILY_CURRENT_OFF = 11;
+/** HR / SpO2 / temperature record: [hourIdx u8][avg u8][max u8][min u8]. */
+const HEALTH_REC_OFF = 12;
+const HEALTH_REC_STRIDE = 4;
+/** HRV record: [hourIdx u8][avg u16 LE][max u16 LE][min u16 LE]. */
+const HRV_REC_OFF = 13;
+const HRV_REC_STRIDE = 7;
+/** Activity header: count u8, signed timezone offset i16 LE, local-day base u32 LE. */
+const ACTIVITY_REC_OFF = 7;
+const ACTIVITY_REC_STRIDE = 7;
+
+function positiveMod(value: number, divisor: number): number {
+  return ((value % divisor) + divisor) % divisor;
+}
+
+function hasValidDayAnchor(timezoneOffsetMinutes: number, dayBaseSec: number): boolean {
+  return timezoneOffsetMinutes >= -840 && timezoneOffsetMinutes <= 840 &&
+    dayBaseSec !== 0 && positiveMod(dayBaseSec + timezoneOffsetMinutes * 60, 86400) === 0;
+}
 
 /**
  * Decode a daily-push payload for a single metric.
  *
- * `payload` is the inner-frame data region (RingInnerFrame.data). Header:
- *   [count u8][interval u16 LE = minutes][base_ts u32 LE = epoch seconds]
- * followed by fixed-stride records selected by metric.
+ * `payload` is the inner-frame data region (RingInnerFrame.data). See the header
+ * layout above; records are selected by metric.
  */
 export function decodeDailyData(
   payload: Bytes,
@@ -279,68 +341,100 @@ export function decodeDailyData(
 export function decodeDailyData(
   payload: Bytes,
   metric: "activity",
-): RingDailyData<RingActivitySample>;
+): RingActivityData;
 export function decodeDailyData(
   payload: Bytes,
   metric: RingMetric,
-): RingDailyData<RingHealthSample | RingHrvSample | RingActivitySample> {
-  if (payload.length < DAILY_HEADER_LEN) {
-    throw new Error(
-      `ring daily payload too short: ${payload.length} bytes`,
-    );
-  }
-  const count = payload[0];
-  const interval = u16le(payload, 1);
-  const baseTs = u32le(payload, 3);
-  const recs = payload.subarray(DAILY_HEADER_LEN);
-
-  if (metric === "hrv") {
-    const records: RingHrvSample[] = [];
-    for (let i = 0; i < count; i++) {
-      const o = i * HRV_STRIDE;
-      if (o + HRV_STRIDE > recs.length) break;
-      records.push({
-        ts: u32le(recs, o),
-        latest: u16le(recs, o + 4),
-        hourIdx: recs[o + 6],
-        field1: u16le(recs, o + 7),
-        field2: u16le(recs, o + 9),
-        field3: u16le(recs, o + 11),
-      });
-    }
-    return { metric, interval, baseTs, count, records };
-  }
-
+): RingDailyData<RingHealthSample | RingHrvSample> | RingActivityData {
   if (metric === "activity") {
+    if (payload.length < ACTIVITY_REC_OFF) {
+      throw new Error(`ring activity payload too short: ${payload.length} bytes`);
+    }
+    const count = payload[0];
+    const timezoneOffsetMinutes = i16le(payload, 1);
+    const dayBaseSec = u32le(payload, 3);
+    const required = ACTIVITY_REC_OFF + count * ACTIVITY_REC_STRIDE;
+    if (required > payload.length) {
+      throw new Error(`ring activity payload truncated: need ${required}, got ${payload.length}`);
+    }
     const records: RingActivitySample[] = [];
     for (let i = 0; i < count; i++) {
-      const o = i * ACTIVITY_STRIDE;
-      if (o + ACTIVITY_STRIDE > recs.length) break;
+      const o = ACTIVITY_REC_OFF + i * ACTIVITY_REC_STRIDE;
+      const slot = payload[o];
+      if (slot > 143) throw new Error(`ring activity slot out of range: ${slot}`);
+      const activeCalories = u16le(payload, o + 3);
+      const totalCalories = u16le(payload, o + 5);
+      if (activeCalories > totalCalories) {
+        throw new Error(`ring activity calories invalid: active ${activeCalories} > total ${totalCalories}`);
+      }
       records.push({
-        slot: recs[o],
-        steps: u16le(recs, o + 1),
-        f1: u16le(recs, o + 3),
-        f2: u16le(recs, o + 5),
+        slot,
+        timestampSec: dayBaseSec + slot * 600,
+        steps: u16le(payload, o + 1),
+        activeCalories,
+        totalCalories,
+        restingCalories: totalCalories - activeCalories,
       });
     }
-    return { metric, interval, baseTs, count, records };
+    return {
+      metric, count, timezoneOffsetMinutes, dayBaseSec,
+      currentTimestampSec: null, current: null, records,
+    };
   }
 
-  // heartRate / spo2 / temperature all share the stride-9 layout.
+  if (payload.length < DAILY_CURRENT_OFF) {
+    throw new Error(`ring daily payload too short: ${payload.length} bytes`);
+  }
+  const count = payload[0];
+  const timezoneOffsetMinutes = i16le(payload, DAILY_TIMEZONE_OFF);
+  const dayBaseSec = u32le(payload, DAILY_DAY_BASE_OFF);
+  const currentTimestampCandidate = u32le(payload, DAILY_CURRENT_TIMESTAMP_OFF);
+  const validDayAnchor = hasValidDayAnchor(timezoneOffsetMinutes, dayBaseSec);
+  const currentTimestampSec = validDayAnchor && currentTimestampCandidate >= dayBaseSec &&
+    currentTimestampCandidate < dayBaseSec + 86400 ? currentTimestampCandidate : null;
+  const timestampForHour = (hourIdx: number): number | null =>
+    validDayAnchor && hourIdx >= 0 && hourIdx <= 23 ? dayBaseSec + hourIdx * 3600 : null;
+
+  if (metric === "hrv") {
+    const current = payload.length >= HRV_REC_OFF ? u16le(payload, DAILY_CURRENT_OFF) : null;
+    const required = HRV_REC_OFF + count * HRV_REC_STRIDE;
+    if (required > payload.length) {
+      throw new Error(`ring HRV payload truncated: need ${required}, got ${payload.length}`);
+    }
+    const records: RingHrvSample[] = [];
+    for (let i = 0; i < count; i++) {
+      const o = HRV_REC_OFF + i * HRV_REC_STRIDE;
+      records.push({
+        hourIdx: payload[o],
+        avg: u16le(payload, o + 1),
+        max: u16le(payload, o + 3),
+        min: u16le(payload, o + 5),
+        timestampSec: timestampForHour(payload[o]),
+        timezoneOffsetMinutes: validDayAnchor ? timezoneOffsetMinutes : null,
+      });
+    }
+    return { metric, count, timezoneOffsetMinutes, dayBaseSec, currentTimestampSec, current, records };
+  }
+
+  // heartRate / spo2 / temperature: single-byte avg/max/min per hour.
+  const current = payload.length >= HEALTH_REC_OFF ? payload[DAILY_CURRENT_OFF] : null;
+  const required = HEALTH_REC_OFF + count * HEALTH_REC_STRIDE;
+  if (required > payload.length) {
+    throw new Error(`ring daily payload truncated: need ${required}, got ${payload.length}`);
+  }
   const records: RingHealthSample[] = [];
   for (let i = 0; i < count; i++) {
-    const o = i * HEALTH_STRIDE_9;
-    if (o + HEALTH_STRIDE_9 > recs.length) break;
+    const o = HEALTH_REC_OFF + i * HEALTH_REC_STRIDE;
     records.push({
-      ts: u32le(recs, o),
-      latest: recs[o + 4],
-      hourIdx: recs[o + 5],
-      avg: recs[o + 6],
-      max: recs[o + 7],
-      min: recs[o + 8],
+      hourIdx: payload[o],
+      avg: payload[o + 1],
+      max: payload[o + 2],
+      min: payload[o + 3],
+      timestampSec: timestampForHour(payload[o]),
+      timezoneOffsetMinutes: validDayAnchor ? timezoneOffsetMinutes : null,
     });
   }
-  return { metric, interval, baseTs, count, records };
+  return { metric, count, timezoneOffsetMinutes, dayBaseSec, currentTimestampSec, current, records };
 }
 
 // --- device status ---------------------------------------------------------
@@ -358,29 +452,44 @@ export function decodeRingBattery(deviceStatusData: Bytes): number {
   return deviceStatusData[0];
 }
 
-// --- unobserved layouts (stubs) --------------------------------------------
+/**
+ * Firmware version from a deviceInfo response payload.
+ *
+ * The first field is a NUL-padded 16-byte ASCII string (observed 2.2.8.0002).
+ * Ignore later device metadata fields in the same response.
+ */
+export function decodeRingFirmwareVersion(deviceInfoData: Bytes): string {
+  const chars: string[] = [];
+  const end = Math.min(16, deviceInfoData.length);
+  for (let i = 0; i < end && deviceInfoData[i] !== 0; i++) {
+    if (deviceInfoData[i] < 0x20 || deviceInfoData[i] > 0x7e) return "";
+    chars.push(String.fromCharCode(deviceInfoData[i]));
+  }
+  return chars.join("");
+}
+
+// --- unavailable layouts (stubs) -------------------------------------------
 
 /**
- * TODO: temperature-detail record layout is not yet decoded.
- *
- * The hourly temperature summary rides the stride-9 layout via
- * decodeDailyData(payload, "temperature"). A separate high-resolution
- * temperature-detail record was never observed on-device (the ring was not worn
- * long enough), so its byte layout is unknown. Do not guess it. Capture a real
- * temperature-detail frame, confirm the stride, then implement here.
+ * There is NO separate temperature-detail record (RE conclusion, specs/
+ * even-protocol.md 2026-08-20). Temperature rides the same stride-9 hourly
+ * layout as HR / SpO2 (cmd=3) and decodes via decodeDailyData(payload,
+ * "temperature") the moment the ring is worn - no dedicated frame or extra
+ * code. This defensive stub only exists so a stray caller fails loudly rather
+ * than inventing a layout that does not exist; nothing should call it.
  */
 export function decodeTemperatureDetail(_payload: Bytes): never {
-  throw new Error("ring temperature-detail layout not yet observed");
+  throw new Error("no separate ring temperature-detail record; use the stride-9 hourly path");
 }
 
 /**
- * TODO: sleep record layout is not yet decoded.
+ * TODO: the complete sleep record layout is not yet decoded.
  *
- * No sleep frame was captured (the ring was not worn overnight during the
- * session), so the record stride and field meanings are unknown. Do not guess
- * the layout. Capture a real sleep frame, confirm the stride, then implement
- * here.
+ * Three captured type-2 frames contain relative interval endpoints, but the
+ * absolute reference is absent from those payloads. They carry no summary or
+ * stage runs, so score, duration, temperature, and stage fields remain
+ * unvalidated. Do not guess the missing base or the stage-bearing layout.
  */
 export function decodeSleep(_payload: Bytes): never {
-  throw new Error("ring sleep layout not yet observed");
+  throw new Error("ring sleep captured but layout/base not validated");
 }

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Roots the FileProvider can hand out as content:// URIs. Covers the app's
+     internal files dir (NativeScript documents), its cache (temp), and the
+     app-scoped external files dir, so health CSV/JSON exports share as files. -->
+<paths>
+    <files-path name="documents" path="." />
+    <cache-path name="cache" path="." />
+    <external-files-path name="external" path="." />
+</paths>

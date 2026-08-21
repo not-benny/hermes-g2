@@ -21,7 +21,10 @@ export const WINDOW_MENU_LAYOUT: MenuLayout = { x: 8, y: 8, width: 272, minHeigh
 
 export class WindowMenuLayer extends MenuLayer {
   constructor(items: MenuItem[]) {
-    super(null, items, WINDOW_MENU_LAYOUT);
+    // instantWrap: the menu ends in Close window, so a single swipe-up from the
+    // top wraps straight to it - dismissing an app is as fast as dismissing a
+    // notification (long-press to open, swipe-up, click).
+    super(null, items, WINDOW_MENU_LAYOUT, false, true);
   }
 }
 

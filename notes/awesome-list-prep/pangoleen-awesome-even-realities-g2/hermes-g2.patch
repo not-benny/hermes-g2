@@ -1,0 +1,7 @@
+diff --git a/README.md b/README.md
+index 6c36942..609d7c0 100644
+--- a/README.md
++++ b/README.md
+@@ -306,1 +306,2 @@ The [Even Realities G2](https://www.evenrealities.com) are everyday display smar
+ - [evenai-anthropic-bridge](https://github.com/jase-perf/evenai-anthropic-bridge) - Replaces the built-in Even AI assistant with Claude via a small local server.
++- [Hermes G2](https://github.com/not-benny/hermes-g2) - Unofficial Android companion for Even Realities G2 glasses, built around Hermes Agent, with voice interaction, notifications, media, navigation, terminal mirroring, and R1/glasses controls.

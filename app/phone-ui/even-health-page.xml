@@ -1,0 +1,129 @@
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" loaded="loaded" unloaded="unloaded">
+    <ActionBar title="Health" />
+    <ScrollView>
+        <StackLayout class="p-20">
+            <!-- [A] connection strip -->
+            <GridLayout columns="auto,*,auto" class="health-statusbar">
+                <Label col="0" text="●" class="{{ ringDotClass }}" verticalAlignment="center" />
+                <StackLayout col="1" class="m-l-8">
+                    <Label text="{{ ringStatusLabel }}" class="value" fontSize="14" />
+                    <Label text="{{ lastUpdatedLabel }}" class="muted" fontSize="11" />
+                </StackLayout>
+                <Label col="2" text="{{ batteryChipLabel }}" class="health-batt-chip" visibility="{{ batteryChipVisibility }}" verticalAlignment="center" />
+            </GridLayout>
+
+            <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="card m-t-12">
+                <Label text="{{ evenAppConflictMessage }}" textWrap="true" />
+                <GridLayout columns="*,*" class="m-t-4">
+                    <Button col="0" text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" />
+                    <Button col="1" text="Retry R1" tap="{{ onRetryRingTap }}" />
+                </GridLayout>
+            </StackLayout>
+
+            <Label text="Waiting for the ring to sync. Connect the glasses session and wear the ring; live values appear here."
+                   textWrap="true" class="muted m-t-12" visibility="{{ emptyStateVisibility }}" />
+
+            <!-- [B] readiness hero -->
+            <GridLayout rows="auto" columns="auto,*" class="card health-hero m-t-12">
+                <GridLayout col="0" width="168" height="168">
+                    <AbsoluteLayout id="readinessRing" width="168" height="168" />
+                    <StackLayout verticalAlignment="center" horizontalAlignment="center">
+                        <Label text="{{ readinessValue }}" class="hero-score" horizontalAlignment="center" />
+                        <Label text="{{ readinessOutOf }}" class="hero-score-sub" horizontalAlignment="center" />
+                    </StackLayout>
+                </GridLayout>
+                <StackLayout col="1" class="m-l-16" verticalAlignment="center">
+                    <Label text="READINESS" class="section-label" />
+                    <Label text="{{ readinessVerdict }}" class="h2 m-t-2" />
+                    <Label text="{{ readinessBlurb }}" class="muted m-t-4" textWrap="true" />
+                    <Label text="{{ driverChips }}" class="driver-chips m-t-8" textWrap="true" visibility="{{ driverChipsVisibility }}" />
+                </StackLayout>
+            </GridLayout>
+
+            <!-- [B2] readiness trend (grows with history) -->
+            <StackLayout class="card m-t-12">
+                <Label text="READINESS TREND" class="section-label" />
+                <AbsoluteLayout id="trendChart" height="88" class="m-t-8" visibility="{{ trendChartVisibility }}" />
+                <Label text="{{ trendEmptyLabel }}" class="muted m-t-4" textWrap="true" visibility="{{ trendEmptyVisibility }}" />
+            </StackLayout>
+
+            <!-- [C] heart rate -->
+            <StackLayout class="card m-t-12">
+                <Label text="HEART RATE" class="section-label" />
+                <GridLayout columns="auto,*" class="m-t-4">
+                    <StackLayout col="0" orientation="horizontal">
+                        <Label text="{{ currentHrValue }}" class="hr-big" />
+                        <Label text="bpm" class="tile-unit" verticalAlignment="bottom" />
+                    </StackLayout>
+                    <Label col="1" text="{{ currentHrSource }}" class="muted" horizontalAlignment="right" verticalAlignment="bottom" />
+                </GridLayout>
+                <GridLayout columns="*,*,*" class="m-t-8">
+                    <Label col="0" text="{{ restingHrLabel }}" class="muted" fontSize="12" />
+                    <Label col="1" text="{{ hrRangeLabel }}" class="muted" fontSize="12" textAlignment="center" />
+                    <Label col="2" text="{{ hrTrendLabel }}" class="muted" fontSize="12" textAlignment="right" />
+                </GridLayout>
+                <AbsoluteLayout id="hrChart" height="92" class="m-t-12" visibility="{{ hrChartVisibility }}" />
+                <Label text="Last 24h · min-max per hour, average marked · resting line" class="chart-caption m-t-4"
+                       visibility="{{ hrChartVisibility }}" />
+            </StackLayout>
+
+            <!-- [D] sleep (gated) -->
+            <StackLayout class="card m-t-12">
+                <Label text="SLEEP" class="section-label" />
+                <StackLayout visibility="{{ sleepLockedVisibility }}" class="m-t-4">
+                    <Label text="🔒" fontSize="26" />
+                    <Label text="{{ sleepHint }}" class="muted m-t-4" textWrap="true" />
+                </StackLayout>
+                <StackLayout visibility="{{ sleepFullVisibility }}" class="m-t-4">
+                    <GridLayout columns="auto,*">
+                        <Label col="0" text="{{ sleepScoreLabel }}" class="hr-big" />
+                        <Label col="1" text="{{ sleepDurationLabel }}" class="muted" verticalAlignment="bottom" horizontalAlignment="right" />
+                    </GridLayout>
+                </StackLayout>
+            </StackLayout>
+
+            <!-- [E] supporting tiles -->
+            <GridLayout rows="auto,auto,auto" columns="*,*" class="m-t-4">
+                <StackLayout row="0" col="0" class="card tile">
+                    <Label text="SpO₂" class="tile-metric" />
+                    <Label text="{{ spo2Value }}" class="tile-value" />
+                </StackLayout>
+                <StackLayout row="0" col="1" class="card tile">
+                    <Label text="HRV" class="tile-metric" />
+                    <Label text="{{ hrvValue }}" class="tile-value" />
+                </StackLayout>
+                <StackLayout row="1" col="0" class="card tile">
+                    <Label text="Temperature" class="tile-metric" />
+                    <StackLayout orientation="horizontal" class="m-t-4">
+                        <Label text="{{ temperatureValue }}" class="tile-value" />
+                        <Label text="{{ temperatureUnit }}" class="tile-unit" verticalAlignment="bottom" />
+                    </StackLayout>
+                    <Label text="{{ temperatureSub }}" class="tile-trend" />
+                </StackLayout>
+                <StackLayout row="1" col="1" class="card tile">
+                    <Label text="Battery" class="tile-metric" />
+                    <Label text="{{ batteryValue }}" class="tile-value" />
+                </StackLayout>
+                <StackLayout row="2" col="0" class="card tile">
+                    <Label text="{{ caloriesMetricLabel }}" class="tile-metric" />
+                    <Label text="{{ caloriesValue }}" class="tile-value" />
+                    <Label text="{{ caloriesSourceLabel }}" class="tile-trend" />
+                </StackLayout>
+                <StackLayout row="2" col="1" class="card tile">
+                    <Label text="Steps" class="tile-metric" />
+                    <Label text="{{ stepsValue }}" class="tile-value" />
+                </StackLayout>
+            </GridLayout>
+
+            <!-- [F] export + sharing -->
+            <Button text="Export JSON" tap="{{ onExportJsonTap }}" class="m-t-12" />
+            <GridLayout columns="*,auto" class="control-row m-t-8">
+                <StackLayout col="0" verticalAlignment="center">
+                    <Label text="Allow assistant health access" class="control-row-label" />
+                    <Label text="{{ hermesConsentSub }}" class="control-row-sublabel" textWrap="true" />
+                </StackLayout>
+                <Switch col="1" checked="{{ hermesConsent }}" verticalAlignment="center" />
+            </GridLayout>
+        </StackLayout>
+    </ScrollView>
+</Page>

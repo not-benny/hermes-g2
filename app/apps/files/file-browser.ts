@@ -5,6 +5,7 @@ import { renderIcon, type IconName } from "../../graphics/icons";
 import { clamp } from "../../util/numeric-util";
 import { GESTURE_CLICK, GESTURE_DOUBLE_CLICK, GESTURE_SCROLL } from "../../ui/gestures";
 import { drawListScrollbar, drawSelectionHighlight, scrollToKeepSelectionVisible, type MenuItem } from "../../ui/menu";
+import { EdgeBounce, EdgeWrapScroller } from "../../ui/edge-scroll";
 import { ConfigSettingEnum } from "../../ui/dashboard-settings";
 import { getStringSetting, setStringSetting } from "../../native/settings-store";
 import {
@@ -124,6 +125,8 @@ export class FileBrowserLayer implements Layer {
   private listIndex = 0;
   private selectedRow = 0;
   private selectedCol = 0;
+  private readonly listScroller = new EdgeWrapScroller(undefined, "file-list");
+  private readonly edgeBounce = new EdgeBounce();
   private iconMode: IconMode = "row";
   private scrollRow = 0;
 
@@ -156,9 +159,10 @@ export class FileBrowserLayer implements Layer {
     this.scrollRow = scrollToKeepSelectionVisible(this.scrollRow, this.listIndex, visibleRows, rows.length);
 
     const lastVisible = Math.min(rows.length, this.scrollRow + visibleRows);
+    const bounceY = this.edgeBounce.offsetPx();
     for (let index = this.scrollRow; index < lastVisible; index++) {
       const row = rows[index]!;
-      const y = HEADER_HEIGHT + (index - this.scrollRow) * ROW_HEIGHT;
+      const y = HEADER_HEIGHT + (index - this.scrollRow) * ROW_HEIGHT + bounceY;
       const selected = index === this.listIndex;
       if (selected) {
         drawSelectionHighlight(image, LIST_X - 6, y - 1, width - 2 * LIST_X + 12, ROW_HEIGHT - 1, ctx.stack.isFocused(), 4);
@@ -244,18 +248,26 @@ export class FileBrowserLayer implements Layer {
   private async handleListInput(event: DashboardInputEvent, ctx: LayerContext): Promise<void> {
     const rows = this.flatRows();
     switch (event.type) {
-      case "scroll-up":
-        this.listIndex = Math.max(0, this.listIndex - 1);
+      case "scroll-up": {
+        const step = this.listScroller.step(this.listIndex, rows.length, -1, Date.now());
+        this.listIndex = step.index;
+        if (step.atEdge) this.edgeBounce.trigger(-1, () => ctx.actions.requestRender());
         return;
-      case "scroll-down":
-        this.listIndex = Math.min(Math.max(0, rows.length - 1), this.listIndex + 1);
+      }
+      case "scroll-down": {
+        const step = this.listScroller.step(this.listIndex, rows.length, 1, Date.now());
+        this.listIndex = step.index;
+        if (step.atEdge) this.edgeBounce.trigger(1, () => ctx.actions.requestRender());
         return;
+      }
       case "click": {
+        this.listScroller.reset();
         const row = rows[clamp(this.listIndex, 0, Math.max(0, rows.length - 1))];
         if (row) await this.activateItem(row, ctx);
         return;
       }
       case "double-click":
+        this.listScroller.reset();
         this.navigateUp();
         return;
       default:
