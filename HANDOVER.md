@@ -259,3 +259,43 @@ pull the log + the Even app's built-in health-data export zip, and validate.
   unverified and pending an explicit, separately recorded GO naming the
   authorized phone/G2, data/actions, disposable Terminal session, commands,
   evidence scope, expiry, and exclusions.
+
+## 11. Held awesome-list submissions inventory (2026-08-21)
+
+- There is one target repository and two intended, separate suggestions:
+  `pangoleen/awesome-even-realities-g2` (`https://github.com/pangoleen/awesome-even-realities-g2`).
+  The contributor guide is `contributing.md` and requires one PR per suggestion,
+  appending to the appropriate category, the format
+  `- [Name](link) - Description.`, concise present-tense descriptions, a
+  canonical working link, and `npx awesome-lint`.
+- Suggestion 1 is the ring-health reverse-engineering material under
+  **Protocol and Reverse Engineering**. Intended public link:
+  `https://github.com/not-benny/hermes-g2/tree/main/docs/ring-health`.
+  The local source is the ring-health protocol/research work in
+  `notes/ring-health-protocol-2026-08-19.md`; the public snapshot was intended
+  to expose it under `docs/ring-health/`. Suggested entry name is the project's
+  real public name, with a concise description of the R1 ring-health BLE
+  protocol reverse engineering and scrubbed examples.
+- Suggestion 2 is **Hermes G2** under **AI and Agent Integrations**:
+  `https://github.com/not-benny/hermes-g2`. Intended description: an unofficial
+  Android companion for Even Realities G2 glasses, built around Hermes Agent,
+  with voice interaction, notifications, media, navigation, terminal mirroring,
+  and R1/glasses controls.
+- The contributor fork exists at
+  `https://github.com/not-benny/awesome-even-realities-g2`. Its only branch is
+  `main` at `9c7ae1b`; no topic branch, draft commit, or persisted two-entry
+  patch was found. The fork's README does not contain either entry. The parent
+  currently has only unrelated open PR #1 (`add-er-studio`), and GitHub search
+  found no related issue or PR in either repository.
+- Publication is **NOT READY**: `not-benny/hermes-g2` is currently private,
+  unauthenticated requests to its root and intended ring-health URL return 404,
+  and its releases/tags API is empty. Therefore both intended links fail the
+  list's public-link/release gate and the exact release snapshot path must be
+  revalidated before preparing the entries. The public release, stable URLs,
+  and a durable fork patch are blockers; no awesome-list PR has been opened.
+- GitHub authentication is available as `not-benny` with `repo` scope and the
+  fork is owned by that account. Parent-repository collaborator permission
+  could not be queried (GitHub returned 403 because the account is not a
+  collaborator), so push access to `pangoleen/awesome-even-realities-g2` is
+  unconfirmed. A PR from the owned fork may be possible after the release gate,
+  but must be handled as reviewed delivery and not inferred from this inventory.
