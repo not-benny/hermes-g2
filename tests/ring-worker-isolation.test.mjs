@@ -215,6 +215,56 @@ test("direct-R1 notification acceptance never nests ringLock with display dispat
   );
 });
 
+test("direct-R1 connection acceptance releases ringLock before display or listener dispatch", () => {
+  const body = methodBody(
+    communicator,
+    "public void onConnectionStateChange(\n            String address,\n            boolean connected,\n            FaceclawBleListener.DispatchToken dispatchToken",
+  );
+  const ringIdentity = body.indexOf("boolean ringCallback = isConfiguredRingAddress(address)");
+  const callbackLock = body.indexOf("synchronized (callbackLock)");
+  const stoppingGate = body.indexOf("if (ringCallback && (stopping || !running))");
+  const tokenClaim = body.indexOf("dispatchToken.claim()");
+  const ringStateUpdate = body.indexOf("acceptedRingGeneration = updateDirectRingConnectionStateLocked(connected)");
+  const callbackBlock = synchronizedBodies(body, "callbackLock")[0];
+  const callbackBlockEnd = body.indexOf(callbackBlock) + callbackBlock.length;
+  const dispatch = body.indexOf("finishDirectRingConnectionStateChange(connected, acceptedRingGeneration)");
+
+  assert.ok(ringIdentity >= 0, "the callback records direct-R1 identity before selecting its state lock");
+  assert.ok(callbackLock > ringIdentity, "direct-R1 connection dispatch waits for ringLock");
+  assert.ok(
+    stoppingGate > callbackLock && tokenClaim > stoppingGate && ringStateUpdate > tokenClaim,
+    "teardown is rejected and exact-GATT token is claimed before ring state changes under ringLock",
+  );
+  assert.doesNotMatch(
+    callbackBlock,
+    /emitBatteryStateSnapshot\(|emitDirectRingBatteryStateSnapshot\(|finishDirectRingConnectionStateChange\(|\blogLine\(|logDirectRingLine\(|synchronized \(lock\)|listener\./,
+    "ringLock acceptance must not enter display, log, or downstream connection dispatch",
+  );
+  assert.match(
+    callbackBlock,
+    /if \(ringCallback\)[\s\S]*acceptedRingGeneration = updateDirectRingConnectionStateLocked\(connected\);[\s\S]*else[\s\S]*onConnectionStateChange\(address, connected\);/,
+    "only the non-ring callback branch may enter legacy connection dispatch under its display lock",
+  );
+  assert.ok(dispatch > callbackBlockEnd, "accepted direct-R1 connection state is published only after ringLock is released");
+  assert.match(
+    body,
+    /Object callbackLock = ringCallback \? ringLock : lock/,
+    "glasses callbacks retain their display lock and framebuffer-release connection path",
+  );
+
+  const update = methodBody(communicator, "private int updateDirectRingConnectionStateLocked(boolean connected)");
+  assert.doesNotMatch(
+    update,
+    /emitBatteryStateSnapshot\(|emitDirectRingBatteryStateSnapshot\(|finishDirectRingConnectionStateChange\(|\blogLine\(|logDirectRingLine\(|synchronized \(lock\)|listener\./,
+    "the guarded ring state update remains side-effect-free outside ring lifecycle state",
+  );
+  const finish = methodBody(communicator, "private void finishDirectRingConnectionStateChange(boolean connected, int generation)");
+  assert.match(finish, /isRingNotificationDispatchAllowed\(generation\)/);
+  assert.match(finish, /if \(!connected\)[\s\S]*emitDirectRingBatteryStateSnapshot\(generation\)/);
+  assert.match(finish, /logDirectRingLine\(connected \? "direct ring BLE connected" : "direct ring BLE disconnected", generation\)/);
+  assert.doesNotMatch(finish, /synchronized \(ringLock\)/, "post-lock dispatch must not reacquire ringLock around display work");
+});
+
 test("BLE waits serialize per address while the process-wide API lock is initiation-only", () => {
   assert.match(manager, /ConcurrentHashMap<String, Object> operationLocks/);
   assert.match(manager, /GattCallbackRegistry<BluetoothGatt> callbackRegistry/);

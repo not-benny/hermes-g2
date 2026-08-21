@@ -1496,13 +1496,25 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (address == null || dispatchToken == null) {
             return;
         }
-        Object callbackLock = isConfiguredRingAddress(address) ? ringLock : lock;
+        boolean ringCallback = isConfiguredRingAddress(address);
+        Object callbackLock = ringCallback ? ringLock : lock;
+        int acceptedRingGeneration = -1;
         synchronized (callbackLock) {
+            if (ringCallback && (stopping || !running)) {
+                return;
+            }
             if (!dispatchToken.claim()) {
                 return;
             }
-            onConnectionStateChange(address, connected);
+            if (ringCallback) {
+                acceptedRingGeneration = updateDirectRingConnectionStateLocked(connected);
+            } else {
+                onConnectionStateChange(address, connected);
+                return;
+            }
         }
+        // Never enter display state or downstream listeners while holding ringLock.
+        finishDirectRingConnectionStateChange(connected, acceptedRingGeneration);
     }
 
     @Override public void onConnectionStateChange(String address, boolean connected) {
@@ -1513,28 +1525,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             return;
         }
         if (isConfiguredRingAddress(address)) {
+            int acceptedRingGeneration;
             synchronized (ringLock) {
                 if (stopping || (connected && !running)) {
                     return;
                 }
-                ringConnected = connected;
-                ringNotificationsReady = false;
-                if (!connected) {
-                    ringBattery = -1;
-                    ringHealthProbeSent = false;
-                    lastRingHealthPollMs = 0;
-                    lastRingCurrentHrPollMs = 0;
-                    ringConnectionGeneration++;
-                    ringPacketAckQueue.clear();
-                    ringReconnectAfterMs = Math.max(ringReconnectAfterMs,
-                        SystemClock.elapsedRealtime() + ConnectionOptions.RING_RECONNECT_DELAY_MS);
-                }
+                acceptedRingGeneration = updateDirectRingConnectionStateLocked(connected);
             }
-            if (!connected) {
-                emitBatteryStateSnapshot();
-            }
-            logLine(connected ? "direct ring BLE connected" : "direct ring BLE disconnected");
-            ringInterruptibleSleep.interrupt();
+            finishDirectRingConnectionStateChange(connected, acceptedRingGeneration);
             return;
         }
         synchronized (lock) {
@@ -1567,6 +1565,35 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             setStateDisplay("connected", "Connected.");
         } else {
             setStateDisplay("connecting", "Connecting to the glasses...");
+        }
+    }
+
+    private int updateDirectRingConnectionStateLocked(boolean connected) {
+        ringConnected = connected;
+        ringNotificationsReady = false;
+        if (!connected) {
+            ringBattery = -1;
+            ringHealthProbeSent = false;
+            lastRingHealthPollMs = 0;
+            lastRingCurrentHrPollMs = 0;
+            ringConnectionGeneration++;
+            ringPacketAckQueue.clear();
+            ringReconnectAfterMs = Math.max(ringReconnectAfterMs,
+                SystemClock.elapsedRealtime() + ConnectionOptions.RING_RECONNECT_DELAY_MS);
+        }
+        return ringConnectionGeneration;
+    }
+
+    private void finishDirectRingConnectionStateChange(boolean connected, int generation) {
+        if (!isRingNotificationDispatchAllowed(generation)) {
+            return;
+        }
+        if (!connected) {
+            emitDirectRingBatteryStateSnapshot(generation);
+        }
+        logDirectRingLine(connected ? "direct ring BLE connected" : "direct ring BLE disconnected", generation);
+        if (isRingNotificationDispatchAllowed(generation)) {
+            ringInterruptibleSleep.interrupt();
         }
     }
 
@@ -3864,6 +3891,36 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             ringBatterySnapshot = ringBattery;
         }
         emitBatteryState(headsetBatterySnapshot, headsetChargingSnapshot, ringBatterySnapshot);
+    }
+
+    private void emitDirectRingBatteryStateSnapshot(int generation) {
+        int headsetBatterySnapshot;
+        int headsetChargingSnapshot;
+        synchronized (lock) {
+            headsetBatterySnapshot = headsetBattery;
+            headsetChargingSnapshot = headsetCharging;
+        }
+        int ringBatterySnapshot;
+        synchronized (ringLock) {
+            if (!isRingNotificationDispatchAllowed(generation)) {
+                return;
+            }
+            ringBatterySnapshot = ringBattery;
+        }
+        final FaceclawBleCommunicatorListener current = listener;
+        if (current == null) {
+            return;
+        }
+        mainHandler.post(() -> {
+            if (!isRingNotificationDispatchAllowed(generation)) {
+                return;
+            }
+            try {
+                current.onBatteryState(headsetBatterySnapshot, headsetChargingSnapshot, ringBatterySnapshot);
+            } catch (Throwable t) {
+                Log.w(TAG, "listener onBatteryState failed", t);
+            }
+        });
     }
 
     private void emitFirmwareInfo(BleProtocol.FirmwareInfo info) {
