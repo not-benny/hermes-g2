@@ -76,6 +76,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private volatile Thread workerThread;
     private volatile boolean running;
     private volatile boolean userDisconnectRequested;
+    private boolean closeRequested;
+    private boolean cleanupComplete;
+    private boolean cleanupStarted;
 
     private String phase = "disconnected";
     private String status = "Disconnected.";
@@ -281,7 +284,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
     }
 
-    public void disconnect() {
+    public boolean disconnect() {
         releaseFaceclawFramebufferLease();
         Thread threadToJoin;
         synchronized (lock) {
@@ -301,11 +304,29 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 Thread.currentThread().interrupt();
             }
         }
+        if (threadToJoin != null && threadToJoin.isAlive()) {
+            setStateDisplay("disconnecting", "Disconnecting; waiting for BLE worker...");
+            return false;
+        }
+        return completeCleanupIfQuiescent();
+    }
+
+    private boolean completeCleanupIfQuiescent() {
         synchronized (lock) {
+            if (cleanupComplete) {
+                return true;
+            }
+            Thread currentWorker = workerThread;
+            if (currentWorker != null && currentWorker.isAlive() && currentWorker != Thread.currentThread()) {
+                return false;
+            }
+            if (cleanupStarted) {
+                return false;
+            }
+            cleanupStarted = true;
             workerThread = null;
             resetSessionStateLocked();
             clearAllMessagesLocked("disconnect");
-            // Unknown until the next connection's first push or settings poll.
             silentMode = -1;
         }
         bleManager.disconnect(rightAddress);
@@ -315,18 +336,25 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
         bleManager.close();
         releaseG2ScreenWakeLock();
-        setStateDisplay("disconnected", "Disconnected.");
-    }
-
-    public void close() {
-        if (activeInstance == this) {
-            activeInstance = null;
-        }
-        disconnect();
-        if (phoneLockReceiverRegistered) {
+        if (closeRequested && phoneLockReceiverRegistered) {
             phoneLockReceiverRegistered = false;
             appContext.unregisterReceiver(phoneLockReceiver);
         }
+        synchronized (lock) {
+            cleanupComplete = true;
+        }
+        setStateDisplay("disconnected", "Disconnected.");
+        if (activeInstance == this) {
+            activeInstance = null;
+        }
+        return true;
+    }
+
+    public boolean close() {
+        synchronized (lock) {
+            closeRequested = true;
+        }
+        return disconnect();
     }
 
     public void setG2ScreenOn(boolean screenOn) {
@@ -1022,6 +1050,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             }
         }
         logLine("communicator stop");
+        // The worker owns the deferred cleanup after a bounded close() could
+        // not join it. This path is idempotent and is the only path that can
+        // release BLE resources after a non-cooperative worker eventually exits.
+        completeCleanupIfQuiescent();
     }
 
     @Override public void onNotification(String address, String characteristicUuid, byte[] data) {

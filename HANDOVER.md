@@ -1,5 +1,15 @@
 # Hermes G2 handover (2026-08-21)
 
+## Communicator teardown ownership hardening (2026-08-21)
+
+The incomplete-close path now returns an explicit boolean and retains the
+communicator while its worker is alive. BLE/GATT, wake-lock, receiver, and
+thread cleanup is idempotent and deferred to the worker's eventual exit; the
+dashboard no longer discards ownership or publishes Disconnected when close
+does not reach quiescence. Added `tests/communicator-teardown.test.mjs` static
+contracts. Hardware verification was not performed; this change is static and
+unit-test scoped.
+
 ## WhatsApp pairing options evaluation (2026-08-21)
 
 Added `notes/whatsapp-pairing-options-2026-08.md`. The safe recommendation is to
