@@ -187,7 +187,7 @@ test("direct ring requests MTU 247 before subscribing and probing", () => {
     "utf8",
   );
   assert.match(options, /RING_DESIRED_MTU = 247/);
-  const start = src.indexOf("private int connectRing()");
+  const start = src.indexOf("private int connectRing(long glassesAttemptGeneration)");
   const end = src.indexOf("private boolean enableRingNotification", start);
   const body = src.slice(start, end);
   const discover = body.indexOf("discoverServices(ringAddress");
@@ -262,7 +262,7 @@ test("packetAck generation invalidation covers every direct-ring reset boundary"
   assert.match(src, /invalidateRingPacketAckStateLocked\(\);[\s\S]*ringConnected = connected/);
 
   const failedConnectStart = src.indexOf("private void handleRingFailure(String reason, Throwable failure)");
-  const failedConnectEnd = src.indexOf("private int connectRing()", failedConnectStart);
+  const failedConnectEnd = src.indexOf("private int connectRing(long glassesAttemptGeneration)", failedConnectStart);
   const failedConnect = src.slice(failedConnectStart, failedConnectEnd);
   assert.match(failedConnect, /invalidateRingPacketAckStateLocked\(\);/);
 

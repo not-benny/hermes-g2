@@ -29,7 +29,8 @@ test("GATT callbacks copy data and enqueue external listener work", () => {
   assert.match(manager, /Executors\.newSingleThreadExecutor/);
   assert.match(manager, /callbackExecutor\.execute/);
   assert.match(manager, /byte\[\] copy = value != null \? value\.clone\(\)/);
-  assert.match(manager, /enqueueCallback\(\(\) -> lease\.dispatchIfCurrent/);
+  assert.match(manager, /enqueueCallback\(\(\) ->\s*dispatchNotification/);
+  assert.match(manager, /enqueueCallback\(\(\) -> dispatchConnectionState/);
   assert.match(manager, /current\.onNotification\(gatt, address, characteristicUuid, copy, lease\)/);
   assert.match(manager, /current\.onConnectionStateChange\(gatt, address, connected, lease\)/);
 });
@@ -39,7 +40,7 @@ test("queued callbacks revalidate the exact generation under the dispatch gate",
   assert.match(registry, /boolean dispatchIfCurrent\(Consumer<DispatchLease<G>> dispatch\)/);
   assert.match(registry, /ReentrantLock gate = registry\.dispatchGates\.computeIfAbsent/);
   assert.match(registry, /if \(!current && !terminal\) return false/);
-  assert.match(manager, /lease\.dispatchIfCurrent\(/);
+  assert.doesNotMatch(manager, /enqueueCallback\(\(\) -> lease\.dispatchIfCurrent/);
 });
 
 test("stale states retire only the exact obsolete GATT", () => {

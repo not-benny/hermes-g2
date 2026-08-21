@@ -133,25 +133,32 @@ final class GattCallbackRegistry<G> {
     }
 
     boolean completeConnect(String address, G gatt, boolean connected, Consumer<DispatchLease<G>> dispatch) {
+        ReentrantLock gate = connected ? null : dispatchGates.computeIfAbsent(address, ignored -> new ReentrantLock());
+        if (gate != null) gate.lock();
         DispatchLease<G> lease;
-        synchronized (this) {
-            Operation<G> operation = operationFor(address, CONNECT);
-            if (operation == null || gatt == null || isRetired(gatt)) return false;
-            if (operation.gatt == null) {
-                if (currentGatts.get(address) != null) return false;
-                operation.gatt = gatt;
-                currentGatts.put(address, gatt);
-                currentGenerations.put(address, operation.generation);
+        try {
+            synchronized (this) {
+                Operation<G> operation = operationFor(address, CONNECT);
+                if (operation == null || gatt == null || isRetired(gatt)) return false;
+                if (operation.gatt == null) {
+                    if (currentGatts.get(address) != null) return false;
+                    operation.gatt = gatt;
+                    currentGatts.put(address, gatt);
+                    currentGenerations.put(address, operation.generation);
+                }
+                if (operation.gatt != gatt || currentGatts.get(address) != gatt
+                        || operation.generation != currentGeneration(address)) return false;
+                operation.status = connected ? 1 : 0;
+                lease = new DispatchLease<>(this, address, gatt, operation.generation, !connected);
+                removeOperation(address, CONNECT, operation);
+                if (!connected) retireLocked(address, gatt);
+                operation.latch.countDown();
             }
-            if (operation.gatt != gatt || currentGatts.get(address) != gatt
-                    || operation.generation != currentGeneration(address)) return false;
-            operation.status = connected ? 1 : 0;
-            lease = new DispatchLease<>(this, address, gatt, operation.generation, !connected);
-            removeOperation(address, CONNECT, operation);
-            if (!connected) retireLocked(address, gatt);
-            operation.latch.countDown();
+            if (dispatch != null) dispatch.accept(lease);
+            return true;
+        } finally {
+            if (gate != null) gate.unlock();
         }
-        return lease.dispatchIfCurrent(dispatch);
     }
 
     boolean completeOperation(String address, String kind, G gatt, int status, byte[] value) {
@@ -172,7 +179,8 @@ final class GattCallbackRegistry<G> {
             if (!isCurrent(address, gatt)) return false;
             lease = new DispatchLease<>(this, address, gatt, currentGeneration(address), false);
         }
-        return lease.dispatchIfCurrent(dispatch);
+        if (dispatch != null) dispatch.accept(lease);
+        return true;
     }
     boolean disconnectIfCurrent(String address, G gatt, Consumer<DispatchLease<G>> dispatch) {
         DispatchLease<G> lease;

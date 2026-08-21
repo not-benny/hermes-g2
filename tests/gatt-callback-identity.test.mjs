@@ -30,8 +30,8 @@ test("connection callbacks reject stale GATTs before state or latch publication"
   const callback = methodBody("public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState)");
   assert.match(callback, /callbackRegistry\.completeConnect\(/);
   assert.match(callback, /callbackRegistry\.disconnectIfCurrent\(/);
-  assert.match(callback, /dispatchConnectionState\(gatt, address, true, currentLease\)/);
-  assert.match(callback, /dispatchConnectionState\(gatt, address, false, currentLease\)/);
+  assert.match(callback, /dispatchConnectionState\(gatt, address, true, lease\)/);
+  assert.match(callback, /dispatchConnectionState\(gatt, address, false, lease\)/);
   assert.match(callback, /callbackRegistry\.retireStale\(gatt\)/);
 });
 
@@ -39,6 +39,7 @@ test("connect owns one exact-GATT attempt and disconnect releases its waiters", 
   const connect = methodBody("public boolean connect(String address, int timeoutMs)");
   assert.match(connect, /GattCallbackRegistry\.Operation<BluetoothGatt> operation/);
   assert.match(connect, /callbackRegistry\.bindConnectReturn\(/);
+  assert.match(connect, /callbackRegistry\.retireStale\(gatt\)/);
   assert.match(connect, /awaitOperation\(operation, timeoutMs\)/);
   const disconnect = methodBody("public void disconnect(String address)");
   assert.match(disconnect, /callbackRegistry\.retire\(/);

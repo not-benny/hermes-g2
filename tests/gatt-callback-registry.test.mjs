@@ -93,7 +93,9 @@ public final class GattCallbackRegistryHarness {
         CountDownLatch leaseEntered = new CountDownLatch(1);
         CountDownLatch releaseLease = new CountDownLatch(1);
         AtomicInteger staleEffects = new AtomicInteger();
-        Thread staleListener = new Thread(() -> registry.dispatchIfCurrent(address, gattC, lease -> {
+        final GattCallbackRegistry.DispatchLease<Object>[] queuedLease = new GattCallbackRegistry.DispatchLease[1];
+        require(registry.dispatchIfCurrent(address, gattC, lease -> queuedLease[0] = lease), "queue C listener");
+        Thread staleListener = new Thread(() -> queuedLease[0].dispatchIfCurrent(lease -> {
             leaseEntered.countDown();
             await(releaseLease);
             if (lease.isCurrent()) staleEffects.incrementAndGet();

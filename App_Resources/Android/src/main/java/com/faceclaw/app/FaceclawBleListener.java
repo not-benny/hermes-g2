@@ -14,13 +14,9 @@ public interface FaceclawBleListener {
         onConnectionStateChange(address, connected);
     }
 
-    default void onNotification(BluetoothGatt gatt, String address, String characteristicUuid, byte[] data,
-                                GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
-        lease.dispatchIfCurrent(ignored -> onNotification(gatt, address, characteristicUuid, data));
-    }
+    void onNotification(BluetoothGatt gatt, String address, String characteristicUuid, byte[] data,
+                        GattCallbackRegistry.DispatchLease<BluetoothGatt> lease);
 
-    default void onConnectionStateChange(BluetoothGatt gatt, String address, boolean connected,
-                                         GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
-        lease.dispatchIfCurrent(ignored -> onConnectionStateChange(gatt, address, connected));
-    }
+    void onConnectionStateChange(BluetoothGatt gatt, String address, boolean connected,
+                                 GattCallbackRegistry.DispatchLease<BluetoothGatt> lease);
 }

@@ -94,7 +94,9 @@ public class FaceclawBleManager {
             }
 
             if (!callbackRegistry.bindConnectReturn(address, operation, gatt)) {
-                closeGatt(gatt);
+                // An early DISCONNECTED callback may already have retired and closed
+                // this exact object. Only a newly-observed stale identity owns close.
+                if (callbackRegistry.retireStale(gatt)) closeGatt(gatt);
                 return false;
             }
 
@@ -443,8 +445,7 @@ public class FaceclawBleManager {
                     address,
                     gatt,
                     true,
-                    lease -> enqueueCallback(() -> lease.dispatchIfCurrent(
-                        currentLease -> dispatchConnectionState(gatt, address, true, currentLease)))
+                    lease -> enqueueCallback(() -> dispatchConnectionState(gatt, address, true, lease))
                 );
                 if (!accepted && callbackRegistry.retireStale(gatt)) {
                     closeGatt(gatt);
@@ -457,21 +458,17 @@ public class FaceclawBleManager {
                     address,
                     gatt,
                     false,
-                    lease -> enqueueCallback(() -> lease.dispatchIfCurrent(
-                        currentLease -> dispatchConnectionState(gatt, address, false, currentLease)))
+                    lease -> enqueueCallback(() -> dispatchConnectionState(gatt, address, false, lease))
                 );
                 if (!accepted) {
                     accepted = callbackRegistry.disconnectIfCurrent(
                         address,
                         gatt,
-                        lease -> enqueueCallback(() -> lease.dispatchIfCurrent(
-                            currentLease -> dispatchConnectionState(gatt, address, false, currentLease)))
+                        lease -> enqueueCallback(() -> dispatchConnectionState(gatt, address, false, lease))
                     );
                 }
                 if (accepted) {
-                    synchronized (gattLock(address)) {
-                        closeDisconnectedGatt(gatt);
-                    }
+                    closeDisconnectedGatt(gatt);
                 } else if (callbackRegistry.retireStale(gatt)) {
                     closeDisconnectedGatt(gatt);
                 }
@@ -530,8 +527,8 @@ public class FaceclawBleManager {
                 gatt,
                 lease -> {
                     byte[] copy = value != null ? value.clone() : new byte[0];
-                    enqueueCallback(() -> lease.dispatchIfCurrent(currentLease ->
-                        dispatchNotification(gatt, characteristic.getUuid().toString(), copy, currentLease)));
+                    enqueueCallback(() ->
+                        dispatchNotification(gatt, characteristic.getUuid().toString(), copy, lease));
                 }
             );
         }
@@ -546,8 +543,8 @@ public class FaceclawBleManager {
                 lease -> {
                     byte[] value = characteristic.getValue();
                     byte[] copy = value != null ? value.clone() : new byte[0];
-                    enqueueCallback(() -> lease.dispatchIfCurrent(currentLease ->
-                        dispatchNotification(gatt, characteristic.getUuid().toString(), copy, currentLease)));
+                    enqueueCallback(() ->
+                        dispatchNotification(gatt, characteristic.getUuid().toString(), copy, lease));
                 }
             );
         }

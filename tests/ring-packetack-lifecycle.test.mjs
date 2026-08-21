@@ -27,8 +27,9 @@ test("ring disconnect and failed connect retire delayed packetAck work", () => {
 });
 
 test("successful replacement and hard transport failure start a clean generation", () => {
-  const connect = methodBody("private int connectRing()");
+  const connect = methodBody("private int connectRing(long glassesAttemptGeneration)");
   assert.ok(connect.indexOf("invalidateRingPacketAckStateLocked()") < connect.indexOf("ringNotificationsReady = true"));
+  assert.ok(connect.indexOf("glassesAttemptGeneration != glassesConnectionGeneration") < connect.indexOf("ringNotificationsReady = true"));
   const failure = methodBody("private void hardTransportFailure(String reason)");
   assert.ok(failure.indexOf("ringNotificationsReady = false") < failure.indexOf("invalidateRingPacketAckStateLocked()"));
   assert.ok(failure.indexOf("invalidateRingPacketAckStateLocked()") < failure.indexOf("bleManager.disconnect(rightAddress)"));

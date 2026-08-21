@@ -504,11 +504,11 @@ public class FaceclawFirmwareFlasher implements FaceclawBleListener {
     @Override
     public void onNotification(BluetoothGatt gatt, String address, String characteristicUuid, byte[] data,
                                GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
-        lease.dispatchIfCurrent(ignored -> {
-            synchronized (lock) {
+        synchronized (lock) {
+            lease.dispatchIfCurrent(ignored -> {
                 onNotification(address, characteristicUuid, data);
-            }
-        });
+            });
+        }
     }
 
     @Override
@@ -531,11 +531,11 @@ public class FaceclawFirmwareFlasher implements FaceclawBleListener {
     @Override
     public void onConnectionStateChange(BluetoothGatt gatt, String address, boolean connected,
                                         GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
-        lease.dispatchIfCurrent(ignored -> {
-            synchronized (lock) {
+        synchronized (lock) {
+            lease.dispatchIfCurrent(ignored -> {
                 onConnectionStateChange(address, connected);
-            }
-        });
+            });
+        }
     }
 
     @Override

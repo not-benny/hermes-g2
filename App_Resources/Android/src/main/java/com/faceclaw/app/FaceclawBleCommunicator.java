@@ -131,7 +131,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     // Identity of the current two-arm connection attempt. Arm callbacks and
     // teardown invalidate an in-flight attempt before it can resurrect a ready
     // session or start the ring side effect.
-    private long glassesConnectionGeneration = 0;
+    private volatile long glassesConnectionGeneration = 0;
     // Re-poll the ring health GETs periodically: the ring auto-connects while
     // off-head (empty window), so a one-shot poll never sees worn data. Re-firing
     // every RING_HEALTH_POLL_INTERVAL_MS means data arrives on the next poll once
@@ -1230,22 +1230,26 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     @Override public void onNotification(BluetoothGatt gatt, String address, String characteristicUuid, byte[] data,
                                          GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
-        lease.dispatchIfCurrent(ignored -> {
-            if (isConfiguredRingAddress(address)) {
-                int generation;
-                byte[] copy;
-                synchronized (ringLock) {
+        if (isConfiguredRingAddress(address)) {
+            final int[] generation = {-1};
+            final byte[][] copy = {null};
+            synchronized (ringLock) {
+                lease.dispatchIfCurrent(ignored -> {
                     if (stopping || !running) return;
-                    generation = ringConnectionGeneration;
-                    copy = data == null ? null : Arrays.copyOf(data, data.length);
-                }
-                handleDirectRingNotification(characteristicUuid, copy, generation);
-            } else {
-                synchronized (lock) {
-                    onNotification(address, characteristicUuid, data);
-                }
+                    generation[0] = ringConnectionGeneration;
+                    copy[0] = data == null ? null : Arrays.copyOf(data, data.length);
+                });
             }
-        });
+            if (generation[0] >= 0) {
+                handleDirectRingNotification(characteristicUuid, copy[0], generation[0]);
+            }
+        } else {
+            synchronized (lock) {
+                lease.dispatchIfCurrent(ignored -> {
+                    onNotification(address, characteristicUuid, data);
+                });
+            }
+        }
     }
 
     @Override public void onNotification(String address, String characteristicUuid, byte[] data) {
@@ -1535,18 +1539,24 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     @Override public void onConnectionStateChange(BluetoothGatt gatt, String address, boolean connected,
                                                    GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
-        lease.dispatchIfCurrent(ignored -> {
-            if (isConfiguredRingAddress(address)) {
-                int generation;
-                synchronized (ringLock) {
+        if (isConfiguredRingAddress(address)) {
+            final int[] generation = {-1};
+            synchronized (ringLock) {
+                lease.dispatchIfCurrent(ignored -> {
                     if (stopping || (connected && !running)) return;
-                    generation = updateDirectRingConnectionStateLocked(connected);
-                }
-                finishDirectRingConnectionStateChange(connected, generation);
-            } else {
-                onConnectionStateChange(address, connected);
+                    generation[0] = updateDirectRingConnectionStateLocked(connected);
+                });
             }
-        });
+            if (generation[0] >= 0) {
+                finishDirectRingConnectionStateChange(connected, generation[0]);
+            }
+        } else {
+            synchronized (lock) {
+                lease.dispatchIfCurrent(ignored ->
+                    onConnectionStateChange(address, connected);
+                );
+            }
+        }
     }
 
     @Override public void onConnectionStateChange(String address, boolean connected) {
@@ -1793,15 +1803,19 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (!hasRingAddress()) {
             return;
         }
+        long effectiveAttemptGeneration;
         synchronized (lock) {
             if (!running || userDisconnectRequested || !sessionReady
                     || !rightConnected || !leftConnected
                     || (attemptGeneration >= 0 && attemptGeneration != glassesConnectionGeneration)) {
                 return;
             }
+            effectiveAttemptGeneration = attemptGeneration >= 0
+                ? attemptGeneration
+                : glassesConnectionGeneration;
         }
         try {
-            int generation = connectRing();
+            int generation = connectRing(effectiveAttemptGeneration);
             refreshRingBattery(generation);
             // The health poll is driven periodically from the ring loop
             // (maybeReRingHealthPoll) so it re-fires once the ring is worn.
@@ -1856,7 +1870,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             + ", next in " + (backoffMs / 1000) + "s): " + safeMessage(failure));
     }
 
-    private int connectRing() {
+    private int connectRing(long glassesAttemptGeneration) {
         if (stopping) {
             throw new IllegalStateException("ring connect cancelled");
         }
@@ -1892,7 +1906,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
         int generation;
         synchronized (ringLock) {
-            if (stopping || !running || !sessionReady) {
+            if (stopping || !running || !sessionReady
+                    || glassesAttemptGeneration != glassesConnectionGeneration) {
                 throw new IllegalStateException("ring connect cancelled");
             }
             invalidateRingPacketAckStateLocked();
