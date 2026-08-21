@@ -1,4 +1,12 @@
+diff --git a/README.md b/README.md
+index 6c36942..609d7c0 100644
 --- a/README.md
 +++ b/README.md
-@@ -306,0 +307 @@
+@@ -304,6 +304,7 @@ The [Even Realities G2](https://www.evenrealities.com) are everyday display smar
+ - [EvenCode](https://github.com/TheOmran/EvenCode) - Voice-driven Claude Code conversations on the G2, including scrolling results and answering interactive prompts.
+ - [HeadLenss](https://github.com/takashicompany/headlenss) - Drive Claude Code on your PC by voice from the G2, plus tmux control from a phone browser.
+ - [evenai-anthropic-bridge](https://github.com/jase-perf/evenai-anthropic-bridge) - Replaces the built-in Even AI assistant with Claude via a small local server.
 +- [Hermes G2](https://github.com/not-benny/hermes-g2) - Unofficial Android companion for Even Realities G2 glasses, built around Hermes Agent, with voice interaction, notifications, media, navigation, terminal mirroring, and R1/glasses controls.
+ 
+ ## Related and Legacy (G1)
+ 
