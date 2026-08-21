@@ -11,13 +11,16 @@ Hermes G2 development preview 1 was published as a GitHub prerelease.
 - Size: `335,831,435` bytes
 - SHA-256: `03143d502175e0f0cfce5b0022ee3263aa85bc8d48bc4cdc710133de621908f2`
 - Clean-validation run: <https://github.com/not-benny/hermes-g2/actions/runs/32527230737>
-- Independent publication/asset verification run: <https://github.com/not-benny/hermes-g2/actions/runs/32530363547>
+- Publication run: <https://github.com/not-benny/hermes-g2/actions/runs/32530363547>
+- Post-publication asset read-back run: <https://github.com/not-benny/hermes-g2/actions/runs/32530801521>
 
 The release tag points to the exact source used for the clean build. Immediately
 before publication, the APK was recovered from the retained validation artefact
-and checked independently for its expected source record, single-APK shape,
-size, SHA-256 and ZIP integrity. A second workflow then downloaded the published
-release asset and verified the same checksum.
+and checked for its expected source record, single-APK shape, size, SHA-256 and
+ZIP integrity. A separate post-publication workflow then downloaded both assets
+from the finished GitHub release and verified the prerelease metadata, exact tag
+target, APK size and SHA-256, checksum-file contents, `sha256sum -c`, and ZIP
+integrity.
 
 ## Publication state
 
