@@ -10,7 +10,10 @@ PR #12 (`https://github.com/not-benny/hermes-g2/pull/12`), head
 `e252592a8eb002c2ac778ca31f5943fa88411be5` confirmed OPEN, non-draft,
 CLEAN/mergeable, the intended 16-file diff and four-commit chain, exact base SHA
 `b1150c90e8ce8e55a8a02b957e58eb6fe6380c5e`, no status-check rollup, and no
-formal review decision.
+formal review decision. Live connection recovery is documented and delivered in
+follow-up PR #13 (`https://github.com/not-benny/hermes-g2/pull/13`), head
+`fix/live-glasses-session`, base `wt/t_273bc0ae`; its implementation commit is
+`1c1e2716d5a204863373a212482f7cb2d5d63d75`.
 
 ### Safe assistant/MCP glasses-display candidate
 
