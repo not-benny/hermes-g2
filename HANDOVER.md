@@ -10,15 +10,17 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 The health MCP tool is now fail-closed for the current external plaintext
 `ws://` bridge: consent alone cannot expose or execute `health.get_ring_data`.
-MCP list/call policy checks require a live connection generation and an explicit
-trusted-caller predicate, while the registry rechecks the policy immediately
-before loading the handler. Calls also carry the exact active voice-turn
-generation, so replaced or finished turns cannot authorize a delayed read.
+MCP list/call policy checks require a live connection generation, callable
+connection revalidation, an explicit trusted-caller predicate, and a unique
+live voice-turn generation with callable turn revalidation. Missing validators
+fail closed; the registry rechecks the policy immediately before loading the
+handler. Calls also carry the exact active voice-turn generation, so replaced
+or finished turns cannot authorize a delayed read.
 Direct/on-device callers can opt into the trusted predicate; certificate-
 validated WSS/server proof is still required before enabling it for external
 transport. No hardware verification applies; this is assistant policy code.
 
-Focused and full tests pass (12/12 focused; 168/168 full) and `git diff --check`
+Focused and full tests pass (13/13 focused; 169/169 full) and `git diff --check`
 passes. `npm run typecheck` and the Android build were attempted with the
 repository's installed dependencies; both are blocked by pre-existing missing
 NativeScript Android globals/types (`android`, `androidx`, `java`, and

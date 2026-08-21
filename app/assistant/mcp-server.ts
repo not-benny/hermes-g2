@@ -131,8 +131,8 @@ export class AssistantMcpServer {
         return;
       }
       const proactive = !this.options.isTurnActive();
-      const turnGeneration = proactive ? null : (this.options.getTurnGeneration?.() ?? "__active_turn__");
-      if (!proactive && this.options.getTurnGeneration && !turnGeneration) {
+      const turnGeneration = proactive ? null : this.options.getTurnGeneration?.() ?? null;
+      if (name === "health.get_ring_data" && !proactive && !turnGeneration) {
         this.replyToolError(id, "No current assistant turn authorizes this action");
         return;
       }
@@ -156,10 +156,10 @@ export class AssistantMcpServer {
       const result = await this.registry.callTool(name, args, {
         proactive,
         turnGeneration,
-        isTurnGenerationActive: turnGeneration && this.options.getTurnGeneration
+        isTurnGenerationActive: turnGeneration
           ? () => this.options.isTurnActive() && this.options.getTurnGeneration?.() === turnGeneration
           : undefined,
-        isCallAllowed: () => this.healthPolicyError(name),
+        isCallAllowed: () => this.healthPolicyError(name, turnGeneration),
       });
       if (this.closed || epoch !== this.epoch) return;
       this.reply(id, {
@@ -178,12 +178,24 @@ export class AssistantMcpServer {
     return name !== "health.get_ring_data" || this.healthPolicyError(name) === null;
   }
 
-  private healthPolicyError(name: string): string | null {
+  private healthPolicyError(name: string, expectedTurnGeneration?: string | null): string | null {
     if (name !== "health.get_ring_data") return null;
     if (!this.options.isHealthCallerTrusted?.()) return "Health data is unavailable to an unverified external caller";
-    if (this.options.connectionGeneration === undefined) return "Health data requires a live connection generation";
-    if (this.options.isConnectionGenerationActive && !this.options.isConnectionGenerationActive()) {
+    if (this.options.connectionGeneration === undefined || this.options.connectionGeneration === "") {
+      return "Health data requires a live connection generation";
+    }
+    if (typeof this.options.isConnectionGenerationActive !== "function" || !this.options.isConnectionGenerationActive()) {
       return "Health data requires the current live connection";
+    }
+    if (typeof this.options.getTurnGeneration !== "function") {
+      return "Health data requires a unique live assistant turn";
+    }
+    const turnGeneration = this.options.getTurnGeneration();
+    if (!this.options.isTurnActive() || !turnGeneration) {
+      return "Health data requires a unique live assistant turn";
+    }
+    if (expectedTurnGeneration !== undefined && turnGeneration !== expectedTurnGeneration) {
+      return "The authorizing assistant turn is no longer active; no side effect was sent.";
     }
     return null;
   }
