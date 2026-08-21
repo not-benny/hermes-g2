@@ -177,9 +177,11 @@ export class RenderViewManager {
   private timer: TimerHandle | null = null;
   private readonly operations = new Map<string, OperationRecord>();
   private readonly operationOrder: string[] = [];
+  private readonly createOperationOrder: string[] = [];
   private readonly acceptedAtMs: number[] = [];
   private readonly events: RenderViewEvent[] = [];
   private eventSequence = 0;
+  private pendingIdentity: { viewId: string; revision: number; cancelled: boolean } | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly now: () => number;
   private readonly setTimer: (callback: () => void, delayMs: number) => TimerHandle;
@@ -238,13 +240,17 @@ export class RenderViewManager {
       expiresAtMs: now + spec.ttl_seconds * 1000,
     };
     if (!VIEW_ID_PATTERN.test(candidate.viewId)) return { ok: false, error: "Secure view identity generation failed" };
+    const pendingIdentity = { viewId: candidate.viewId, revision: candidate.revision, cancelled: false };
+    this.pendingIdentity = pendingIdentity;
     try {
       await this.deps.render(candidate, signal, () => !signal?.aborted && (!isAllowed || isAllowed()));
     } catch {
+      if (this.pendingIdentity === pendingIdentity) this.pendingIdentity = null;
       return { ok: false, error: "The glasses could not render the view; no success was reported." };
     }
-    if (signal?.aborted || (isAllowed && !isAllowed()) || !this.deps.isDisplayAvailable()) {
-      this.deps.clear({ viewId: candidate.viewId, revision: candidate.revision });
+    if (this.pendingIdentity === pendingIdentity) this.pendingIdentity = null;
+    if (pendingIdentity.cancelled || signal?.aborted || (isAllowed && !isAllowed()) || !this.deps.isDisplayAvailable()) {
+      if (!pendingIdentity.cancelled) this.deps.clear({ viewId: candidate.viewId, revision: candidate.revision });
       return { ok: false, error: "The render_view operation became stale before delivery completed" };
     }
     this.current = candidate;
@@ -254,7 +260,7 @@ export class RenderViewManager {
     const result: ToolResult = { ok: true, content: JSON.stringify({
       status: "rendered", view_id: candidate.viewId, revision: candidate.revision, ttl_seconds: spec.ttl_seconds,
     }) };
-    this.rememberOperation(operationKey, argsFingerprint, result);
+    this.rememberOperation(operationKey, argsFingerprint, result, !updating);
     return result;
   }
 
@@ -309,6 +315,14 @@ export class RenderViewManager {
   }
 
   closeView(viewId: string, revision: number): void {
+    const pending = this.pendingIdentity;
+    if (pending && pending.viewId === viewId && pending.revision === revision) {
+      if (pending.cancelled) return;
+      pending.cancelled = true;
+      if (this.current) this.closeExact(this.current.viewId, this.current.revision);
+      this.deps.clear({ viewId, revision });
+      return;
+    }
     this.closeExact(viewId, revision);
   }
 
@@ -330,9 +344,10 @@ export class RenderViewManager {
     this.deps.clear(identity);
   }
 
-  private rememberOperation(key: string, fingerprintValue: string, result: ToolResult): void {
+  private rememberOperation(key: string, fingerprintValue: string, result: ToolResult, create: boolean): void {
     this.operations.set(key, { fingerprint: fingerprintValue, result });
-    this.operationOrder.push(key);
-    while (this.operationOrder.length > 64) this.operations.delete(this.operationOrder.shift()!);
+    const order = create ? this.createOperationOrder : this.operationOrder;
+    order.push(key);
+    while (order.length > 64) this.operations.delete(order.shift()!);
   }
 }

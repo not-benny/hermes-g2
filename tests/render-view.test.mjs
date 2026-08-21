@@ -135,3 +135,41 @@ test("shell integration keeps remote views transient and reserves escape gesture
   assert.match(toolsSource, /name: "glasses\.render_view"/);
   assert.match(toolsSource, /name: "glasses\.read_view_events"/);
 });
+
+test("local close racing initial delivery tombstones the pending identity", async () => {
+  let manager;
+  const clears = [];
+  manager = new RenderViewManager({
+    isDisplayAvailable: () => true,
+    createId: () => "opaque-view-id-0001",
+    render: async (state) => manager.closeView(state.viewId, state.revision),
+    clear: (identity) => clears.push(identity),
+  });
+  const result = await manager.render({ operation_id: "race-close", spec: baseSpec }, undefined, () => true, owner);
+  assert.equal(result.ok, false);
+  assert.equal(manager.snapshot(), null);
+  assert.deepEqual(clears, [{ viewId: "opaque-view-id-0001", revision: 1 }]);
+});
+
+test("many updates cannot evict the create idempotency tombstone", async () => {
+  let now = 1_000;
+  const manager = new RenderViewManager({
+    isDisplayAvailable: () => true,
+    createId: () => "opaque-view-id-0001",
+    render: async () => {}, clear: () => {}, now: () => now,
+    setTimer: () => 1, clearTimer: () => {},
+  });
+  const args = { operation_id: "original-create", spec: baseSpec };
+  const created = await manager.render(args, undefined, () => true, owner);
+  for (let i = 0; i < 65; i++) {
+    now += 1_000;
+    const revision = manager.snapshot().revision;
+    const updated = await manager.render({ operation_id: `update-${i}`, spec: {
+      ...baseSpec, view_id: "opaque-view-id-0001", expected_revision: revision,
+    } }, undefined, () => true, owner);
+    assert.equal(updated.ok, true);
+  }
+  manager.closeView("opaque-view-id-0001", 66);
+  assert.deepEqual(await manager.render(args, undefined, () => true, owner), created);
+  assert.equal(manager.snapshot(), null);
+});
