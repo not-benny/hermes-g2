@@ -27,3 +27,12 @@ test("boot-registered windows get their surface-ready signal from the connect-ti
     /window\.heightMode,\s*\);\s*(\/\/[^\n]*\n\s*)*window\.markSurfaceReady\?\.\(\);/,
   );
 });
+
+test("in-process windows register declared tools and withdraw them exactly once on close", () => {
+  const window = read("app/ui/shell/in-process-window.ts");
+
+  assert.match(window, /tools\?: \{[\s\S]*specs: ToolSpec\[\];[\s\S]*invoke:/);
+  assert.match(window, /toolRegistry\.setAppTools\(\{[\s\S]*windowId: options\.windowId,[\s\S]*appId: options\.appId/);
+  assert.match(window, /isForeground: \(\) => shell\.foregroundWindow\(\)\?\.windowId === options\.windowId/);
+  assert.match(window, /if \(closed\) return;\s*closed = true;\s*toolRegistry\.removeAppTools\(options\.windowId\);/);
+});
