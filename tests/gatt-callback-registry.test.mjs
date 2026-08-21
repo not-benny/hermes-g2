@@ -1,0 +1,111 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import test from "node:test";
+
+const registrySource = new URL(
+  "../App_Resources/Android/src/main/java/com/faceclaw/app/GattCallbackRegistry.java",
+  import.meta.url,
+);
+
+const harness = String.raw`
+package com.faceclaw.app;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public final class GattCallbackRegistryHarness {
+    public static void main(String[] args) throws Exception {
+        String address = "test-address";
+        Object gattA = new Object();
+        Object gattB = new Object();
+        GattCallbackRegistry<Object> registry = new GattCallbackRegistry<>();
+        AtomicInteger notifications = new AtomicInteger();
+
+        GattCallbackRegistry.Operation<Object> connectA = registry.beginConnect(address);
+        require(registry.completeConnect(address, gattA, true, notifications::incrementAndGet), "early A connect callback");
+        require(registry.bindConnectReturn(address, connectA, gattA), "connectGatt return preserves early A callback");
+        require(connectA.await(1), "A connect latch");
+
+        GattCallbackRegistry.Operation<Object> readA = registry.beginOperation(address, "read", gattA);
+        CountDownLatch oldCallbackObserved = new CountDownLatch(1);
+        CountDownLatch releaseOldCallback = new CountDownLatch(1);
+        AtomicInteger oldCompletion = new AtomicInteger(-1);
+        Thread oldCallback = new Thread(() -> {
+            oldCallbackObserved.countDown();
+            await(releaseOldCallback);
+            oldCompletion.set(registry.completeOperation(address, "read", gattA, 0, new byte[] {1}) ? 1 : 0);
+        });
+        oldCallback.start();
+        require(oldCallbackObserved.await(1, java.util.concurrent.TimeUnit.SECONDS), "old callback observed");
+
+        require(registry.retire(address, gattA, null), "retire A");
+        GattCallbackRegistry.Operation<Object> connectB = registry.beginConnect(address);
+        require(!registry.completeConnect(address, gattA, true, notifications::incrementAndGet), "old connected callback cannot claim B pending connect");
+        require(registry.bindConnectReturn(address, connectB, gattB), "bind B");
+        require(registry.completeConnect(address, gattB, true, notifications::incrementAndGet), "complete B connect");
+        GattCallbackRegistry.Operation<Object> readB = registry.beginOperation(address, "read", gattB);
+
+        releaseOldCallback.countDown();
+        oldCallback.join(1_000);
+        require(!oldCallback.isAlive(), "old callback joined");
+        require(oldCompletion.get() == 0, "old value callback rejected");
+        require(readB.remaining() == 1, "old value callback did not satisfy B");
+        require(readA.remaining() == 0, "retirement wakes obsolete waiter");
+
+        require(!registry.dispatchIfCurrent(address, gattA, notifications::incrementAndGet), "old notification rejected");
+        require(!registry.disconnectIfCurrent(address, gattA, notifications::incrementAndGet), "old disconnect rejected");
+        require(registry.isCurrent(address, gattB), "B remains current");
+        require(notifications.get() == 2, "only A and B connected notifications dispatched");
+
+        require(registry.completeOperation(address, "read", gattB, 0, new byte[] {2}), "B value callback accepted");
+        require(readB.await(1), "B read latch");
+        require(readB.status() == 0 && readB.value()[0] == 2, "B receives only B result");
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
+    }
+
+    private static void require(boolean condition, String message) {
+        if (!condition) throw new AssertionError(message);
+    }
+}
+`;
+
+test("obsolete callbacks cannot complete or notify a replacement GATT generation", () => {
+  const directory = mkdtempSync(join(tmpdir(), "gatt-callback-registry-"));
+  try {
+    const packageDir = join(directory, "com", "faceclaw", "app");
+    const mkdir = spawnSync("mkdir", ["-p", packageDir], { encoding: "utf8" });
+    assert.equal(mkdir.status, 0, mkdir.stderr);
+    writeFileSync(join(packageDir, "GattCallbackRegistryHarness.java"), harness);
+
+    const compile = spawnSync(
+      "javac",
+      ["-d", directory, registrySource.pathname, join(packageDir, "GattCallbackRegistryHarness.java")],
+      { encoding: "utf8" },
+    );
+    assert.equal(compile.status, 0, compile.stderr || compile.stdout);
+
+    const run = spawnSync("java", ["-cp", directory, "com.faceclaw.app.GattCallbackRegistryHarness"], {
+      encoding: "utf8",
+    });
+    assert.equal(run.status, 0, run.stderr || run.stdout);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+// Keep the registry implementation reviewable as an Android-free concurrency primitive.
+test("callback registry has no Android dependency", () => {
+  const source = readFileSync(registrySource, "utf8");
+  assert.doesNotMatch(source, /android\./);
+});

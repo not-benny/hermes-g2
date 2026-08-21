@@ -153,24 +153,21 @@ test("stopping is a durable gate for every direct-ring entry and side effect", (
 
 test("BLE waits serialize per address while the process-wide API lock is initiation-only", () => {
   assert.match(manager, /ConcurrentHashMap<String, Object> operationLocks/);
+  assert.match(manager, /GattCallbackRegistry<BluetoothGatt> callbackRegistry/);
   assert.match(manager, /private static final Object BLUETOOTH_API_LOCK = new Object\(\)/);
   assert.match(methodBody(manager, "private Object gattLock(String address)"), /operationLocks\.computeIfAbsent/);
   const apiBodies = synchronizedBodies(manager, "BLUETOOTH_API_LOCK");
   assert.ok(apiBodies.length >= 8, "all immediate BluetoothGatt API starts must use the process-wide lock");
   for (const body of apiBodies) {
-    assert.doesNotMatch(body, /awaitLatch\(|Thread\.sleep\(|listener\./);
+    assert.doesNotMatch(body, /await(?:Latch|Operation)\(|Thread\.sleep\(|listener\./);
   }
-  for (const callback of [
-    "onConnectionStateChange(",
-    "onServicesDiscovered(",
-    "onMtuChanged(",
-    "onDescriptorWrite(",
-    "onCharacteristicWrite(",
-    "onCharacteristicRead(",
-    "onCharacteristicChanged(",
-  ]) {
-    assert.match(methodBody(manager, callback), /isCurrentGatt\(address, gatt\)/);
+  assert.match(methodBody(manager, "onConnectionStateChange("), /callbackRegistry\.(?:completeConnect|disconnectIfCurrent)\(/);
+  for (const callback of ["onServicesDiscovered(", "onMtuChanged(", "onDescriptorWrite(", "onCharacteristicWrite(", "onCharacteristicRead("]) {
+    assert.match(methodBody(manager, callback), /callbackRegistry\.completeOperation\(/);
   }
+  assert.match(methodBody(manager, "onCharacteristicChanged("), /callbackRegistry\.dispatchIfCurrent\(/);
+  assert.doesNotMatch(manager, /ConcurrentHashMap<String, CountDownLatch>/, "latches must be identity-bound operation contexts, not address-keyed globals");
+  assert.doesNotMatch(manager, /isCurrentGatt\(/, "standalone identity checks are check-then-act races");
   for (const signature of [
     "public boolean connect(",
     "public boolean requestMtu(",
