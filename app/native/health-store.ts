@@ -4,7 +4,7 @@
  * clearing because revocation is an access gate, not a delete operation.
  */
 import { ApplicationSettings } from "@nativescript/core";
-import { canonicalizeHealthDocument, type HealthStoreDocument } from "../health/health-store";
+import { canonicalizeHealthDocument, parseLocalDateKey, type HealthStoreDocument } from "../health/health-store";
 import { dateKeyOf, summarizeDay, type DailyHealthSummary, type DaySummaryInputs } from "../health/health-history";
 import { buildHourlyPoints, type HourlyPoint } from "../health/health-hourly";
 import type { RingActivitySnapshot } from "../health/ring-health-store";
@@ -49,8 +49,7 @@ function parseJson(raw: string, fallback: unknown): unknown {
 const DAILY_FIELDS = ["restingHr", "hrMin", "hrMax", "hrvAvg", "spo2Avg", "steps",
   "sleepScore", "sleepDurationMin", "sleepDeepMin", "sleepRemMin", "bodyTempC", "readinessScore"];
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
-const isDateKey = (value: unknown): value is string =>
-  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+const isDateKey = (value: unknown): value is string => parseLocalDateKey(value) !== null;
 
 function isValidPersistedDocument(value: Record<string, unknown>, nowMs: number): boolean {
   if (value.version !== 1 || value.retentionDays !== 90 || !isFiniteNumber(value.updatedAtMs) ||
@@ -67,6 +66,7 @@ function isValidPersistedDocument(value: Record<string, unknown>, nowMs: number)
     const point = candidate as Record<string, unknown>;
     if (!isDateKey(point.dateKey) || !Number.isInteger(point.hourIdx) ||
       (point.hourIdx as number) < 0 || (point.hourIdx as number) > 23) return true;
+    if (!["hr", "spo2", "hrv"].some((field) => point[field] !== undefined)) return true;
     return ["hr", "spo2", "hrv"].some((field) => {
       if (point[field] === undefined) return false;
       const metric = point[field];
@@ -74,7 +74,33 @@ function isValidPersistedDocument(value: Record<string, unknown>, nowMs: number)
         !["avg", "max", "min"].every((key) => isFiniteNumber((metric as Record<string, unknown>)[key]));
     });
   })) return false;
-  return value.activity === null || canonicalizeHealthDocument(value, nowMs).activity !== null;
+  if (value.activity === null) return true;
+  const activity = value.activity as Record<string, unknown>;
+  if (!Number.isInteger(activity.dayBaseSec) || !Number.isInteger(activity.timezoneOffsetMinutes) ||
+    !Array.isArray(activity.slots) || !isFiniteNumber(activity.totalSteps) ||
+    !isFiniteNumber(activity.activeCalories) || !isFiniteNumber(activity.totalCalories) ||
+    !isFiniteNumber(activity.restingCalories) || activity.slots.length === 0) return false;
+  let totalSteps = 0;
+  let activeCalories = 0;
+  let totalCalories = 0;
+  let restingCalories = 0;
+  for (const candidate of activity.slots) {
+    if (!candidate || typeof candidate !== "object") return false;
+    const slot = candidate as Record<string, unknown>;
+    if (!Number.isInteger(slot.slot) || (slot.slot as number) < 0 || (slot.slot as number) > 143 ||
+      !Number.isInteger(slot.timestampSec) || !isFiniteNumber(slot.steps) ||
+      !isFiniteNumber(slot.activeCalories) || !isFiniteNumber(slot.totalCalories) ||
+      !isFiniteNumber(slot.restingCalories) || (slot.totalCalories as number) < (slot.activeCalories as number) ||
+      slot.timestampSec !== (activity.dayBaseSec as number) + (slot.slot as number) * 600 ||
+      slot.restingCalories !== (slot.totalCalories as number) - (slot.activeCalories as number)) return false;
+    totalSteps += slot.steps as number;
+    activeCalories += slot.activeCalories as number;
+    totalCalories += slot.totalCalories as number;
+    restingCalories += slot.restingCalories as number;
+  }
+  return activity.totalSteps === totalSteps && activity.activeCalories === activeCalories &&
+    activity.totalCalories === totalCalories && activity.restingCalories === restingCalories &&
+    canonicalizeHealthDocument(value, nowMs).activity !== null;
 }
 
 export function createHealthPersistence(settings: HealthApplicationSettings, now: () => number = () => Date.now()): HealthPersistence {
@@ -100,6 +126,11 @@ export function createHealthPersistence(settings: HealthApplicationSettings, now
       removeLegacy();
       return { ok: true, document };
     } catch (error) {
+      if (removeCandidateOnFailure) {
+        try { settings.remove(HEALTH_STORE_KEY); } catch (cleanupError) {
+          console.error(`[health-store] failed canonical candidate cleanup: ${String(cleanupError)}`);
+        }
+      }
       console.error(`[health-store] canonical save failed: ${String(error)}`);
       return { ok: false, error: `canonical health write failed: ${String(error)}` };
     }
