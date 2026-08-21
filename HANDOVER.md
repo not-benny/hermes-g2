@@ -196,3 +196,18 @@ pull the log + the Even app's built-in health-data export zip, and validate.
 - Even app: disable-don't-uninstall (it owns pairing/firmware/ground-truth). Keep its
   Bluetooth revoked; re-enable on demand only, then re-revoke.
 - Never commit `ground-truth-private/`, the Even API JWT, or raw health captures.
+
+## 8. PR #5 clean re-scope candidate (2026-08-21)
+
+- The live PR #5 remains open at `8c8048e0533844273d1eb61f3c791b49b7babe0a` and still
+  contains the stale asynchronous wake-barrier commit `65b5d56dc6ac0f099912f6cc19bd3fdfff63483a`
+  plus its wake production, bridge, and test files. This local candidate does not update
+  that live PR and must not be pushed until independently approved.
+- The focused candidate is branch `fix/eca54400-pr5-clean-scope`, based directly on
+  `origin/hermes-g2@ae89fd5e398a78ce9a7d00c66a47d92d02812319`. Its intended scope is exactly
+  the four consent-documentation files changed by `110ca69ccf1def05a09a36f6043a29215d4c6bc8`:
+  `HANDOVER.md`, `ROADMAP.md`, `notes/ring-firmware-consent-gate.md`, and
+  `notes/ring-firmware-update-design.md`. No wake-barrier file or symbol belongs in this
+  candidate, and the final candidate SHA will be recorded here after local verification.
+- This is documentation-only scope. No APK, device, BLE, pairing, firmware, reset, wipe,
+  or destructive operation was used; GitHub remains unchanged pending fresh review.
