@@ -93,6 +93,12 @@ export type AppToolProvider = {
   isForeground: () => boolean;
 };
 
+/** Opaque identity for one installed generation of an app window's tools. */
+export type AppToolLease = {
+  readonly windowId: string;
+  readonly generation: symbol;
+};
+
 export class ToolRegistry {
   private readonly registrations = new Map<string, OwnedToolRegistration>();
   private readonly changeListeners = new Set<() => void>();
@@ -100,6 +106,7 @@ export class ToolRegistry {
   // removal when the window closes or re-declares.
   private readonly windowToolNames = new Map<string, string[]>();
   private readonly windowRegistrations = new Map<string, Map<string, OwnedToolRegistration>>();
+  private readonly windowLeases = new Map<string, AppToolLease>();
 
   /** Register (or replace) a tool. Names are unique across all tiers. */
   register(registration: ToolRegistration): void {
@@ -127,8 +134,10 @@ export class ToolRegistry {
    * each other. `open` tools stay live while the window exists; `foreground`
    * tools are gated on `isForeground()` at both list and call time.
    */
-  setAppTools(provider: AppToolProvider): void {
+  setAppTools(provider: AppToolProvider): AppToolLease {
     this.clearWindowTools(provider.windowId, false);
+    const lease: AppToolLease = { windowId: provider.windowId, generation: Symbol(provider.windowId) };
+    this.windowLeases.set(provider.windowId, lease);
     const names: string[] = [];
     const owned = new Map<string, OwnedToolRegistration>();
     for (const spec of provider.specs) {
@@ -149,10 +158,12 @@ export class ToolRegistry {
     this.windowToolNames.set(provider.windowId, names);
     this.windowRegistrations.set(provider.windowId, owned);
     this.fireToolsChanged();
+    return lease;
   }
 
-  /** Remove all tools contributed by a window (its worker closed or the window did). */
-  removeAppTools(windowId: string): void {
+  /** Remove one installed generation; stale or repeated releases are no-ops. */
+  removeAppTools(windowId: string, lease: AppToolLease): void {
+    if (this.windowLeases.get(windowId) !== lease) return;
     this.clearWindowTools(windowId, true);
   }
 
@@ -160,6 +171,7 @@ export class ToolRegistry {
     const names = this.windowToolNames.get(windowId);
     if (!names) return;
     this.windowRegistrations.delete(windowId);
+    this.windowLeases.delete(windowId);
     for (const name of names) {
       if (this.registrations.get(name)?.ownerWindowId !== windowId) continue;
       this.registrations.delete(name);

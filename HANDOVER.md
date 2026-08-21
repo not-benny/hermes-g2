@@ -1,5 +1,14 @@
 # Hermes G2 handover (2026-08-20)
 
+## Generation-safe app-tool teardown (2026-08-21)
+
+The focused successor candidate makes app-tool registration leases opaque and
+generation-specific. Stale or repeated teardown cannot remove a same-windowId
+replacement; current teardown restores fallback tools and emits one change.
+Focused registry/in-process tests pass 10/10. Typecheck/build remain blocked by
+the inherited NativeScript ambient errors recorded by the parent stack; no APK
+or hardware verification applies.
+
 A snapshot of project state, what was accomplished, what is pending, and how to
 pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
 the private `DECODE-SPEC.md` (see "Out-of-repo data").
