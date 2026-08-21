@@ -5,9 +5,10 @@
 This focused continuation is based on clean `origin/hermes-g2`
 (`ae89fd5e398a78ce9a7d00c66a47d92d02812319`) on local branch
 `wt/t_2aa76f3a-clean` at implementation commit
-`d9d192839dfc7d3f9805f2a09cc0df4b24803214`; the frozen review candidate is
-HEAD `3d7f41d9ebb809587eef96675ab0af89f733b121`; it remains unpushed pending
-independent review. Queue, drain, and final send now all require
+`d9d192839dfc7d3f9805f2a09cc0df4b24803214`; prior review candidate
+`3d7f41d9ebb809587eef96675ab0af89f733b121` was rejected for handover
+accuracy, and the current committed branch tip is unpushed pending independent
+review. Queue, drain, and final send now all require
 `running && sessionReady && ringConnected && ringNotificationsReady`, and hard
 transport failure retires ring connection/readiness before invalidating the
 generation and queue; arm loss invalidates packetAck generation/queue before
