@@ -143,10 +143,14 @@ session-open frame is hardcoded/universal (not per-device).
 - **BLOCKED** — Ring uses **Nordic Secure DFU** (service 0000fe59, buttonless char 8ec90003) enforcing
   ECDSA-P256 signature verification. Custom/patched images are impossible without Even's private key; the
   most achievable action is re-pushing Even's OWN signed image (zero custom value, unrecoverable-brick risk).
-  No image source (auth-walled Even cloud check_firmware) and no captured DFU flow. **DO NOT build standalone
-  ring firmware update.** Feasibility design doc: `notes/ring-firmware-update-design.md` (commit 00f9940).
-  Two actionable follow-ups it surfaced live as their own items: firmware-version display (NEXT) and the
-  `sendRawRingFrame` blocklist-bypass fix (NOW / Security).
+  The private archive contains only an **unverified firmware candidate**; it is not an approved or usable image
+  source, and the auth-walled Even cloud `check_firmware` path plus the DFU flow remain unverified. **DO NOT
+  build standalone ring firmware update.** Feasibility design doc: `notes/ring-firmware-update-design.md`;
+  reusable consent gate: `notes/ring-firmware-consent-gate.md`.
+  Consent status is **BLOCKED/UNSATISFIED** until a completed, scope-limited phase approval and per-run
+  GO record exist. Consent cannot replace the independent protocol, genuine-image, pairing/authority, or
+  recovery gates. Two actionable follow-ups it surfaced live as their own items: firmware-version display
+  (NEXT) and the `sendRawRingFrame` blocklist-bypass fix (NOW / Security).
 
 ### BLE-command features — GATED track (need blutter + proto extraction)
 Semantics known, wire bytes not. Everything else ships without new BLE bytes; these wait.
