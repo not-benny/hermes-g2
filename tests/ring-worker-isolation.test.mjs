@@ -129,12 +129,26 @@ test("stopping is a durable gate for every direct-ring entry and side effect", (
   }
   assert.match(methodBody(communicator, "private void runRingLoop()"), /!stopping/);
   assert.match(methodBody(communicator, "public void onConnectionStateChange(String address, boolean connected)"), /if \(stopping\)[^{]*\{\s*return;/);
-  assert.ok(
-    (methodBody(communicator, "private int connectRing()").match(/ensureRingConnectAllowed\(\)/g) || []).length >= 6,
-    "each connect/discovery/MTU/subscription stage revalidates teardown",
-  );
-  assert.match(methodBody(communicator, "private void refreshRingBattery(int generation)"), /ensureRingConnectAllowed\(\)/);
-  assert.match(methodBody(communicator, "private boolean enableRingNotification(String characteristicUuid)"), /ensureRingConnectAllowed\(\)/);
+
+  const managerGate = methodBody(communicator, "private <T> T withRingManagerOperation(");
+  const gateCheck = managerGate.indexOf("if (stopping || !running");
+  const sideEffect = managerGate.indexOf("operation.run()");
+  assert.match(managerGate, /synchronized \(ringLock\)/);
+  assert.ok(gateCheck >= 0 && sideEffect > gateCheck, "the stopping/generation gate is held through the manager call");
+
+  const ringSection = communicator.slice(
+    communicator.indexOf("private void handleRingFailure("),
+    communicator.indexOf("private void sendPrelude()"),
+  ).replace(/\s+/g, " ");
+  const directManagerCalls = [...ringSection.matchAll(/bleManager\.(?:connect|discoverServices|requestConnectionPriority|requestMtu|enableNotifications|readCharacteristic|describeServices|writeFrames|disconnect)\(\s*ringAddress\b/g)];
+  assert.ok(directManagerCalls.length >= 9, "the audit must cover connect, recovery, diagnostics, and writes");
+  for (const call of directManagerCalls) {
+    const prefix = ringSection.slice(Math.max(0, call.index - 400), call.index);
+    assert.ok(
+      prefix.lastIndexOf("withRingManagerOperation(") > prefix.lastIndexOf(";"),
+      `${call[0]} must begin only inside the shared atomic ring manager gate`,
+    );
+  }
 });
 
 test("BLE waits serialize per address while the process-wide API lock is initiation-only", () => {

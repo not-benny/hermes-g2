@@ -47,6 +47,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     // an R1 without it remains usable but reports no battery percentage.
     private static final String RING_BATTERY_LEVEL_UUID = "00002a19-0000-1000-8000-00805f9b34fb";
     private static final int RING_BATTERY_READ_TIMEOUT_MS = 2_500;
+    private static final int RING_CONNECT_OPERATION = -1;
     // Health-sampling experiment gate. The prior "auth/host-binding wall" verdict
     // was WRONG: root-cause analysis of com.even.sg's BleRing1Model.toBytes showed
     // frame[1..4] is a CRC-32 (poly 0x1EDC6F41) over the inner frame, and the old
@@ -105,6 +106,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             this.payload = payload;
             this.generation = generation;
         }
+    }
+    private interface RingManagerOperation<T> {
+        T run();
     }
     private final ArrayDeque<RingPacketAckCursor> ringPacketAckQueue = new ArrayDeque<>();
     private int ringConnectionGeneration = 0;
@@ -1637,7 +1641,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         // Close the wedged GATT so the next attempt gets a fresh connectGatt;
         // a cached half-open handle re-fails discoverServices forever.
         try {
-            bleManager.disconnect(ringAddress);
+            withRingManagerOperation(RING_CONNECT_OPERATION, () -> {
+                bleManager.disconnect(ringAddress);
+                return null;
+            });
         } catch (Throwable ignored) {
         }
         if (stopping || !running) {
@@ -1680,31 +1687,29 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
         logLine("connecting direct ring " + ringAddress);
         // Ring-specific SHORT timeouts limit retry latency on the optional worker.
-        ensureRingConnectAllowed();
-        if (!bleManager.connect(ringAddress, ConnectionOptions.RING_CONNECT_TIMEOUT_MS)) {
+        if (!withRingManagerOperation(RING_CONNECT_OPERATION,
+                () -> bleManager.connect(ringAddress, ConnectionOptions.RING_CONNECT_TIMEOUT_MS))) {
             throw new IllegalStateException("connect failed: " + ringAddress);
         }
 
         // Discover services FIRST (the step that fails for an absent ring). Only
         // renegotiate MTU/priority once the ring is confirmed present, so a failed
         // attempt does not churn the arm connection interval on every retry.
-        ensureRingConnectAllowed();
-        if (!bleManager.discoverServices(ringAddress, ConnectionOptions.RING_SERVICES_TIMEOUT_MS)) {
+        if (!withRingManagerOperation(RING_CONNECT_OPERATION,
+                () -> bleManager.discoverServices(ringAddress, ConnectionOptions.RING_SERVICES_TIMEOUT_MS))) {
             throw new IllegalStateException("discoverServices failed: " + ringAddress);
         }
 
-        ensureRingConnectAllowed();
-        bleManager.requestConnectionPriority(ringAddress, BluetoothGatt.CONNECTION_PRIORITY_HIGH);
-        ensureRingConnectAllowed();
-        boolean mtu247Requested = bleManager.requestMtu(
-            ringAddress,
-            ConnectionOptions.RING_DESIRED_MTU,
-            ConnectionOptions.RING_CONNECT_TIMEOUT_MS
-        );
+        withRingManagerOperation(RING_CONNECT_OPERATION,
+            () -> bleManager.requestConnectionPriority(ringAddress, BluetoothGatt.CONNECTION_PRIORITY_HIGH));
+        boolean mtu247Requested = withRingManagerOperation(RING_CONNECT_OPERATION,
+            () -> bleManager.requestMtu(
+                ringAddress,
+                ConnectionOptions.RING_DESIRED_MTU,
+                ConnectionOptions.RING_CONNECT_TIMEOUT_MS
+            ));
 
-        ensureRingConnectAllowed();
         boolean phoneNotify = enableRingNotification(BleProtocol.R1_PHONE_NOTIFY_CHAR_UUID);
-        ensureRingConnectAllowed();
         boolean dataNotify = enableRingNotification(BleProtocol.R1_NOTIFY_CHAR_UUID);
         if (!phoneNotify && !dataNotify) {
             throw new IllegalStateException("no R1 notify characteristic subscribed");
@@ -1725,35 +1730,36 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
         logLine("direct ring ready mtu247Request=" + (mtu247Requested ? "ok" : "fallback")
             + " phoneNotify=" + phoneNotify + " dataNotify=" + dataNotify
-            + " services=" + ringServiceSummary());
+            + " services=" + ringServiceSummary(generation));
         return generation;
     }
 
-    private void ensureRingConnectAllowed() {
+    /** Hold the teardown/generation barrier through every direct-R1 manager operation. */
+    private <T> T withRingManagerOperation(int generation, RingManagerOperation<T> operation) {
         synchronized (ringLock) {
-            if (stopping || !running || !sessionReady) {
-                throw new IllegalStateException("ring connect cancelled");
+            if (stopping || !running || !sessionReady
+                    || (generation != RING_CONNECT_OPERATION && !isRingOperationAllowedLocked(generation))) {
+                throw new IllegalStateException("ring operation cancelled");
             }
+            return operation.run();
         }
     }
 
     /** Best-effort standard BLE battery read; absence is not a ring failure. */
     private void refreshRingBattery(int generation) {
-        synchronized (ringLock) {
-            if (!isRingOperationAllowedLocked(generation)) {
-                return;
-            }
-        }
         byte[] value;
         try {
-            ensureRingConnectAllowed();
-            value = bleManager.readCharacteristic(ringAddress, RING_BATTERY_LEVEL_UUID, RING_BATTERY_READ_TIMEOUT_MS);
+            value = withRingManagerOperation(generation,
+                () -> bleManager.readCharacteristic(
+                    ringAddress,
+                    RING_BATTERY_LEVEL_UUID,
+                    RING_BATTERY_READ_TIMEOUT_MS));
         } catch (Throwable t) {
-            logLine("direct ring battery unavailable: " + safeMessage(t) + " services=" + ringServiceSummary());
+            logLine("direct ring battery unavailable: " + safeMessage(t) + " services=" + ringServiceSummary(generation));
             return;
         }
         if (value == null || value.length < 1) {
-            logLine("direct ring battery unavailable services=" + ringServiceSummary());
+            logLine("direct ring battery unavailable services=" + ringServiceSummary(generation));
             return;
         }
         int level = value[0] & 0xff;
@@ -1771,9 +1777,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         logLine("direct ring battery=" + level + "%");
     }
 
-    private String ringServiceSummary() {
+    private String ringServiceSummary(int generation) {
         try {
-            String summary = bleManager.describeServices(ringAddress);
+            String summary = withRingManagerOperation(generation,
+                () -> bleManager.describeServices(ringAddress));
             return summary.isEmpty() ? "<none>" : summary;
         } catch (Throwable t) {
             return "<unavailable:" + safeMessage(t) + ">";
@@ -2036,13 +2043,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 return;
             }
             try {
-                boolean ok = bleManager.writeFrames(
-                    ringAddress,
-                    BleProtocol.R1_WRITE_CHAR_UUID,
-                    Collections.singletonList(frame),
-                    ConnectionOptions.WRITE_TYPE,
-                    ConnectionOptions.WRITE_TIMEOUT_MS
-                );
+                boolean ok = withRingManagerOperation(ringConnectionGeneration,
+                    () -> bleManager.writeFrames(
+                        ringAddress,
+                        BleProtocol.R1_WRITE_CHAR_UUID,
+                        Collections.singletonList(frame),
+                        ConnectionOptions.WRITE_TYPE,
+                        ConnectionOptions.WRITE_TIMEOUT_MS
+                    ));
                 logLine("direct ring " + label + " write " + (ok ? "ok" : "failed") + " raw=" + hex(frame));
             } catch (Throwable t) {
                 logLine("direct ring " + label + " write error: " + safeMessage(t));
@@ -2226,13 +2234,13 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     private boolean enableRingNotification(String characteristicUuid) {
         try {
-            ensureRingConnectAllowed();
-            return bleManager.enableNotifications(
-                ringAddress,
-                characteristicUuid,
-                true,
-                ConnectionOptions.DESCRIPTOR_TIMEOUT_MS
-            );
+            return withRingManagerOperation(RING_CONNECT_OPERATION,
+                () -> bleManager.enableNotifications(
+                    ringAddress,
+                    characteristicUuid,
+                    true,
+                    ConnectionOptions.DESCRIPTOR_TIMEOUT_MS
+                ));
         } catch (Throwable t) {
             Log.d(TAG, "direct ring notify subscribe skipped: " + characteristicUuid + " " + safeMessage(t));
             return false;
