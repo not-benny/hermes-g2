@@ -11,8 +11,9 @@
  * Wire format was reverse-engineered from a real capture and validated end to
  * end: every multi-packet frame reassembled and every crc32 matched its batch
  * id. Temperature has no separate record (it rides the stride-9 hourly layout);
- * only the sleep-stage layout remains unobserved and is left as a marked stub
- * rather than guessed.
+ * captured sleep interval records still lack a validated absolute reference and
+ * stage-bearing layout, so sleep remains a marked fail-closed stub rather than
+ * being guessed.
  */
 
 /** A byte source: anything indexable that yields 0..255 values. */
@@ -467,7 +468,7 @@ export function decodeRingFirmwareVersion(deviceInfoData: Bytes): string {
   return chars.join("");
 }
 
-// --- unobserved layouts (stubs) --------------------------------------------
+// --- unavailable layouts (stubs) -------------------------------------------
 
 /**
  * There is NO separate temperature-detail record (RE conclusion, specs/
@@ -482,13 +483,13 @@ export function decodeTemperatureDetail(_payload: Bytes): never {
 }
 
 /**
- * TODO: sleep record layout is not yet decoded.
+ * TODO: the complete sleep record layout is not yet decoded.
  *
- * No sleep frame was captured (the ring was not worn overnight during the
- * session), so the record stride and field meanings are unknown. Do not guess
- * the layout. Capture a real sleep frame, confirm the stride, then implement
- * here.
+ * Three captured type-2 frames contain relative interval endpoints, but the
+ * absolute reference is absent from those payloads. They carry no summary or
+ * stage runs, so score, duration, temperature, and stage fields remain
+ * unvalidated. Do not guess the missing base or the stage-bearing layout.
  */
 export function decodeSleep(_payload: Bytes): never {
-  throw new Error("ring sleep layout not yet observed");
+  throw new Error("ring sleep captured but layout/base not validated");
 }

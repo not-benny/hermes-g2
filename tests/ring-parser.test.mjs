@@ -322,11 +322,12 @@ test("decodeRingFirmwareVersion never reads past the 16-byte field", () => {
   assert.equal(decodeRingFirmwareVersion(bytes), "1234567890abcdef");
 });
 
-// --- unobserved layouts ----------------------------------------------------
+// --- unavailable layouts ---------------------------------------------------
 
-test("temperature has no separate record; sleep decoder is an unobserved stub", () => {
+test("temperature has no separate record; captured sleep remains fail-closed", () => {
   // Temperature rides the stride-9 hourly layout (no dedicated record); the
-  // stub is a defensive never-call. Sleep is still genuinely unobserved.
+  // stub is a defensive never-call. Sleep frames exist, but their absolute
+  // reference and summary/stage-bearing layout are not validated.
   assert.throws(() => decodeTemperatureDetail(new Uint8Array(0)), /no separate ring temperature-detail record/);
-  assert.throws(() => decodeSleep(new Uint8Array(0)), /not yet observed/);
+  assert.throws(() => decodeSleep(new Uint8Array(0)), /captured but layout\/base not validated/);
 });
