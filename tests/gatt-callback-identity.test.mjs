@@ -53,11 +53,32 @@ test("registry does not invoke listener code while holding its monitor", () => {
   assert.match(registry, /operation\.generation != currentGeneration\(address\)/);
 });
 
-test("listener delivery carries exact GATT and is serialized against retirement", () => {
+test("listener delivery carries exact GATT and uses the retirement gate", () => {
   assert.match(manager, /current\.onNotification\(gatt, address, characteristicUuid, copy, lease\)/);
   assert.match(manager, /current\.onConnectionStateChange\(gatt, address, connected, lease\)/);
   assert.match(manager, /callbackRegistry\.dispatchIfCurrent\(/);
   assert.match(readFileSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleListener.java", import.meta.url), "utf8"), /default void onNotification\(BluetoothGatt gatt/);
+});
+
+test("every BluetoothGatt callback override is identity-gated", () => {
+  const callback = methodBody("private final BluetoothGattCallback gattCallback");
+  const callbackMethods = [
+    "onConnectionStateChange", "onServicesDiscovered", "onMtuChanged", "onPhyRead",
+    "onDescriptorWrite", "onCharacteristicWrite", "onCharacteristicRead", "onCharacteristicChanged",
+  ];
+  for (const name of callbackMethods) {
+    const start = callback.indexOf(`public void ${name}`);
+    assert.notEqual(start, -1, `missing callback ${name}`);
+    const end = callback.indexOf("@Override", start + 1);
+    const body = callback.slice(start, end === -1 ? callback.length : end);
+    if (name === "onConnectionStateChange") {
+      assert.match(body, /callbackRegistry\.(completeConnect|disconnectIfCurrent)\(/);
+    } else if (name === "onCharacteristicChanged" || name === "onPhyRead") {
+      assert.match(body, /callbackRegistry\.dispatchIfCurrent\(/);
+    } else {
+      assert.match(body, /callbackRegistry\.completeOperation\(/);
+    }
+  }
 });
 
 test("communicator retires state before synchronously requesting manager teardown", () => {

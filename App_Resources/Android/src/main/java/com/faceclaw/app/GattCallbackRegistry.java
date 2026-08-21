@@ -7,7 +7,9 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
 /** Identity- and generation-bound BLE callback state. */
@@ -63,6 +65,27 @@ final class GattCallbackRegistry<G> {
                 return current || terminal;
             }
         }
+
+        boolean dispatchIfCurrent(Consumer<DispatchLease<G>> dispatch) {
+            ReentrantLock gate = registry.dispatchGates.computeIfAbsent(address, ignored -> new ReentrantLock());
+            gate.lock();
+            try {
+                synchronized (registry) {
+                    boolean current = registry.currentGatts.get(address) == gatt
+                        && registry.currentGeneration(address) == generation
+                        && !registry.isRetired(gatt);
+                    boolean terminal = retiredDelivery
+                        && registry.currentGatts.get(address) == null
+                        && registry.currentGeneration(address) == -1L
+                        && registry.nextGenerations.getOrDefault(address, 0L) == generation;
+                    if (!current && !terminal) return false;
+                }
+                if (dispatch != null) dispatch.accept(this);
+                return true;
+            } finally {
+                gate.unlock();
+            }
+        }
     }
 
     private final Map<String, G> currentGatts = new HashMap<>();
@@ -70,6 +93,7 @@ final class GattCallbackRegistry<G> {
     private final Map<String, Long> nextGenerations = new HashMap<>();
     private final Map<String, Map<String, Operation<G>>> operations = new HashMap<>();
     private final List<WeakReference<G>> retiredGatts = new LinkedList<>();
+    private final Map<String, ReentrantLock> dispatchGates = new ConcurrentHashMap<>();
 
     synchronized G current(String address) { return currentGatts.get(address); }
     synchronized boolean isCurrent(String address, G gatt) {
@@ -122,8 +146,7 @@ final class GattCallbackRegistry<G> {
             if (!connected) retireLocked(address, gatt);
             operation.latch.countDown();
         }
-        if (dispatch != null) dispatch.accept(lease);
-        return true;
+        return lease.dispatchIfCurrent(dispatch);
     }
 
     boolean completeOperation(String address, String kind, G gatt, int status, byte[] value) {
@@ -144,18 +167,23 @@ final class GattCallbackRegistry<G> {
             if (!isCurrent(address, gatt)) return false;
             lease = new DispatchLease<>(this, address, gatt, currentGeneration(address), false);
         }
-        dispatch.accept(lease);
-        return true;
+        return lease.dispatchIfCurrent(dispatch);
     }
     boolean disconnectIfCurrent(String address, G gatt, Consumer<DispatchLease<G>> dispatch) {
         DispatchLease<G> lease;
+        ReentrantLock gate = dispatchGates.computeIfAbsent(address, ignored -> new ReentrantLock());
+        gate.lock();
         synchronized (this) {
-            if (!isCurrent(address, gatt)) return false;
+            if (!isCurrent(address, gatt)) { gate.unlock(); return false; }
             lease = new DispatchLease<>(this, address, gatt, currentGeneration(address), true);
             retireLocked(address, gatt);
         }
-        if (dispatch != null) dispatch.accept(lease);
-        return true;
+        try {
+            if (dispatch != null) dispatch.accept(lease);
+            return true;
+        } finally {
+            gate.unlock();
+        }
     }
     synchronized boolean cancel(String address, String kind, Operation<G> operation) {
         if (operationFor(address, kind) != operation) return false;
@@ -165,13 +193,19 @@ final class GattCallbackRegistry<G> {
     }
     boolean retire(String address, G gatt, Consumer<DispatchLease<G>> dispatch) {
         DispatchLease<G> lease;
+        ReentrantLock gate = dispatchGates.computeIfAbsent(address, ignored -> new ReentrantLock());
+        gate.lock();
         synchronized (this) {
-            if (gatt == null || currentGatts.get(address) != gatt) return false;
+            if (gatt == null || currentGatts.get(address) != gatt) { gate.unlock(); return false; }
             lease = new DispatchLease<>(this, address, gatt, currentGeneration(address), false);
             retireLocked(address, gatt);
         }
-        if (dispatch != null) dispatch.accept(lease);
-        return true;
+        try {
+            if (dispatch != null) dispatch.accept(lease);
+            return true;
+        } finally {
+            gate.unlock();
+        }
     }
     private Map<String, Operation<G>> operationsFor(String address) { return operations.computeIfAbsent(address, ignored -> new HashMap<>()); }
     private Operation<G> operationFor(String address, String kind) {

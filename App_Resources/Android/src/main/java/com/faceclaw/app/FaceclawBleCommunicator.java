@@ -1262,9 +1262,11 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     @Override public void onNotification(BluetoothGatt gatt, String address, String characteristicUuid, byte[] data,
                                          GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
-        synchronized (lock) {
-            if (lease.isCurrent()) onNotification(address, characteristicUuid, data);
-        }
+        lease.dispatchIfCurrent(ignored -> {
+            synchronized (lock) {
+                onNotification(address, characteristicUuid, data);
+            }
+        });
     }
 
     @Override public void onNotification(String address, String characteristicUuid, byte[] data) {
@@ -1583,9 +1585,11 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     @Override public void onConnectionStateChange(BluetoothGatt gatt, String address, boolean connected,
                                                    GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
-        synchronized (lock) {
-            if (lease.isCurrent()) onConnectionStateChange(address, connected);
-        }
+        lease.dispatchIfCurrent(ignored -> {
+            synchronized (lock) {
+                onConnectionStateChange(address, connected);
+            }
+        });
     }
 
     @Override public void onConnectionStateChange(String address, boolean connected) {

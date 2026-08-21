@@ -100,10 +100,29 @@ public final class GattCallbackRegistryHarness {
         }));
         staleListener.start();
         require(leaseEntered.await(1, java.util.concurrent.TimeUnit.SECONDS), "lease listener entered");
-        require(registry.retire(address, gattC, null), "retire C while listener is blocked");
+        AtomicInteger retired = new AtomicInteger();
+        Thread retirement = new Thread(() -> {
+            if (registry.retire(address, gattC, null)) retired.set(1);
+        });
+        retirement.start();
+        Thread.sleep(50);
+        require(retirement.isAlive(), "retirement waits for the in-flight consumer mutation");
         releaseLease.countDown();
+        retirement.join(1_000);
+        require(!retirement.isAlive() && retired.get() == 1, "retirement completes after consumer mutation");
         staleListener.join(1_000);
-        require(staleEffects.get() == 0, "old listener lease rejected after replacement");
+        require(staleEffects.get() == 1, "consumer mutation completes before retirement");
+
+        GattCallbackRegistry.Operation<Object> connectD = registry.beginConnect(address);
+        Object gattD = new Object();
+        require(registry.bindConnectReturn(address, connectD, gattD), "bind D after gated retirement");
+        require(registry.completeConnect(address, gattD, true, null), "complete D after gated retirement");
+        require(connectD.generation() > connectC.generation(), "replacement receives a newer generation");
+        require(!registry.dispatchIfCurrent(address, gattC, lease -> staleEffects.incrementAndGet()),
+            "old C callback rejected after D replacement");
+        GattCallbackRegistry.Operation<Object> writeD = registry.beginOperation(address, "write", gattD);
+        require(registry.retire(address, gattD, null), "retire D while write is pending");
+        require(writeD.await(1) && writeD.failed(), "retirement fails the owned write waiter closed");
     }
 
     private static void await(CountDownLatch latch) {

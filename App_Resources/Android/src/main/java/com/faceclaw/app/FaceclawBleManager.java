@@ -473,7 +473,9 @@ public class FaceclawBleManager {
 
         @Override
         public void onPhyRead(BluetoothGatt gatt, int txPhy, int rxPhy, int status) {
-            Log.i(TAG, "onPhyRead: txPhy=" + txPhy + " rxPhy=" + rxPhy + " status=" + status);
+            String address = gatt.getDevice().getAddress();
+            callbackRegistry.dispatchIfCurrent(address, gatt, lease ->
+                Log.i(TAG, "onPhyRead: txPhy=" + txPhy + " rxPhy=" + rxPhy + " status=" + status));
         }
 
         @Override
