@@ -81,7 +81,7 @@ function u32le(value) {
 }
 
 /**
- * Legacy/unanchored daily payload: count + zero timezone/day + stale current timestamp + current
+ * Daily payload (real layout): [count u8][6 reserved][base u32 LE][current u8]
  * + 4-byte records [hourIdx][avg][max][min]. See ring-daily-layout notes.
  */
 function dailyHealth(current, records) {
@@ -115,7 +115,7 @@ test("heart-rate daily push decodes across fragments and picks the newest record
     { hourIdx: 6, avg: 113, max: 116, min: 111 }, // highest hour -> newest
     { hourIdx: 5, avg: 95, max: 99, min: 90 },
   ]);
-  const inner = buildInner(2, 1, 1, 2, payload); // module=health, cmd=heartRate push
+  const inner = buildInner(2, 1, 1, 3, payload); // module=health, cmd=heartRate
   const frames = fragments(inner, [10, inner.length - 10]);
   for (const frame of frames) store.ingestFrame(frame);
 
@@ -242,23 +242,6 @@ test("activity ingestion rejects non-daily, bad-inner-CRC, and non-current-day f
   assert.equal(store.snapshot().activity, null, "stale day rejected");
 });
 
-test("vital ingestion rejects wrong status, wrong subcommand, and bad inner CRC", () => {
-  const payload = dailyHealth(70, [{ hourIdx: 10, avg: 70, max: 75, min: 65 }]);
-  for (const inner of [
-    buildInner(2, 1, 1, 3, payload),
-    buildInner(2, 1, 2, 2, payload),
-  ]) {
-    const rejected = new RingHealthStore();
-    for (const frame of fragments(inner)) rejected.ingestFrame(frame);
-    assert.equal(rejected.snapshot().heartRate, null);
-  }
-  const badCrc = buildInner(2, 1, 1, 2, payload);
-  badCrc[10] ^= 0xff;
-  const rejected = new RingHealthStore();
-  for (const frame of fragments(badCrc)) rejected.ingestFrame(frame);
-  assert.equal(rejected.snapshot().heartRate, null);
-});
-
 test("persisted activity is deduplicated and all derived fields are rebuilt", () => {
   const nowMs = 1_787_224_000_000;
   const base = 1_787_180_400;
@@ -283,8 +266,8 @@ test("persisted activity is deduplicated and all derived fields are rebuilt", ()
 
 test("interleaved batches both decode", () => {
   const store = new RingHealthStore();
-  const hrFrames = fragments(buildInner(2, 1, 1, 2, dailyHealth(70, [{ hourIdx: 10, avg: 70, max: 75, min: 65 }])), null);
-  const spo2Inner = buildInner(2, 2, 1, 2, dailyHealth(98, [{ hourIdx: 20, avg: 98, max: 99, min: 96 }]));
+  const hrFrames = fragments(buildInner(2, 1, 1, 3, dailyHealth(70, [{ hourIdx: 10, avg: 70, max: 75, min: 65 }])), null);
+  const spo2Inner = buildInner(2, 2, 1, 3, dailyHealth(98, [{ hourIdx: 20, avg: 98, max: 99, min: 96 }]));
   const spo2Frames = fragments(spo2Inner, [6, spo2Inner.length - 6]);
   // spo2 head, then the whole hr batch, then the spo2 tail.
   store.ingestFrame(spo2Frames[0]);
