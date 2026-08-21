@@ -1,0 +1,91 @@
+name: One-shot cleanup of preview branches
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Delete only named completed preview branches
+        uses: actions/github-script@v7
+        env:
+          TEMPORARY_BRANCHES: >-
+            docs/record-development-preview-1
+            release/development-preview-1
+            release/development-preview-visible-gate
+            maintenance/cleanup-preview-branches
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const defaultBranch = context.payload.repository.default_branch;
+            const targets = process.env.TEMPORARY_BRANCHES.trim().split(/\s+/);
+            const openPulls = await github.paginate(
+              github.rest.pulls.list,
+              { owner, repo, state: 'open', per_page: 100 },
+            );
+            const openHeads = new Set(
+              openPulls
+                .filter((pull) => pull.head.repo?.full_name === `${owner}/${repo}`)
+                .map((pull) => pull.head.ref),
+            );
+            const deleted = [];
+            const absent = [];
+            const skipped = [];
+
+            for (const branch of targets) {
+              if (branch === defaultBranch) {
+                throw new Error(`Refusing to delete default branch ${defaultBranch}`);
+              }
+              if (openHeads.has(branch)) {
+                skipped.push(`${branch}: open pull request`);
+                continue;
+              }
+              try {
+                const current = await github.rest.repos.getBranch({ owner, repo, branch });
+                if (current.data.protected) {
+                  skipped.push(`${branch}: protected`);
+                  continue;
+                }
+                await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch}` });
+                deleted.push(branch);
+              } catch (error) {
+                if (error.status === 404 || error.status === 422) {
+                  absent.push(branch);
+                } else {
+                  throw error;
+                }
+              }
+            }
+
+            await core.summary
+              .addHeading('Preview branch cleanup')
+              .addRaw(`Deleted (${deleted.length}): ${deleted.join(', ') || 'none'}\n\n`)
+              .addRaw(`Already absent (${absent.length}): ${absent.join(', ') || 'none'}\n\n`)
+              .addRaw(`Skipped (${skipped.length}): ${skipped.join('; ') || 'none'}\n`)
+              .write();
+
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Remove this one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -- .github/workflows/cleanup-preview-branches.yml
+          git commit -m "chore: remove one-shot preview cleanup workflow"
+          git push origin HEAD:main
