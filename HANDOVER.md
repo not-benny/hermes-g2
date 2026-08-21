@@ -22,7 +22,7 @@ namespace and `ArrayConstructor.create` diagnostics outside this remediation.
 `npm run build` is blocked because this environment has no configured Android SDK
 or build-tools. No hardware was required or used. The remediation is local only,
 nothing was pushed, and independent `g2-reviewer` review is required before delivery.
-The exact remediation commit SHA will be recorded here after the local commit.
+The remediation commit is `38354d5082b7e08e58782ba869dfda5fd4c5e140`.
 
 Seven self-contained items were completed on the `hermes-g2` branch/current
 working tree:
