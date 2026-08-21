@@ -24,11 +24,14 @@ const nativeUrl = dataUrl(`
   let consent = false;
   let consentSequence = [];
   let document = {};
+  let loadCount = 0;
   export const getHermesConsent = () => consentSequence.length ? consentSequence.shift() : consent;
-  export const loadHealthDocument = () => document;
+  export const loadHealthDocument = () => { loadCount += 1; return document; };
   export const setTestConsent = (value) => { consent = value; consentSequence = []; };
   export const setConsentSequence = (values) => { consentSequence = [...values]; };
   export const setTestDocument = (value) => { document = value; };
+  export const getLoadCount = () => loadCount;
+  export const resetLoadCount = () => { loadCount = 0; };
 `);
 let toolsJs = transpile(read("app/assistant/health-tools.ts"));
 toolsJs = replaceImport(toolsJs, "./tool-registry", registryUrl);
@@ -70,6 +73,7 @@ const daily = (dateKey, over = {}) => ({
 
 function setup() {
   native.setTestConsent(false);
+  native.resetLoadCount();
   native.setTestDocument({ history: [daily(TODAY, { steps: 12, bridgeToken: "forbidden" })], hourly: [] });
   const registry = new ToolRegistry();
   registerHealthTools(registry);
@@ -200,15 +204,37 @@ test("health call is denied after its connection generation becomes stale", asyn
   const registry = setup();
   native.setTestConsent(true);
   const sent = [];
+  let connectionChecks = 0;
   const server = new AssistantMcpServer({ send: (message) => sent.push(message), isTurnActive: () => true,
     getTurnGeneration: () => "turn-1", isHealthCallerTrusted: () => true, connectionGeneration: 9,
-    isConnectionGenerationActive: () => false, allowProactive: () => false, registry });
+    isConnectionGenerationActive: () => ++connectionChecks < 2, allowProactive: () => false, registry });
   server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
   server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
   server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(sent.at(-1).result.isError, true);
   assert.match(sent.at(-1).result.content[0].text, /current live connection/);
+  assert.equal(connectionChecks, 2);
+  assert.equal(native.getLoadCount(), 0);
+});
+
+test("health call is denied when the live turn finishes at the final policy check", async () => {
+  const registry = setup();
+  native.setTestConsent(true);
+  let activeChecks = 0;
+  const sent = [];
+  const server = new AssistantMcpServer({ send: (message) => sent.push(message),
+    isTurnActive: () => ++activeChecks < 3, getTurnGeneration: () => "turn-1",
+    isHealthCallerTrusted: () => true, connectionGeneration: 11,
+    isConnectionGenerationActive: () => true, allowProactive: () => false, registry });
+  server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(sent.at(-1).result.isError, true);
+  assert.match(sent.at(-1).result.content[0].text, /authorizing assistant turn is no longer active/);
+  assert.equal(activeChecks, 3);
+  assert.equal(native.getLoadCount(), 0);
 });
 
 test("trusted health is hidden and rejected when either live identity validator is missing", async () => {
@@ -228,5 +254,44 @@ test("trusted health is hidden and rejected when either live identity validator 
     server.handleMessage({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(sent.at(-1).result.isError, true, missing);
+    assert.equal(native.getLoadCount(), 0, missing);
   }
+});
+
+test("trusted health rejects an empty turn or connection generation without loading data", async () => {
+  for (const variant of ["turn", "connection"]) {
+    const registry = setup();
+    native.setTestConsent(true);
+    const sent = [];
+    const options = { send: (message) => sent.push(message), isTurnActive: () => true,
+      isHealthCallerTrusted: () => true, connectionGeneration: variant === "connection" ? "" : 12,
+      getTurnGeneration: () => variant === "turn" ? "" : "turn-1",
+      isConnectionGenerationActive: () => true, allowProactive: () => false, registry };
+    const server = new AssistantMcpServer(options);
+    server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+    server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(sent.at(-1).result.isError, true, variant);
+    assert.equal(native.getLoadCount(), 0, variant);
+  }
+});
+
+test("consent revoke after listing rejects the call without loading health data", async () => {
+  const registry = setup();
+  native.setTestConsent(true);
+  const sent = [];
+  const server = new AssistantMcpServer({ send: (message) => sent.push(message), isTurnActive: () => true,
+    getTurnGeneration: () => "turn-1", isHealthCallerTrusted: () => true, connectionGeneration: 13,
+    isConnectionGenerationActive: () => true, allowProactive: () => false, registry });
+  server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+  assert.equal(sent.at(-1).result.tools.some((tool) => tool.name === TOOL_NAME), true);
+  native.setTestConsent(false);
+  server.handleMessage({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(sent.at(-1).result.isError, true);
+  assert.match(sent.at(-1).result.content[0].text, /unavailable to an unverified external caller|access is off|not currently available/);
+  assert.equal(native.getLoadCount(), 0);
 });

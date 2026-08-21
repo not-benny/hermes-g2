@@ -20,8 +20,11 @@ Direct/on-device callers can opt into the trusted predicate; certificate-
 validated WSS/server proof is still required before enabling it for external
 transport. No hardware verification applies; this is assistant policy code.
 
-Focused and full tests pass (13/13 focused; 169/169 full) and `git diff --check`
-passes. `npm run typecheck` and the Android build were attempted with the
+Focused and full tests pass (16/16 focused; 172/172 full) and `git diff --check`
+passes. Focused behavioral coverage includes final-check stale connection and
+finished-turn races, missing/empty live identity validators, and consent revoke
+between `tools/list` and `tools/call`; each asserts zero health-document loads.
+`npm run typecheck` and the Android build were attempted with the
 repository's installed dependencies; both are blocked by pre-existing missing
 NativeScript Android globals/types (`android`, `androidx`, `java`, and
 `Array.create`) across unrelated files. No hardware verification applies; this
