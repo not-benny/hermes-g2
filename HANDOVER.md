@@ -223,3 +223,14 @@ pull the log + the Even app's built-in health-data export zip, and validate.
   normal NativeScript/node startup and no `AndroidRuntime`/`FATAL EXCEPTION`.
 - No firmware bytes, BLE framing, pairing, reset, wipe, or destructive device
   operation was changed or used. Nothing has been pushed and no PR is open.
+
+## 10. Authorization-gated assistant and Terminal hardware matrix
+
+- The executable, authorization-gated runbook is
+  `notes/direct-assistant-app-tools-hardware-test-matrix.md`. It covers direct
+  calendar/provider behavior, wakeword policy, and the background Terminal
+  `list_sessions`, `send_input`, `read_screen`, and no-active-view cases.
+- No hardware or device-connected service result was produced. Execution is
+  unverified and pending an explicit, separately recorded GO naming the
+  authorized phone/G2, data/actions, disposable Terminal session, commands,
+  evidence scope, expiry, and exclusions.
