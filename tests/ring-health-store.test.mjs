@@ -156,7 +156,7 @@ test("deviceInfo push status cannot populate the firmware version", () => {
 });
 
 test("confirmed activity push populates steps and ring-native calorie totals", () => {
-  const store = new RingHealthStore();
+  const store = new RingHealthStore(() => 1_787_224_000_000);
   const dayBaseSec = 1_787_180_400;
   const data = activityPayload(60, dayBaseSec, [
     { slot: 67, steps: 5, activeCalories: 5, totalCalories: 23 },
@@ -188,7 +188,7 @@ test("activity ACK status cannot populate native totals", () => {
 });
 
 test("activity pushes merge by day and replace duplicate slots", () => {
-  const store = new RingHealthStore();
+  const store = new RingHealthStore(() => 1_787_224_000_000);
   const dayBaseSec = 1_787_180_400;
   const ingest = (records) => {
     const data = activityPayload(60, dayBaseSec, records);

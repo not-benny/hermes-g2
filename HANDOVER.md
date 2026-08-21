@@ -4,7 +4,71 @@ A snapshot of project state, what was accomplished, what is pending, and how to
 pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
 the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
-## 0. Latest continuation (2026-08-20)
+## 0. Latest continuation (2026-08-21)
+
+### Trusted caller gate for health MCP reads (local, review pending)
+
+The health MCP tool is now fail-closed for the current external plaintext
+`ws://` bridge: consent alone cannot expose or execute `health.get_ring_data`.
+MCP list/call policy checks require a live connection generation, callable
+connection revalidation, an explicit trusted-caller predicate, and a unique
+live voice-turn generation with callable turn revalidation. Missing validators
+fail closed; the registry rechecks the policy immediately before loading the
+handler. Calls also carry the exact active voice-turn generation, so replaced
+or finished turns cannot authorize a delayed read.
+Direct/on-device callers can opt into the trusted predicate; certificate-
+validated WSS/server proof is still required before enabling it for external
+transport. No hardware verification applies; this is assistant policy code.
+
+Focused and full tests pass (16/16 focused; 172/172 full) and `git diff --check`
+passes. Focused behavioral coverage includes final-check stale connection and
+finished-turn races, missing/empty live identity validators, and consent revoke
+between `tools/list` and `tools/call`; each asserts zero health-document loads.
+`npm run typecheck` and the Android build were attempted with the
+repository's installed dependencies; both are blocked by pre-existing missing
+NativeScript Android globals/types (`android`, `androidx`, `java`, and
+`Array.create`) across unrelated files. No hardware verification applies; this
+is assistant policy code. Nothing has been pushed and no PR has been opened;
+fresh independent `g2-reviewer` approval is required before delivery.
+
+
+### Persistent ring-health pull candidate (local, re-review pending)
+
+Branch `feature/persistent-health-mcp-t_3e9c4645` contains local candidate commits
+`587dff7`, `bafe63f`, and review-rework commit `f8dca5a` for the planned push-to-pull
+replacement from baseline `ae89fd5`.
+Ring health now has one
+canonical app-private `health.store.v1` document, independently validated legacy
+migration with exact read-back before old-key removal, and exact 90-local-date
+retention. The new conversation-only `health.get_ring_data` registry/MCP tool is
+hidden and rejected without persisted consent, rechecks consent inside its
+handler, defaults to seven days, caps requests at 31 days, and projects current
+activity totals without slots or identifiers. The Health toggle now describes
+on-demand reads and local retention; all immediate/periodic `/health` HTTP push
+code and its timer are removed. Explicit JSON file export remains user-driven.
+
+Verification after review rework is green: the required focused command passes
+48/48 tests, the full suite passes 165/165, `npm run typecheck` passes, and the JDK 21 / Android SDK 35
+debug build completes at the normal ignored APK path. The debug APK installed and
+launched on USB A32 `RFCR707RQGV`; the package process remained alive with zero
+bounded package-log uncaught/fatal markers and zero former health-push markers.
+The attached install exposed no app-private preference data through `run-as`, so
+pre-upgrade chart preservation and consent persistence could not be truthfully
+observed on this device run; synthetic adapter/MCP tests cover those paths. A safe
+configured synthetic on-device MCP endpoint was not available, so no personal
+health was sent over the current plaintext external transport. Independent
+`g2-reviewer` review requested changes against frozen candidate `bafe63f`: an
+unverifiable first migration could leave a candidate canonical key that masked
+the still-valid legacy source on restart, migrated-preview clearing had only a
+source assertion, and the roadmap retained stale 3-hour-sync wording. Local
+rework now removes only a failed first-migration candidate so the next process
+retries untouched legacy fragments, adds two-instance restart coverage and a
+behavioral migrated-preview clear test, and marks the old roadmap behavior as
+superseded. Focused/full tests, typecheck, Android build, and A32 reinstall/
+launch pass after rework; the package process remained alive with zero bounded
+fatal/uncaught or old health-push markers. Frozen rework commit `f8dca5a` awaits
+independent re-review; nothing was pushed and no PR was opened. The repository-
+wide public MCP/skill publication gate remains NO-GO.
 
 Seven self-contained items were completed on the `hermes-g2` branch/current
 working tree:

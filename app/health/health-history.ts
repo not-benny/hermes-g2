@@ -2,8 +2,8 @@
  * Pure historic-logging core for ring health: one DailyHealthSummary per day,
  * plus baseline computation (for the readiness score) and CSV export. No
  * NativeScript imports (only `import type`, elided at transpile) so it is
- * unit-testable like ring-parser.ts. Persistence + file/Hermes export live in
- * the impure health-export module; this module is all data-in / data-out.
+ * unit-testable like ring-parser.ts. Persistence lives in native/health-store
+ * and explicit file export in native/health-export; this module is data-in/out.
  */
 
 import type { MetricBaseline, HeartRateInsights, SleepInsights, ReadinessInsights } from "./health-insights";

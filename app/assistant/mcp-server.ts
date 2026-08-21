@@ -19,8 +19,16 @@ export type McpServerOptions = {
   send: (msg: object) => void;
   /** Whether a voice turn is currently in flight (calls outside one are "proactive"). */
   isTurnActive: () => boolean;
+  /** Stable unique generation for the currently authorized voice turn. */
+  getTurnGeneration?: () => string | null;
   /** Master setting gate for proactive calls (assistant.allowProactive). */
   allowProactive: () => boolean;
+  /** True only for direct/on-device or server-authenticated confidential callers. */
+  isHealthCallerTrusted?: () => boolean;
+  /** Unique generation of the connection owning this MCP server. */
+  connectionGeneration?: string | number;
+  /** Revalidates that this server's connection is still the live one. */
+  isConnectionGenerationActive?: () => boolean;
   registry?: ToolRegistry;
 };
 
@@ -77,7 +85,7 @@ export class AssistantMcpServer {
         if (!validId) return;
         if (!this.requireInitialized(id)) return;
         this.reply(id, {
-          tools: this.registry.listTools().map((spec) => ({
+          tools: this.registry.listTools().filter((spec) => this.isHealthVisible(spec.name)).map((spec) => ({
             name: spec.name,
             description: spec.description,
             inputSchema: spec.inputSchema,
@@ -117,7 +125,17 @@ export class AssistantMcpServer {
     try {
       const name = typeof params?.name === "string" ? params.name : "";
       const args = params?.arguments ?? {};
+      const healthDenied = this.healthPolicyError(name);
+      if (healthDenied) {
+        this.replyToolError(id, healthDenied);
+        return;
+      }
       const proactive = !this.options.isTurnActive();
+      const turnGeneration = proactive ? null : this.options.getTurnGeneration?.() ?? null;
+      if (name === "health.get_ring_data" && !proactive && !turnGeneration) {
+        this.replyToolError(id, "No current assistant turn authorizes this action");
+        return;
+      }
       if (proactive && !this.options.allowProactive()) {
         this.replyToolError(id, "Proactive assistant actions are disabled in Settings");
         return;
@@ -135,7 +153,14 @@ export class AssistantMcpServer {
         this.replyToolError(id, "Proactive action rate limit exceeded; try again later");
         return;
       }
-      const result = await this.registry.callTool(name, args, { proactive });
+      const result = await this.registry.callTool(name, args, {
+        proactive,
+        turnGeneration,
+        isTurnGenerationActive: turnGeneration
+          ? () => this.options.isTurnActive() && this.options.getTurnGeneration?.() === turnGeneration
+          : undefined,
+        isCallAllowed: () => this.healthPolicyError(name, turnGeneration),
+      });
       if (this.closed || epoch !== this.epoch) return;
       this.reply(id, {
         content: [{ type: "text", text: result.ok ? result.content ?? "" : result.error ?? "Tool error" }],
@@ -147,6 +172,32 @@ export class AssistantMcpServer {
       this.activeRequestIds.delete(requestKey);
       if (!this.closed && epoch === this.epoch) this.rememberCompleted(requestKey);
     }
+  }
+
+  private isHealthVisible(name: string): boolean {
+    return name !== "health.get_ring_data" || this.healthPolicyError(name) === null;
+  }
+
+  private healthPolicyError(name: string, expectedTurnGeneration?: string | null): string | null {
+    if (name !== "health.get_ring_data") return null;
+    if (!this.options.isHealthCallerTrusted?.()) return "Health data is unavailable to an unverified external caller";
+    if (this.options.connectionGeneration === undefined || this.options.connectionGeneration === "") {
+      return "Health data requires a live connection generation";
+    }
+    if (typeof this.options.isConnectionGenerationActive !== "function" || !this.options.isConnectionGenerationActive()) {
+      return "Health data requires the current live connection";
+    }
+    if (typeof this.options.getTurnGeneration !== "function") {
+      return "Health data requires a unique live assistant turn";
+    }
+    const turnGeneration = this.options.getTurnGeneration();
+    if (!this.options.isTurnActive() || !turnGeneration) {
+      return "Health data requires a unique live assistant turn";
+    }
+    if (expectedTurnGeneration !== undefined && turnGeneration !== expectedTurnGeneration) {
+      return "The authorizing assistant turn is no longer active; no side effect was sent.";
+    }
+    return null;
   }
 
   /** Sliding-window rate limiter for proactive calls. */

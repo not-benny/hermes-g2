@@ -68,6 +68,12 @@ export type ListToolsOptions = {
 export type CallToolOptions = {
   /** The call is happening outside an active voice turn; enforce proactive gating. */
   proactive?: boolean;
+  /** Last-moment caller/policy gate, checked immediately before the handler. */
+  isCallAllowed?: () => string | null;
+  /** Stable generation that authorized this side effect. */
+  turnGeneration?: string | null;
+  /** Revalidate the authorizing turn immediately before invocation. */
+  isTurnGenerationActive?: () => boolean;
 };
 
 const DEFAULT_TOOL_TIMEOUT_MS = 10_000;
@@ -229,6 +235,11 @@ export class ToolRegistry {
     const registration = this.registrations.get(name)!;
     const timeoutMs = registration.spec.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
     try {
+      if (options.turnGeneration && options.isTurnGenerationActive && !options.isTurnGenerationActive()) {
+        return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
+      }
+      const callDenied = options.isCallAllowed?.();
+      if (callDenied) return { ok: false, error: callDenied };
       return await this.withTimeout(registration.handler(args), timeoutMs, name);
     } catch (error) {
       return { ok: false, error: `Tool ${name} failed: ${describeError(error)}` };

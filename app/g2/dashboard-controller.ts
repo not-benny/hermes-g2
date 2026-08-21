@@ -20,11 +20,12 @@ import { getDefaultMediumFont } from "../graphics/bdffont";
 import { wrapText } from "../graphics/textwrap";
 import { rawInputEventToInputEvent, shell, type ShellInputOutcome } from "../ui/shell/shell";
 import { registerSystemTools } from "../assistant/system-tools";
+import { registerHealthTools } from "../assistant/health-tools";
 import { registerNavigateTools } from "../assistant/navigate-tools";
 import { registerRoamTools } from "../assistant/roam-tools";
 import { assistantBridge } from "../assistant/bridge-client";
 import { ringHealthStore } from "../health/ring-health-store";
-import { loadActivity, recordActivity } from "../native/health-export";
+import { loadActivity, recordActivity } from "../native/health-store";
 import { playEventBeep } from "../ui/event-beeps";
 import { registerWindowTools } from "../assistant/window-tools";
 import { registerTimerTools } from "../assistant/timer-tools";
@@ -252,6 +253,7 @@ class DashboardController {
     // The always-available assistant tools (calendar, media, notifications,
     // glasses state) register once at startup, independent of any connection.
     registerSystemTools();
+    registerHealthTools();
     // nav.* tools launch the Navigate app on demand, so they need launchApp.
     registerNavigateTools((appId) => this.launchApp(appId));
     // roam.* tools launch the Roam app on demand likewise.

@@ -187,7 +187,13 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   crack the remaining decoders (sleep cmd=6, calories, activity/steps, HR/HRV/SpO2 record layouts) rather than
   inferring from ground truth. Recommended path to close out the NOW / Health decode items. Binary stored
   privately outside the repo (see Operational notes); never commit it.
-- **TODO** — Consolidate health data into a **persistent MCP store** (not per-push sessions).
+- **VERIFIED LOCALLY; REVIEW/DELIVERY PENDING** — Ring health now uses one
+  app-private `health.store.v1` document with verified legacy migration and exact
+  90-local-date retention. The consent-gated, conversation-only
+  `health.get_ring_data` tool serves bounded on-demand reads (7-day default,
+  31-day max; hourly opt-in; activity totals only), and the former immediate/
+  3-hour HTTP push is removed. Automated and A32 evidence are tracked in
+  `HANDOVER.md`; public MCP/skill publication remains NO-GO.
 - **BLOCKED** — WhatsApp in-app client. Engine, pairing UI, and plumbing all DONE (nodejs-mobile + Baileys 7
   embedded, verified in-app), but pairing is blocked by an upstream **April-2026 WhatsApp/Baileys protocol
   regression** (`link_code_companion_reg` → 400 bad-request; Baileys #2488, closed "not planned", no fix).
@@ -222,7 +228,8 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   when null) on every ring-store change. No hourly-average fallback, since that is not a live reading.
 - Health: R1 ring HR/HRV/SpO2 daily-record DECODER fixed (ae9a4e0); hourly persistence/accumulation
   `app/health/health-hourly.ts` (cb5d5f2); rich Health tab — readiness hero ring, 24h HR + trend charts,
-  consent-gated 3h Hermes sync, real-file JSON export via FileProvider (003ee43, ac28d5e). Golden-vector tests.
+  real-file JSON export via FileProvider (003ee43, ac28d5e). Golden-vector tests. The former consent-gated
+  3-hour Hermes sync is superseded and removed by the pull-only implementation at lines 190–196.
 - 4-tab shell (e6f1b04), Even Health dashboard (147fa0d).
 - **Onboarding wizard — DONE** (52f6d16): 5 steps (welcome · disclaimer · honest "How Hermes works" Even
   hand-off · permissions [BLE / notification-access / battery, live Granted ticks] · firmware choice) with
