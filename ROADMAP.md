@@ -199,8 +199,12 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   regression** (`link_code_companion_reg` → 400 bad-request; Baileys #2488, closed "not planned", no fix).
   Batches 3–6 (need a live link) on hold. Options: shelve until upstream adapts / route via the existing
   agent-bridge QR link (reintroduces the laptop bridge) / monitor Baileys for a fix.
-- **DEFER** — R: Latency deeper — move ring link off the display worker thread; non-blocking wake barrier;
-  shorter waitForFrameFinished. (Quick wins already landed.)
+- **DONE** — R: direct R1 link moved off the display worker onto the dedicated
+  `FaceclawRingLink` worker, with per-address GATT operation locks and an
+  initiation-only process-wide Bluetooth API lock (2026-08-21; local candidate
+  pending mandatory independent review/delivery).
+- **DEFER** — R: remaining latency work — non-blocking wake barrier and shorter
+  `waitForFrameFinished`. (Quick wins and ring-worker isolation already landed locally.)
 
 ---
 

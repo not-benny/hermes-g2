@@ -43,12 +43,15 @@ test("phone UI exposes safe live glasses controls", () => {
   assert.match(controlsModel, /get ringFirmwareVersion\(\)/);
   assert.match(
     nativeCommunicator,
-    /sendRingCommand\("deviceInfo GET \(firmware version\)", 0x01, 0x00, 0x02, 0x00, null\)/,
+    /sendRingCommandForGeneration\(generation,\s*"deviceInfo GET \(firmware version\)", 0x01, 0x00, 0x02, 0x00, null\)/,
   );
   const sessionStart = nativeCommunicator.indexOf("if (openSession) {");
-  const pairAuth = nativeCommunicator.indexOf('sendRawRingFrame("pairAuth (session open)"', sessionStart);
-  const deviceInfo = nativeCommunicator.indexOf('sendRingCommand("deviceInfo GET (firmware version)"', pairAuth);
-  const healthEnable = nativeCommunicator.indexOf('sendRingCommand("healthEnable SET"', deviceInfo);
+  const pairAuth = nativeCommunicator.indexOf(
+    'sendRawRingFrameForGeneration(generation, "pairAuth (session open)"',
+    sessionStart,
+  );
+  const deviceInfo = nativeCommunicator.indexOf('"deviceInfo GET (firmware version)"', pairAuth);
+  const healthEnable = nativeCommunicator.indexOf('"healthEnable SET"', deviceInfo);
   assert.ok(sessionStart >= 0 && pairAuth > sessionStart && deviceInfo > pairAuth && healthEnable > deviceInfo);
 });
 

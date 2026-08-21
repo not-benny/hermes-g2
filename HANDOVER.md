@@ -116,6 +116,20 @@ normal NativeScript startup plus standard platform warnings. Real G2 lens
 transport and secure bridge verification remain unavailable/not performed;
 A32-only app launch evidence must not be read as glasses-display evidence.
 
+## Delivery state (2026-08-21)
+
+The GPT-5.6 Sol medium-effort review-approved direct-R1 worker isolation
+implementation is published unchanged in PR #7 against `hermes-g2` from
+`work/t_535a9f1f-ring-worker-rework`, at implementation SHA
+`1dc65327ef33284877d3d9658ebc354b77cbbc2a`. Pull request:
+https://github.com/not-benny/hermes-g2/pull/7.
+GitHub reports the PR open with a clean merge state; no CI checks were reported
+at delivery time. Local verification and safe Samsung A32 evidence remain as
+recorded below; no destructive BLE, pairing, ownership, firmware, reset, power,
+wipe, or private-evidence publication occurred. Any later handover updates are
+documentation-only follow-ups separate from the frozen reviewed implementation
+and do not change the approved implementation SHA.
+
 A snapshot of project state, what was accomplished, what is pending, and how to
 pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
 the private `DECODE-SPEC.md` (see "Out-of-repo data").
@@ -171,6 +185,195 @@ and `ANDROID_SDK_ROOT=/home/benny/Android/Sdk`, `npm run build` reaches webpack 
 fails on the same 35 inherited diagnostics. No hardware was required or used. The
 candidate is local only, nothing was pushed, and independent `g2-reviewer` review is
 required before delivery.
+
+### Direct-R1 worker isolation candidate (2026-08-21)
+
+- The approved rework branch `work/t_535a9f1f-ring-worker-rework` was pushed
+  unchanged at `1dc65327ef33284877d3d9658ebc354b77cbbc2a`; PR #7 is open at
+  https://github.com/not-benny/hermes-g2/pull/7. It contains candidate commits
+  `0accf5f`, `0475383`, `abd7787`, `680dbf1`, `aaef1af`, and callback
+  identity/dispatch fixes `9671839`, `f0f4892`, `a46cb12`, `58bd941`, and
+  `8330e9b`.
+  Every optional direct-R1 connect,
+  discovery/MTU/subscription wait, battery read, health poll, packetAck drain,
+  and ring write runs on the single `FaceclawRingLink` worker. The glasses
+  `FaceclawBleCommunicator` loop and initial glasses connect path perform no
+  direct-ring work.
+- Direct-ring lifecycle, timers, generation, battery, and bounded packetAck
+  state are protected by a distinct `ringLock`. Following the first independent
+  review, teardown now installs a durable `stopping` gate before the framebuffer
+  release wait, wakes and interrupts the ring worker immediately, and revalidates
+  that gate at every direct-ring entry/GATT stage/final write. A separate
+  lifecycle lock serializes `start()` across the complete teardown. Both bounded
+  joins must report their workers dead before thread fields or session state are
+  reset or the BLE manager is closed; a live/timed-out worker leaves the object
+  fail-closed in stopping state for a later teardown retry. Delayed writes and
+  probe gaps still revalidate the captured ring generation and stop on cancellation.
+- A second independent review found that the per-stage stopping checks still had
+  check-then-act gaps before manager calls. `aaef1af` replaces them with one
+  `withRingManagerOperation` barrier that holds `ringLock` from the final
+  stopping/session/generation check through every direct-R1 manager operation:
+  recovery disconnect, connect, discovery, priority/MTU, subscriptions, battery
+  read, service diagnostics, and writes. Since teardown publishes volatile
+  `stopping` before taking the same barrier, no new R1 manager side effect can
+  begin after teardown starts; an already in-flight operation must unwind before
+  teardown can pass the barrier.
+- `FaceclawBleManager` now serializes complete operations per address while a
+  short static Bluetooth API lock protects only immediate Android GATT API
+  initiation. Different-address callback waits no longer block glasses writes,
+  and callbacks from an obsolete GATT are ignored. A third independent review
+  found the original standalone current-GATT check was still check-then-act:
+  callback A could pass it, then publish into address-keyed latch/result state
+  created for replacement GATT B. `9671839` replaces those maps with an
+  Android-free identity registry. Current GATT identity, exact-GATT operation
+  context, result/value publication, latch completion, connected/disconnected
+  notification, and data dispatch are validated under one short callback-state
+  protocol. Every callback operation timeout retires/closes that GATT before a
+  same-address replacement can start, so an untagged late Android callback can
+  never be mistaken for a later operation on the same object. Weak identity
+  tombstones preserve callback-before-wait handling without retaining closed
+  GATT objects indefinitely.
+- A fourth independent review reproduced a registry-monitor ↔ `ringLock`
+  inversion because accepted callbacks invoked external listeners while still
+  holding the callback registry monitor. `f0f4892` now completes callback state
+  atomically and returns a one-shot exact-generation dispatch token without
+  invoking external code. Each BLE listener acquires its own state lock first
+  and claims that token before any listener state mutation. A replacement
+  generation invalidates blocked connected, disconnected, and notification
+  tokens; a current disconnect remains dispatchable. The registry monitor is
+  therefore never held while a callback waits for `ringLock`, and callback token
+  claim follows the same state-lock → registry-lock order as ring manager
+  operations.
+- A fifth independent review found that a current direct-R1 notification token
+  queued behind `ringLock` could still be claimed after teardown published
+  `stopping`. `a46cb12` records ring callback identity before selecting the
+  callback lock and, once it acquires `ringLock`, rejects stopped/not-running
+  communicator state before token claim or legacy notification dispatch. The
+  glasses callback path retains `lock`, so framebuffer-release notifications
+  needed during teardown remain available. A precise regression pins the
+  callback-waits-behind-`ringLock` ordering and fail-closed gate.
+- A sixth independent review found that the accepted direct-R1 callback still
+  called its legacy handler while holding `ringLock`; that handler acquired the
+  display `lock` and forwarded health/gesture state, creating a hidden
+  `ringLock` -> `lock` edge. `58bd941` now claims the exact-GATT token and copies
+  notification bytes plus the volatile ring generation under `ringLock`, then
+  releases it before decoding or touching display state. Display mutations,
+  packetAck enqueue, log forwarding, health forwarding, and gesture forwarding
+  revalidate stopping/running/generation state; main-thread health, gesture, and
+  log callbacks also drop retired generations. PacketAck cursors retain the
+  accepted generation instead of adopting a replacement session. The source
+  contract now rejects transitive lock nesting and stale downstream dispatch.
+- A seventh independent review found the same transitive `ringLock` -> display
+  `lock` edge in the exact-GATT direct-R1 connection callback: the guarded
+  overload called the legacy disconnect handler while still holding
+  `ringLock`, and its battery snapshot acquired the display lock. `8330e9b`
+  now claims the exact-GATT token and updates only generation-bound ring
+  lifecycle state under `ringLock`, then releases it before battery snapshot,
+  logging, listener delivery, or ring-worker wake. Connected and disconnected
+  post-lock delivery revalidates stopping/running/generation state; battery and
+  log main-thread callbacks also reject retired generations. A precise
+  transitive source regression covers both connection states while preserving
+  the glasses framebuffer-release callback path.
+- Final rework verification on `58bd941`: callback concurrency plus focused ring
+  contracts 21/21 and full suite 152/152 passed; `npm run typecheck` passed after
+  linking the existing ignored dependency tree into the isolated worktree; and
+  the JDK 21 / Android SDK 35 debug build passed. APK:
+  `platforms/android/app/build/outputs/apk/debug/app-debug.apk` (336,310,280 bytes,
+  SHA-256 `da78a81b867fd51ce7c324ab39be09c4e33f723af3993f2e8766edd46a147e29`).
+  `git diff --check` passed and the added-line hardcoded-secret, shell-injection,
+  eval/exec, and unsafe-deserialization scan found zero matches.
+- Rework install/launch passed on the USB A32 (`SM_A326B`, serial recorded only in
+  the task handoff). A natural, non-induced initial R1 connection failure lasted
+  2.557 seconds on ring TID 25864; 43 glasses frame/write log lines completed on
+  display TID 25863 inside that exact failure window. Automatic retry then reached
+  ready with MTU 247 and both notifications, followed by 13 CRC-valid read-only
+  responses, one full health poll, and three 15-second current-HR requests. The
+  phone UI showed Hermes and `Connected`; no fatal runtime error or incomplete
+  teardown was logged. Frame timings were pulled to
+  `/tmp/t_535a9f1f-rework-frame-timings.txt` (23,289 bytes).
+- The `aaef1af` APK was then installed/launched again on the USB A32. A bounded
+  35-second smoke run showed distinct display/ring worker TIDs, direct R1 ready,
+  11 CRC-valid read-only responses, one full health poll, and one current-HR
+  request, with zero fatal exceptions or incomplete-teardown logs. A reversible
+  app force-stop removed the process and relaunch restored it. The untracked raw
+  smoke log is `/tmp/t_535a9f1f-atomic-gate-logcat.txt`; it may contain private
+  MAC/health material and must not be committed or published.
+- The `9671839` APK was installed and relaunched on the same USB A32 for a
+  bounded 45-second reconnect smoke. The process remained alive; display TID
+  1336 (`FaceclawBleComm`) and ring TID 1337 (`FaceclawRingLin`) were distinct;
+  direct R1 reached ready with MTU 247 and both notification subscriptions;
+  11 CRC-valid read-only notifications, five health GET writes, one current-HR
+  write, and 52 glasses frame/write lines were observed. There were zero fatal
+  exceptions and zero incomplete-teardown logs. The untracked raw log is
+  `/tmp/t_535a9f1f-callback-registry-logcat.txt`; it may contain private
+  MAC/health material and must not be committed or published.
+- The final dispatch-token code was installed and relaunched on the USB A32.
+  A bounded 45-second final-artifact capture kept the process alive with exactly
+  one `FaceclawBleComm` and one `FaceclawRingLin` thread. Direct R1 reached ready
+  with MTU 247; 12 CRC-valid/read-only notifications, one full health poll, and
+  14 glasses frame-timing lines were observed, with zero fatal exceptions and
+  zero incomplete-teardown logs. The earlier natural 2.557-second failure
+  interleaving remains the stronger timeout evidence. Raw final logs remain
+  untracked at `/tmp/t_535a9f1f-dispatch-token-final-logcat.txt` and must not be
+  committed or published.
+- The `a46cb12` APK was installed and relaunched on the USB A32 for a bounded
+  final smoke. The app process remained alive with exactly one display worker
+  (`FaceclawBleComm`, TID 14864) and one ring worker (`FaceclawRingLin`, TID
+  14865). Two natural, non-induced direct-R1 failures lasted 2.741 s and 2.685 s;
+  one glasses frame completed on a separate display TID inside the first failure
+  interval. The subsequent safe force-stop/relaunch reconnect reached direct-R1
+  ready with MTU 247, three CRC-valid/read-only health notifications, one full
+  health poll, and 23 frame-timing lines. The phone UI showed Hermes and
+  `Connected`; no fatal exception or incomplete teardown was logged. Raw logs
+  remain untracked at `/tmp/t_535a9f1f-fifth-review-logcat.txt` and must not be
+  committed or published.
+- The final `58bd941` APK was installed with `adb install --no-streaming -r` and relaunched
+  on the USB A32 for 45 seconds. Exactly one display worker (TID 9987) and one
+  ring worker (TID 9988) remained alive. A natural, non-induced direct-R1 failure
+  lasted 2.570 seconds while one glasses frame completed on the separate display
+  TID; automatic retry reached ready over 3.515 seconds with another frame inside
+  that connection interval. Four CRC-valid read-only notifications and 13 frame
+  timing lines followed, with zero fatal exceptions and zero incomplete-teardown
+  logs. Raw output is untracked at
+  `/tmp/t_535a9f1f-sixth-review-final-logcat.txt`; it may contain MAC/health data
+  and must not be committed or published.
+- Seventh-review verification on `8330e9b`: callback-inclusive focused tests
+  passed 22/22, the full suite passed 153/153, and `npm run typecheck` passed.
+  The first incremental NativeScript build reported success but retained the
+  preceding APK; hardware worker-start logs exposed the stale artifact. After
+  an explicit Gradle clean, the required JDK 21 / Android SDK 35 build compiled
+  Java and passed. The canonical APK is
+  `platforms/android/app/build/outputs/apk/debug/app-debug.apk` (335,763,275
+  bytes, SHA-256
+  `07830540335b0bf948e4d7494ac5981d35261011b96e030395f02738a1c03e3d`).
+  `git diff --check` passed and the added-line secret/injection/eval/unsafe
+  deserialization scan found zero matches.
+- That clean final APK installed successfully on the USB A32. Runtime showed
+  exactly one display worker (TID 7930, `FaceclawBleComm`) and one dedicated
+  ring worker (TID 7933, `FaceclawRingLin`). Four natural direct-R1 connection
+  failures lasted 2.550-2.571 seconds on the ring TID; frame #5 completed on a
+  separate GATT/display path inside the first 2.558-second failure interval.
+  A later safe force-stop/relaunch retry reached direct-R1 ready with MTU 247,
+  both notification subscriptions, ten CRC-valid read-only responses, and one
+  full health poll. The app remained alive with no fatal exception or incomplete
+  teardown log. Sanitized summary evidence is in this handover; raw MAC/health
+  logs remain untracked under `/tmp/t_535a9f1f-seventh-review-clean-*.txt` and
+  must not be committed or published.
+- No timeout was fabricated and no pairing/ownership, permission, MAC,
+  firmware/DFU, reset, power, or destructive operation was attempted; Even
+  Bluetooth remained revoked. The MAC/raw-health log remains untracked under
+  `/tmp` and must not be committed.
+- Review state: seven GPT-5.6 Sol medium-effort reviews requested lifecycle,
+  atomic ring-side-effect, stale-GATT callback, cross-lock dispatch, and
+  queued teardown-notification plus notification/connection transitive-lock rework.
+  `680dbf1`, `aaef1af`, `9671839`, `f0f4892`, `a46cb12`, `58bd941`, and
+  `8330e9b` address those findings respectively. The resulting frozen candidate
+  was approved by GPT-5.6 Sol medium-effort review and published unchanged at
+  `1dc65327ef33284877d3d9658ebc354b77cbbc2a` on PR #7 against `hermes-g2`.
+  Remaining latency siblings are the non-blocking wake barrier and shorter
+  `waitForFrameFinished`. The approved implementation is published unchanged
+  at `1dc65327ef33284877d3d9658ebc354b77cbbc2a` on PR #7; subsequent handover
+  edits are documentation-only and separate from that implementation.
 
 Seven self-contained items were completed on the `hermes-g2` branch/current
 working tree:
