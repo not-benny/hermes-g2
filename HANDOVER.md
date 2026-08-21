@@ -1,5 +1,22 @@
 # Hermes G2 handover (2026-08-20)
 
+## PacketAck retirement race hardening (2026-08-21)
+
+This focused continuation is based on clean `origin/hermes-g2`
+(`ae89fd5e398a78ce9a7d00c66a47d92d02812319`) on local branch
+`wt/t_2aa76f3a-clean`; it is committed locally and remains unpushed pending
+independent review. Queue, drain, and final send now all require
+`running && sessionReady && ringConnected && ringNotificationsReady`, and hard
+transport failure retires ring readiness before invalidating the generation and
+queue. Focused packetAck contracts pass 10/10. Full tests are 144/146: the two
+existing date-sensitive activity fixtures fail at
+`tests/ring-health-store.test.mjs:158` and `:190`; typecheck and the documented
+JDK-21/SDK Android build each fail on the same 35 pre-existing NativeScript
+Android-global/`Array.create` errors. `git diff --check` passes. A32 USB
+`RFCR707RQGV` and two wireless targets are visible, but no APK was installed or
+reconnect race exercised in this continuation; operational authorization is
+therefore **NO-GO**.
+
 A snapshot of project state, what was accomplished, what is pending, and how to
 pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
 the private `DECODE-SPEC.md` (see "Out-of-repo data").

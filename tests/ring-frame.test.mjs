@@ -183,10 +183,22 @@ test("health pushes queue packetAck cursors and the worker drains them safely", 
   assert.match(src, /ringConnectionGeneration/);
   assert.match(src, /sendRingPacketAck\(cursor\)/);
   assert.match(src, /ringPacketAckQueue\.clear\(\)/);
+  const queueStart = src.indexOf("private void queueRingPacketAck(byte[] frame)");
+  const queueEnd = src.indexOf("/** Worker-thread drain", queueStart);
+  const queue = src.slice(queueStart, queueEnd);
+  assert.match(queue, /!running.*!sessionReady.*!ringConnected.*!ringNotificationsReady/s);
+  assert.match(queue, /ringPacketAckQueue\.size\(\) >= 16/);
+  assert.match(queue, /ringPacketAckQueue\.removeFirst\(\)/);
+  assert.match(queue, /ringPacketAckQueue\.addLast\(/);
+  const drainStart = src.indexOf("private void drainRingPacketAcks()");
+  const drainEnd = src.indexOf("/** Final lifecycle gate", drainStart);
+  const drain = src.slice(drainStart, drainEnd);
+  assert.match(drain, /!running.*!sessionReady.*!ringConnected.*!ringNotificationsReady/s);
   const guardedStart = src.indexOf("private void sendRingPacketAck(RingPacketAckCursor cursor)");
   const guardedEnd = src.indexOf("private void sendRingCommand(", guardedStart);
   const guarded = src.slice(guardedStart, guardedEnd);
   assert.match(guarded, /synchronized \(lock\)/);
+  assert.match(guarded, /!running.*!sessionReady.*!ringConnected.*!ringNotificationsReady/s);
   assert.ok(
     guarded.indexOf("cursor.generation != ringConnectionGeneration") < guarded.indexOf('sendRingCommand("packetAck"'),
     "generation must be revalidated under the lifecycle lock at the final write boundary",
@@ -200,4 +212,50 @@ test("health pushes queue packetAck cursors and the worker drains them safely", 
     src,
     /sendRingCommand\("packetAck", 0x01, 0x00, 0x7e, 0x01, cursor\.payload\)/,
   );
+});
+
+test("packetAck generation invalidation covers every direct-ring reset boundary", () => {
+  const src = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  assert.match(src, /private void invalidateRingPacketAckStateLocked\(\)/);
+  assert.match(src, /invalidateRingPacketAckStateLocked\(\);[\s\S]*ringConnected = connected/);
+
+  const failedConnectStart = src.indexOf("private void tryConnectRing(String reason)");
+  const failedConnectEnd = src.indexOf("private void connectRing()", failedConnectStart);
+  const failedConnect = src.slice(failedConnectStart, failedConnectEnd);
+  assert.match(failedConnect, /catch \(Throwable t\)/);
+  assert.match(failedConnect, /invalidateRingPacketAckStateLocked\(\);/);
+
+  const hardFailureStart = src.indexOf("private void hardTransportFailure(String reason)");
+  const hardFailureEnd = src.indexOf("private void resetSessionStateLocked()", hardFailureStart);
+  const hardFailure = src.slice(hardFailureStart, hardFailureEnd);
+  assert.match(hardFailure, /ringNotificationsReady = false/);
+  assert.ok(
+    hardFailure.indexOf("ringNotificationsReady = false") < hardFailure.indexOf("invalidateRingPacketAckStateLocked"),
+    "hard transport failure must retire readiness before invalidating packetAck state",
+  );
+
+  const resetStart = src.indexOf("private void resetSessionStateLocked()");
+  const resetEnd = src.indexOf("private void emitRingEvent(", resetStart);
+  assert.match(src.slice(resetStart, resetEnd), /invalidateRingPacketAckStateLocked\(\);/);
+  assert.equal((src.match(/ringPacketAckQueue\.clear\(\)/g) || []).length, 2);
+});
+
+test("packetAck final side effect rejects poll-before-disconnect/reset interleavings", () => {
+  const src = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  const disconnectStart = src.indexOf("public void disconnect()");
+  const disconnectEnd = src.indexOf("public void close()", disconnectStart);
+  const disconnect = src.slice(disconnectStart, disconnectEnd);
+  assert.ok(disconnect.indexOf("running = false") < disconnect.indexOf("resetSessionStateLocked"));
+  const sendStart = src.indexOf("private void sendRingPacketAck(RingPacketAckCursor cursor)");
+  const sendEnd = src.indexOf("/** Build and write", sendStart);
+  const send = src.slice(sendStart, sendEnd);
+  assert.ok(send.indexOf("synchronized (lock)") < send.indexOf('sendRingCommand("packetAck"'));
+  assert.ok(send.indexOf("!running") < send.indexOf('sendRingCommand("packetAck"'));
+  assert.ok(send.indexOf("cursor.generation != ringConnectionGeneration") < send.indexOf('sendRingCommand("packetAck"'));
 });
