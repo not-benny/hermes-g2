@@ -2,7 +2,7 @@
 
 ## BLE callback identity gate (2026-08-21)
 
-Candidate commit: pending local freeze on branch `wt/t_5e85b756`; nothing pushed and no PR opened.
+Candidate commit: `b52f3ce10634c54176f4ab0616991af22024b416` on branch `wt/t_5e85b756`; clean, committed, unpushed, and no PR opened.
 
 FaceclawBleManager now carries the source BluetoothGatt through both
 characteristic-change callback overloads and rejects callbacks whose object is
