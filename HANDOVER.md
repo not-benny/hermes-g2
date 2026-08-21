@@ -85,7 +85,13 @@ published, captured vital/activity fixtures were replaced with synthetic builder
 capture/raw-blocklist documentation was corrected. No pairing, permission,
 credential, NVM, firmware, recovery, reset, wipe, or private-data state was changed.
 
-Independent frozen-SHA review, GitHub delivery, and remote readback remain pending at this checkpoint.
+Independent adversarial review passed exact implementation SHA
+`014736deebf7c111ccbcbe3d3dc30ba7d803221d`: static timestamp/clock review PASS
+with no remaining blocker, and privacy/safety review PASS. Operational authorization remains
+NO-GO for anchored persistence because that exact end-to-end hardware row was not observed;
+firmware/DFU/OTA, pairing/provisioning, recovery, reset, wipe, and private capture/publication
+remain NO-GO. The only post-review change is this HANDOVER/ROADMAP state update. GitHub delivery
+and remote readback remain pending at this checkpoint.
 
 ## Integrated behavior
 
@@ -202,8 +208,7 @@ CI logs, or public artifacts.
 
 ## Next action
 
-Finish the R1 candidate's full validation matrix and bounded non-destructive A32/R1
-session-open check, then freeze it for independent adversarial review before updating
-canonical PR #11. Keep cmd=6 sleep separately parked until correlated same-night evidence
-exists. Do not expand pairing, ownership, NVM, recovery, firmware, reset, wipe, or
-private-data publication authorization.
+Deliver the exact independently approved R1 implementation plus this documentation-only state
+update to canonical PR #11 and read back its remote identity/files/body/checks. Keep cmd=6 sleep
+separately parked until correlated same-night evidence exists. Do not expand pairing, ownership,
+NVM, recovery, firmware, reset, wipe, or private-data publication authorization.

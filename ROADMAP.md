@@ -60,7 +60,9 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   after health enable and before daily GETs; it is nonfatal and does not alter polling cadence. A bounded A32/R1
   run observed exactly that order, no repeated clock write during HR-only polls, and four aligned daily frames;
   an anchored persisted row was not observed because the one-shot cache handover preceded Health-page listener
-  activation, so end-to-end persistence remains hardware-pending. Full spec lives
+  activation, so end-to-end persistence remains hardware-pending. Exact implementation SHA `014736de` passed
+  independent static and privacy/safety review; operational authorization remains NO-GO for the unobserved
+  persistence row and all destructive/provisioning operations. Full spec lives
   privately at `ground-truth-private/firmware/re/DECODE-SPEC.md` (repo-excluded).
 - **TODO** (unblocked, awaiting capture) — Sleep (cmd=6) decode. Schema and stage map fully known: 0=Wake,
   1=REM, 2=Light, 3=Deep at 30s epochs; total/wake/rem/light/deep seconds; body_temp_delta. Remaining work: a
