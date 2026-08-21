@@ -62,3 +62,18 @@ test("duplicate tool request IDs execute once and closed sessions suppress late 
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(sent.length, beforeClose);
 });
+
+test("MCP binds a side effect to the exact active turn generation", async () => {
+  const sent = []; const registry = new ToolRegistry(); let calls = 0; let generation = "turn-1";
+  registry.registerSystemTool({ name: "test.write", description: "write", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
+    () => { calls++; return { ok: true, content: "written" }; });
+  const server = new AssistantMcpServer({ send: (msg) => sent.push(msg), isTurnActive: () => true,
+    getTurnGeneration: () => generation, allowProactive: () => false, registry });
+  server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+  generation = "turn-2";
+  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "test.write", arguments: {} } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(calls, 1);
+  assert.equal(sent.at(-1).result.isError, false);
+});

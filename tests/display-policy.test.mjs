@@ -53,5 +53,5 @@ test("show_alert handler reports transport failure and only reports success afte
   const failed = createShowAlertHandler({ isScreenOn: () => true, showAlert: async () => { throw new Error("transport unavailable"); } });
   const result = await failed({ text: "Battery 80%" });
   assert.equal(result.ok, false);
-  assert.match(result.error, /transport unavailable/);
+  assert.match(result.error, /could not display the alert/);
 });

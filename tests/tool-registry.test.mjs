@@ -63,3 +63,16 @@ test("availability failures fail closed without throwing", async () => {
   const result = await registry.callTool("test.flaky", {});
   assert.equal(result.ok, false); assert.match(result.error, /availability check failed/);
 });
+
+test("timeouts abort in-flight handlers and hide dependency details", async () => {
+  const registry = new ToolRegistry(); let signal;
+  registry.registerSystemTool({ name: "test.timeout", description: "test", timeoutMs: 5,
+    inputSchema: { type: "object", properties: {}, additionalProperties: false } }, (_args, received) => {
+    signal = received;
+    return new Promise(() => {});
+  });
+  const result = await registry.callTool("test.timeout", {});
+  assert.equal(result.ok, false);
+  assert.match(result.error, /timed out/);
+  assert.equal(signal.aborted, true);
+});

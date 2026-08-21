@@ -16,7 +16,7 @@ export function createShowAlertHandler(deps: DisplayAlertDependencies): ToolHand
       await deps.showAlert(text);
       return { ok: true, content: "Displayed." };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : "The glasses could not display the alert; no success was reported." };
+      return { ok: false, error: "The glasses could not display the alert; no success was reported." };
     }
   };
 }

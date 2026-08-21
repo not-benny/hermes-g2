@@ -250,6 +250,7 @@ class Shell {
   private musicCard: MusicCardLayer | null = null;
   private musicCardWokeScreen = false;
   private assistantLayer: AssistantLayer | null = null;
+  private alertLayer: ShellAlertLayer | null = null;
   private escapeMenuTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly actions: LayerActions = { ...noopActions };
   private config: ShellConfig = {
@@ -1255,15 +1256,20 @@ class Shell {
     if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
       throw new Error("The glasses are disconnected; no alert was sent.");
     }
-    const layer = new ShellAlertLayer(text, () => {
-      this.stack.popIfTop((top) => top === layer);
+    if (this.alertLayer) this.stack.remove(this.alertLayer);
+    let layer: ShellAlertLayer;
+    layer = new ShellAlertLayer(text, () => {
+      this.stack.remove(layer);
+      if (this.alertLayer === layer) this.alertLayer = null;
       this.config.requestShellRender();
     });
+    this.alertLayer = layer;
     this.stack.push(layer);
     try {
       await this.config.requestShellRender();
     } catch (error) {
-      this.stack.popIfTop((top) => top === layer);
+      this.stack.remove(layer);
+      if (this.alertLayer === layer) this.alertLayer = null;
       try { await this.config.requestShellRender(); } catch { /* preserve transport error */ }
       throw error;
     }

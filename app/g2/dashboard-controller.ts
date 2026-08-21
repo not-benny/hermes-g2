@@ -1829,13 +1829,14 @@ class DashboardController {
       this.nextShellRenderWantsFreshData = true;
       this.requestShellRender();
     }
-    if (!this.communicator || this.phase !== "connected") {
+    const communicator = this.communicator;
+    if (!communicator || this.phase !== "connected") {
       frameTimings.finishFrame(frameId, "discarded: shell render with no active connection");
       throw new Error("The glasses session became unavailable before the alert was sent.");
     }
     const fingerprint = frameTimings.span(frameId, "fingerprint", () => image.fingerprint());
     const buffer = frameTimings.span(frameId, "to8bpp", () => image.to8bppBuffer());
-    await this.communicator.submitSurfaceFrame(
+    await communicator.submitSurfaceFrame(
       SHELL_SURFACE_ID,
       buffer,
       { x: 0, y: 0, width: image.width, height: image.height },
@@ -1843,7 +1844,13 @@ class DashboardController {
       paintMs,
       frameId,
     );
-    await this.communicator.waitForFrameFinished(frameId, FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS);
+    if (this.communicator !== communicator || this.phase !== "connected") {
+      throw new Error("The glasses session changed while sending the alert frame.");
+    }
+    await communicator.waitForFrameFinished(frameId, FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS);
+    if (this.communicator !== communicator || this.phase !== "connected") {
+      throw new Error("The glasses session changed before the alert frame completed.");
+    }
     this.updateCompositePreview();
   }
 

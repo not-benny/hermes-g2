@@ -46,7 +46,7 @@ export type ToolResult = {
   error?: string;
 };
 
-export type ToolHandler = (args: any) => Promise<ToolResult> | ToolResult;
+export type ToolHandler = (args: any, signal?: AbortSignal) => Promise<ToolResult> | ToolResult;
 
 export type ToolRegistration = {
   spec: ToolSpec;
@@ -68,6 +68,10 @@ export type ListToolsOptions = {
 export type CallToolOptions = {
   /** The call is happening outside an active voice turn; enforce proactive gating. */
   proactive?: boolean;
+  /** Stable generation that authorized this side effect. */
+  turnGeneration?: string | null;
+  /** Revalidate the authorizing turn immediately before invocation. */
+  isTurnGenerationActive?: () => boolean;
 };
 
 const DEFAULT_TOOL_TIMEOUT_MS = 10_000;
@@ -229,7 +233,11 @@ export class ToolRegistry {
     const registration = this.registrations.get(name)!;
     const timeoutMs = registration.spec.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
     try {
-      return await this.withTimeout(registration.handler(args), timeoutMs, name);
+      if (options.turnGeneration && options.isTurnGenerationActive && !options.isTurnGenerationActive()) {
+        return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
+      }
+      const controller = new AbortController();
+      return await this.withTimeout(registration.handler(args, controller.signal), timeoutMs, name, controller);
     } catch (error) {
       return { ok: false, error: `Tool ${name} failed: ${describeError(error)}` };
     }
@@ -260,6 +268,7 @@ export class ToolRegistry {
     result: Promise<ToolResult> | ToolResult,
     timeoutMs: number,
     name: string,
+    controller?: AbortController,
   ): Promise<ToolResult> {
     if (!(result instanceof Promise)) return Promise.resolve(result);
     return new Promise<ToolResult>((resolve) => {
@@ -267,6 +276,7 @@ export class ToolRegistry {
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
+        controller?.abort();
         resolve({ ok: false, error: `Tool ${name} timed out after ${timeoutMs}ms` });
       }, timeoutMs);
       result.then(
@@ -349,7 +359,7 @@ function validateJsonSchema(schemaValue: object, value: unknown, path = "$"): st
 }
 
 function describeError(error: unknown): string {
-  return String((error as Error)?.message ?? error);
+  return "The tool could not complete safely.";
 }
 
 /** The process-wide registry; system tools register into it at startup. */

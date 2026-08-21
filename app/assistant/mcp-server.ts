@@ -19,6 +19,8 @@ export type McpServerOptions = {
   send: (msg: object) => void;
   /** Whether a voice turn is currently in flight (calls outside one are "proactive"). */
   isTurnActive: () => boolean;
+  /** Stable unique generation for the currently authorized voice turn. */
+  getTurnGeneration?: () => string | null;
   /** Master setting gate for proactive calls (assistant.allowProactive). */
   allowProactive: () => boolean;
   registry?: ToolRegistry;
@@ -118,6 +120,11 @@ export class AssistantMcpServer {
       const name = typeof params?.name === "string" ? params.name : "";
       const args = params?.arguments ?? {};
       const proactive = !this.options.isTurnActive();
+      const turnGeneration = proactive ? null : (this.options.getTurnGeneration?.() ?? "__active_turn__");
+      if (!proactive && this.options.getTurnGeneration && !turnGeneration) {
+        this.replyToolError(id, "No current assistant turn authorizes this action");
+        return;
+      }
       if (proactive && !this.options.allowProactive()) {
         this.replyToolError(id, "Proactive assistant actions are disabled in Settings");
         return;
@@ -135,7 +142,13 @@ export class AssistantMcpServer {
         this.replyToolError(id, "Proactive action rate limit exceeded; try again later");
         return;
       }
-      const result = await this.registry.callTool(name, args, { proactive });
+      const result = await this.registry.callTool(name, args, {
+        proactive,
+        turnGeneration,
+        isTurnGenerationActive: turnGeneration && this.options.getTurnGeneration
+          ? () => this.options.isTurnActive() && this.options.getTurnGeneration?.() === turnGeneration
+          : undefined,
+      });
       if (this.closed || epoch !== this.epoch) return;
       this.reply(id, {
         content: [{ type: "text", text: result.ok ? result.content ?? "" : result.error ?? "Tool error" }],

@@ -1,5 +1,21 @@
 # Hermes G2 handover (2026-08-20)
 
+## Latest hardening continuation (2026-08-21)
+
+The display/MCP safety follow-up now adds exact-turn-generation revalidation for
+bridge tool side effects, abort signals on registry timeouts, generic remote
+errors that do not disclose dependency text, generation-bound compositor waits,
+and identity-safe replace-only shell alerts. Android backups are disabled and
+cleartext bridge traffic is blocked by the manifest; the bridge therefore
+requires a future authenticated encrypted `wss://` transport before it can be
+operationally enabled. No credentials, personal data, hardware claims, or
+publication authorization were added.
+
+Verification for this continuation: focused MCP/registry/display tests pass
+14/14, `npm run typecheck` passes, and `git diff --check` passes. Real G2 lens
+transport and secure bridge verification remain unavailable/not performed;
+A32-only app launch evidence must not be read as glasses-display evidence.
+
 A snapshot of project state, what was accomplished, what is pending, and how to
 pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
 the private `DECODE-SPEC.md` (see "Out-of-repo data").
