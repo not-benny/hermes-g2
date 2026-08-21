@@ -18,8 +18,12 @@ Direct/on-device callers can opt into the trusted predicate; certificate-
 validated WSS/server proof is still required before enabling it for external
 transport. No hardware verification applies; this is assistant policy code.
 
-Focused and full tests, typecheck, and Android build remain to be run on the
-frozen local candidate. Nothing has been pushed and no PR has been opened;
+Focused and full tests pass (12/12 focused; 168/168 full) and `git diff --check`
+passes. `npm run typecheck` and the Android build were attempted with the
+repository's installed dependencies; both are blocked by pre-existing missing
+NativeScript Android globals/types (`android`, `androidx`, `java`, and
+`Array.create`) across unrelated files. No hardware verification applies; this
+is assistant policy code. Nothing has been pushed and no PR has been opened;
 fresh independent `g2-reviewer` approval is required before delivery.
 
 
