@@ -1,0 +1,203 @@
+name: Fresh-checkout release gate
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: fresh-checkout-release-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: 24274cfa5a076618afdb2306b880623aa4a94abe
+  ANDROID_API_LEVEL: "35"
+  BUILD_TOOLS_VERSION: "35.0.0"
+  NDK_VERSION: "27.2.12479018"
+  CMAKE_VERSION: "3.22.1"
+  CI: "true"
+  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dkotlin.daemon.jvm.options=-Xmx2g"
+
+jobs:
+  validate:
+    name: Node 20, tests, typecheck, Android 35 build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out exact main commit into a clean worktree
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 1
+          clean: true
+
+      - name: Verify exact clean source and reclaim runner space
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p validation
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$TARGET_SHA"
+          git reset --hard "$TARGET_SHA"
+          git clean -ffdx
+          test -z "$(git status --porcelain)"
+          git fetch origin main --depth=1
+          test "$(git rev-parse origin/main)" = "$TARGET_SHA"
+          printf 'ref=main\nsha=%s\nrun=%s/%s/actions/runs/%s\n' \
+            "$actual" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+            | tee validation/target.txt
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY/CodeQL" || true
+          df -h | tee validation/disk-initial.txt
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35, NDK, CMake and native tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bzip2 ninja-build unzip zip
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-${ANDROID_API_LEVEL}" \
+            "build-tools;${BUILD_TOOLS_VERSION}" \
+            "ndk;${NDK_VERSION}" \
+            "cmake;${CMAKE_VERSION}" \
+            2>&1 | tee validation/sdk-install.log
+          echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          if [[ -d "${ANDROID_HOME}/ndk" ]]; then
+            find "${ANDROID_HOME}/ndk" -mindepth 1 -maxdepth 1 -type d ! -name "${NDK_VERSION}" -print -exec sudo rm -rf {} + || true
+          fi
+          if [[ -d "${ANDROID_HOME}/cmake" ]]; then
+            find "${ANDROID_HOME}/cmake" -mindepth 1 -maxdepth 1 -type d ! -name "${CMAKE_VERSION}" -print -exec sudo rm -rf {} + || true
+          fi
+          df -h | tee validation/disk-after-sdk.txt
+
+      - name: Record toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "java=$(java -version 2>&1 | head -n 1)"
+            echo "javac=$(javac -version 2>&1)"
+            echo "android_home=${ANDROID_HOME}"
+            echo "android_sdk_root=${ANDROID_SDK_ROOT}"
+            echo "android_ndk_home=${ANDROID_NDK_HOME}"
+            echo "cmake=$(${ANDROID_HOME}/cmake/${CMAKE_VERSION}/bin/cmake --version | head -n 1)"
+            echo "ninja=$(${ANDROID_HOME}/cmake/${CMAKE_VERSION}/bin/ninja --version)"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "image_os=${ImageOS:-unknown}"
+            echo "image_version=${ImageVersion:-unknown}"
+          } | tee validation/toolchain.txt
+
+      - name: Install locked dependencies
+        shell: bash
+        run: |
+          set -o pipefail
+          npm ci 2>&1 | tee validation/npm-ci.log
+
+      - name: Run complete host suite
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee validation/npm-test.log
+
+      - name: Run TypeScript typecheck
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee validation/typecheck.log
+
+      - name: Build Android debug APK
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee validation/android-build.log
+          df -h | tee validation/disk-after-build.txt
+
+      - name: Inspect APK and private-data boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$(find platforms/android/app/build/outputs/apk -type f -name '*.apk' | sort | head -n 1)"
+          if [[ -z "$apk" || ! -f "$apk" ]]; then
+            echo "No APK found under platforms/android/app/build/outputs/apk" >&2
+            exit 1
+          fi
+          zip -T "$apk" | tee validation/apk-zip-test.txt
+          zipinfo -1 "$apk" > validation/apk-contents.txt
+          if grep -Eiq '(^|/)(secrets\.local|ground-truth-private|\.even-jwt|faceclaw_settings\.xml|hermes_g2_settings\.xml)(/|$)' validation/apk-contents.txt; then
+            echo "A prohibited private-data path appeared in the APK" >&2
+            grep -Ei '(^|/)(secrets\.local|ground-truth-private|\.even-jwt|faceclaw_settings\.xml|hermes_g2_settings\.xml)(/|$)' validation/apk-contents.txt >&2
+            exit 1
+          fi
+          sha256sum "$apk" | tee validation/apk-sha256.txt
+          stat -c 'path=%n%nsize_bytes=%s' "$apk" | tee validation/apk-size.txt
+          "${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/aapt" dump badging "$apk" \
+            | head -n 30 | tee validation/apk-badging.txt
+          git diff --check
+          git status --short --ignored | tee validation/git-status-after-build.txt
+          git fetch origin main --depth=1
+          test "$(git rev-parse origin/main)" = "$TARGET_SHA"
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '# Fresh-checkout release gate'
+            echo
+            echo "- Target: \`main@$TARGET_SHA\`"
+            echo "- Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+            if [[ -f validation/npm-test.log ]]; then
+              echo '## Test summary'
+              echo
+              echo '```text'
+              grep -E '^# (tests|suites|pass|fail|cancelled|skipped|todo|duration_ms) ' validation/npm-test.log || true
+              echo '```'
+            fi
+            if [[ -f validation/apk-sha256.txt ]]; then
+              echo
+              echo '## APK'
+              echo
+              echo '```text'
+              cat validation/apk-sha256.txt
+              cat validation/apk-size.txt
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload logs and debug APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-checkout-release-gate-${{ env.TARGET_SHA }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            validation/
+            platforms/android/app/build/outputs/apk/**/*.apk
