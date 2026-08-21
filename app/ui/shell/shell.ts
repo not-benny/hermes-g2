@@ -109,7 +109,9 @@ export type ShellConfig = {
   /** Actions handed to shell overlay layers; requestRender must re-render the shell surface. */
   actions: LayerActions;
   getScreenTimeoutMs: () => number | null;
-  requestShellRender: () => void;
+  requestShellRender: () => void | Promise<void>;
+  /** True only while a real glasses transport/session can accept frames. */
+  isDisplayAvailable?: () => boolean;
   /** Screen on/off changed: the controller blanks/unblanks the compositor. */
   onScreenStateChanged: (on: boolean) => void;
   /** Window registered/removed or foreground changed (persists the open-app list). */
@@ -1248,14 +1250,23 @@ class Shell {
   }
 
   /** Show a brief text popup on the lenses (assistant show_alert / notices). */
-  showAlert(text: string): void {
-    if (!this.screenOn) this.wake("sidebar");
+  async showAlert(text: string): Promise<void> {
+    if (!this.screenOn) throw new Error("The glasses display is off; no alert was sent.");
+    if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
+      throw new Error("The glasses are disconnected; no alert was sent.");
+    }
     const layer = new ShellAlertLayer(text, () => {
       this.stack.popIfTop((top) => top === layer);
       this.config.requestShellRender();
     });
     this.stack.push(layer);
-    this.config.requestShellRender();
+    try {
+      await this.config.requestShellRender();
+    } catch (error) {
+      this.stack.popIfTop((top) => top === layer);
+      try { await this.config.requestShellRender(); } catch { /* preserve transport error */ }
+      throw error;
+    }
   }
 
   private startEscapeMenuTimer(): void {

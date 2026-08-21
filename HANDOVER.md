@@ -73,16 +73,20 @@ working tree:
   publication** and operational authorization remains **NO-GO**; no render implementation, publication,
   or hardware claim was added.
 - **MCP display safety hardening:** added a pure display-text policy and focused
- tests. `glasses.show_alert` now enforces a 160-character inert-text bound,
- rejects control characters/markup/URLs, and fails closed when the display is
- unavailable. Proactive bridge actions now default off. Added
- `docs/mcp-glasses-display.md` with configuration, privacy, troubleshooting,
- disable/rollback, and honest hardware-evidence limits. This does not close the
+  tests. `glasses.show_alert` now enforces a 160-character inert-text bound,
+  rejects control characters/markup/URLs, rejects off/disconnected sessions,
+  awaits the real shell transport result, and removes the alert on compositor
+  failure instead of reporting false success. Behavioral tests cover rejected
+  content, privacy-sensitive sentinels, unavailable display, transport failure,
+  and ordinary success. Proactive bridge actions now default off. Added
+  `docs/mcp-glasses-display.md` with configuration, privacy, troubleshooting,
+  disable/rollback, and honest hardware-evidence limits. This does not close the
  secure transport, turn-generation, idempotency, licensing, generic-client, or
  real-G2 publication gates.
 
-Verification for this hardening candidate: focused display/MCP/registry/in-process
-checks pass 13/13; the full repository run reports 147 passed and 2 known
+Verification for this hardening candidate: focused display handler checks pass
+4/4; prior MCP/registry/in-process checks pass 13/13; the full repository run
+still reports 147 passed and 2 known
 date-sensitive ring activity failures at `tests/ring-health-store.test.mjs:158`
 and `:190`. TypeScript typechecking passed, and a debug Android build completed
 with Android SDK 35 and JDK 21 at

@@ -221,6 +221,7 @@ class DashboardController {
   private lastSys = "none yet";
   private shellRenderInProgress = false;
   private shellRenderQueued = false;
+  private shellRenderPromise: Promise<void> | null = null;
   private nextShellRenderWantsFreshData = false;
   // One shared worker per app hosts all its windows; spawned on first launch.
   private readonly appHosts = new Map<string, WorkerAppHost>();
@@ -273,6 +274,7 @@ class DashboardController {
       },
       getScreenTimeoutMs: () => screenTimeoutSettingToMs(screenTimeoutSetting.get()),
       requestShellRender: () => this.requestShellRender(),
+      isDisplayAvailable: () => this.isDisplayAvailable(),
       onWindowsChanged: () => this.persistOpenApps(),
       onHealthHiddenChanged: (hidden) => saveHealthTabHidden(hidden),
       onScreenStateChanged: (on) => {
@@ -312,6 +314,11 @@ class DashboardController {
     // connection stays up (with re-dial) so proactive tool calls work
     // outside voice turns.
     this.syncAssistantBridge();
+  }
+
+  /** A local shell flag is not device availability; require the live session. */
+  isDisplayAvailable(): boolean {
+    return this.phase === "connected" && this.communicator !== null;
   }
 
   // Bridge settings changes re-dial the connection; unrelated setting changes
@@ -1782,13 +1789,13 @@ class DashboardController {
    * overlays). Coalesces like requestRender: one render in flight, at most
    * one queued.
    */
-  requestShellRender(): void {
+  requestShellRender(): Promise<void> {
     if (this.shellRenderInProgress) {
       this.shellRenderQueued = true;
-      return;
+      return this.shellRenderPromise ?? Promise.resolve();
     }
     this.shellRenderInProgress = true;
-    void (async () => {
+    this.shellRenderPromise = (async () => {
       try {
         do {
           this.shellRenderQueued = false;
@@ -1796,10 +1803,13 @@ class DashboardController {
         } while (this.shellRenderQueued);
       } catch (error) {
         this.appendLog(`shell render failed: ${this.formatError(error)}`);
+        throw error;
       } finally {
         this.shellRenderInProgress = false;
+        this.shellRenderPromise = null;
       }
     })();
+    return this.shellRenderPromise;
   }
 
   private async renderShell(): Promise<void> {
@@ -1819,9 +1829,9 @@ class DashboardController {
       this.nextShellRenderWantsFreshData = true;
       this.requestShellRender();
     }
-    if (!this.communicator || this.phase === "charging") {
+    if (!this.communicator || this.phase !== "connected") {
       frameTimings.finishFrame(frameId, "discarded: shell render with no active connection");
-      return;
+      throw new Error("The glasses session became unavailable before the alert was sent.");
     }
     const fingerprint = frameTimings.span(frameId, "fingerprint", () => image.fingerprint());
     const buffer = frameTimings.span(frameId, "to8bpp", () => image.to8bppBuffer());

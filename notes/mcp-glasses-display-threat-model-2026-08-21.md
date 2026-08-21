@@ -128,9 +128,10 @@ malicious users.
 | Android | Manifest allows cleartext, backup, broad storage/package/location/audio/calendar/Bluetooth and related permissions. | Least-privilege review, scoped storage/backup decision, and user-visible permission/privacy behavior. |
 | Sibling bridge | Shared token/plaintext WebSocket that may bind non-loopback; 10 s hello timeout, 120 s turn timeout, and 20 s MCP caller timeout; persistent OpenClaw session; caller-only deadlines do not cancel handlers. | Secure/replay-safe implementation, license authority, and generic-client/adapter evidence. |
 
-In particular, a clipped tail in the HUD is only a presentation limit. Current
-alert and streamed-reply inputs are not bounded before they are retained,
-serialized, or passed to the compositor.
+In particular, a clipped tail in the HUD is only a presentation limit. Alert
+input is now bounded before shell retention and delivery; streamed-reply input
+still is not bounded before it is retained, serialized, or passed to the
+compositor.
 
 ## Threat register
 

@@ -2,7 +2,8 @@ import { readUpcomingEvents, type CalendarEvent } from "../native/calendar";
 import { mediaControllerBridge } from "../native/media-controller";
 import { dismissNotification, readActiveNotifications } from "../native/notification-icons";
 import { shell } from "../ui/shell/shell";
-import { MAX_ALERT_TEXT_LENGTH, validateDisplayText } from "./display-policy";
+import { MAX_ALERT_TEXT_LENGTH } from "./display-policy";
+import { createShowAlertHandler } from "./display-alert-handler";
 import { toolRegistry, type ToolRegistry, type ToolResult } from "./tool-registry";
 
 /**
@@ -14,11 +15,11 @@ import { toolRegistry, type ToolRegistry, type ToolResult } from "./tool-registr
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-let registered = false;
+const registeredRegistries = new WeakSet<ToolRegistry>();
 
 export function registerSystemTools(registry: ToolRegistry = toolRegistry): void {
-  if (registered) return;
-  registered = true;
+  if (registeredRegistries.has(registry)) return;
+  registeredRegistries.add(registry);
 
   // Keep a media listener warm so "what's playing" works without opening Music.
   void mediaControllerBridge.start();
@@ -47,13 +48,10 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
       },
       proactive: true,
     },
-    (args) => {
-      const text = validateDisplayText(args?.text);
-      if (!text) return err("show_alert requires bounded plain text (no markup, URLs, or control characters)");
-      if (!shell.isScreenOn()) return err("The glasses display is unavailable; no alert was sent.");
-      shell.showAlert(text);
-      return ok("Displayed.");
-    },
+    createShowAlertHandler({
+      isScreenOn: () => shell.isScreenOn(),
+      showAlert: (text) => shell.showAlert(text),
+    }),
   );
 
   registry.registerSystemTool(
