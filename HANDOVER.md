@@ -2,10 +2,14 @@
 
 ## BLE callback identity gate (2026-08-21)
 
-Candidate branch: `wt/t_5e85b756`; implementation commit is
-`993139f859964fec3aa4a408a5c9abb94a0bb501`; the exact frozen review HEAD is
-`bd5c4a1b8fc8e0d1891da01f2212a0a9646d02b3`. The tree is clean and committed,
-the branch is local-only and unpushed, and no PR has been opened.
+Delivered branch: `wt/t_5e85b756`; implementation commit is
+`993139f859964fec3aa4a408a5c9abb94a0bb501`; the GPT-5.6 Sol medium-effort
+approved review HEAD and GitHub PR head are
+`4258fc1649016eb0c5f04d1d6241b7c325f7cdb1`. PR #6 is open against
+`hermes-g2`: https://github.com/not-benny/hermes-g2/pull/6. The delivered
+commit is pushed without force. This handover update is intentionally local
+until the changed commit receives a fresh review; no hardware reconnect
+interleaving was exercised and operational verification remains NO-GO.
 
 FaceclawBleManager now carries the source BluetoothGatt through both
 characteristic-change callback overloads and rejects callbacks whose object is
