@@ -54,7 +54,9 @@ The operator must mark each checkpoint below `GO: <record ID>` immediately befor
 acting. If the record does not name the exact action and data scope, stop and
 mark the affected rows BLOCKED; do not infer permission from a broader GO.
 
-- **G0 — prerequisites and build:** before static checks/build; build-only scope,
+- **G0 — prerequisites and build:** after only passive collection of the reviewed
+  commit, Node version, package version, and tool availability; before `npm ci`,
+  tests, typecheck, Android build, or APK hashing. This is build-only scope with
   no device discovery or install.
 - **G0R — artifact re-confirmation:** after the build/hash/package is recorded and
   before any device action; authorizer re-signs the exact artifact.
@@ -68,10 +70,13 @@ mark the affected rows BLOCKED; do not infer permission from a broader GO.
 
 ## 2. Prerequisites and version record
 
-Complete the static prerequisites before G0. Use the reviewed clean commit, Node
-20 or newer, and the package version from `package.json`. Run the repository
-checks below on the reviewed commit. The Android build requires SDK 35 and JDK
-21; use the paths shown rather than JDK 26.
+Before G0, collect only passive facts: the reviewed clean commit, Node version,
+package version from `package.json`, and whether the required tools are present.
+After the authorizer records G0, run `npm ci`, the repository checks, Android
+build, and APK hash below on that exact commit. The Android build requires SDK
+35 and JDK 21; use the paths shown rather than JDK 26. Record the resulting hash
+and package/version, obtain G0R, and only then proceed to G1; G1 is forbidden on
+the initial build-only GO.
 
 ```text
 Reviewed commit / branch:
@@ -225,10 +230,11 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 - Checkpoint: G3 for the authorized calendar call, G5 for UI evidence.
 - Setup: authorized direct provider and disposable fixture; no unrelated tools.
 - Exact action: type `Show my upcoming calendar events within 24 hours`, permit
-  exactly `calendar.list_events({"within_hours":24,"max_events":10})`, and
-  tap the rendered `Cancel` control while the status is `Thinking...` only in a
-  separately authorized second run. Do not claim a tool-iteration or timeout
-  boundary from this row.
+  exactly `calendar.list_events({"within_hours":24,"max_events":10})`. In a
+  separately authorized cancellation run, while the assistant shows
+  `Thinking...`, perform one glasses double-click; this is the implemented
+  cancel gesture (there is no tappable Cancel control). Do not claim a
+  tool-iteration or timeout boundary from this row.
 - Expected request/response: the authorized calendar call completes, or the
   second run cancels the in-flight request without a hanging continuation; tool
   activity uses the canonical name. This row does not verify the internal turn
@@ -248,9 +254,12 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 - Setup: voice master and voice action enabled; skip-confirmation OFF; authorized
   disposable fixture/provider if calendar is requested.
 - Exact action: say `Hey Hermes`, wait for capture, say exactly `Show my
-  HERMES_G2_QA_<TRACE> calendar events today`, then tap `Send` on the normal
-  confirmation control (or tap `Cancel` and record the separately authorized
-  cancellation path).
+  HERMES_G2_QA_<TRACE> calendar events today`, then issue the implemented
+  capture-ending click. In the resulting menu, leave the highlight on the
+  `Send to Assistant` row (scroll to it if needed) and click once to select it.
+  For the separately authorized cancellation path, double-click during capture
+  to dismiss, or in the menu scroll to `Discard` and click once; do not use a
+  nonexistent Send/Cancel tap target.
 - Expected request/response: wakeword opens capture; utterance is not sent until
   the normal confirmation action; only authorized tool/provider calls occur.
 - Expected phone/lens UI: capture state, confirmation UI, then assistant status
