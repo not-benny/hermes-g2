@@ -1553,8 +1553,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         } else {
             synchronized (lock) {
                 lease.dispatchIfCurrent(ignored ->
-                    onConnectionStateChange(address, connected);
-                );
+                    onConnectionStateChange(address, connected));
             }
         }
     }
