@@ -38,8 +38,9 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   preserves the reviewed PR #3/#4/#6/#7/#8/#9 histories while integrating their
   overlapping health, app-tool, GATT, direct-R1, teardown, packetAck, and release
   work once. Host tests, typecheck, JDK21/SDK35 Android build, and safe USB A32
-  G2/R1 startup/read-path checks pass on code commit `666065e6`; independent
-  frozen-SHA review and remote PR readback remain required. PR #1 and #2 were fast-forwarded to reviewed
+  G2/R1 startup/read-path checks pass; the first independent review's four BLE
+  blockers were fixed at code commit `c4609642`. Exact-SHA re-review and remote
+  PR readback remain required. PR #1 and #2 were fast-forwarded to reviewed
   heads. Broad PR #5 is closed; focused docs-only replacement PR #10 excludes the
   rejected asynchronous wake-barrier implementation. Do not merge or close the
   overlapping preserved PRs until the canonical remote successor is verified.

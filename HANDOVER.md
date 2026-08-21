@@ -4,7 +4,7 @@
 
 The former PR #1-#9 queue is being consolidated without rewriting reviewed history.
 The canonical integration branch is `integration/t_30a956f8`; its final pre-review
-code commit is `666065e6cedd02a083a5cf5dcca33722122f9f16` (the first integrated
+code commit is `c4609642025a950f8833bc6c1e10e4d288723576` (the first integrated
 implementation freeze was `49c865e7eff398e4de0c76ccc25507b7b74a518f`). The branch is based on
 `origin/hermes-g2@ae89fd5e398a78ce9a7d00c66a47d92d02812319` and retains the reviewed
 commits by merge ancestry while resolving overlapping health, assistant-tool, GATT,
@@ -88,7 +88,11 @@ direct-R1, teardown, packetAck, and release work once.
 - `git diff --check`: passed before the documentation commit.
 - Android JDK 21 / SDK 35 build: passed after full Java compilation; debug APK at
   `platforms/android/app/build/outputs/apk/debug/app-debug.apk`.
-- Independent adversarial review: required on the final frozen SHA before push.
+- Independent adversarial review: the first frozen review found dispatch-gate/
+  ring-lock inversion, callback-thread blocking, early-disconnect double-close,
+  and delayed ring-connect publication blockers. Those were corrected in
+  `2577a838`/`c4609642`; focused 39/39, full 225/225, typecheck, and the Android
+  build pass afterward. A second exact-SHA adversarial review is required before push.
 - Hardware: the 335,803,763-byte debug APK installed successfully over USB on the
   configured Samsung A32 and launched as PID 26465. Package-filtered logs showed
   both G2 arms CONNECTED, prelude ACK, `session ready`, direct R1 CONNECTED,
@@ -96,8 +100,11 @@ direct-R1, teardown, packetAck, and release work once.
   successful read-only health GET writes, and heartbeat ACKs. No communicator-loop
   error or Android fatal exception appeared in the bounded capture. The R1 lacks
   the optional standard battery characteristic, which remained a safe diagnostic.
-  This proves startup/connect/read-path operation, not every stale-callback or
-  concurrent teardown interleaving.
+  The final `c4609642` APK was then reinstalled and relaunched: one transient
+  status-133 left-arm attempt retired and retried, followed by both arms ready,
+  direct R1 ready, health/device-info responses, and heartbeat ACKs with no fatal
+  or communicator-loop error. This proves startup/retry/connect/read-path behavior,
+  but not every stale-callback or concurrent teardown interleaving.
 
 Static review: PENDING — final frozen SHA has not yet completed independent review.
 Operational authorization: LIMITED GO for the observed non-destructive startup and
