@@ -181,7 +181,7 @@ export class RenderViewManager {
   private readonly acceptedAtMs: number[] = [];
   private readonly events: RenderViewEvent[] = [];
   private eventSequence = 0;
-  private pendingIdentity: { viewId: string; revision: number; cancelled: boolean } | null = null;
+  private pendingIdentity: { viewId: string; revision: number; ownerKey: string; cancelled: boolean } | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly now: () => number;
   private readonly setTimer: (callback: () => void, delayMs: number) => TimerHandle;
@@ -240,7 +240,7 @@ export class RenderViewManager {
       expiresAtMs: now + spec.ttl_seconds * 1000,
     };
     if (!VIEW_ID_PATTERN.test(candidate.viewId)) return { ok: false, error: "Secure view identity generation failed" };
-    const pendingIdentity = { viewId: candidate.viewId, revision: candidate.revision, cancelled: false };
+    const pendingIdentity = { viewId: candidate.viewId, revision: candidate.revision, ownerKey: owner, cancelled: false };
     this.pendingIdentity = pendingIdentity;
     try {
       await this.deps.render(candidate, signal, () => !signal?.aborted && (!isAllowed || isAllowed()));
@@ -306,24 +306,30 @@ export class RenderViewManager {
 
   closeOwner(context: ToolExecutionContext | undefined): void {
     const owner = ownerKey(context);
-    if (!owner || this.current?.ownerKey !== owner) return;
-    this.closeExact(this.current.viewId, this.current.revision);
+    if (!owner) return;
+    if (this.pendingIdentity?.ownerKey === owner) this.cancelPending(this.pendingIdentity);
+    if (this.current?.ownerKey === owner) this.closeExact(this.current.viewId, this.current.revision);
   }
 
   closeOwnerKey(owner: string): void {
+    if (this.pendingIdentity?.ownerKey === owner) this.cancelPending(this.pendingIdentity);
     if (this.current?.ownerKey === owner) this.closeExact(this.current.viewId, this.current.revision);
   }
 
   closeView(viewId: string, revision: number): void {
     const pending = this.pendingIdentity;
     if (pending && pending.viewId === viewId && pending.revision === revision) {
-      if (pending.cancelled) return;
-      pending.cancelled = true;
-      if (this.current) this.closeExact(this.current.viewId, this.current.revision);
-      this.deps.clear({ viewId, revision });
+      this.cancelPending(pending);
       return;
     }
     this.closeExact(viewId, revision);
+  }
+
+  private cancelPending(pending: { viewId: string; revision: number; ownerKey: string; cancelled: boolean }): void {
+    if (pending.cancelled) return;
+    pending.cancelled = true;
+    if (this.current?.ownerKey === pending.ownerKey) this.closeExact(this.current.viewId, this.current.revision);
+    this.deps.clear({ viewId: pending.viewId, revision: pending.revision });
   }
 
   private armTimer(state: RenderViewState): void {

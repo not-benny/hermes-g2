@@ -173,3 +173,29 @@ test("many updates cannot evict the create idempotency tombstone", async () => {
   assert.deepEqual(await manager.render(args, undefined, () => true, owner), created);
   assert.equal(manager.snapshot(), null);
 });
+
+test("owner disconnect during update clears committed and pending revisions", async () => {
+  let manager;
+  const clears = [];
+  let renders = 0;
+  manager = new RenderViewManager({
+    isDisplayAvailable: () => true,
+    createId: () => "opaque-view-id-0001",
+    clear: (identity) => clears.push(identity),
+    render: async () => {
+      renders++;
+      if (renders === 2) manager.closeOwner({ caller: "mcp", connectionGeneration: "connection-1", turnGeneration: null });
+    },
+    setTimer: () => 1, clearTimer: () => {},
+  });
+  await manager.render({ operation_id: "create", spec: baseSpec }, undefined, () => true, owner);
+  const result = await manager.render({ operation_id: "update", spec: {
+    ...baseSpec, view_id: "opaque-view-id-0001", expected_revision: 1,
+  } }, undefined, () => true, owner);
+  assert.equal(result.ok, false);
+  assert.equal(manager.snapshot(), null);
+  assert.deepEqual(clears, [
+    { viewId: "opaque-view-id-0001", revision: 1 },
+    { viewId: "opaque-view-id-0001", revision: 2 },
+  ]);
+});
