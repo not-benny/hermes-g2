@@ -65,18 +65,17 @@ test("listener delivery carries exact GATT and is serialized against retirement"
   assert.match(readFileSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleListener.java", import.meta.url), "utf8"), /default void onNotification\(BluetoothGatt gatt/);
 });
 
-test("communicator retires state before requesting manager teardown", () => {
+test("communicator retires state before synchronously requesting manager teardown", () => {
   const communicator = readFileSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url), "utf8");
   const failure = methodBodyFrom(communicator, "private void hardTransportFailure(String reason)");
   const stateClose = failure.indexOf("clearAllMessagesLocked");
   const rightDisconnect = failure.indexOf("bleManager.disconnect(rightAddress)");
   const lockClose = failure.indexOf("}\n        // Complete communicator state retirement");
-  const post = failure.indexOf("mainHandler.post(() -> {");
   assert.ok(stateClose >= 0);
   assert.ok(rightDisconnect > stateClose);
   assert.ok(lockClose >= 0, "manager teardown must follow the communicator monitor");
-  assert.ok(lockClose < post);
-  assert.ok(post < rightDisconnect);
+  assert.ok(!failure.includes("mainHandler.post"), "teardown must not be delayed by an unversioned runnable");
+  assert.ok(lockClose < rightDisconnect);
 });
 
 test("every production listener consumes the exact-GATT boundary", () => {
