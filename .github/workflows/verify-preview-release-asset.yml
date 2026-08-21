@@ -1,0 +1,84 @@
+name: Verify published development-preview asset
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-hermes-g2-preview-1-release-asset
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  RELEASE_TAG: v1.0.0-preview.1
+  SOURCE_SHA: 24274cfa5a076618afdb2306b880623aa4a94abe
+  RELEASE_ASSET: Hermes-G2-v1.0.0-preview.1-debug.apk
+  EXPECTED_APK_SHA256: 03143d502175e0f0cfce5b0022ee3263aa85bc8d48bc4cdc710133de621908f2
+  EXPECTED_APK_SIZE: "335831435"
+
+jobs:
+  verify-release-readback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository and fetch tag
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify prerelease metadata and tag target
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags origin
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$SOURCE_SHA"
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isPrerelease,isDraft,url,assets \
+            > release.json
+          test "$(jq -r '.tagName' release.json)" = "$RELEASE_TAG"
+          test "$(jq -r '.isPrerelease' release.json)" = "true"
+          test "$(jq -r '.isDraft' release.json)" = "false"
+          jq -e --arg name "$RELEASE_ASSET" '.assets[] | select(.name == $name)' release.json >/dev/null
+          jq -e --arg name "$RELEASE_ASSET.sha256" '.assets[] | select(.name == $name)' release.json >/dev/null
+
+      - name: Download the published assets from the release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-readback
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$RELEASE_ASSET" \
+            --dir release-readback
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$RELEASE_ASSET.sha256" \
+            --dir release-readback
+
+      - name: Verify checksum, size and archive integrity after publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-readback
+          test "$(sha256sum "$RELEASE_ASSET" | awk '{print $1}')" = "$EXPECTED_APK_SHA256"
+          test "$(stat -c '%s' "$RELEASE_ASSET")" = "$EXPECTED_APK_SIZE"
+          grep -Fx "$EXPECTED_APK_SHA256  $RELEASE_ASSET" "$RELEASE_ASSET.sha256"
+          sha256sum -c "$RELEASE_ASSET.sha256"
+          zip -T "$RELEASE_ASSET"
+          {
+            echo '# Published release asset read-back'
+            echo
+            echo "- Release: $(jq -r '.url' ../release.json)"
+            echo "- Tag target: \`$SOURCE_SHA\`"
+            echo "- Asset: \`$RELEASE_ASSET\`"
+            echo "- Size: \`$EXPECTED_APK_SIZE\` bytes"
+            echo "- SHA-256: \`$EXPECTED_APK_SHA256\`"
+            echo '- Result: downloaded release asset, checksum file and ZIP integrity all passed'
+          } >> "$GITHUB_STEP_SUMMARY"
