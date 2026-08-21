@@ -4,10 +4,14 @@
 
 The focused PR #6 successor deliberately propagates opaque, generation-specific
 app-tool leases through the registry, in-process adapter, and worker windows.
-Stale or repeated teardown cannot remove a same-windowId replacement; current
-teardown restores fallback tools and emits one change. Focused registry/
-in-process tests pass on this frozen stack. Full typecheck remains blocked by
-inherited NativeScript ambient errors; no APK or hardware verification applies.
+Stale or repeated teardown cannot remove a same-windowId replacement; replacing
+an open worker window releases its still-current lease before installing the new
+lifecycle state, including when the replacement closes before declaring tools.
+Focused registry/in-process tests pass on this frozen stack. `npm run typecheck`
+passes, and configured `npm run build` passes with
+`platforms/android/app/build/outputs/apk/debug/app-debug.apk` produced. No APK
+was installed and no hardware verification was needed for this registry
+lifecycle change.
 
 ## BLE callback identity gate (2026-08-21)
 
