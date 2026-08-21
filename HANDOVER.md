@@ -181,16 +181,17 @@ pull the log + the Even app's built-in health-data export zip, and validate.
 
 - Candidate branch: `work/t_2c2d05f9-inprocess-tools-rework`, replacement frozen
   commit chain `4b99bb8` (implementation), `8ba024d` (behavioral coverage),
-  and the final handover/verification commit (HEAD), based on
+  and `d5ddd67` (focus-change notifications), based on
   `origin/hermes-g2@ae89fd5e398a78ce9a7d00c66a47d92d02812319`. The in-process
   window adapter accepts optional unprefixed `open`/`foreground` declarations,
   uses the shared `ToolRegistry`, prefixes names as `app.<appId>.*`, and checks
-  the live shell foreground window at list and call time.
+  checks the live shell foreground window at list and call time. Focus changes
+  notify the registry so clients refresh foreground-tool availability.
 - Closing a window removes its registration once before existing layer, app, and
   surface cleanup; the registry's same-name fallback remains available. The
   behavioral contract test exercises listing, foreground gating, direct
   invocation, notifications, unknown-after-close behavior, and fallback.
-- Verification: focused `node --test tests/in-process-surface.test.mjs
+- Verification (frozen at `d5ddd67`): focused `node --test tests/in-process-surface.test.mjs
   tests/tool-registry.test.mjs` passes 8/8; `npm run typecheck` passes; Android
   JDK 21 / SDK debug `npm run build` passes. `npm run test` runs 145 tests,
   143 pass, with two existing date-gated activity failures in
