@@ -39,7 +39,8 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   overlapping health, app-tool, GATT, direct-R1, teardown, packetAck, and release
   work once. Host tests, typecheck, JDK21/SDK35 Android build, and safe USB A32
   G2/R1 startup/read-path checks pass; the first independent review's four BLE
-  blockers were fixed at code commit `c4609642`. Exact-SHA re-review and remote
+  blockers and two re-review races were fixed through code commit `329af655`.
+  Exact-SHA re-review and remote
   PR readback remain required. PR #1 and #2 were fast-forwarded to reviewed
   heads. Broad PR #5 is closed; focused docs-only replacement PR #10 excludes the
   rejected asynchronous wake-barrier implementation. Do not merge or close the

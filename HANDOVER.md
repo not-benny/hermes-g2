@@ -4,7 +4,7 @@
 
 The former PR #1-#9 queue is being consolidated without rewriting reviewed history.
 The canonical integration branch is `integration/t_30a956f8`; its final pre-review
-code commit is `c4609642025a950f8833bc6c1e10e4d288723576` (the first integrated
+code commit is `329af655ae4848a6eabae14e598ffcc2788308ea` (the first integrated
 implementation freeze was `49c865e7eff398e4de0c76ccc25507b7b74a518f`). The branch is based on
 `origin/hermes-g2@ae89fd5e398a78ce9a7d00c66a47d92d02812319` and retains the reviewed
 commits by merge ancestry while resolving overlapping health, assistant-tool, GATT,
@@ -80,9 +80,9 @@ direct-R1, teardown, packetAck, and release work once.
 
 ## Verification on the integrated code commit
 
-- Focused BLE/lifecycle suite: 39/39 passed:
+- Focused BLE/lifecycle suite: 40/40 passed:
   `node --test tests/gatt-callback-registry.test.mjs tests/gatt-callback-identity.test.mjs tests/gatt-callback-dispatch.test.mjs tests/ring-worker-isolation.test.mjs tests/ring-worker-lifecycle.test.mjs tests/communicator-teardown.test.mjs tests/ring-frame.test.mjs tests/ring-packetack-lifecycle.test.mjs`.
-- Full host suite: `npm run test` passed 225/225.
+- Full host suite: `npm run test` passed 226/226.
 - TypeScript: `npm run typecheck` passed after resolving four integration-only
   launch-wrapper signature errors.
 - `git diff --check`: passed before the documentation commit.
@@ -91,8 +91,11 @@ direct-R1, teardown, packetAck, and release work once.
 - Independent adversarial review: the first frozen review found dispatch-gate/
   ring-lock inversion, callback-thread blocking, early-disconnect double-close,
   and delayed ring-connect publication blockers. Those were corrected in
-  `2577a838`/`c4609642`; focused 39/39, full 225/225, typecheck, and the Android
-  build pass afterward. A second exact-SHA adversarial review is required before push.
+  `2577a838`/`c4609642`. Re-review then found non-atomic glasses-generation
+  publication and timeout-retirement ownership gaps; `329af655` adds a shared
+  generation lock, timeout-boundary completion rechecks, and exact retirement-owned
+  close. Focused 40/40, full 226/226, typecheck, and Android build pass afterward.
+  A final exact-SHA adversarial review is required before push.
 - Hardware: the 335,803,763-byte debug APK installed successfully over USB on the
   configured Samsung A32 and launched as PID 26465. Package-filtered logs showed
   both G2 arms CONNECTED, prelude ACK, `session ready`, direct R1 CONNECTED,
@@ -100,13 +103,14 @@ direct-R1, teardown, packetAck, and release work once.
   successful read-only health GET writes, and heartbeat ACKs. No communicator-loop
   error or Android fatal exception appeared in the bounded capture. The R1 lacks
   the optional standard battery characteristic, which remained a safe diagnostic.
-  The final `c4609642` APK was then reinstalled and relaunched: one transient
+  The `c4609642` APK was reinstalled and relaunched: one transient
   status-133 left-arm attempt retired and retried, followed by both arms ready,
   direct R1 ready, health/device-info responses, and heartbeat ACKs with no fatal
   or communicator-loop error. This proves startup/retry/connect/read-path behavior,
   but not every stale-callback or concurrent teardown interleaving.
 
-Static review: PENDING — final frozen SHA has not yet completed independent review.
+Static review: PENDING — final `329af655` code plus this documentation freeze has
+not yet completed independent re-review.
 Operational authorization: LIMITED GO for the observed non-destructive startup and
 read-only G2/R1 path; NO-GO for unexercised stale-callback/concurrent-teardown cases.
 Firmware/DFU authorization: NO-GO / DO NOT BUILD — no firmware, pairing ownership,
