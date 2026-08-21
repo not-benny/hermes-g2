@@ -90,8 +90,11 @@ Independent adversarial review passed exact implementation SHA
 with no remaining blocker, and privacy/safety review PASS. Operational authorization remains
 NO-GO for anchored persistence because that exact end-to-end hardware row was not observed;
 firmware/DFU/OTA, pairing/provisioning, recovery, reset, wipe, and private capture/publication
-remain NO-GO. The only post-review change is this HANDOVER/ROADMAP state update. GitHub delivery
-and remote readback remain pending at this checkpoint.
+remain NO-GO. The post-review changes are limited to HANDOVER/ROADMAP state updates. The
+candidate was delivered by non-force fast-forward to canonical PR #11 head branch
+`integration/t_30a956f8`; remote readback at `03c8046f44e95496ace147e88669afb0bd4bce7e`
+confirmed OPEN, non-draft, base `hermes-g2`, head `integration/t_30a956f8`, MERGEABLE, the
+intended R1 files/body/title, and no reported status checks or formal review decision.
 
 ## Integrated behavior
 
@@ -208,7 +211,7 @@ CI logs, or public artifacts.
 
 ## Next action
 
-Deliver the exact independently approved R1 implementation plus this documentation-only state
-update to canonical PR #11 and read back its remote identity/files/body/checks. Keep cmd=6 sleep
-separately parked until correlated same-night evidence exists. Do not expand pairing, ownership,
-NVM, recovery, firmware, reset, wipe, or private-data publication authorization.
+Review and merge canonical PR #11 when ready; GitHub currently reports no status checks, so local
+verification remains the evidence. Keep cmd=6 sleep separately parked until correlated same-night
+evidence exists. Do not expand pairing, ownership, NVM, recovery, firmware, reset, wipe, or
+private-data publication authorization.
