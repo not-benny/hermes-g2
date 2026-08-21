@@ -10,8 +10,8 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 - Local rework branch `work/t_535a9f1f-ring-worker-rework` now has candidate
   commits `0accf5f`, `0475383`, `abd7787`, `680dbf1`, `aaef1af`, and callback
-  identity/dispatch fixes `9671839`, `f0f4892`, `a46cb12`, and `58bd941` (not
-  pushed; no PR).
+  identity/dispatch fixes `9671839`, `f0f4892`, `a46cb12`, `58bd941`, and
+  `8330e9b` (not pushed; no PR).
   Every optional direct-R1 connect,
   discovery/MTU/subscription wait, battery read, health poll, packetAck drain,
   and ring write runs on the single `FaceclawRingLink` worker. The glasses
@@ -81,6 +81,17 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
   log callbacks also drop retired generations. PacketAck cursors retain the
   accepted generation instead of adopting a replacement session. The source
   contract now rejects transitive lock nesting and stale downstream dispatch.
+- A seventh independent review found the same transitive `ringLock` -> display
+  `lock` edge in the exact-GATT direct-R1 connection callback: the guarded
+  overload called the legacy disconnect handler while still holding
+  `ringLock`, and its battery snapshot acquired the display lock. `8330e9b`
+  now claims the exact-GATT token and updates only generation-bound ring
+  lifecycle state under `ringLock`, then releases it before battery snapshot,
+  logging, listener delivery, or ring-worker wake. Connected and disconnected
+  post-lock delivery revalidates stopping/running/generation state; battery and
+  log main-thread callbacks also reject retired generations. A precise
+  transitive source regression covers both connection states while preserving
+  the glasses framebuffer-release callback path.
 - Final rework verification on `58bd941`: callback concurrency plus focused ring
   contracts 21/21 and full suite 152/152 passed; `npm run typecheck` passed after
   linking the existing ignored dependency tree into the isolated worktree; and
@@ -144,15 +155,38 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
   logs. Raw output is untracked at
   `/tmp/t_535a9f1f-sixth-review-final-logcat.txt`; it may contain MAC/health data
   and must not be committed or published.
+- Seventh-review verification on `8330e9b`: callback-inclusive focused tests
+  passed 22/22, the full suite passed 153/153, and `npm run typecheck` passed.
+  The first incremental NativeScript build reported success but retained the
+  preceding APK; hardware worker-start logs exposed the stale artifact. After
+  an explicit Gradle clean, the required JDK 21 / Android SDK 35 build compiled
+  Java and passed. The canonical APK is
+  `platforms/android/app/build/outputs/apk/debug/app-debug.apk` (335,763,275
+  bytes, SHA-256
+  `07830540335b0bf948e4d7494ac5981d35261011b96e030395f02738a1c03e3d`).
+  `git diff --check` passed and the added-line secret/injection/eval/unsafe
+  deserialization scan found zero matches.
+- That clean final APK installed successfully on the USB A32. Runtime showed
+  exactly one display worker (TID 7930, `FaceclawBleComm`) and one dedicated
+  ring worker (TID 7933, `FaceclawRingLin`). Four natural direct-R1 connection
+  failures lasted 2.550-2.571 seconds on the ring TID; frame #5 completed on a
+  separate GATT/display path inside the first 2.558-second failure interval.
+  A later safe force-stop/relaunch retry reached direct-R1 ready with MTU 247,
+  both notification subscriptions, ten CRC-valid read-only responses, and one
+  full health poll. The app remained alive with no fatal exception or incomplete
+  teardown log. Sanitized summary evidence is in this handover; raw MAC/health
+  logs remain untracked under `/tmp/t_535a9f1f-seventh-review-clean-*.txt` and
+  must not be committed or published.
 - No timeout was fabricated and no pairing/ownership, permission, MAC,
   firmware/DFU, reset, power, or destructive operation was attempted; Even
   Bluetooth remained revoked. The MAC/raw-health log remains untracked under
   `/tmp` and must not be committed.
-- Review state: six GPT-5.6 Sol medium-effort reviews requested lifecycle,
+- Review state: seven GPT-5.6 Sol medium-effort reviews requested lifecycle,
   atomic ring-side-effect, stale-GATT callback, cross-lock dispatch, and queued
-  teardown-notification plus transitive-lock rework. `680dbf1`, `aaef1af`,
-  `9671839`, `f0f4892`, `a46cb12`, and `58bd941` address those findings
-  respectively; the new frozen candidate is pending mandatory re-review. Only a
+  teardown-notification plus notification/connection transitive-lock rework.
+  `680dbf1`, `aaef1af`, `9671839`, `f0f4892`, `a46cb12`, `58bd941`, and
+  `8330e9b` address those findings respectively; the new frozen candidate is
+  pending mandatory re-review. Only a
   reviewer-created delivery card may authorize push/PR. Remaining latency
   siblings are the non-blocking wake barrier and shorter `waitForFrameFinished`.
 
