@@ -271,16 +271,20 @@ pull the log + the Even app's built-in health-data export zip, and validate.
 - Suggestion 1 is the ring-health reverse-engineering material under
   **Protocol and Reverse Engineering**. Intended public link:
   `https://github.com/not-benny/hermes-g2/tree/main/docs/ring-health`.
-  The local source is the ring-health protocol/research work in
-  `notes/ring-health-protocol-2026-08-19.md`; the public snapshot was intended
-  to expose it under `docs/ring-health/`. Suggested entry name is the project's
-  real public name, with a concise description of the R1 ring-health BLE
-  protocol reverse engineering and scrubbed examples.
+  The concrete scrubbed submission artifact is
+  `docs/ring-health/{README.md,capture-method.md,ring-frame-decoder.py}` on
+  `origin/main` at `f60bf48138e6e259ddf6d9d6b783a588c4f59ccb`; those files were
+  added in historical commit `af0362519045c1006c587b78738d7b1337c402b7`.
+  The current task ancestry's `notes/ring-health-protocol-2026-08-19.md` is a
+  working note containing private/raw-evidence references and is not the
+  publication source. Exact proposed entry:
+  `- [Hermes G2 Ring Health](https://github.com/not-benny/hermes-g2/tree/main/docs/ring-health) - Reverse-engineered R1 ring-health BLE protocol documentation with capture methods and a self-testing frame decoder.`
 - Suggestion 2 is **Hermes G2** under **AI and Agent Integrations**:
   `https://github.com/not-benny/hermes-g2`. Intended description: an unofficial
   Android companion for Even Realities G2 glasses, built around Hermes Agent,
   with voice interaction, notifications, media, navigation, terminal mirroring,
-  and R1/glasses controls.
+  and R1/glasses controls. Exact proposed entry:
+  `- [Hermes G2](https://github.com/not-benny/hermes-g2) - Unofficial Android companion for Even Realities G2 glasses, built around Hermes Agent, with voice interaction, notifications, media, navigation, terminal mirroring, and R1/glasses controls.`
 - The contributor fork exists at
   `https://github.com/not-benny/awesome-even-realities-g2`. Its only branch is
   `main` at `9c7ae1b`; no topic branch, draft commit, or persisted two-entry
