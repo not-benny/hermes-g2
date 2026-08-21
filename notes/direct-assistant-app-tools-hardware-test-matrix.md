@@ -5,13 +5,22 @@ ADB execution has been performed from this document. A test row is not evidence
 until its authorization checkpoint is recorded and the row is run on the named
 hardware.
 
-## 1. Authorization gate (GO required)
+## 1. Authorization gate (two-stage GO required)
 
 Assignment, task unblock, device presence, or a connected service is never
-operational authorization. Before any discovery, query, wake, install, launch,
-logcat, screenshot, microphone/wakeword action, calendar read, provider call,
-g2mirror query, or Terminal input, obtain a separately recorded GO. Copy this
-record, fill it in, and have the authorizer approve it before proceeding.
+operational authorization. Use two separately recorded approvals:
+
+1. **G0 build-only authorization:** approve static checks and the Android build
+   at one exact clean source commit. This approval authorizes no device
+   discovery, query, install, launch, logcat, screenshot, microphone/wakeword
+   action, calendar read, provider call, g2mirror query, or Terminal input.
+2. **Re-confirmed operational GO:** after the static build, compute the exact APK
+   SHA-256 and package/version, update the record below, and have the authorizer
+   re-confirm/sign it. Only this re-confirmed GO can authorize G1 and later
+   checkpoints. G1 cannot proceed on the initial build-only GO. Installed
+   package/version is recorded only after the authorized installation.
+
+Copy this record, fill it in, and obtain the applicable signature before acting.
 
 ```text
 GO record ID / TRACE: HERMES_G2_QA_<TRACE>
@@ -19,8 +28,12 @@ Authorizer and approval time (UTC):
 Operator:
 Named phone: model / Android version / ADB serial:
 Named G2: identity / firmware / pairing state:
-Hermes source commit SHA:
-APK SHA-256 and package/version (record only after GO):
+Hermes source commit SHA (exact clean commit approved at G0):
+G0 build-only approval / signature and time (no device actions authorized):
+Built APK path:
+Exact APK SHA-256 (computed after G0, before G1):
+APK package/version (built artifact, before G1):
+Operational GO re-confirmation/signature after hash/package review:
 Allowed ADB actions (exact install, launch, stop, logcat, screenshot commands):
 Allowed wakeword/microphone actions (voice master, voice action, confirmation changes):
 Calendar fixture: disposable local QA calendar name; synthetic title set:
@@ -34,14 +47,17 @@ Expiry (UTC):
 Explicit exclusions: no reset, wipe, firmware, DFU, pairing or ownership change,
 no destructive BLE, no Even-app re-pairing, no credential disclosure, and no
 unrelated sessions, tools, commands, data, or terminal output.
-GO decision / signature:
+GO decision / signature (operational GO only; G1 is forbidden without it):
 ```
 
 The operator must mark each checkpoint below `GO: <record ID>` immediately before
 acting. If the record does not name the exact action and data scope, stop and
 mark the affected rows BLOCKED; do not infer permission from a broader GO.
 
-- **G0 — prerequisites and build:** before any device discovery or install.
+- **G0 — prerequisites and build:** before static checks/build; build-only scope,
+  no device discovery or install.
+- **G0R — artifact re-confirmation:** after the build/hash/package is recorded and
+  before any device action; authorizer re-signs the exact artifact.
 - **G1 — phone/app setup:** before ADB install, launch, logcat, or screenshots.
 - **G2 — wakeword/mic:** before changing voice settings or speaking a wakeword.
 - **G3 — calendar:** before calendar permission, fixture reads, or provider calls.
@@ -68,7 +84,7 @@ Calendar permission state:
 g2mirror revision/connectivity:
 Phone OS/model (after G1):
 G2 firmware (after G1):
-APK path and SHA-256 (after G1; compute, do not copy keys/tokens):
+APK path and SHA-256 (computed after G0 and re-approved at G0R):
 Installed package/version (after G1):
 ```
 
@@ -128,9 +144,12 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 
 - Checkpoint: G1, then G3, then G5 for evidence.
 - Setup: authorized debug APK installed; voice master/action enabled; disposable
-  calendar contains synthetic trace-derived titles at known ordered times.
-- Exact action: ask the direct assistant for upcoming calendar events within the
-  authorized window; permit `calendar.list_events` with bounded arguments.
+  calendar contains `HERMES_G2_QA_<TRACE> earliest` at recorded test start +1h
+  and `HERMES_G2_QA_<TRACE> later` at recorded test start +3h, with no other
+  fields. Record the resulting exact ISO timestamps in the run record.
+- Exact action: type `Show my upcoming calendar events within 24 hours`, and
+  when the provider requests the tool, permit exactly
+  `calendar.list_events({"within_hours":24,"max_events":10})`.
 - Expected request/response: provider receives only the authorized prompt and
   calendar tool result; request shape is `{within_hours?, max_events?}` and the
   tool returns ordered events or explicit empty success.
@@ -145,8 +164,9 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 #### DA-02 — empty calendar fixture
 
 - Checkpoint: G3 before reading the empty disposable fixture; G5 before evidence.
-- Setup: authorized fixture has no upcoming events in the selected window.
-- Exact action: request upcoming events with an authorized bounded window.
+- Setup: authorized fixture is empty for the next 24 hours.
+- Exact action: type `List my upcoming calendar events in the next 24 hours`,
+  then permit exactly `calendar.list_events({"within_hours":24,"max_events":10})`.
 - Expected request/response: `calendar.list_events` returns `No upcoming events
   in that window.`; direct mode completes without inventing events.
 - Expected phone/lens UI: canonical tool status, concise no-events response,
@@ -160,11 +180,20 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 - Checkpoint: G3 explicitly names permission revocation and G5 evidence.
 - Setup: use only the disposable fixture; deny or remove calendar permission as
   authorized. Do not alter unrelated permissions.
-- Exact action: request upcoming events.
-- Expected request/response: a bounded, user-visible calendar error; no event
-  data is returned or sent to the provider.
-- Expected phone/lens UI: canonical tool activity followed by a concise error,
-  no stale prior event content, and no crash.
+- Exact action: after permission is denied, type `List my upcoming calendar
+  events in the next 24 hours`, then permit exactly
+  `calendar.list_events({"within_hours":24,"max_events":10})`.
+- Expected request/response: **known current limitation / expected FAIL**:
+  `app/native/calendar.ts` returns `[]` for absent permission, missing context,
+  and provider/parse exceptions, and `calendar.list_events` consequently
+  returns the same `No upcoming events in that window.` success as DA-02. No
+  event data should be returned. The desired future behavior is a distinct,
+  user-visible error; it is not current behavior and requires an implementation
+  issue before this row can PASS.
+- Expected phone/lens UI: current implementation will show canonical tool
+  activity followed by the indistinguishable no-events success, with no stale
+  event content or crash. Mark FAIL with the limitation unless the issue is
+  fixed and the distinct error is observed.
 - Safe data: permission state and synthetic fixture only.
 - Evidence: redacted error/tool trace and authorized screenshot.
 - Verdict: PASS/FAIL per shared record.
@@ -174,8 +203,13 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 - Checkpoint: G3 and G5.
 - Setup: synthetic events straddle the window, include equal/nearby start times,
   and exceed the requested count.
-- Exact action: issue authorized requests at low, high, and out-of-range values
-  for `within_hours` and `max_events`.
+- Exact action: permit these exact tool calls, one at a time: (a)
+  `calendar.list_events({"within_hours":0.5,"max_events":0})`, expecting
+  effective values 1 hour and 1 event; (b)
+  `calendar.list_events({"within_hours":2000,"max_events":100})`, expecting
+  effective values 1440 hours and 50 events; and (c)
+  `calendar.list_events({"within_hours":24,"max_events":2})` to verify
+  ordering/count against the fixture.
 - Expected request/response: `within_hours` is clamped to 1..1440 hours and
   `max_events` to 1..50; results are ordered by start time and never exceed the
   bound. No malformed argument causes an unbounded read.
@@ -186,15 +220,19 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
   boundary case.
 - Verdict: PASS/FAIL per shared record.
 
-#### DA-05 — direct assistant turn/tool UI and timeout boundary
+#### DA-05 — direct assistant turn/tool UI and cancellation
 
 - Checkpoint: G3 for the authorized calendar call, G5 for UI evidence.
 - Setup: authorized direct provider and disposable fixture; no unrelated tools.
-- Exact action: complete one calendar turn and, only if separately authorized,
-  cancel a thinking turn with the documented UI gesture.
-- Expected request/response: tools are re-listed each loop iteration; tool
-  activity uses the canonical name; the direct loop stops at its turn cap and
-  handles errors without hanging.
+- Exact action: type `Show my upcoming calendar events within 24 hours`, permit
+  exactly `calendar.list_events({"within_hours":24,"max_events":10})`, and
+  tap the rendered `Cancel` control while the status is `Thinking...` only in a
+  separately authorized second run. Do not claim a tool-iteration or timeout
+  boundary from this row.
+- Expected request/response: the authorized calendar call completes, or the
+  second run cancels the in-flight request without a hanging continuation; tool
+  activity uses the canonical name. This row does not verify the internal turn
+  cap.
 - Expected phone/lens UI: `Thinking...`, `→ <tool>`, streamed tail, error when
   applicable, then Follow-up/Done; no clipped or duplicated stale response.
 - Safe data: synthetic prompt and calendar result.
@@ -209,8 +247,10 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
   calendar request; G5 for recording evidence.
 - Setup: voice master and voice action enabled; skip-confirmation OFF; authorized
   disposable fixture/provider if calendar is requested.
-- Exact action: speak the authorized wakeword and utterance; confirm/send through
-  the normal flow.
+- Exact action: say `Hey Hermes`, wait for capture, say exactly `Show my
+  HERMES_G2_QA_<TRACE> calendar events today`, then tap `Send` on the normal
+  confirmation control (or tap `Cancel` and record the separately authorized
+  cancellation path).
 - Expected request/response: wakeword opens capture; utterance is not sent until
   the normal confirmation action; only authorized tool/provider calls occur.
 - Expected phone/lens UI: capture state, confirmation UI, then assistant status
@@ -223,7 +263,8 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 
 - Checkpoint: G2 explicitly names auto-send; G3/provider scope if applicable; G5.
 - Setup: voice master/action enabled and skip-confirmation ON.
-- Exact action: speak the authorized wakeword and synthetic request.
+- Exact action: with skip-confirmation ON, say `Hey Hermes`, then exactly
+  `Show my HERMES_G2_QA_<TRACE> calendar events today`; do not tap Send.
 - Expected request/response: capture auto-sends after wakeword without a manual
   confirmation; request stays within the GO data scope.
 - Expected phone/lens UI: wake/capture, `Thinking...`, tool status if used, and
@@ -237,7 +278,9 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 - Checkpoint: G2 explicitly names the setting changes and wakeword attempt; G5.
 - Setup: voice master OFF, then separately voice action OFF as authorized; no
   calendar/provider scope is needed because no request should be sent.
-- Exact action: speak the authorized wakeword/utterance in each state.
+- Exact action: in each separately recorded state, say `Hey Hermes`, then
+  exactly `Show my HERMES_G2_QA_<TRACE> calendar events today`; do not tap any
+  confirmation control.
 - Expected request/response: input is ignored; no capture, provider, calendar,
   or assistant turn starts.
 - Expected phone/lens UI: unchanged/idle state and no assistant overlay.
