@@ -968,7 +968,7 @@ class DashboardController {
   }
 
   async connect(): Promise<void> {
-    if (this.phase !== "disconnected") return;
+    if (this.phase !== "disconnected" || this.communicator !== null) return;
 
     const addresses = loadDeviceAddresses();
     if (!addresses.right || !addresses.left) {
@@ -1016,6 +1016,7 @@ class DashboardController {
         this.appendLog(line);
       });
       this.offState = communicator.onStateChange((state) => {
+        if (this.communicator !== communicator) return;
         const mappedPhase =
           state.phase === "connected"
             ? "connected"

@@ -1,5 +1,11 @@
 # Hermes G2 handover (2026-08-21)
 
+## Glasses startup connection race fixed (2026-08-21)
+
+ADB reproduction on the USB A32 showed the native transport reaching `session ready`, accepting image ACKs, and talking to both CFW 2.2.8.4 arms while the phone UI incorrectly reverted to `Disconnected.`. The native communicator posts its initial idle state asynchronously when its listener is attached; that stale callback arrived during `DashboardController.connect()`, rolled the controller back to disconnected, and allowed later connect actions to create overlapping communicators. The bridge now drops only that first idle replay, the controller refuses a second communicator while one exists, and stale callbacks are identity-gated.
+
+Verification: the regression test was observed RED then GREEN; `npm test` passes 160/160, `npm run typecheck` passes, and the Android debug build passes with JDK 21 / SDK 35. The exact APK installed on USB A32 `RFCR707RQGV`; a clean launch produced one native communicator, zero duplicate ACKs, zero transport failures, phone UI `Connected.`, CFW capability readback, image ACKs, and a ready direct-R1 link. The brief blank display afterward was the existing screen-off blank/suspend lifecycle (`blanked:640x480`, then `EvenHub session suspended while screen is off`), not a BLE failure; normal wake restored it.
+
 ## WhatsApp pairing options evaluation (2026-08-21)
 
 Added `notes/whatsapp-pairing-options-2026-08.md`. The safe recommendation is to

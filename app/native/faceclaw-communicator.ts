@@ -1,5 +1,6 @@
 import { ImageSource, Utils } from "@nativescript/core";
 import * as frameTimings from "./frame-timings";
+import { InitialCommunicatorStateGate } from "./communicator-state-gate";
 
 declare const com: any;
 
@@ -138,6 +139,7 @@ function bytesFromHex(hexData: string): Uint8Array | null {
 export class FaceclawCommunicatorBridge {
   private readonly communicator: any;
   private readonly listenerProxy: any;
+  private readonly initialStateGate = new InitialCommunicatorStateGate();
   private javaCallQueue: Promise<void> = Promise.resolve();
   private readonly frameMetricWaiters = new Set<(metrics: FrameMetrics) => void>();
   // Recent frame-finished outcomes from the Java side, so waitForFrameFinished
@@ -175,6 +177,7 @@ export class FaceclawCommunicatorBridge {
         this.emitAsync(this.logListeners, String(line));
       },
       onStateChange: (phase: string, status: string) => {
+        if (!this.initialStateGate.accept(String(phase))) return;
         const state = {
           phase: String(phase) as CommunicatorPhase,
           status: String(status),
