@@ -270,8 +270,12 @@ export class ToolRegistry {
         }
         pending.add(controller);
       }
+      const handlerResult = registration.handler(args, controller.signal, options.isTurnGenerationActive);
+      // A handler can synchronously close its window during setup. The timeout
+      // wrapper has not subscribed yet, so cancel before installing it.
+      if (!this.isLive(registration)) controller.abort();
       const result = await this.withTimeout(
-        registration.handler(args, controller.signal, options.isTurnGenerationActive),
+        handlerResult,
         timeoutMs,
         name,
         controller,
@@ -337,6 +341,8 @@ export class ToolRegistry {
         resolve({ ok: false, error: `Tool ${name} timed out after ${timeoutMs}ms` });
       }, timeoutMs);
       controller?.signal.addEventListener("abort", abort, { once: true });
+      if (controller?.signal.aborted) abort();
+      if (settled) return;
       result.then(
         (value) => {
           if (settled) return;

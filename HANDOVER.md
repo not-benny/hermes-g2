@@ -2,19 +2,21 @@
 
 ## In-process call cancellation successor (2026-08-21)
 
-Focused successor branch `fix/t284b41e4-pr6` is based exactly on the preserved
-PR #6 successor head `91ac94465a4796704d3131b365b6b9838b49e211` (base
-`bf59c2b7f7ddfa36a93c5fd45e8eeeae6e37f77c`) and currently ends at local commit
-`57e8955c56c135f06913942509a241847a37fe74`. It adds lease-scoped pending-call
+Focused successor branch `fix/t284b41e4-pr6-r2` is based exactly on the reviewed
+candidate `2e2068fd917eb58fcda4567811fdedbf9aebf6d0`, whose implementation
+commit is `57e8955c56c135f06913942509a241847a37fe74` and whose preserved base is
+`bf59c2b7f7ddfa36a93c5fd45e8eeeae6e37f77c`. This continuation adds listener
+cleanup and synchronous-close cancellation to the existing lease-scoped
+pending-call
 abort, generation liveness/side-effect revalidation, and deferred-call plus
 same-ID replacement regressions in `app/assistant/tool-registry.ts`,
 `app/assistant/in-process-tool-adapter.ts`, and
 `tests/in-process-surface.test.mjs`. The candidate is local only: nothing was
 pushed and no PR was opened or updated.
 
-Verification: focused in-process/registry tests pass 12/12; full `npm run test`
-passes 165/165; changed-file standalone TypeScript check and `git diff --check`
-pass. Repository `npm run typecheck` fails on 35 inherited NativeScript
+Prior-candidate verification: focused in-process/registry tests pass 12/12;
+full `npm run test` passes 165/165; changed-file standalone TypeScript check and
+`git diff --check` pass. Repository `npm run typecheck` fails on 35 inherited NativeScript
 Android/AndroidX/Java/`Array.create` diagnostics outside changed files. The
 configured Android build reaches webpack then fails on the same 35 inherited
 diagnostics (exit 127); no APK was produced or installed. Final independent

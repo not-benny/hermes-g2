@@ -143,3 +143,53 @@ test("stale cleanup cannot abort an in-flight replacement generation", async () 
   assert.equal(replacementAborted, false);
   removeNew();
 });
+
+test("synchronous close cancels before timeout and completed calls release merged listeners", async () => {
+  const registryUrl = dataUrl(transpile(read("app/assistant/tool-registry.ts")));
+  const adapterJs = transpile(read("app/assistant/in-process-tool-adapter.ts"))
+    .replace('"./tool-registry"', JSON.stringify(registryUrl));
+  const { ToolRegistry } = await import(registryUrl);
+  const { registerInProcessTools } = await import(dataUrl(adapterJs));
+  const registry = new ToolRegistry();
+  const spec = { name: "setup", description: "setup", inputSchema: { type: "object", properties: {}, additionalProperties: false }, availability: "open" };
+  let remove;
+  let signal;
+  remove = registerInProcessTools(registry, "setup-window", "demo", {
+    specs: [spec],
+    invoke: (_name, _args, received) => {
+      signal = received;
+      remove();
+      return new Promise(() => {});
+    },
+  }, () => true);
+  const started = Date.now();
+  const result = await registry.callTool("app.demo.setup", {});
+  assert.ok(Date.now() - started < 1000);
+  assert.equal(signal.aborted, true);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /cancel|available/i);
+
+  let adds = 0;
+  let removes = 0;
+  const originalAdd = AbortSignal.prototype.addEventListener;
+  const originalRemove = AbortSignal.prototype.removeEventListener;
+  AbortSignal.prototype.addEventListener = function (...args) {
+    adds++;
+    return originalAdd.apply(this, args);
+  };
+  AbortSignal.prototype.removeEventListener = function (...args) {
+    removes++;
+    return originalRemove.apply(this, args);
+  };
+  try {
+    const secondRemove = registerInProcessTools(registry, "listener-window", "demo", {
+      specs: [spec], invoke: () => ({ ok: true, content: "done" }),
+    }, () => true);
+    for (let i = 0; i < 25; i++) assert.equal((await registry.callTool("app.demo.setup", {})).ok, true);
+    secondRemove();
+  } finally {
+    AbortSignal.prototype.addEventListener = originalAdd;
+    AbortSignal.prototype.removeEventListener = originalRemove;
+  }
+  assert.equal(adds, removes);
+});

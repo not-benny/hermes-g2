@@ -20,8 +20,14 @@ export function registerInProcessTools(
     windowId,
     appId,
     specs: tools.specs,
-    invoke: (toolName, args, signal, isSideEffectAllowed) =>
-      tools.invoke(toolName, args, mergeAbortSignals(signal, generation.signal), isSideEffectAllowed),
+    invoke: async (toolName, args, signal, isSideEffectAllowed) => {
+      const merged = mergeAbortSignals(signal, generation.signal);
+      try {
+        return await tools.invoke(toolName, args, merged.signal, isSideEffectAllowed);
+      } finally {
+        merged.dispose();
+      }
+    },
     isForeground,
     isGenerationActive: () => active,
   });
@@ -33,13 +39,20 @@ export function registerInProcessTools(
   };
 }
 
-function mergeAbortSignals(first: AbortSignal, second: AbortSignal): AbortSignal {
+function mergeAbortSignals(first: AbortSignal, second: AbortSignal): { signal: AbortSignal; dispose: () => void } {
   const controller = new AbortController();
   const abort = () => controller.abort();
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    first.removeEventListener("abort", abort);
+    second.removeEventListener("abort", abort);
+  };
   if (first.aborted || second.aborted) controller.abort();
   else {
     first.addEventListener("abort", abort, { once: true });
     second.addEventListener("abort", abort, { once: true });
   }
-  return controller.signal;
+  return { signal: controller.signal, dispose };
 }
