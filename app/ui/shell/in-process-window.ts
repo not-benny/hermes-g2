@@ -8,7 +8,8 @@ import { windowIcon } from "./chrome-layer";
 import { type IconName } from "../../graphics/icons";
 import { appViewportSize, windowDefaultHeightMode, type WindowHeightMode } from "./geometry";
 import { shell, type ShellWindow } from "./shell";
-import { toolRegistry, type ToolResult, type ToolSpec } from "../../assistant/tool-registry";
+import { toolRegistry } from "../../assistant/tool-registry";
+import { registerInProcessTools, type InProcessTools } from "../../assistant/in-process-tool-adapter";
 
 /**
  * A window whose app logic runs on the main thread (launcher, settings):
@@ -41,10 +42,7 @@ export type InProcessWindowOptions = {
   removeSurface?: () => void;
   onClosed?: () => void;
   /** Optional tools contributed while this in-process window is open. */
-  tools?: {
-    specs: ToolSpec[];
-    invoke: (toolName: string, args: unknown) => Promise<ToolResult> | ToolResult;
-  };
+  tools?: InProcessTools;
 };
 
 export type InProcessWindow = {
@@ -105,6 +103,13 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
   // requires fresh data (same contract as the dashboard render loop).
   let nextRenderWantsFreshData = false;
   let closed = false;
+  const removeTools = registerInProcessTools(
+    toolRegistry,
+    options.windowId,
+    options.appId,
+    options.tools,
+    () => shell.foregroundWindow()?.windowId === options.windowId,
+  );
 
   async function render(frameId: number): Promise<void> {
     if (closed) {
@@ -180,7 +185,7 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
     close: () => {
       if (closed) return;
       closed = true;
-      toolRegistry.removeAppTools(options.windowId);
+      removeTools();
       // Fire onRemoved for any pushed layers so they release resources (e.g. a
       // demo that enabled a hardware stream) even when closed from within.
       stack.clearToBase();
@@ -205,15 +210,6 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
       options.setSurfaceVisible(foreground);
     },
   };
-  if (options.tools) {
-    toolRegistry.setAppTools({
-      windowId: options.windowId,
-      appId: options.appId,
-      specs: options.tools.specs,
-      invoke: options.tools.invoke,
-      isForeground: () => shell.foregroundWindow()?.windowId === options.windowId,
-    });
-  }
   return { window, stack, requestRender, markSurfaceReady };
 }
 

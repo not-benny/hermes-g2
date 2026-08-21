@@ -176,3 +176,18 @@ pull the log + the Even app's built-in health-data export zip, and validate.
 - Even app: disable-don't-uninstall (it owns pairing/firmware/ground-truth). Keep its
   Bluetooth revoked; re-enable on demand only, then re-revoke.
 - Never commit `ground-truth-private/`, the Even API JWT, or raw health captures.
+
+## 8. Direct in-process assistant tool registration (local review candidate)
+
+- Candidate branch: `work/t_2c2d05f9-inprocess-tools-rework`, based on
+  `origin/hermes-g2@ae89fd5e398a78ce9a7d00c66a47d92d02812319`. The in-process
+  window adapter accepts optional unprefixed `open`/`foreground` declarations,
+  uses the shared `ToolRegistry`, prefixes names as `app.<appId>.*`, and checks
+  the live shell foreground window at list and call time.
+- Closing a window removes its registration once before existing layer, app, and
+  surface cleanup; the registry's same-name fallback remains available. The
+  behavioral contract test exercises listing, foreground gating, direct
+  invocation, notifications, unknown-after-close behavior, and fallback.
+- Verification is pending on the frozen candidate commit. No hardware, BLE,
+  firmware, pairing, reset, wipe, or other destructive operation was used; no
+  push or PR is authorized until independent `g2-reviewer` approval.
