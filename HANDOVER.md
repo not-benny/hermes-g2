@@ -3,16 +3,16 @@
 ## Delivery state (2026-08-21)
 
 The GPT-5.6 Sol medium-effort review-approved direct-R1 worker isolation
-candidate is published unchanged at
-`work/t_535a9f1f-ring-worker-rework`, remote HEAD
+implementation is published unchanged in PR #7 against `hermes-g2` from
+`work/t_535a9f1f-ring-worker-rework`, at implementation SHA
 `1dc65327ef33284877d3d9658ebc354b77cbbc2a`. Pull request:
-https://github.com/not-benny/hermes-g2/pull/7 against `hermes-g2`.
+https://github.com/not-benny/hermes-g2/pull/7.
 GitHub reports the PR open with a clean merge state; no CI checks were reported
 at delivery time. Local verification and safe Samsung A32 evidence remain as
 recorded below; no destructive BLE, pairing, ownership, firmware, reset, power,
-wipe, or private-evidence publication occurred. The delivery-state documentation
-commit is intentionally separate from the frozen reviewed implementation and
-must not be pushed without a fresh review of that documentation-only change.
+wipe, or private-evidence publication occurred. Any later handover updates are
+documentation-only follow-ups separate from the frozen reviewed implementation
+and do not change the approved implementation SHA.
 
 A snapshot of project state, what was accomplished, what is pending, and how to
 pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
@@ -205,7 +205,9 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
   was approved by GPT-5.6 Sol medium-effort review and published unchanged at
   `1dc65327ef33284877d3d9658ebc354b77cbbc2a` on PR #7 against `hermes-g2`.
   Remaining latency siblings are the non-blocking wake barrier and shorter
-  `waitForFrameFinished`.
+  `waitForFrameFinished`. The approved implementation is published unchanged
+  at `1dc65327ef33284877d3d9658ebc354b77cbbc2a` on PR #7; subsequent handover
+  edits are documentation-only and separate from that implementation.
 
 Seven self-contained items were completed on the `hermes-g2` branch/current
 working tree:
