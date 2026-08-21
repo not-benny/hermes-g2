@@ -3,17 +3,22 @@
 ## Latest hardening continuation (2026-08-21)
 
 The display/MCP safety follow-up now adds exact-turn-generation revalidation at
-the display handler boundary, abort-aware alert delivery, generic remote errors,
-generation-bound compositor waits, best-effort non-throwing ordinary shell
-renders, and identity-safe replace-only shell alerts. Android backups are
+the display handler boundary, cancellation propagation through system tools into
+alert delivery, post-delivery turn checks, generation-bound compositor waits,
+best-effort non-throwing ordinary shell renders, and identity-safe replace-only
+shell alerts with owner-specific delivery receipts. Android backups are
 disabled and cleartext bridge traffic is blocked by the manifest; the available
 sibling bridge has no verified compatible WSS/server-proof path, so external
 operation remains NO-GO. No credentials, personal data, hardware claims, or
 publication authorization were added.
 
 Verification for this continuation: focused MCP/registry/display tests pass
-16/16, `npm run typecheck` passes, and `git diff --check` passes. The Android
-debug build passes with JDK 21/SDK 35. Real G2 lens
+17/17, `npm run typecheck` passes, and `git diff --check` passes. The Android
+debug build passes with JDK 21/SDK 35. The full `npm test` run is 154/156;
+the two known date-sensitive activity failures remain at
+`tests/ring-health-store.test.mjs:158` and `:190`. The debug APK installed and
+launched on USB Samsung A32 `RFCR707RQGV`; package-filtered startup logs show
+normal NativeScript startup plus standard platform warnings. Real G2 lens
 transport and secure bridge verification remain unavailable/not performed;
 A32-only app launch evidence must not be read as glasses-display evidence.
 

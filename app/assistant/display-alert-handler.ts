@@ -17,6 +17,9 @@ export function createShowAlertHandler(deps: DisplayAlertDependencies): ToolHand
     }
     try {
       await deps.showAlert(text, signal);
+      if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
+        return { ok: false, error: "The authorizing assistant turn is no longer active; no success was reported." };
+      }
       return { ok: true, content: "Displayed." };
     } catch (error) {
       return { ok: false, error: "The glasses could not display the alert; no success was reported." };

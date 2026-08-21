@@ -73,3 +73,23 @@ test("show_alert handler revalidates cancellation before the display side effect
   assert.equal(cancelled.ok, false);
   assert.equal(calls, 0);
 });
+
+test("show_alert forwards cancellation to the delivery boundary", async () => {
+  const controller = new AbortController();
+  let receivedSignal;
+  let release;
+  const handler = createShowAlertHandler({
+    isScreenOn: () => true,
+    showAlert: async (_text, signal) => {
+      receivedSignal = signal;
+      await new Promise((resolve) => { release = resolve; });
+    },
+  });
+  const pending = handler({ text: "Battery 80%" }, controller.signal, () => true);
+  while (!release) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(receivedSignal, controller.signal);
+  controller.abort();
+  release();
+  const result = await pending;
+  assert.equal(result.ok, false);
+});

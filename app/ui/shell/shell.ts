@@ -111,7 +111,7 @@ export type ShellConfig = {
   getScreenTimeoutMs: () => number | null;
   requestShellRender: () => void | Promise<void>;
   /** Awaited delivery path for operations that must prove lens transport success. */
-  requestShellDelivery?: () => Promise<void>;
+  requestShellDelivery?: (isAllowed?: () => boolean) => Promise<void>;
   /** True only while a real glasses transport/session can accept frames. */
   isDisplayAvailable?: () => boolean;
   /** Screen on/off changed: the controller blanks/unblanks the compositor. */
@@ -253,6 +253,7 @@ class Shell {
   private musicCardWokeScreen = false;
   private assistantLayer: AssistantLayer | null = null;
   private alertLayer: ShellAlertLayer | null = null;
+  private alertRevision = 0;
   private escapeMenuTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly actions: LayerActions = { ...noopActions };
   private config: ShellConfig = {
@@ -1259,8 +1260,10 @@ class Shell {
     if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
       throw new Error("The glasses are disconnected; no alert was sent.");
     }
+    const revision = ++this.alertRevision;
     if (this.alertLayer) this.stack.remove(this.alertLayer);
     let layer: ShellAlertLayer;
+    const isOwner = () => this.alertRevision === revision && this.alertLayer === layer;
     layer = new ShellAlertLayer(text, () => {
       this.stack.remove(layer);
       if (this.alertLayer === layer) this.alertLayer = null;
@@ -1268,14 +1271,29 @@ class Shell {
     });
     this.alertLayer = layer;
     this.stack.push(layer);
+    let abortReject: ((reason?: unknown) => void) | null = null;
+    const abortPromise = signal
+      ? new Promise<void>((_resolve, reject) => { abortReject = reject; })
+      : null;
+    const onAbort = () => abortReject?.(new Error("The alert operation was cancelled; no alert was sent."));
     try {
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) onAbort();
       if (signal?.aborted) throw new Error("The alert operation was cancelled; no alert was sent.");
-      await (this.config.requestShellDelivery?.() ?? Promise.resolve(this.config.requestShellRender()));
+      const delivery = this.config.requestShellDelivery
+        ? this.config.requestShellDelivery(isOwner)
+        : Promise.resolve(this.config.requestShellRender());
+      await (abortPromise ? Promise.race([delivery, abortPromise]) : delivery);
+      if (!isOwner() || signal?.aborted) {
+        throw new Error("The alert operation was superseded or cancelled; no alert was sent.");
+      }
     } catch (error) {
       this.stack.remove(layer);
       if (this.alertLayer === layer) this.alertLayer = null;
       try { await this.config.requestShellRender(); } catch { /* preserve transport error */ }
       throw error;
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
     }
   }
 

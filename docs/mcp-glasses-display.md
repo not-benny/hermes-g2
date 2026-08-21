@@ -11,8 +11,10 @@ authorization remain NO-GO until the gates in
 - `glasses.show_alert` accepts at most 160 characters of inert plain text. It
   rejects control characters, markup delimiters, and URLs. It never wakes an
   unavailable/off display, and reports success only after the shell transport
-  completion boundary. Transport completion is not evidence that pixels reached
-  real G2 lenses.
+  completion boundary. Cancellation, stale-turn invalidation, and replacement
+  invalidate the alert owner and prevent a later queued frame from being
+  reported as that call's success. Transport completion is not evidence that
+  pixels reached real G2 lenses.
 - The bridge token is configuration, not a publication credential. Never put it
   in source, screenshots, bug reports, or logs. Use a replacement-only update
   and treat Android backup/ADB access as local secret exposure.
