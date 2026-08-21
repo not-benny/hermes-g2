@@ -5,17 +5,20 @@
 This focused continuation is based on clean `origin/hermes-g2`
 (`ae89fd5e398a78ce9a7d00c66a47d92d02812319`) on local branch
 `wt/t_2aa76f3a-clean` at implementation commit
-`d9d192839dfc7d3f9805f2a09cc0df4b24803214`; it remains unpushed pending
+`d9d192839dfc7d3f9805f2a09cc0df4b24803214`; the frozen review candidate is
+HEAD `3d7f41d9ebb809587eef96675ab0af89f733b121`; it remains unpushed pending
 independent review. Queue, drain, and final send now all require
 `running && sessionReady && ringConnected && ringNotificationsReady`, and hard
-transport failure and arm loss retire ring readiness/state before invalidating
-the generation and queue. Focused packetAck contracts pass 11/11. Full tests are
+transport failure retires ring connection/readiness before invalidating the
+generation and queue; arm loss invalidates packetAck generation/queue before
+retiring `sessionReady` while leaving the direct ring flags unchanged. Focused
+packetAck contracts pass 11/11. Full tests are
 145/147: the two
 existing date-sensitive activity fixtures fail at
 `tests/ring-health-store.test.mjs:158` and `:190`; typecheck and the documented
 JDK-21/SDK Android build each fail on the same 35 pre-existing NativeScript
-Android-global/`Array.create` errors. `git diff --check` passes. A32 USB
-USB A32 and two wireless targets are visible, but no APK was installed or
+Android-global/`Array.create` errors. `git diff --check` passes. A USB A32 and two wireless targets are visible, but
+no APK was installed or
 reconnect race exercised in this continuation; operational authorization is
 therefore **NO-GO**.
 
