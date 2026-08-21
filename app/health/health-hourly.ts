@@ -24,6 +24,8 @@ export interface HourlyPoint {
   hourIdx: number; // 0..23
   /** Absolute epoch second supplied by a validated ring day anchor. */
   timestampSec?: number;
+  /** Fixed offset supplied with the ring day anchor. */
+  timezoneOffsetMinutes?: number;
   hr?: HourlyMetric;
   spo2?: HourlyMetric;
   hrv?: HourlyMetric;
@@ -36,6 +38,7 @@ interface RingHour {
   max: number;
   min: number;
   timestampSec?: number | null;
+  timezoneOffsetMinutes?: number | null;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -56,6 +59,10 @@ function toMetric(r: RingHour): HourlyMetric {
   return { avg: r.avg, max: r.max, min: r.min };
 }
 
+function dateKeyAtOffset(timestampSec: number, timezoneOffsetMinutes: number): string {
+  return new Date((timestampSec + timezoneOffsetMinutes * 60) * 1000).toISOString().slice(0, 10);
+}
+
 /**
  * Turn a poll's per-metric hour records into merged HourlyPoints, one per
  * (date, hour). Each metric is attached where present.
@@ -71,16 +78,27 @@ export function buildHourlyPoints(
     const timestampSec = Number.isInteger(r.timestampSec) && (r.timestampSec as number) >= 0
       ? r.timestampSec as number
       : undefined;
+    const timezoneOffsetMinutes = timestampSec !== undefined && Number.isInteger(r.timezoneOffsetMinutes) &&
+      (r.timezoneOffsetMinutes as number) >= -840 && (r.timezoneOffsetMinutes as number) <= 840
+      ? r.timezoneOffsetMinutes as number
+      : undefined;
     const dateKey = timestampSec === undefined
       ? dateForHour(r.hourIdx, nowMs)
-      : dateKeyOf(timestampSec * 1000);
+      : timezoneOffsetMinutes === undefined
+        ? dateKeyOf(timestampSec * 1000)
+        : dateKeyAtOffset(timestampSec, timezoneOffsetMinutes);
     const key = `${dateKey}#${r.hourIdx}`;
     let p = byKey.get(key);
     if (!p) {
-      p = { dateKey, hourIdx: r.hourIdx, ...(timestampSec === undefined ? {} : { timestampSec }) };
+      p = {
+        dateKey, hourIdx: r.hourIdx,
+        ...(timestampSec === undefined ? {} : { timestampSec }),
+        ...(timezoneOffsetMinutes === undefined ? {} : { timezoneOffsetMinutes }),
+      };
       byKey.set(key, p);
     } else if (p.timestampSec === undefined && timestampSec !== undefined) {
       p.timestampSec = timestampSec;
+      if (timezoneOffsetMinutes !== undefined) p.timezoneOffsetMinutes = timezoneOffsetMinutes;
     }
     return p;
   };
@@ -118,6 +136,7 @@ export function upsertHourly(
       dateKey: p.dateKey,
       hourIdx: p.hourIdx,
       timestampSec: p.timestampSec ?? existing?.timestampSec,
+      timezoneOffsetMinutes: p.timezoneOffsetMinutes ?? existing?.timezoneOffsetMinutes,
       hr: p.hr ?? existing?.hr,
       spo2: p.spo2 ?? existing?.spo2,
       hrv: p.hrv ?? existing?.hrv,

@@ -54,16 +54,17 @@ test("buildHourlyPoints groups metrics by (date,hour) and attaches each", () => 
 });
 
 test("buildHourlyPoints uses anchored timestamps and preserves them across metric merges", () => {
-  const historical = Math.floor(new Date(2026, 6, 4, 6, 0, 0).getTime() / 1000);
+  const historical = Math.floor(Date.UTC(2026, 6, 3, 23, 0, 0) / 1000);
   const points = buildHourlyPoints(
-    [{ hourIdx: 6, avg: 60, max: 70, min: 55, timestampSec: historical }],
-    [{ hourIdx: 6, avg: 97, max: 98, min: 96, timestampSec: historical }],
+    [{ hourIdx: 6, avg: 60, max: 70, min: 55, timestampSec: historical, timezoneOffsetMinutes: 420 }],
+    [{ hourIdx: 6, avg: 97, max: 98, min: 96, timestampSec: historical, timezoneOffsetMinutes: 420 }],
     [],
     NOW,
   );
   assert.equal(points.length, 1);
-  assert.equal(points[0].dateKey, keyOf(historical * 1000));
+  assert.equal(points[0].dateKey, "2026-07-04");
   assert.equal(points[0].timestampSec, historical);
+  assert.equal(points[0].timezoneOffsetMinutes, 420);
   assert.deepEqual(points[0].spo2, { avg: 97, max: 98, min: 96 });
 });
 
@@ -89,7 +90,8 @@ test("upsertHourly upgrades legacy points and never erases an anchored timestamp
   const today = keyOf(NOW);
   const timestampSec = Math.floor(new Date(2026, 7, 20, 6, 0, 0).getTime() / 1000);
   const legacy = [{ dateKey: today, hourIdx: 6, hr: { avg: 60, max: 70, min: 55 } }];
-  const anchored = [{ dateKey: today, hourIdx: 6, timestampSec, spo2: { avg: 97, max: 98, min: 96 } }];
+  const timezoneOffsetMinutes = -new Date(timestampSec * 1000).getTimezoneOffset();
+  const anchored = [{ dateKey: today, hourIdx: 6, timestampSec, timezoneOffsetMinutes, spo2: { avg: 97, max: 98, min: 96 } }];
   const upgraded = upsertHourly(legacy, anchored, NOW);
   assert.equal(upgraded[0].timestampSec, timestampSec);
   const unanchored = upsertHourly(upgraded, [

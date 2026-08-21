@@ -12,7 +12,7 @@ import re
 import stat
 
 MAX_CAPTURE_BYTES = 512 * 1024
-ALLOWED_PATHS = {"/v2/g/check_firmware", "/v2/g/list_devices"}
+TARGET_PATH = "/v2/g/check_firmware"
 PRIVATE_PATTERNS = (
     re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+"),
     re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"),
@@ -24,6 +24,25 @@ PRIVATE_PATTERNS = (
     re.compile(r"\b192\.168\.\d{1,3}\.\d{1,3}\b"),
     re.compile(r"\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b"),
 )
+SCHEMA_KEYS = {
+    "sanitizer_version", "capture_date_utc", "official_app_version", "endpoint",
+    "host", "path", "request", "response", "method", "scheme", "headers",
+    "query", "body", "status", "content_type_category", "byte_count",
+    "parse_status", "shape", "type", "entries", "items", "truncated",
+    "location", "name", "sensitive_name", "value", "equality_label",
+    "length_class", "name_redacted", "name_length_class",
+}
+
+
+def _validate_schema_keys(value: object) -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key not in SCHEMA_KEYS:
+                raise ValueError("sanitized record contains an unknown schema key")
+            _validate_schema_keys(child)
+    elif isinstance(value, list):
+        for child in value:
+            _validate_schema_keys(child)
 
 
 def _private_derivatives(values: list[str]) -> list[str]:
@@ -54,7 +73,7 @@ def validate_record(
     response = record.get("response")
     if not isinstance(endpoint, dict) or endpoint.get("host") != "api.evenrealities.com":
         raise ValueError("unexpected endpoint host")
-    if endpoint.get("path") not in ALLOWED_PATHS:
+    if endpoint.get("path") != TARGET_PATH:
         raise ValueError("unexpected endpoint path")
     if not isinstance(request, dict) or request.get("path") != endpoint.get("path"):
         raise ValueError("request endpoint mismatch")
@@ -64,6 +83,7 @@ def validate_record(
         raise ValueError("response status is missing")
     if record.get("sanitizer_version") != "1":
         raise ValueError("unexpected sanitizer version")
+    _validate_schema_keys(record)
     if record.get("official_app_version") in {None, "", "unknown"}:
         raise ValueError("official app version is missing")
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(record.get("capture_date_utc", ""))):

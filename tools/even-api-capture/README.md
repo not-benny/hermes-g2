@@ -1,8 +1,8 @@
 # Even API capture harness
 
 This tool records protocol **shape**, never request or response values. It accepts only
-`api.evenrealities.com/v2/g/check_firmware` and, for context,
-`api.evenrealities.com/v2/g/list_devices`. Do not use mitmweb, save-stream files, HAR,
+`api.evenrealities.com/v2/g/check_firmware`; context endpoints cannot produce a record.
+JSON object-key text is also redacted because a key can itself be an identifier. Do not use mitmweb, save-stream files, HAR,
 raw logcat, shell tracing, or request replay with this procedure.
 
 This is capture/research only. It does not authorize firmware download, update, OTA,
@@ -35,7 +35,6 @@ ignored owner-only file. Never print or commit this file.
 ```bash
 umask 077
 {
-  printf 'enabled=%s\n' "$($ADB shell dumpsys package "$PACKAGE" | awk -F= '/^[[:space:]]*enabled=/{print $2; exit}' | tr -d '\r')"
   for KEY in http_proxy global_http_proxy_host global_http_proxy_port global_proxy_pac_url global_http_proxy_exclusion_list; do
     VALUE=$($ADB shell settings get global "$KEY" | tr -d '\r')
     printf 'proxy_%s=%q\n' "$KEY" "$VALUE"
@@ -49,12 +48,14 @@ chmod 600 "$STATE"
 printf 'Private restore snapshot: PASS\n'
 ```
 
-Confirm the app is installed, disabled-user, and stopped before continuing. Check the
+Confirm the app is installed, disabled-user, and stopped before continuing. This harness
+requires disabled-user as its fixed safe baseline and restores that same state. Check the
 presence of user CAs as a boolean only; do not list certificate subjects, fingerprints,
 or contents.
 
 ```bash
 $ADB shell pm path "$PACKAGE" >/dev/null
+$ADB shell pm list packages -d | grep -Fx "package:$PACKAGE" >/dev/null
 $ADB shell am force-stop "$PACKAGE"
 USER_CA_COUNT=$($ADB shell 'find /data/misc/user/0/cacerts-added -type f 2>/dev/null | wc -l' | tr -d '\r ')
 printf 'Official app installed/stopped: PASS; user-CA presence recorded: %s\n' "$([ "$USER_CA_COUNT" -gt 0 ] && printf yes || printf no)"
@@ -63,7 +64,7 @@ printf 'Official app installed/stopped: PASS; user-CA presence recorded: %s\n' "
 ## Unconditional cleanup
 
 Define cleanup before changing the device. The trap restores every captured proxy key
-(including absent `null` settings), each Bluetooth grant, disabled-user state, and stops
+(including absent `null` settings), each Bluetooth grant, the required disabled-user state, and stops
 all temporary tools. The capture operator must additionally remove any CA installed via
 Android Settings. A temporary mount-namespace CA overlay must be unmounted; if that
 cannot be proved, reboot and verify before declaring cleanup complete.
@@ -172,11 +173,11 @@ without dumping the record:
 python tools/even-api-capture/validate_capture.py "$OUT"
 ```
 
-If no record appears, force-stop. Grant only Bluetooth permissions that the baseline says
-were revoked and which Android reports as requested by this package, relaunch once, and
-allow only a normal dashboard sync. If update/DFU UI appears, immediately back out or
-force-stop. Do not pair, reset, recover, reboot, download firmware, start OTA/DFU, or send
-ring/glasses commands.
+If no record appears, force-stop and restore state. **Do not grant Bluetooth as a fallback:**
+the proxy cannot prevent the official app from issuing BLE commands, entering provisioning,
+or starting a download/update transition. A Bluetooth-enabled capture requires a separate
+enforceable BLE/network deny gate and explicit authorization. Do not pair, reset, recover,
+reboot, download firmware, start OTA/DFU, or send ring/glasses commands.
 
 As soon as validation passes, force-stop; the EXIT trap performs cleanup:
 

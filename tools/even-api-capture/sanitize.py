@@ -110,9 +110,13 @@ def sanitize_json(
                 entries.append({"truncated": "max_keys"})
                 break
             budget[0] -= 1
+            # JSON object keys can themselves be account/device identifiers.
+            # Keep only bounded key-class metadata; never persist the key text.
+            key_text = str(name)
             entries.append({
-                "name": str(name),
-                "sensitive_name": is_sensitive_name(name),
+                "name_redacted": True,
+                "name_length_class": _length_class(len(key_text)),
+                "sensitive_name": is_sensitive_name(key_text),
                 "value": sanitize_json(
                     child, (), labeler, _depth=_depth + 1, _budget=budget
                 ),
@@ -142,12 +146,17 @@ def sanitize_pairs(
         if index >= MAX_KEYS:
             result.append({"truncated": "max_keys", "location": location})
             break
-        result.append({
-            "name": str(name),
+        name_text = str(name)
+        entry = {
             "location": location,
-            "sensitive_name": is_sensitive_name(name),
+            "sensitive_name": is_sensitive_name(name_text),
             "value": _primitive_shape(value, active),
-        })
+        }
+        if location == "query":
+            entry.update({"name_redacted": True, "name_length_class": _length_class(len(name_text))})
+        else:
+            entry["name"] = name_text
+        result.append(entry)
     return result
 
 

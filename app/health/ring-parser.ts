@@ -51,6 +51,8 @@ export interface RingHealthSample {
   min: number;
   /** Absolute epoch second when the daily header contains a valid day anchor. */
   timestampSec: number | null;
+  /** Header timezone used to derive the record's local day, or null when unanchored. */
+  timezoneOffsetMinutes: number | null;
 }
 
 /**
@@ -68,6 +70,8 @@ export interface RingHrvSample {
   min: number;
   /** Absolute epoch second when the daily header contains a valid day anchor. */
   timestampSec: number | null;
+  /** Header timezone used to derive the record's local day, or null when unanchored. */
+  timezoneOffsetMinutes: number | null;
 }
 
 /** One confirmed 10-minute activity bucket (stride 7). */
@@ -392,16 +396,20 @@ export function decodeDailyData(
 
   if (metric === "hrv") {
     const current = payload.length >= HRV_REC_OFF ? u16le(payload, DAILY_CURRENT_OFF) : null;
+    const required = HRV_REC_OFF + count * HRV_REC_STRIDE;
+    if (required > payload.length) {
+      throw new Error(`ring HRV payload truncated: need ${required}, got ${payload.length}`);
+    }
     const records: RingHrvSample[] = [];
     for (let i = 0; i < count; i++) {
       const o = HRV_REC_OFF + i * HRV_REC_STRIDE;
-      if (o + HRV_REC_STRIDE > payload.length) break;
       records.push({
         hourIdx: payload[o],
         avg: u16le(payload, o + 1),
         max: u16le(payload, o + 3),
         min: u16le(payload, o + 5),
         timestampSec: timestampForHour(payload[o]),
+        timezoneOffsetMinutes: validDayAnchor ? timezoneOffsetMinutes : null,
       });
     }
     return { metric, count, timezoneOffsetMinutes, dayBaseSec, currentTimestampSec, current, records };
@@ -409,16 +417,20 @@ export function decodeDailyData(
 
   // heartRate / spo2 / temperature: single-byte avg/max/min per hour.
   const current = payload.length >= HEALTH_REC_OFF ? payload[DAILY_CURRENT_OFF] : null;
+  const required = HEALTH_REC_OFF + count * HEALTH_REC_STRIDE;
+  if (required > payload.length) {
+    throw new Error(`ring daily payload truncated: need ${required}, got ${payload.length}`);
+  }
   const records: RingHealthSample[] = [];
   for (let i = 0; i < count; i++) {
     const o = HEALTH_REC_OFF + i * HEALTH_REC_STRIDE;
-    if (o + HEALTH_REC_STRIDE > payload.length) break;
     records.push({
       hourIdx: payload[o],
       avg: payload[o + 1],
       max: payload[o + 2],
       min: payload[o + 3],
       timestampSec: timestampForHour(payload[o]),
+      timezoneOffsetMinutes: validDayAnchor ? timezoneOffsetMinutes : null,
     });
   }
   return { metric, count, timezoneOffsetMinutes, dayBaseSec, currentTimestampSec, current, records };

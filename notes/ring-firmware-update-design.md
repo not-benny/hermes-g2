@@ -53,9 +53,10 @@ the ring, put it into the far safer HEALTH read path, not firmware writes.
   `BleRing1Model`: a CRC-32-framed binary envelope over `bae80012` (write-no-response) /
   `bae80013` (notify).
 - **Firmware version** is read via the vendor `deviceInfo` frame (module=1 / cmd=0 /
-  subCmd `0x02`), a bare status=req GET whose ~32-byte ack carries the version string.
-  Observed ring version **2.2.8.0002**, MAC `DC:BE:DA:94:20:B8`, bonded, LE, MTU 247.
-  `deviceInfo(0x02)` is not currently read by Hermes but is **not** blocklisted.
+  subCmd `0x02`), a bare status=req GET whose ack carries the version string.
+  A provisioned ring answered this read over the existing bonded LE/MTU-247 link; its
+  device identifier remains private.
+  Hermes reads `deviceInfo(0x02)` for the version display; it is **not** blocklisted.
 - **The capture contains ZERO firmware/OTA/DFU/provisioning traffic.** It is a logcat TEXT
   log of a live health sync against an already-bonded, already-provisioned ring. grep counts:
   ota=0, dfu=0, bootloader=0, otaStart(0x09)=0, provision=0. The ring was already up-to-date,
@@ -153,11 +154,10 @@ independent recovery gates below remain separate prerequisites. The current cons
 - **Phase 0 - Do not build (current recommendation).** Redirect ring effort to the safe
   HEALTH read path. Optionally add the `deviceInfo(0x02)` version read. Close the
   `sendRawRingFrame()` gap defensively.
-- **Phase 1 - Intelligence only (no writes).** Re-establish Even cloud auth from a fresh APK
-  pull; capture a genuine ring firmware update via Even-app logcat to observe the otaStart
-  payload and full DFU sequence; capture the `check_firmware` response to find the ring
-  image URL/format. **GATE:** if the captured package is ECDSA-signed against an Even key,
-  STOP. Custom firmware is impossible, and re-pushing Even's image is not worth the brick risk.
+- **Phase 1 - Intelligence only (no device writes).** With Bluetooth denied and the official
+  app unable to reach update/DFU transitions, capture only the sanitized shape of the normal
+  `check_firmware` request. Capturing an actual OTA/DFU sequence is destructive/runtime work
+  outside this phase and requires separate authorization plus every image/recovery gate.
 - **Phase 2 - Pairing workstream (independent, safer, higher value).** Reverse
   `advStart(0x0a)` host-MAC bind and `setAlgoKey(0x0c)` provisioning to own the bond
   standalone. Prerequisite for update AND independently useful for onboarding. It has lower

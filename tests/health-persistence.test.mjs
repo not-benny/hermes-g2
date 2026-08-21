@@ -200,6 +200,8 @@ test("structurally invalid canonical values are preserved byte-for-byte", () => 
   const invalidValues = [
     { history: [daily("2026-02-31")] },
     { hourly: [{ dateKey: "2026-08-20", hourIdx: 8 }] },
+    { hourly: [{ dateKey: "2026-08-20", hourIdx: 8, timestampSec: 1,
+      timezoneOffsetMinutes: 0, hr: { avg: 60, max: 70, min: 50 } }] },
     { activity: { slots: [], dayBaseSec: 0, timezoneOffsetMinutes: 0,
       totalSteps: "bad", activeCalories: 0, totalCalories: 0, restingCalories: 0 } },
   ];
@@ -282,7 +284,8 @@ test("optional anchored hourly timestamps survive canonical persistence while le
   const store = createHealthPersistence(settings, () => NOW);
   store.loadHealthDocument();
   const timestampSec = Math.floor(new Date(2026, 7, 20, 8, 0, 0).getTime() / 1000);
-  store.recordHourly([{ hourIdx: 8, avg: 60, max: 70, min: 50, timestampSec }], [], [], NOW);
+  const timezoneOffsetMinutes = -new Date(timestampSec * 1000).getTimezoneOffset();
+  store.recordHourly([{ hourIdx: 8, avg: 60, max: 70, min: 50, timestampSec, timezoneOffsetMinutes }], [], [], NOW);
   assert.equal(store.loadHealthDocumentResult().document?.hourly[0].timestampSec, timestampSec);
 
   const legacySettings = new FakeSettings();

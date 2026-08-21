@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sanitize import ValueLabeler, build_request_record, build_response_record, write_private_json
 
 ALLOWED_HOST = "api.evenrealities.com"
-ALLOWED_PATHS = {"/v2/g/check_firmware", "/v2/g/list_devices"}
 TARGET_PATH = "/v2/g/check_firmware"
 DEFAULT_OUTPUT = Path("scratchpad/even-api-capture/check-firmware.sanitized.json")
 
@@ -56,7 +55,7 @@ class CaptureAddon:
     def _allowed(flow: object) -> tuple[bool, str]:
         request = flow.request
         path = urlsplit(str(request.path)).path
-        return str(request.host).lower() == ALLOWED_HOST and path in ALLOWED_PATHS, path
+        return str(request.host).lower() == ALLOWED_HOST and path == TARGET_PATH, path
 
     def request(self, flow: object) -> None:
         allowed, path = self._allowed(flow)

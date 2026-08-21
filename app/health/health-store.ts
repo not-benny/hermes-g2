@@ -101,7 +101,16 @@ function canonicalHourly(value: unknown): HourlyPoint | null {
   const point: HourlyPoint = { dateKey: raw.dateKey as string, hourIdx: raw.hourIdx as number };
   if (raw.timestampSec !== undefined) {
     if (!Number.isInteger(raw.timestampSec) || (raw.timestampSec as number) < 0) return null;
+    if (!Number.isInteger(raw.timezoneOffsetMinutes) ||
+      (raw.timezoneOffsetMinutes as number) < -840 || (raw.timezoneOffsetMinutes as number) > 840) return null;
+    const fixedLocal = new Date(((raw.timestampSec as number) +
+      (raw.timezoneOffsetMinutes as number) * 60) * 1000);
+    if (fixedLocal.toISOString().slice(0, 10) !== raw.dateKey ||
+      fixedLocal.getUTCHours() !== raw.hourIdx) return null;
     point.timestampSec = raw.timestampSec as number;
+    point.timezoneOffsetMinutes = raw.timezoneOffsetMinutes as number;
+  } else if (raw.timezoneOffsetMinutes !== undefined) {
+    return null;
   }
   for (const field of ["hr", "spo2", "hrv"] as const) {
     if (raw[field] === undefined) continue;
@@ -135,6 +144,7 @@ function canonicalHourlyRows(value: unknown, cutoff: string, today: string): Hou
       dateKey: point.dateKey,
       hourIdx: point.hourIdx,
       timestampSec: point.timestampSec ?? previous?.timestampSec,
+      timezoneOffsetMinutes: point.timezoneOffsetMinutes ?? previous?.timezoneOffsetMinutes,
       hr: point.hr ?? previous?.hr,
       spo2: point.spo2 ?? previous?.spo2,
       hrv: point.hrv ?? previous?.hrv,

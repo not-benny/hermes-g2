@@ -17,6 +17,7 @@ SPEC.loader.exec_module(sanitize)
 
 ADDON_SPEC = importlib.util.spec_from_file_location("even_capture_addon", HERE / "mitm_addon.py")
 VALIDATOR_SPEC = importlib.util.spec_from_file_location("even_capture_validator", HERE / "validate_capture.py")
+SYNTHETIC_MAC = ":".join(["AA", "BB", "CC", "DD", "EE", "FF"])
 
 
 class NameSanitizationTests(unittest.TestCase):
@@ -35,7 +36,7 @@ class NameSanitizationTests(unittest.TestCase):
 
 class RecordSanitizationTests(unittest.TestCase):
     SECRETS = [
-        "eyJsynthetic.jwt.value", "device-sentinel-9381", "AA:BB:CC:DD:EE:FF",
+        "eyJsynthetic.jwt.value", "device-sentinel-9381", SYNTHETIC_MAC,
         "cookie-sentinel", "signature-sentinel", "person@example.invalid",
     ]
 
@@ -49,10 +50,24 @@ class RecordSanitizationTests(unittest.TestCase):
         serialized = json.dumps(result, sort_keys=True)
         self.assertNotIn(self.SECRETS[1], serialized)
         self.assertEqual(result["type"], "object")
-        entries = {entry["name"]: entry["value"] for entry in result["entries"]}
-        self.assertEqual(entries["deviceId"]["equality_label"], entries["nested"]["items"][0]["equality_label"])
-        self.assertEqual(entries["nested"]["items"][1]["type"], "boolean")
-        self.assertEqual(entries["nested"]["items"][2]["type"], "null")
+        entries = result["entries"]
+        self.assertTrue(all(entry["name_redacted"] for entry in entries))
+        self.assertNotIn("deviceId", json.dumps(entries))
+        self.assertEqual(entries[0]["value"]["equality_label"], entries[1]["value"]["items"][0]["equality_label"])
+        self.assertEqual(entries[1]["value"]["items"][1]["type"], "boolean")
+        self.assertEqual(entries[1]["value"]["items"][2]["type"], "null")
+
+    def test_dynamic_json_object_keys_are_never_persisted(self):
+        sentinel = "device-sentinel-9381"
+        serialized = json.dumps(sanitize.sanitize_json({sentinel: "opaque"}))
+        self.assertNotIn(sentinel, serialized)
+        self.assertIn('"name_redacted": true', serialized)
+
+    def test_dynamic_query_keys_are_never_persisted(self):
+        sentinel = "device-sentinel-9381"
+        shaped = sanitize.sanitize_pairs([(sentinel, "opaque")], "query")
+        self.assertNotIn(sentinel, json.dumps(shaped))
+        self.assertTrue(shaped[0]["name_redacted"])
 
     def test_request_and_response_records_never_emit_values_or_derivatives(self):
         labeler = sanitize.ValueLabeler()
@@ -85,7 +100,7 @@ class RecordSanitizationTests(unittest.TestCase):
         for value in derivatives:
             self.assertNotIn(value, serialized)
         self.assertIn("/v2/g/check_firmware", serialized)
-        self.assertIn('"name": "deviceId"', serialized)
+        self.assertIn('"name_redacted": true', serialized)
         self.assertIn('"status": 200', serialized)
 
     def test_malformed_oversized_and_deep_bodies_are_bounded(self):
@@ -177,6 +192,14 @@ class AddonTests(unittest.TestCase):
         self.assertEqual(len(written), 1)
         self.assertEqual(written[0]["endpoint"]["path"], "/v2/g/check_firmware")
 
+    def test_context_endpoint_never_writes(self):
+        written = []
+        addon = self.addon_module.CaptureAddon(writer=lambda path, record: written.append(record), test_output=True)
+        context = self._flow(path="/v2/g/list_devices")
+        addon.request(context)
+        addon.response(context)
+        self.assertEqual(written, [])
+
     def test_writer_exception_discards_transient_request_values(self):
         def failing_writer(path, record):
             del path, record
@@ -208,9 +231,18 @@ class ValidatorTests(unittest.TestCase):
         }
         self.validator.validate_record(safe, serialized=json.dumps(safe))
         unsafe = dict(safe)
-        unsafe["raw"] = "AA:BB:CC:DD:EE:FF"
+        unsafe["raw"] = SYNTHETIC_MAC
         with self.assertRaises(ValueError):
             self.validator.validate_record(unsafe, serialized=json.dumps(unsafe))
+        context = dict(safe)
+        context["endpoint"] = {"host": "api.evenrealities.com", "path": "/v2/g/list_devices"}
+        context["request"] = {"method": "POST", "path": "/v2/g/list_devices"}
+        with self.assertRaises(ValueError):
+            self.validator.validate_record(context, serialized=json.dumps(context))
+        dynamic_key = dict(safe)
+        dynamic_key["device-sentinel-9381"] = "opaque"
+        with self.assertRaises(ValueError):
+            self.validator.validate_record(dynamic_key, serialized=json.dumps(dynamic_key))
 
 
 if __name__ == "__main__":

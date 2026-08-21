@@ -59,8 +59,8 @@ canonical PR #11 head `448b7221310ed696bbbeab4d3b73bfd06f409923`.
   remain BLOCKED/UNKNOWN. A private candidate's existence is not provenance, compatibility,
   signature, rights, or recovery proof. Firmware/DFU/OTA remains NO-GO / DO NOT BUILD.
 
-Verification: focused decoder/persistence/Java/wiring/ring-store/frame coverage passes
-71/71; the capture sanitizer passes 10/10; full `npm run test` passes 233/233;
+Verification: focused decoder/persistence/Java/wiring/ring-store coverage passes
+60/60; the capture sanitizer passes 13/13; full `npm run test` passes 234/234;
 `npm run typecheck` passes after worktree-local `npm ci`; JDK 21 / SDK 35 Android
 `npm run build` passes with full Java/native compilation; `git diff --check` and the
 added-diff private-data/artifact scans pass.
@@ -73,7 +73,14 @@ timezone-aligned day anchor and passed the derived record formula check without 
 frames or readings. The phone Health page rendered, but the first one-shot cache handover occurred
 before that page's persistence listener was active; after selection the cache was drained, so an
 anchored persisted row was **NOT OBSERVED** in this bounded run. Static decoder/persistence tests
-pass, but end-to-end anchored persistence remains operationally pending. No pairing, permission,
+pass, but end-to-end anchored persistence remains operationally pending. The first independent
+review found missing vital envelope/CRC gates, partial-count acceptance, timestamp/date identity
+gaps across timezone changes, dynamic JSON/query-key leakage, false `list_devices` completion,
+an unsafe Bluetooth fallback, stale cleanup wording, a committed device identifier, and a
+no-write/DFU contradiction. The candidate now rejects malformed vital envelopes and truncated
+counts, binds persisted timestamps to fixed-offset date/hour identity, redacts all JSON/query key
+text, accepts only `check_firmware`, prohibits Bluetooth fallback, validates the sanitizer schema,
+and corrects the safety documentation. No pairing, permission,
 credential, NVM, firmware, recovery, reset, wipe, or private-data state was changed.
 
 Independent frozen-SHA review, GitHub delivery, and remote readback remain pending at this checkpoint.

@@ -169,9 +169,9 @@ test("decodeDailyData decodes a real heart-rate frame (4-byte records + live cur
   assert.equal(d.timezoneOffsetMinutes, 0);
   assert.equal(d.dayBaseSec, 0);
   assert.equal(d.currentTimestampSec, null);
-  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 73, max: 88, min: 59, timestampSec: null });
-  assert.deepEqual(d.records[1], { hourIdx: 5, avg: 105, max: 122, min: 87, timestampSec: null });
-  assert.deepEqual(d.records[2], { hourIdx: 6, avg: 104, max: 113, min: 88, timestampSec: null });
+  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 73, max: 88, min: 59, timestampSec: null, timezoneOffsetMinutes: null });
+  assert.deepEqual(d.records[1], { hourIdx: 5, avg: 105, max: 122, min: 87, timestampSec: null, timezoneOffsetMinutes: null });
+  assert.deepEqual(d.records[2], { hourIdx: 6, avg: 104, max: 113, min: 88, timestampSec: null, timezoneOffsetMinutes: null });
   for (const r of d.records) assert.ok(r.min <= r.avg && r.avg <= r.max); // internally consistent
 });
 
@@ -180,8 +180,8 @@ test("decodeDailyData decodes a real SpO2 frame with sparse (non-contiguous) hou
   const d = decodeDailyData(payload, "spo2");
   assert.equal(d.count, 2);
   assert.equal(d.current, 98);
-  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 97, max: 97, min: 97, timestampSec: null });
-  assert.deepEqual(d.records[1], { hourIdx: 6, avg: 95, max: 95, min: 95, timestampSec: null }); // hour 5 absent
+  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 97, max: 97, min: 97, timestampSec: null, timezoneOffsetMinutes: null });
+  assert.deepEqual(d.records[1], { hourIdx: 6, avg: 95, max: 95, min: 95, timestampSec: null, timezoneOffsetMinutes: null }); // hour 5 absent
 });
 
 test("decodeDailyData decodes a real HRV frame (u16 values + u16 current)", () => {
@@ -189,9 +189,9 @@ test("decodeDailyData decodes a real HRV frame (u16 values + u16 current)", () =
   const d = decodeDailyData(payload, "hrv");
   assert.equal(d.count, 3);
   assert.equal(d.current, 39);
-  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 53, max: 53, min: 53, timestampSec: null });
-  assert.deepEqual(d.records[1], { hourIdx: 5, avg: 98, max: 98, min: 98, timestampSec: null });
-  assert.deepEqual(d.records[2], { hourIdx: 6, avg: 65, max: 65, min: 65, timestampSec: null });
+  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 53, max: 53, min: 53, timestampSec: null, timezoneOffsetMinutes: null });
+  assert.deepEqual(d.records[1], { hourIdx: 5, avg: 98, max: 98, min: 98, timestampSec: null, timezoneOffsetMinutes: null });
+  assert.deepEqual(d.records[2], { hourIdx: 6, avg: 65, max: 65, min: 65, timestampSec: null, timezoneOffsetMinutes: null });
 });
 
 test("decodeDailyData stops at the record count and ignores trailing bytes", () => {
@@ -199,7 +199,7 @@ test("decodeDailyData stops at the record count and ignores trailing bytes", () 
   payload[0] = 1; // header says 1 record; the second must be ignored
   const decoded = decodeDailyData(payload, "heartRate");
   assert.equal(decoded.records.length, 1);
-  assert.deepEqual(decoded.records[0], { hourIdx: 8, avg: 62, max: 70, min: 55, timestampSec: null });
+  assert.deepEqual(decoded.records[0], { hourIdx: 8, avg: 62, max: 70, min: 55, timestampSec: null, timezoneOffsetMinutes: null });
 });
 
 test("decodeDailyData anchors vital and HRV records to the validated day base", () => {
@@ -213,12 +213,14 @@ test("decodeDailyData anchors vital and HRV records to the validated day base", 
   assert.equal(hr.dayBaseSec, dayBaseSec);
   assert.equal(hr.currentTimestampSec, currentTimestampSec);
   assert.equal(hr.records[0].timestampSec, dayBaseSec + 6 * 3600);
+  assert.equal(hr.records[0].timezoneOffsetMinutes, 60);
 
   const hrv = decodeDailyData(
     buildHrvPayload(currentTimestampSec, 42, [[23, 40, 50, 30]], 60, dayBaseSec),
     "hrv",
   );
   assert.equal(hrv.records[0].timestampSec, dayBaseSec + 23 * 3600);
+  assert.equal(hrv.records[0].timezoneOffsetMinutes, 60);
 });
 
 test("decodeDailyData fails closed on invalid day metadata without losing vital values", () => {
@@ -236,11 +238,10 @@ test("decodeDailyData fails closed on invalid day metadata without losing vital 
   }
 });
 
-test("decodeDailyData drops a truncated final record instead of reading past the buffer", () => {
+test("decodeDailyData rejects a count that declares a truncated final record", () => {
   const full = buildHealthPayload(0, 70, [[8, 62, 70, 55], [9, 66, 72, 58]]);
   const truncated = full.subarray(0, full.length - 2); // chop the last record's tail
-  const decoded = decodeDailyData(truncated, "heartRate");
-  assert.equal(decoded.records.length, 1);
+  assert.throws(() => decodeDailyData(truncated, "heartRate"), /truncated/);
 });
 
 test("decodeDailyData decodes confirmed activity slots, steps, and native calories", () => {
@@ -313,7 +314,7 @@ test("a multi-packet SpO2 frame reassembles and decodes end to end", () => {
   const decoded = decodeDailyData(env.data, "spo2");
   assert.equal(decoded.count, 1);
   assert.equal(decoded.current, 98);
-  assert.deepEqual(decoded.records[0], { hourIdx: 21, avg: 97, max: 99, min: 96, timestampSec: null });
+  assert.deepEqual(decoded.records[0], { hourIdx: 21, avg: 97, max: 99, min: 96, timestampSec: null, timezoneOffsetMinutes: null });
 });
 
 // --- device status ---------------------------------------------------------

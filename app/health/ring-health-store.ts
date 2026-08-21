@@ -277,6 +277,10 @@ export class RingHealthStore {
       return;
     }
 
+    // Vital timestamps may reach persisted/user-visible state only through the
+    // exact daily-push envelope and incoming MODBUS CRC gate.
+    if (parsed.status !== 2 || parsed.subCmd !== 1 || !isCanonicalRingInnerFrame(inner)) return;
+
     if (metric === "hrv") {
       const daily = decodeDailyData(parsed.data, "hrv");
       const newest = latestByHour(daily.records);

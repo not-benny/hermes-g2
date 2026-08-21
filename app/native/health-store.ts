@@ -15,7 +15,7 @@ export const LEGACY_HOURLY_KEY = "health.hourly.v1";
 export const LEGACY_ACTIVITY_KEY = "health.activity.v1";
 export const HERMES_CONSENT_KEY = "health.hermes.consent.v1";
 const LEGACY_KEYS = [LEGACY_HISTORY_KEY, LEGACY_HOURLY_KEY, LEGACY_ACTIVITY_KEY] as const;
-type RingHour = { hourIdx: number; avg: number; max: number; min: number; timestampSec?: number | null };
+type RingHour = { hourIdx: number; avg: number; max: number; min: number; timestampSec?: number | null; timezoneOffsetMinutes?: number | null };
 
 export interface HealthApplicationSettings {
   hasKey?(key: string): boolean;
@@ -68,6 +68,14 @@ function isValidPersistedDocument(value: Record<string, unknown>, nowMs: number)
       (point.hourIdx as number) < 0 || (point.hourIdx as number) > 23) return true;
     if (point.timestampSec !== undefined &&
       (!Number.isInteger(point.timestampSec) || (point.timestampSec as number) < 0)) return true;
+    if (point.timestampSec !== undefined) {
+      if (!Number.isInteger(point.timezoneOffsetMinutes) ||
+        (point.timezoneOffsetMinutes as number) < -840 || (point.timezoneOffsetMinutes as number) > 840) return true;
+      const fixedLocal = new Date(((point.timestampSec as number) +
+        (point.timezoneOffsetMinutes as number) * 60) * 1000);
+      if (fixedLocal.toISOString().slice(0, 10) !== point.dateKey ||
+        fixedLocal.getUTCHours() !== point.hourIdx) return true;
+    } else if (point.timezoneOffsetMinutes !== undefined) return true;
     if (!["hr", "spo2", "hrv"].some((field) => point[field] !== undefined)) return true;
     return ["hr", "spo2", "hrv"].some((field) => {
       if (point[field] === undefined) return false;
