@@ -2,7 +2,7 @@
 
 ## BLE callback identity gate (2026-08-21)
 
-Candidate branch: `wt/t_5e85b756`; implementation is locally committed below, clean, unpushed, and no PR opened.
+Candidate branch: `wt/t_5e85b756`; frozen HEAD is `d3d3fd38c07a68cce0178ffae5d4fdbd1b5e573c`, clean, local-only, unpushed, and no PR opened.
 
 FaceclawBleManager now carries the source BluetoothGatt through both
 characteristic-change callback overloads and rejects callbacks whose object is
@@ -14,7 +14,10 @@ pending waiters without retiring a replacement attempt. A per-address reentrant
 callback boundary serializes identity retirement/replacement with listener side
 effects without holding the process-wide Bluetooth API lock through listeners;
 the retiring current GATT remains valid through its DISCONNECTED delivery.
-Focused source-contract tests pass 5/5 and the full Node suite passes 162/162.
+Communicator state retirement
+now completes before teardown is posted to the main handler, removing the
+communicator-monitor to BLE callback-boundary lock inversion.
+Focused source-contract tests pass 6/6 and the full Node suite passes 163/163.
 Direct javac of FaceclawBleManager, FaceclawBleListener, BleProtocol, and
 CollectionUtils against Android-35 passes with deprecation warnings. Typecheck
 and Android build remain blocked by the unchanged 35 NativeScript
