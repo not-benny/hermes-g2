@@ -149,15 +149,18 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 
 - Checkpoint: G1, then G3, then G5 for evidence.
 - Setup: authorized debug APK installed; voice master/action enabled; disposable
-  calendar contains `HERMES_G2_QA_<TRACE> earliest` at recorded test start +1h
-  and `HERMES_G2_QA_<TRACE> later` at recorded test start +3h, with no other
-  fields. Record the resulting exact ISO timestamps in the run record.
-- Exact action: type `Show my upcoming calendar events within 24 hours`, and
-  when the provider requests the tool, permit exactly
-  `calendar.list_events({"within_hours":24,"max_events":10})`.
+  calendar contains exactly these two events, created relative to the recorded
+  test-start instant (and no other fields):
+  `HERMES_G2_QA_<TRACE> earliest` at `T+01:00:00` and
+  `HERMES_G2_QA_<TRACE> later` at `T+03:00:00`. Record their exact ISO
+  timestamps in the run record.
+- Exact action: type the copyable prompt `Show my upcoming calendar events
+  within 24 hours`. When the provider requests the tool, permit exactly
+  `calendar.list_events({"within_hours":24,"max_events":10})` once.
 - Expected request/response: provider receives only the authorized prompt and
-  calendar tool result; request shape is `{within_hours?, max_events?}` and the
-  tool returns ordered events or explicit empty success.
+  tool result; the response contains exactly, in chronological order,
+  `earliest` then `later`, with no unrelated event or field. Empty success is
+  not an acceptable happy-path result.
 - Expected phone/lens UI: `Thinking...`, canonical `→ calendar.list_events`, a
   concise answer, then Follow-up/Done; no sensitive fixture fields appear.
 - Safe data: synthetic titles only, no attendees/location/notes.
@@ -206,18 +209,28 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 #### DA-04 — calendar bounds and ordering
 
 - Checkpoint: G3 and G5.
-- Setup: synthetic events straddle the window, include equal/nearby start times,
-  and exceed the requested count.
-- Exact action: permit these exact tool calls, one at a time: (a)
-  `calendar.list_events({"within_hours":0.5,"max_events":0})`, expecting
-  effective values 1 hour and 1 event; (b)
-  `calendar.list_events({"within_hours":2000,"max_events":100})`, expecting
-  effective values 1440 hours and 50 events; and (c)
-  `calendar.list_events({"within_hours":24,"max_events":2})` to verify
-  ordering/count against the fixture.
-- Expected request/response: `within_hours` is clamped to 1..1440 hours and
-  `max_events` to 1..50; results are ordered by start time and never exceed the
-  bound. No malformed argument causes an unbounded read.
+- Setup: create one disposable synthetic fixture relative to the recorded
+  test-start instant T, with titles and starts exactly as follows (no other
+  fields): `HERMES_G2_QA_<TRACE> E01` at T+00:30:00; for n=2..54,
+  `HERMES_G2_QA_<TRACE> E<n>` at T+00:35:00 + (n-2)*20 seconds; and
+  `HERMES_G2_QA_<TRACE> E55` at T+1500:00:00. Thus E01..E54 are ordered and
+  inside 24 hours, while E55 is outside the effective 1440-hour (60-day)
+  window; record the exact ISO timestamps and use the same fixture for all
+  three calls.
+- Exact action: issue these copyable prompts one at a time and permit only the
+  shown tool call: (a) `Show the next calendar event within 0.5 hours, maximum
+  0 events` -> `calendar.list_events({"within_hours":0.5,"max_events":0})`;
+  (b) `List calendar events within 2000 hours, maximum 100 events` ->
+  `calendar.list_events({"within_hours":2000,"max_events":100})`; (c) `List
+  the first 2 calendar events within 24 hours` ->
+  `calendar.list_events({"within_hours":24,"max_events":2})`.
+- Expected request/response: the implementation clamps (a) to 1 hour/1
+  event, returning exactly E01; clamps (b) to 1440 hours/50 events, returning
+  E01 through E50 in timestamp order and excluding E51..E55; and leaves (c) at
+  24 hours/2 events, returning exactly E01 then E02 and excluding E03..E55.
+  `within_hours` is clamped to 1..1440 and `max_events` to 1..50; no result
+  exceeds its effective bound and no malformed argument causes an unbounded
+  read.
 - Expected phone/lens UI: concise ordered rendering without clipping, stale text,
   duplication, or sensitive details.
 - Safe data: synthetic titles/times only.
