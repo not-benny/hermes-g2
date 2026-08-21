@@ -46,7 +46,7 @@ export type ToolResult = {
   error?: string;
 };
 
-export type ToolHandler = (args: any, signal?: AbortSignal) => Promise<ToolResult> | ToolResult;
+export type ToolHandler = (args: any, signal?: AbortSignal, isSideEffectAllowed?: () => boolean) => Promise<ToolResult> | ToolResult;
 
 export type ToolRegistration = {
   spec: ToolSpec;
@@ -237,7 +237,12 @@ export class ToolRegistry {
         return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
       }
       const controller = new AbortController();
-      return await this.withTimeout(registration.handler(args, controller.signal), timeoutMs, name, controller);
+      return await this.withTimeout(
+        registration.handler(args, controller.signal, options.isTurnGenerationActive),
+        timeoutMs,
+        name,
+        controller,
+      );
     } catch (error) {
       return { ok: false, error: `Tool ${name} failed: ${describeError(error)}` };
     }

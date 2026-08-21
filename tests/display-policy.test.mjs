@@ -55,3 +55,21 @@ test("show_alert handler reports transport failure and only reports success afte
   assert.equal(result.ok, false);
   assert.match(result.error, /could not display the alert/);
 });
+
+test("show_alert handler revalidates cancellation before the display side effect", async () => {
+  let calls = 0;
+  let allowed = false;
+  const handler = createShowAlertHandler({
+    isScreenOn: () => true,
+    showAlert: async () => { calls++; },
+  });
+  const result = await handler({ text: "private sentinel" }, new AbortController().signal, () => allowed);
+  assert.equal(result.ok, false);
+  assert.equal(calls, 0);
+  allowed = true;
+  const controller = new AbortController();
+  controller.abort();
+  const cancelled = await handler({ text: "private sentinel" }, controller.signal, () => allowed);
+  assert.equal(cancelled.ok, false);
+  assert.equal(calls, 0);
+});

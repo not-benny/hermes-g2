@@ -2,17 +2,18 @@
 
 ## Latest hardening continuation (2026-08-21)
 
-The display/MCP safety follow-up now adds exact-turn-generation revalidation for
-bridge tool side effects, abort signals on registry timeouts, generic remote
-errors that do not disclose dependency text, generation-bound compositor waits,
-and identity-safe replace-only shell alerts. Android backups are disabled and
-cleartext bridge traffic is blocked by the manifest; the bridge therefore
-requires a future authenticated encrypted `wss://` transport before it can be
-operationally enabled. No credentials, personal data, hardware claims, or
+The display/MCP safety follow-up now adds exact-turn-generation revalidation at
+the display handler boundary, abort-aware alert delivery, generic remote errors,
+generation-bound compositor waits, best-effort non-throwing ordinary shell
+renders, and identity-safe replace-only shell alerts. Android backups are
+disabled and cleartext bridge traffic is blocked by the manifest; the available
+sibling bridge has no verified compatible WSS/server-proof path, so external
+operation remains NO-GO. No credentials, personal data, hardware claims, or
 publication authorization were added.
 
 Verification for this continuation: focused MCP/registry/display tests pass
-14/14, `npm run typecheck` passes, and `git diff --check` passes. Real G2 lens
+16/16, `npm run typecheck` passes, and `git diff --check` passes. The Android
+debug build passes with JDK 21/SDK 35. Real G2 lens
 transport and secure bridge verification remain unavailable/not performed;
 A32-only app launch evidence must not be read as glasses-display evidence.
 

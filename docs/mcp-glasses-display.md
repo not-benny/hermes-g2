@@ -10,8 +10,9 @@ authorization remain NO-GO until the gates in
   actions** only for a deliberate, trusted evaluation and disable it afterward.
 - `glasses.show_alert` accepts at most 160 characters of inert plain text. It
   rejects control characters, markup delimiters, and URLs. It never wakes an
-  unavailable/off display, and a local enqueue is not evidence that pixels
-  reached real G2 lenses.
+  unavailable/off display, and reports success only after the shell transport
+  completion boundary. Transport completion is not evidence that pixels reached
+  real G2 lenses.
 - The bridge token is configuration, not a publication credential. Never put it
   in source, screenshots, bug reports, or logs. Use a replacement-only update
   and treat Android backup/ADB access as local secret exposure.
@@ -21,8 +22,10 @@ authorization remain NO-GO until the gates in
 ## Configuration and permissions
 
 The phone-side assistant is configured in Settings under Assistant. The external
-mode requires a bridge host, port, and shared token. The current transport is a
-trusted-tailnet experiment; it does not provide public server identity proof.
+mode requires a bridge host, port, and shared token. The client now requires a
+certificate-validated `wss://` endpoint, but the available sibling bridge/server
+has not been shown to provide that endpoint or server identity proof; external
+operation therefore remains disabled/NO-GO.
 Only grant Android runtime permissions for features you use. Keep Even installed
 for provisioning and official maintenance; Hermes does not replace Even's
 ownership or firmware responsibilities.

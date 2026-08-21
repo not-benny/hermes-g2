@@ -8,10 +8,12 @@ assistant bridge and the proposed, not-yet-implemented `glasses.render_view`
 surface. It describes the path from agent intent to pixels and the evidence still
 needed before any public MCP endpoint, adapter, or skill can be advertised.
 
-The current private bridge may be evaluated only as a trusted-tailnet experiment.
-A private trusted-tailnet evaluation is not public proof: it does not authenticate
-the WebSocket server, protect the bearer token on `ws://`, establish generic MCP
-interoperability, or prove safe behavior on real hardware. The sibling
+The client configuration now requires certificate-validated `wss://`; however,
+the available sibling bridge/server is plaintext-only and has not supplied a
+compatible authenticated endpoint. No external operation is authorized. A
+trusted-tailnet experiment would not be public proof: it would not authenticate
+the WebSocket server, establish generic MCP interoperability, or prove safe
+behavior on real hardware. The sibling
 `hermes-faceclaw-agent-bridge` is also **NO-GO for licensing/redistribution**: the
 checkout identifies the upstream project as `jimrandomh`, contains no license
 that this repository can rely on, and is not a distributable Hermes artifact.
@@ -117,7 +119,7 @@ malicious users.
 
 | Component | Current observed limit/control | Gap that remains |
 |---|---|---|
-| Bridge transport | Phone dials plaintext `ws://`; bearer token is in `hello`; `hello-ack` is accepted without server proof. | Use authenticated secure transport/server proof; never treat a tailnet as peer authentication. |
+| Bridge transport | Client requires certificate-validated `wss://`; bearer token is in `hello`; no compatible sibling WSS/server proof is available. | Provide and verify an authenticated secure endpoint; never treat a tailnet as peer authentication. |
 | Bridge lifecycle | Connection generations, 15 s auth timeout, 20 s keepalive check, 45 s liveness timeout, 3 min turn timeout, and reconnect backoff of 1–60 s plus up to 50% jitter. | Bind MCP calls to a unique live turn generation and prove replay/late rejection; keepalive and reconnect are availability controls, not peer authentication. |
 | MCP lifecycle | Initialization/version handling, duplicate-ID tombstones, 128 completed-ID retention, and connection epoch suppression. | Bind authorization to the originating turn and make cancellation/late side effects safe. |
 | Proactive MCP | Boolean “some turn active” test, default-off setting, and a sliding quota of 6 calls/minute after preflight. | Explicit turn-bound intent and per-session policy evidence remain required. |
@@ -125,7 +127,7 @@ malicious users.
 | Display today | `glasses.show_alert` is capped at 160 plain-text characters, rejects control/markup/URL content, and fails closed when the display is off/unavailable. | Bounded singleton render schema, interruption policy, live transport/turn gate, and device result evidence. |
 | Streamed reply today | `AssistantLayer` retains the full stream; only the visible tail is clipped by HUD geometry. | Visual clipping is not input bounding; cap bytes/chars before retention and transport. |
 | Proposed view | Audit design specifies singleton, 16 KiB encoded spec, 32 blocks, 8 actions, 8 KiB total text, 1 KiB/text block, title 80, label 40, ID 64 ASCII, TTL 30–3600 s, 2 updates/s. | No implementation or race/fuzz/golden/hardware evidence exists. Adopt, do not redesign, these limits. |
-| Android | Manifest allows cleartext, backup, broad storage/package/location/audio/calendar/Bluetooth and related permissions. | Least-privilege review, scoped storage/backup decision, and user-visible permission/privacy behavior. |
+| Android | Manifest blocks cleartext and disables backup; feature permissions remain broad for the existing app surface. | Complete least-privilege review and user-visible permission/privacy behavior. |
 | Sibling bridge | Shared token/plaintext WebSocket that may bind non-loopback; 10 s hello timeout, 120 s turn timeout, and 20 s MCP caller timeout; persistent OpenClaw session; caller-only deadlines do not cancel handlers. | Secure/replay-safe implementation, license authority, and generic-client/adapter evidence. |
 
 In particular, a clipped tail in the HUD is only a presentation limit. Alert

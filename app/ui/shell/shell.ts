@@ -110,6 +110,8 @@ export type ShellConfig = {
   actions: LayerActions;
   getScreenTimeoutMs: () => number | null;
   requestShellRender: () => void | Promise<void>;
+  /** Awaited delivery path for operations that must prove lens transport success. */
+  requestShellDelivery?: () => Promise<void>;
   /** True only while a real glasses transport/session can accept frames. */
   isDisplayAvailable?: () => boolean;
   /** Screen on/off changed: the controller blanks/unblanks the compositor. */
@@ -1160,11 +1162,11 @@ class Shell {
   sendToAssistant(text: string): void {
     const session = this.ensureAssistantSession();
     if (!session) {
-      this.showAlert(
+      void this.showAlert(
         assistantBackendSetting.get() === "external"
           ? "Configure the Hermes Agent bridge host and token in Settings."
           : "Set an API key or download the on-phone model in Settings.",
-      );
+      ).catch(() => { /* configuration notice is best-effort while disconnected */ });
       return;
     }
     if (!this.screenOn) this.wake("sidebar");
@@ -1251,8 +1253,9 @@ class Shell {
   }
 
   /** Show a brief text popup on the lenses (assistant show_alert / notices). */
-  async showAlert(text: string): Promise<void> {
+  async showAlert(text: string, signal?: AbortSignal): Promise<void> {
     if (!this.screenOn) throw new Error("The glasses display is off; no alert was sent.");
+    if (signal?.aborted) throw new Error("The alert operation was cancelled; no alert was sent.");
     if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
       throw new Error("The glasses are disconnected; no alert was sent.");
     }
@@ -1266,7 +1269,8 @@ class Shell {
     this.alertLayer = layer;
     this.stack.push(layer);
     try {
-      await this.config.requestShellRender();
+      if (signal?.aborted) throw new Error("The alert operation was cancelled; no alert was sent.");
+      await (this.config.requestShellDelivery?.() ?? Promise.resolve(this.config.requestShellRender()));
     } catch (error) {
       this.stack.remove(layer);
       if (this.alertLayer === layer) this.alertLayer = null;

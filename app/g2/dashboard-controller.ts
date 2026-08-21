@@ -274,6 +274,7 @@ class DashboardController {
       },
       getScreenTimeoutMs: () => screenTimeoutSettingToMs(screenTimeoutSetting.get()),
       requestShellRender: () => this.requestShellRender(),
+      requestShellDelivery: () => this.requestShellDelivery(),
       isDisplayAvailable: () => this.isDisplayAvailable(),
       onWindowsChanged: () => this.persistOpenApps(),
       onHealthHiddenChanged: (hidden) => saveHealthTabHidden(hidden),
@@ -1790,6 +1791,11 @@ class DashboardController {
    * one queued.
    */
   requestShellRender(): Promise<void> {
+    return this.requestShellDelivery().catch(() => undefined);
+  }
+
+  /** Strict shell delivery used only by user-visible alert operations. */
+  private requestShellDelivery(): Promise<void> {
     if (this.shellRenderInProgress) {
       this.shellRenderQueued = true;
       return this.shellRenderPromise ?? Promise.resolve();

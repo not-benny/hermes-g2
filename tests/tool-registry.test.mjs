@@ -76,3 +76,24 @@ test("timeouts abort in-flight handlers and hide dependency details", async () =
   assert.match(result.error, /timed out/);
   assert.equal(signal.aborted, true);
 });
+
+test("side-effect handlers receive the live-turn guard at invocation", async () => {
+  const registry = new ToolRegistry();
+  let allowed = true;
+  let guardSeen = false;
+  registry.registerSystemTool({ name: "test.guarded", description: "test", inputSchema: { type: "object", properties: {} } },
+    (_args, _signal, guard) => {
+      guardSeen = guard?.() === true;
+      return guardSeen ? { ok: true, content: "sent" } : { ok: false, error: "stale" };
+    });
+  const result = await registry.callTool("test.guarded", {}, {
+    turnGeneration: "turn-1", isTurnGenerationActive: () => allowed,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(guardSeen, true);
+  allowed = false;
+  const stale = await registry.callTool("test.guarded", {}, {
+    turnGeneration: "turn-1", isTurnGenerationActive: () => allowed,
+  });
+  assert.equal(stale.ok, false);
+});
