@@ -4,11 +4,14 @@
 
 Added `notes/whatsapp-link-code-regression-2026-08.md` and reconciled the WhatsApp blocker in `ROADMAP.md`.
 The embedded rc13 client deterministically emits `Chrome (Hermes G2)`, which matches upstream's documented
-April `400 bad-request` failure for non-canonical pairing displays; rc13 also returns a code before awaiting
-the IQ error. Upstream PR #2559 is an actionable but unreleased fix. Issue #2488's original missing-success
-report was retracted after the required 515 reconnect was added, while later #2737 documents an unresolved
-`companion_reg_refresh` change affecting current pairing. No live-link batches were started; batches 3–6 stay
-gated. No confirmed upstream release/timeline restores the full pairing path yet.
+April `400 bad-request` failure for non-canonical pairing displays; rc13 also returns one code before the
+later IQ error, so its retry loop cannot observe or repair that asynchronous rejection. Upstream PR #2559
+is an actionable but unreleased fix. Issue #2488's original missing-success report was retracted after the
+required 515 reconnect was added. Later #2737 confirms a `companion_reg_refresh` change after QR scans, but
+its link-code attempt stops at the separate stage-1 400; its impact on canonicalized link-code pairing is
+unknown. No live-link batches were started; batches 3–6 stay gated pending safe validation. No confirmed
+upstream release/timeline restores the full pairing path yet, although the April failure has a viable patch
+path.
 
 ## G2 protobuf transport primitives (2026-08-21)
 

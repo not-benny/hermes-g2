@@ -198,10 +198,11 @@ Semantics and selected wire bytes are now documented. Transport primitives are i
 - **BLOCKED / RESEARCH COMPLETE** — WhatsApp in-app client. Engine, pairing UI, and plumbing are DONE
   (nodejs-mobile + Baileys 7 embedded, verified in-app), but Hermes's custom `Chrome (Hermes G2)` pairing
   display is rejected by WhatsApp's April-2026 `companion_hello` validator (`400 bad-request`). Upstream
-  PR #2559 identifies the canonical-platform + awaited-IQ fix, but is not released; later issue #2737 also
-  reports an unresolved `companion_reg_refresh` pairing change in rc13/rc14/master. Full diagnosis and links:
-  `notes/whatsapp-link-code-regression-2026-08.md`. Batches 3–6 (need a live link) remain on hold; do not
-  start live-link batches until the canonical-label fix is available and the later refresh flow is resolved.
+  PR #2559 identifies the canonical-platform + awaited-IQ fix, but is not released. Later issue #2737
+  confirms an unresolved `companion_reg_refresh` change after QR scans; its link-code attempt stops at the
+  separate stage-1 400, so its impact on a canonicalized link-code flow remains unknown. Full diagnosis and
+  links: `notes/whatsapp-link-code-regression-2026-08.md`. Batches 3–6 (need a live link) remain on hold
+  pending safe validation; do not treat #2737 alone as proof that link-code restoration is impossible.
 - **DEFER** — R: Latency deeper — move ring link off the display worker thread; non-blocking wake barrier;
   shorter waitForFrameFinished. (Quick wins already landed.)
 
