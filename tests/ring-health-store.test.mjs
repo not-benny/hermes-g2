@@ -115,7 +115,7 @@ test("heart-rate daily push decodes across fragments and picks the newest record
     { hourIdx: 6, avg: 113, max: 116, min: 111 }, // highest hour -> newest
     { hourIdx: 5, avg: 95, max: 99, min: 90 },
   ]);
-  const inner = buildInner(2, 1, 1, 3, payload); // module=health, cmd=heartRate
+  const inner = buildInner(2, 1, 1, 2, payload); // module=health, cmd=heartRate, status=push
   const frames = fragments(inner, [10, inner.length - 10]);
   for (const frame of frames) store.ingestFrame(frame);
 
@@ -266,8 +266,8 @@ test("persisted activity is deduplicated and all derived fields are rebuilt", ()
 
 test("interleaved batches both decode", () => {
   const store = new RingHealthStore();
-  const hrFrames = fragments(buildInner(2, 1, 1, 3, dailyHealth(70, [{ hourIdx: 10, avg: 70, max: 75, min: 65 }])), null);
-  const spo2Inner = buildInner(2, 2, 1, 3, dailyHealth(98, [{ hourIdx: 20, avg: 98, max: 99, min: 96 }]));
+  const hrFrames = fragments(buildInner(2, 1, 1, 2, dailyHealth(70, [{ hourIdx: 10, avg: 70, max: 75, min: 65 }])), null);
+  const spo2Inner = buildInner(2, 2, 1, 2, dailyHealth(98, [{ hourIdx: 20, avg: 98, max: 99, min: 96 }]));
   const spo2Frames = fragments(spo2Inner, [6, spo2Inner.length - 6]);
   // spo2 head, then the whole hr batch, then the spo2 tail.
   store.ingestFrame(spo2Frames[0]);

@@ -26,7 +26,8 @@ not a guarantee for every phone, firmware version, or hardware unit.
 ## Before you start
 
 Hermes currently works alongside the official Even Realities app rather than
-replacing it completely:
+replacing it completely. Complete first-time setup in Even before handing the
+devices over to Hermes:
 
 1. Use the official Even app to pair and provision the G2 glasses and R1 ring,
    and to apply required official firmware updates.
