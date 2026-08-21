@@ -38,13 +38,35 @@ formal review decision.
   client, credential run, or real-G2 display evidence exists. Public MCP/skill
   publication and operational authorization remain NO-GO; no `SKILL.md` was added.
 
-Verification on the current candidate: final focused render/MCP lifecycle tests
-pass 14/14; full `npm run test` passes 246/246; `npm run typecheck` passes after a
-worktree-local `npm ci`; JDK 21 / Android SDK 35 `npm run build` passes and emits
-the ignored debug APK. The exact APK installed and launched on the authorized USB
-Samsung A32 with no observed fatal crash. Package-filtered logs
-reported no active glasses connection and discarded shell frames safely, so no
-`render_view`, G2 lens, TTL, no-wake or gesture hardware claim is made.
+Verification on the original PR #12 candidate: final focused render/MCP lifecycle tests
+passed 14/14; full `npm run test` passed 246/246; `npm run typecheck` and the
+JDK 21 / Android SDK 35 build passed. That candidate was installed on the authorized
+A32 but did not retain the controller's live communicator: the Java BLE worker reached
+`session ready` while the phone UI remained `Disconnected.` and shell frames were
+discarded. It therefore did not provide valid real-G2 display evidence.
+
+### Live glasses connection recovery
+
+Follow-up commit `1c1e271` fixes the startup state race which caused the failed
+hardware outcome. `FaceclawBleCommunicator.setListener()` posts its constructor-time
+`disconnected` snapshot asynchronously. If that stale snapshot arrived after a fresh
+connect began, `DashboardController` treated it as completed teardown, detached the
+communicator, and then missed the subsequent native `connected` publication while the
+BLE worker continued running. Communicator ownership is now finalized only when an
+owned controller is already in `disconnecting` and receives terminal `disconnected`;
+a delayed initial snapshot cannot cancel a live connect attempt.
+
+Focused regression coverage first failed because the lifecycle helper was absent, then
+passed 5/5 with the existing teardown tests. Full `npm run test` passes 248/248,
+`npm run typecheck` passes, and JDK 21 / Android SDK 35 `npm run build` passes. The
+exact commit's APK was installed over the existing package on the authorized A32 with
+app data retained. After two transient Android GATT-133 retries, both arms connected,
+the native worker published `session ready`, framebuffer leases and `create-layout`
+were ACKed, the phone UI reported `Connected.`, shell frame 15 completed as `sent`,
+and a real glasses input event was consumed by the shell with a chrome render queued.
+No pairing, provisioning, firmware, reset, wipe, permission, credential, or ownership
+state was changed. This is verified two-arm connection, display delivery, and input
+responsiveness evidence; it is not authorization to publish the MCP/skill surface.
 
 Independent adversarial review first reproduced three lifecycle blockers across
 the frozen candidates: local close during initial delivery could publish a ghost,
@@ -55,8 +77,10 @@ from bounded update history, and cancel both committed and pending owner revisio
 Final exact-SHA review passed at
 `1ca3709ac23408620c7477056fb51f09fe874065`: **Static review: PASS** with no
 remaining file/line/interleaving blocker. **Operational authorization: NO-GO**
-for public MCP/skill publication and real-G2 use pending the external, licensing,
-generic-client, credential, and hardware evidence listed above.
+for public MCP/skill publication and external `render_view` operation pending the
+external bridge, licensing, generic-client, credential, and tool-specific hardware
+evidence listed above. The later connection recovery proves normal shell transport
+and input only; it does not supersede those publication and remote-view gates.
 
 ## R1 health and protocol completion candidate
 
