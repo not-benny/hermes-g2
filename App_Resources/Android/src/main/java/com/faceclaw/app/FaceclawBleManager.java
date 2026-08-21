@@ -16,6 +16,9 @@ import android.util.Log;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 
 @SuppressLint("MissingPermission")
@@ -34,6 +37,12 @@ public class FaceclawBleManager {
     private static final Object BLUETOOTH_API_LOCK = new Object();
     private final ConcurrentHashMap<String, Object> operationLocks = new ConcurrentHashMap<>();
     private final GattCallbackRegistry<BluetoothGatt> callbackRegistry = new GattCallbackRegistry<>();
+    private final ExecutorService callbackExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "FaceclawGattCallbacks");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private volatile boolean closed;
 
     private volatile FaceclawBleListener listener;
 
@@ -351,6 +360,7 @@ public class FaceclawBleManager {
     }
 
     public void close() {
+        closed = true;
         while (true) {
             String address = null;
             for (String candidate : operationLocks.keySet()) {
@@ -360,6 +370,7 @@ public class FaceclawBleManager {
                 }
             }
             if (address == null) {
+                callbackExecutor.shutdownNow();
                 return;
             }
             disconnect(address);
@@ -428,12 +439,16 @@ public class FaceclawBleManager {
             String address = gatt.getDevice().getAddress();
 
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
-                callbackRegistry.completeConnect(
+                boolean accepted = callbackRegistry.completeConnect(
                     address,
                     gatt,
                     true,
-                    lease -> dispatchConnectionState(gatt, address, true, lease)
+                    lease -> enqueueCallback(() -> lease.dispatchIfCurrent(
+                        currentLease -> dispatchConnectionState(gatt, address, true, currentLease)))
                 );
+                if (!accepted && callbackRegistry.retireStale(gatt)) {
+                    closeGatt(gatt);
+                }
                 return;
             }
 
@@ -442,19 +457,23 @@ public class FaceclawBleManager {
                     address,
                     gatt,
                     false,
-                    lease -> dispatchConnectionState(gatt, address, false, lease)
+                    lease -> enqueueCallback(() -> lease.dispatchIfCurrent(
+                        currentLease -> dispatchConnectionState(gatt, address, false, currentLease)))
                 );
                 if (!accepted) {
                     accepted = callbackRegistry.disconnectIfCurrent(
                         address,
                         gatt,
-                        lease -> dispatchConnectionState(gatt, address, false, lease)
+                        lease -> enqueueCallback(() -> lease.dispatchIfCurrent(
+                            currentLease -> dispatchConnectionState(gatt, address, false, currentLease)))
                     );
                 }
                 if (accepted) {
                     synchronized (gattLock(address)) {
                         closeDisconnectedGatt(gatt);
                     }
+                } else if (callbackRegistry.retireStale(gatt)) {
+                    closeDisconnectedGatt(gatt);
                 }
             }
         }
@@ -509,7 +528,11 @@ public class FaceclawBleManager {
             callbackRegistry.dispatchIfCurrent(
                 address,
                 gatt,
-                lease -> dispatchNotification(gatt, characteristic.getUuid().toString(), value, lease)
+                lease -> {
+                    byte[] copy = value != null ? value.clone() : new byte[0];
+                    enqueueCallback(() -> lease.dispatchIfCurrent(currentLease ->
+                        dispatchNotification(gatt, characteristic.getUuid().toString(), copy, currentLease)));
+                }
             );
         }
 
@@ -520,7 +543,12 @@ public class FaceclawBleManager {
             callbackRegistry.dispatchIfCurrent(
                 address,
                 gatt,
-                lease -> dispatchNotification(gatt, characteristic.getUuid().toString(), characteristic.getValue(), lease)
+                lease -> {
+                    byte[] value = characteristic.getValue();
+                    byte[] copy = value != null ? value.clone() : new byte[0];
+                    enqueueCallback(() -> lease.dispatchIfCurrent(currentLease ->
+                        dispatchNotification(gatt, characteristic.getUuid().toString(), copy, currentLease)));
+                }
             );
         }
     };
@@ -530,6 +558,17 @@ public class FaceclawBleManager {
         FaceclawBleListener current = listener;
         if (current == null) return;
         current.onConnectionStateChange(gatt, address, connected, lease);
+    }
+
+    private void enqueueCallback(Runnable callback) {
+        if (closed || callback == null) return;
+        try {
+            callbackExecutor.execute(() -> {
+                if (!closed) callback.run();
+            });
+        } catch (RejectedExecutionException ignored) {
+            // Manager teardown intentionally drops queued external listener effects.
+        }
     }
 
     private void dispatchNotification(BluetoothGatt gatt, String characteristicUuid, byte[] data,

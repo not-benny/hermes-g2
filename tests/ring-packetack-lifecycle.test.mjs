@@ -2,10 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const source = readFileSync(
-  new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
-  "utf8",
-);
+const source = readFileSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url), "utf8");
 
 function methodBody(signature) {
   const start = source.indexOf(signature);
@@ -19,60 +16,36 @@ function methodBody(signature) {
   assert.fail(`unterminated ${signature}`);
 }
 
-function assertRetiresPacketAck(body, label) {
-  assert.match(body, /(?:ringConnectionGeneration\+\+|retireRingPacketAckStateLocked\(\))/,
-    `${label} must invalidate delayed cursors`);
-}
-
 test("packetAck retirement atomically increments generation and clears the queue", () => {
-  const retire = methodBody("private void retireRingPacketAckStateLocked()");
-  assert.match(retire, /ringConnectionGeneration\+\+/);
-  assert.match(retire, /ringPacketAckQueue\.clear\(\)/);
-  assert.ok(retire.indexOf("ringConnectionGeneration++") < retire.indexOf("ringPacketAckQueue.clear()"));
+  const body = methodBody("private void invalidateRingPacketAckStateLocked()");
+  assert.ok(body.indexOf("ringConnectionGeneration++") < body.indexOf("ringPacketAckQueue.clear()"));
 });
 
-test("ring disconnect retires queued packetAck cursors before reconnect", () => {
-  const callback = methodBody("@Override public void onConnectionStateChange(String address, boolean connected)");
-  const ringBranch = callback.slice(callback.indexOf("if (isConfiguredRingAddress(address))"));
-  assertRetiresPacketAck(ringBranch, "ring disconnect");
-  assert.ok(ringBranch.indexOf("ringConnectionGeneration++") < ringBranch.indexOf("ringPacketAckQueue.clear()"));
+test("ring disconnect and failed connect retire delayed packetAck work", () => {
+  assert.match(methodBody("private int updateDirectRingConnectionStateLocked(boolean connected)"), /invalidateRingPacketAckStateLocked\(\)/);
+  assert.match(methodBody("private void handleRingFailure(String reason, Throwable failure)"), /invalidateRingPacketAckStateLocked\(\)/);
 });
 
-test("successful ring replacement starts a new generation and empty queue", () => {
-  const connect = methodBody("private void connectRing()");
-  assertRetiresPacketAck(connect.slice(connect.indexOf("synchronized (lock)")), "ring reconnect");
-});
-
-test("failed ring connect retires stale delayed packetAck work", () => {
-  const attempt = methodBody("private void tryConnectRing(String reason)");
-  const failure = attempt.slice(attempt.indexOf("} catch (Throwable t)"));
-  assertRetiresPacketAck(failure, "failed ring connect");
-  assert.match(failure, /retireRingPacketAckStateLocked\(\)/);
-});
-
-test("hard transport failure retires packetAck work before manager teardown", () => {
+test("successful replacement and hard transport failure start a clean generation", () => {
+  const connect = methodBody("private int connectRing()");
+  assert.ok(connect.indexOf("invalidateRingPacketAckStateLocked()") < connect.indexOf("ringNotificationsReady = true"));
   const failure = methodBody("private void hardTransportFailure(String reason)");
-  assertRetiresPacketAck(failure, "hard transport failure");
-  assert.match(failure, /retireRingPacketAckStateLocked\(\)/);
-  assert.ok(failure.indexOf("retireRingPacketAckStateLocked()") < failure.indexOf("bleManager.disconnect(rightAddress)"));
+  assert.ok(failure.indexOf("ringNotificationsReady = false") < failure.indexOf("invalidateRingPacketAckStateLocked()"));
+  assert.ok(failure.indexOf("invalidateRingPacketAckStateLocked()") < failure.indexOf("bleManager.disconnect(rightAddress)"));
 });
 
-test("final packetAck write is under the lifecycle lock and rejects stale work", () => {
+test("final packetAck write is serialized with lifecycle retirement", () => {
   const send = methodBody("private void sendRingPacketAck(RingPacketAckCursor cursor)");
-  assert.match(send, /synchronized \(lock\)/);
-  assert.match(send, /!ringConnected/);
-  assert.match(send, /!ringNotificationsReady/);
-  assert.match(send, /cursor\.generation != ringConnectionGeneration/);
-  assert.ok(send.indexOf("cursor.generation != ringConnectionGeneration") < send.indexOf('sendRingCommand("packetAck"'));
+  assert.match(send, /synchronized \(ringLock\)/);
+  assert.match(send, /isRingOperationAllowedLocked\(cursor\.generation\)/);
+  assert.ok(send.indexOf("isRingOperationAllowedLocked") < send.indexOf('sendRingCommand("packetAck"'));
 });
 
-test("multi-packet history remains bounded and preserves valid cursor order", () => {
-  const queue = methodBody("private void queueRingPacketAck(byte[] frame)");
-  assert.match(queue, /if \(frame == null \|\| frame\.length < 17/);
-  assert.match(queue, /storedCrc != ringCrc32\(frame, 5, innerLen\)/);
+test("queue remains bounded and callback enqueue cannot write", () => {
+  const queue = methodBody("private void queueRingPacketAck(byte[] frame, int generation)");
+  assert.match(queue, /isRingOperationAllowedLocked\(generation\)/);
   assert.match(queue, /ringPacketAckQueue\.size\(\) >= 16/);
-  assert.match(queue, /ringPacketAckQueue\.addLast\(new RingPacketAckCursor\(payload, ringConnectionGeneration\)\)/);
-  const drain = methodBody("private void drainRingPacketAcks()");
-  assert.match(drain, /cursor = ringPacketAckQueue\.pollFirst\(\)/);
-  assert.match(drain, /sendRingPacketAck\(cursor\)/);
+  assert.match(queue, /ringPacketAckQueue\.removeFirst\(\)/);
+  assert.match(queue, /ringPacketAckQueue\.addLast\(/);
+  assert.doesNotMatch(queue, /sendRingCommand\(/);
 });

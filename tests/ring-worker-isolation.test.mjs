@@ -37,6 +37,8 @@ test("ring lifecycle rejects work after stopping and keeps callbacks outside loc
 });
 
 test("BLE manager uses a process API lock without waiting under it", () => {
-  assert.match(manager, /private final Object bluetoothApiLock = new Object\(\)/);
-  assert.doesNotMatch(manager, /synchronized \(bluetoothApiLock\)[\s\S]*awaitLatch/);
+  assert.match(manager, /private static final Object BLUETOOTH_API_LOCK = new Object\(\)/);
+  const callback = methodBody(manager, "public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState)");
+  assert.doesNotMatch(callback, /BLUETOOTH_API_LOCK/);
+  assert.match(manager, /awaitOperation\(operation, timeoutMs\)/);
 });

@@ -99,6 +99,11 @@ final class GattCallbackRegistry<G> {
     synchronized boolean isCurrent(String address, G gatt) {
         return gatt != null && currentGatts.get(address) == gatt && !isRetired(gatt);
     }
+    synchronized boolean retireStale(G gatt) {
+        if (gatt == null || currentGatts.containsValue(gatt) || isRetired(gatt)) return false;
+        retiredGatts.add(new WeakReference<>(gatt));
+        return true;
+    }
     synchronized Operation<G> beginConnect(String address) {
         long generation = nextGenerations.getOrDefault(address, 0L) + 1L;
         nextGenerations.put(address, generation);

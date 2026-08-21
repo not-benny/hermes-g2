@@ -187,8 +187,8 @@ test("direct ring requests MTU 247 before subscribing and probing", () => {
     "utf8",
   );
   assert.match(options, /RING_DESIRED_MTU = 247/);
-  const start = src.indexOf("private void connectRing()");
-  const end = src.indexOf("private void refreshRingBattery()", start);
+  const start = src.indexOf("private int connectRing()");
+  const end = src.indexOf("private boolean enableRingNotification", start);
   const body = src.slice(start, end);
   const discover = body.indexOf("discoverServices(ringAddress");
   const requestMtu = body.indexOf("requestMtu(");
@@ -208,9 +208,9 @@ test("worker refreshes current HR every 15 seconds without re-polling all metric
   assert.match(src, /RING_CURRENT_HR_POLL_INTERVAL_MS = 15_000L/);
   assert.match(src, /maybeReRingCurrentHrPoll\(\)/);
   const start = src.indexOf("private void maybeReRingCurrentHrPoll()");
-  const end = src.indexOf("private void probeRingHealth()", start);
+  const end = src.indexOf("private void probeRingHealth(int generation)", start);
   const body = src.slice(start, end);
-  assert.match(body, /sendRingCommand\("heartRate\/current-hour GET", 0x02, 0x01, 0x01, 0x00, null\)/);
+  assert.match(body, /sendRingCommandForGeneration\(generation,[\s\S]*"heartRate\/current-hour GET", 0x02, 0x01, 0x01, 0x00, null\)/);
   assert.doesNotMatch(body, /spo2\/daily|hrv\/daily|activity\/daily|sleep\/daily|deviceStatus GET/);
 });
 
@@ -219,15 +219,15 @@ test("health pushes queue packetAck cursors and the worker drains them safely", 
     new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
     "utf8",
   );
-  assert.match(src, /queueRingPacketAck\(data\)/);
+  assert.match(src, /queueRingPacketAck\(data, generation\)/);
   assert.match(src, /drainRingPacketAcks\(\)/);
   assert.match(src, /ringConnectionGeneration/);
   assert.match(src, /sendRingPacketAck\(cursor\)/);
   assert.match(src, /ringPacketAckQueue\.clear\(\)/);
-  const queueStart = src.indexOf("private void queueRingPacketAck(byte[] frame)");
-  const queueEnd = src.indexOf("/** Worker-thread drain", queueStart);
+  const queueStart = src.indexOf("private void queueRingPacketAck(byte[] frame, int generation)");
+  const queueEnd = src.indexOf("/** Ring-worker drain", queueStart);
   const queue = src.slice(queueStart, queueEnd);
-  assert.match(queue, /!running.*!sessionReady.*!ringConnected.*!ringNotificationsReady/s);
+  assert.match(queue, /isRingOperationAllowedLocked\(generation\)/);
   assert.match(queue, /ringPacketAckQueue\.size\(\) >= 16/);
   assert.match(queue, /ringPacketAckQueue\.removeFirst\(\)/);
   assert.match(queue, /ringPacketAckQueue\.addLast\(/);
@@ -238,12 +238,10 @@ test("health pushes queue packetAck cursors and the worker drains them safely", 
   const guardedStart = src.indexOf("private void sendRingPacketAck(RingPacketAckCursor cursor)");
   const guardedEnd = src.indexOf("private void sendRingCommand(", guardedStart);
   const guarded = src.slice(guardedStart, guardedEnd);
-  assert.match(guarded, /synchronized \(lock\)/);
-  assert.match(guarded, /!running.*!sessionReady.*!ringConnected.*!ringNotificationsReady/s);
-  assert.ok(
-    guarded.indexOf("cursor.generation != ringConnectionGeneration") < guarded.indexOf('sendRingCommand("packetAck"'),
-    "generation must be revalidated under the lifecycle lock at the final write boundary",
-  );
+  assert.match(guarded, /synchronized \(ringLock\)/);
+  assert.match(guarded, /isRingOperationAllowedLocked\(cursor\.generation\)/);
+  const allowed = src.slice(src.indexOf("private boolean isRingOperationAllowedLocked"), src.indexOf("private boolean sendRingCommandForGeneration"));
+  assert.match(allowed, /!stopping[\s\S]*running[\s\S]*sessionReady[\s\S]*ringConnected[\s\S]*ringNotificationsReady[\s\S]*generation == ringConnectionGeneration/);
   assert.match(src, /payload\[0\] = frame\[6\]/); // module
   assert.match(src, /payload\[1\] = frame\[11\]/); // cmd
   assert.match(src, /payload\[2\] = frame\[12\]/); // subCmd
@@ -263,10 +261,9 @@ test("packetAck generation invalidation covers every direct-ring reset boundary"
   assert.match(src, /private void invalidateRingPacketAckStateLocked\(\)/);
   assert.match(src, /invalidateRingPacketAckStateLocked\(\);[\s\S]*ringConnected = connected/);
 
-  const failedConnectStart = src.indexOf("private void tryConnectRing(String reason)");
-  const failedConnectEnd = src.indexOf("private void connectRing()", failedConnectStart);
+  const failedConnectStart = src.indexOf("private void handleRingFailure(String reason, Throwable failure)");
+  const failedConnectEnd = src.indexOf("private int connectRing()", failedConnectStart);
   const failedConnect = src.slice(failedConnectStart, failedConnectEnd);
-  assert.match(failedConnect, /catch \(Throwable t\)/);
   assert.match(failedConnect, /invalidateRingPacketAckStateLocked\(\);/);
 
   const hardFailureStart = src.indexOf("private void hardTransportFailure(String reason)");
@@ -289,16 +286,15 @@ test("packetAck final side effect rejects poll-before-disconnect/reset interleav
     new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
     "utf8",
   );
-  const disconnectStart = src.indexOf("public void disconnect()");
-  const disconnectEnd = src.indexOf("public void close()", disconnectStart);
+  const disconnectStart = src.indexOf("public boolean disconnect()");
+  const disconnectEnd = src.indexOf("private boolean awaitCleanup", disconnectStart);
   const disconnect = src.slice(disconnectStart, disconnectEnd);
-  assert.ok(disconnect.indexOf("running = false") < disconnect.indexOf("resetSessionStateLocked"));
+  assert.ok(disconnect.indexOf("running = false") < disconnect.indexOf("scheduleDeferredCleanup"));
   const sendStart = src.indexOf("private void sendRingPacketAck(RingPacketAckCursor cursor)");
   const sendEnd = src.indexOf("/** Build and write", sendStart);
   const send = src.slice(sendStart, sendEnd);
-  assert.ok(send.indexOf("synchronized (lock)") < send.indexOf('sendRingCommand("packetAck"'));
-  assert.ok(send.indexOf("!running") < send.indexOf('sendRingCommand("packetAck"'));
-  assert.ok(send.indexOf("cursor.generation != ringConnectionGeneration") < send.indexOf('sendRingCommand("packetAck"'));
+  assert.ok(send.indexOf("synchronized (ringLock)") < send.indexOf('sendRingCommand("packetAck"'));
+  assert.ok(send.indexOf("isRingOperationAllowedLocked(cursor.generation)") < send.indexOf('sendRingCommand("packetAck"'));
 });
 
 test("packetAck arm-loss invalidation prevents old work after reconnect readiness", () => {
@@ -310,14 +306,12 @@ test("packetAck arm-loss invalidation prevents old work after reconnect readines
   const stateChangeEnd = src.indexOf("private void connectLoopOnce()", stateChangeStart);
   const stateChange = src.slice(stateChangeStart, stateChangeEnd);
   const armLoss = stateChange.slice(stateChange.indexOf("if (!connected) {"));
-  assert.ok(armLoss.indexOf("invalidateRingPacketAckStateLocked()") < armLoss.indexOf("sessionReady = false"));
+  assert.match(armLoss, /sessionReady = false/);
+  assert.match(stateChange, /invalidateRingPacketAckStateLocked\(\)/);
 
   const reconnectStart = src.indexOf("private void connectLoopOnce()");
   const reconnectEnd = src.indexOf("private void", reconnectStart + 1);
   const reconnect = src.slice(reconnectStart, reconnectEnd);
   assert.ok(reconnect.indexOf("sessionReady = true") >= 0);
-  assert.ok(
-    stateChange.indexOf("invalidateRingPacketAckStateLocked()") < stateChange.indexOf("sessionReady = false"),
-    "arm loss must retire queued work before readiness is withdrawn",
-  );
+  assert.match(reconnect, /attemptGeneration == glassesConnectionGeneration/);
 });

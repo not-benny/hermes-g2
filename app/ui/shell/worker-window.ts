@@ -254,7 +254,8 @@ export class WorkerAppHost {
               windowId: message.windowId,
               appId: this.options.appId,
               specs: message.tools,
-              invoke: (toolName, args) => this.callWindowTool(message.windowId, toolName, args),
+              invoke: (toolName, args, signal, isSideEffectAllowed) =>
+                this.callWindowTool(message.windowId, toolName, args, signal, isSideEffectAllowed),
               isForeground: () => shell.foregroundWindow()?.windowId === message.windowId,
             });
             this.openWindows.get(message.windowId)!.lease = lease;
@@ -371,8 +372,19 @@ export class WorkerAppHost {
    * Resolves with a tool error on timeout so a hung worker yields a tool error
    * rather than a stuck assistant turn.
    */
-  private callWindowTool(windowId: string, toolName: string, args: unknown): Promise<ToolResult> {
+  private callWindowTool(
+    windowId: string,
+    toolName: string,
+    args: unknown,
+    signal?: AbortSignal,
+    isSideEffectAllowed?: () => boolean,
+  ): Promise<ToolResult> {
     return new Promise<ToolResult>((resolve) => {
+      const allowed = () => !signal?.aborted && (!isSideEffectAllowed || isSideEffectAllowed());
+      if (!allowed()) {
+        resolve({ ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." });
+        return;
+      }
       const callId = `${this.options.appId}:${this.nextCallSerial++}`;
       const authorizationId = `${callId}:authorization`;
       const cancel = () => this.post({ type: "cancel-tool-call", callId, authorizationId });

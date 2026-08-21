@@ -30,8 +30,9 @@ test("connection callbacks reject stale GATTs before state or latch publication"
   const callback = methodBody("public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState)");
   assert.match(callback, /callbackRegistry\.completeConnect\(/);
   assert.match(callback, /callbackRegistry\.disconnectIfCurrent\(/);
-  assert.match(callback, /dispatchConnectionState\(gatt, address, true, lease\)/);
-  assert.match(callback, /dispatchConnectionState\(gatt, address, false, lease\)/);
+  assert.match(callback, /dispatchConnectionState\(gatt, address, true, currentLease\)/);
+  assert.match(callback, /dispatchConnectionState\(gatt, address, false, currentLease\)/);
+  assert.match(callback, /callbackRegistry\.retireStale\(gatt\)/);
 });
 
 test("connect owns one exact-GATT attempt and disconnect releases its waiters", () => {
@@ -86,7 +87,7 @@ test("communicator retires state before synchronously requesting manager teardow
   const failure = methodBodyFrom(communicator, "private void hardTransportFailure(String reason)");
   const stateClose = failure.indexOf("clearAllMessagesLocked");
   const rightDisconnect = failure.indexOf("bleManager.disconnect(rightAddress)");
-  const lockClose = failure.indexOf("}\n        // Complete communicator state retirement");
+  const lockClose = failure.indexOf("}\n        synchronized (ringLock)");
   assert.ok(stateClose >= 0);
   assert.ok(rightDisconnect > stateClose);
   assert.ok(lockClose >= 0, "manager teardown must follow the communicator monitor");
@@ -102,8 +103,8 @@ test("every production listener consumes the exact-GATT boundary", () => {
     "FaceclawFirmwareFlasher.java",
   ].map((name) => readFileSync(new URL(`../App_Resources/Android/src/main/java/com/faceclaw/app/${name}`, import.meta.url), "utf8"));
   for (const source of sources) {
-    assert.match(source, /onConnectionStateChange\(BluetoothGatt gatt, String address, boolean connected\)/);
-    assert.match(source, /onNotification\(BluetoothGatt gatt, String address, String characteristicUuid, byte\[\] data\)/);
+    assert.match(source, /onConnectionStateChange\(\s*BluetoothGatt gatt,\s*String address,\s*boolean connected,[\s\S]*?DispatchLease<BluetoothGatt>/);
+    assert.match(source, /onNotification\(\s*BluetoothGatt gatt,\s*String address,\s*String characteristicUuid,\s*byte\[\] data,[\s\S]*?DispatchLease<BluetoothGatt>/);
     assert.doesNotMatch(source, /bleManager\.isCurrentGatt\(gatt, address\)/);
   }
 });

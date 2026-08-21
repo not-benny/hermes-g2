@@ -20,19 +20,27 @@ export async function callAppToolWithLaunch(
   appId: string,
   unprefixedName: string,
   args: unknown,
+  signal?: AbortSignal,
+  isSideEffectAllowed?: () => boolean,
 ): Promise<ToolResult> {
+  const allowed = () => !signal?.aborted && (!isSideEffectAllowed || isSideEffectAllowed());
+  if (!allowed()) return { ok: false, error: "The authorizing assistant turn is no longer active." };
   const fullName = `app.${appId}.${unprefixedName}`;
   if (!registry.listTools().some((tool) => tool.name === fullName)) {
     await launchApp(appId);
     const deadline = Date.now() + TOOL_APPEAR_TIMEOUT_MS;
     while (!registry.listTools().some((tool) => tool.name === fullName)) {
+      if (!allowed()) return { ok: false, error: "The authorizing assistant turn is no longer active." };
       if (Date.now() > deadline) {
         return { ok: false, error: `The ${appId} app did not start in time.` };
       }
       await sleep(TOOL_APPEAR_POLL_MS);
     }
   }
-  return registry.callTool(fullName, args);
+  return registry.callTool(fullName, args, {
+    turnGeneration: "forwarded",
+    isTurnGenerationActive: allowed,
+  });
 }
 
 function sleep(ms: number): Promise<void> {
