@@ -152,16 +152,16 @@ session-open frame is hardcoded/universal (not per-device).
   recovery gates. Two actionable follow-ups it surfaced live as their own items: firmware-version display
   (NEXT) and the `sendRawRingFrame` blocklist-bypass fix (NOW / Security).
 
-### BLE-command features — GATED track (need blutter + proto extraction)
-Semantics known, wire bytes not. Everything else ships without new BLE bytes; these wait.
+### BLE-command features — GATED track
+Semantics and selected wire bytes are now documented. Transport primitives are implemented; coordinate UI/hardware behavior and reboot operational authorization remain separate.
 - **RESEARCH** — Ring reboot (powerControl 0x12): payload = BleRing1PowerCtlType ordinal (enum also has
   powerOff / factoryReset / dfu) — LOW confidence, MUST NOT guess. Get the byte via a Dart-AOT disassembler
   (blutter on libapp.so) or a btsnoop sniff (Knox-blocked on A32). Build UI gated, defer the send.
-- **RESEARCH** — Glasses reboot (DeviceSettings proto `quickRestart`) + screen distance/depth
-  (G2Setting `setGlassGridDistance` / `setGlassGridHeight`): need G2 protobuf field numbers (dump proto
-  descriptors from the APK) **and** a BleG2 Proto transport in Hermes (Hermes drives glasses via EvenHub,
-  not the Proto DeviceSettings/G2Setting service). Bigger lift = a "G2 Proto transport" sub-project that
-  also unlocks many other glasses settings.
+- **IMPLEMENTED / GATED** — G2Setting screen-distance/height encoders and package-internal ACK queue
+  wrappers are in `BleProtocol`/`MessageBuilder`; descriptor provenance and vectors are in
+  `notes/g2-proto-transport.md`. No communicator/UI send path exists until the device-safe coordinate
+  range is established. DeviceSettings `quickRestart` is an internal descriptor encoder only and remains
+  **NO-GO** until a separately authorized operational verification covers outer flag/arm/session behavior.
 - **RESEARCH** — O2 Hotword-in-firmware: custom hotword on reflash? "Hey Even" is a NationalChip GX8002B NPU
   model outside CFW scope; custom PHRASE = phone-side sherpa KWS only (deferred XL). Custom ACTION already ships.
 

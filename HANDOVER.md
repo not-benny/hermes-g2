@@ -1,4 +1,10 @@
-# Hermes G2 handover (2026-08-20)
+# Hermes G2 handover (2026-08-21)
+
+## G2 protobuf transport primitives (2026-08-21)
+
+Added descriptor-accurate, non-negative-validated G2Setting X distance/Y height encoders and package-internal ACK-tracked `MessageBuilder` wrappers. Added an internal-only DeviceSettings quick-restart encoder; it is not queued or exposed through the communicator/UI. Provenance and exact vectors are recorded in `notes/g2-proto-transport.md`, and `ROADMAP.md` now separates implemented transport from unresolved coordinate-range and reboot authorization gates.
+
+Verification: `node --test tests/g2-proto-transport.test.mjs` passes the zero, multi-byte-varint, quick-restart, validation, and no-runtime-surface contract checks. `npm run typecheck` and `JAVA_HOME=/usr/lib/jvm/java-21-openjdk ANDROID_HOME=/home/benny/Android/Sdk npm run build` pass. Full `npm run test` is 155/157; the two known date-sensitive activity failures remain at `tests/ring-health-store.test.mjs:158` and `:190`. The debug APK installed and launched on USB A32 `RFCR707RQGV`, but the existing glasses BLE reconnect failed before any settings query ACK, so no sid `0x09` ACK evidence was obtained; no sid `0x80` message was sent. Hardware quick restart remains **NO-GO**.
 
 ## Latest hardening continuation (2026-08-21)
 

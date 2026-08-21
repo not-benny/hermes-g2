@@ -35,10 +35,16 @@ public class BleProtocol {
     public static final int SID_APP_LAUNCH = 0x01;
     public static final int SID_EVENHUB = 0xe0;
     public static final int SID_UI_SETTING = 0x09;
+    /** G2Setting service id (kept distinct from the legacy UI_SETTING name). */
+    public static final int SID_G2_SETTING = 0x09;
+    /** DeviceSettings service id; no runtime send path is exposed for it here. */
+    public static final int SID_DEVICE_SETTINGS = 0x80;
     public static final int SID_STATE_CHANGE = 0x0d;
     public static final int SID_ONBOARDING = 0x10;
     /** G2SettingPackage.commandId for device-initiated pushes (vs. 2 = app read). */
     public static final int SETTINGS_CMD_DEVICE_SEND_TO_APP = 3;
+    public static final int G2_SETTING_CMD_DEVICE_RECEIVE = 1;
+    public static final int DEVICE_SETTINGS_CMD_QUICK_RESTART = 15;
     // Private Faceclaw/CFW wake-takeover protocol. Both payloads are unknown
     // protobuf fields to stock implementations, so they are safely ignored.
     public static final int FACECLAW_WAKE_CONTROL_FIELD = 101;
@@ -321,6 +327,46 @@ public class BleProtocol {
             encodeVarintField(2, magic),
             encodeMessageField(3, encodeMessageField(1, concat(brightness)))
         ));
+    }
+
+    /**
+     * Encode G2SettingPackage.setGlassGridDistance (X coordinate) on sid 0x09.
+     * The device's user-facing safe range is a separate controls-layer decision.
+     */
+    public static byte[] buildSetGlassGridDistance(int magic, int distance) {
+        return buildGlassGridCoordinate(magic, 3, distance);
+    }
+
+    /** Encode G2SettingPackage.setGlassGridHeight (Y coordinate) on sid 0x09. */
+    public static byte[] buildSetGlassGridHeight(int magic, int height) {
+        return buildGlassGridCoordinate(magic, 2, height);
+    }
+
+    private static byte[] buildGlassGridCoordinate(int magic, int coordinateField, int value) {
+        requireNonNegative("magic", magic);
+        requireNonNegative("coordinate", value);
+        byte[] coordinate = encodeMessageField(coordinateField, encodeVarintField(1, value));
+        return concat(CollectionUtils.listOf(
+            encodeVarintField(1, G2_SETTING_CMD_DEVICE_RECEIVE),
+            encodeVarintField(2, magic),
+            encodeMessageField(3, coordinate)
+        ));
+    }
+
+    /** Internal encoder only; deliberately not wrapped or queued. */
+    static byte[] buildQuickRestart(int magic) {
+        requireNonNegative("magic", magic);
+        return concat(CollectionUtils.listOf(
+            encodeVarintField(1, DEVICE_SETTINGS_CMD_QUICK_RESTART),
+            encodeVarintField(2, magic),
+            encodeMessageField(14, new byte[0])
+        ));
+    }
+
+    private static void requireNonNegative(String name, int value) {
+        if (value < 0) {
+            throw new IllegalArgumentException(name + " must be non-negative");
+        }
     }
 
     /** Enable the firmware's wear detector (DeviceReceiveInfoFromAPP field 5). */
