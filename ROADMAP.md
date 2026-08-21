@@ -20,9 +20,11 @@ Current as of 21 August 2026. `main` is the canonical branch.
   passed ZIP-integrity and private-path checks and has SHA-256
   `03143d502175e0f0cfce5b0022ee3263aa85bc8d48bc4cdc710133de621908f2`.
   See `docs/clean-checkout-validation-2026-08-21.md`.
-- **TODO — development-preview release.** Produce a debug preview only after the
-  clean-checkout gate passes. Do not publish private captures, firmware binaries,
-  identifiers, credentials, or generated settings.
+- **DONE — development-preview release (21 August 2026).** Published prerelease
+  `v1.0.0-preview.1` from the exact validated source commit, with the
+  checksum-pinned debug APK plus explicit setup, firmware, privacy and
+  known-limitation warnings. See
+  `docs/development-preview-release-2026-08-21.md`.
 
 ### Connection and lifecycle reliability
 
