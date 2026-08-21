@@ -9,7 +9,8 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 ### Direct-R1 worker isolation candidate (2026-08-21)
 
 - Local rework branch `work/t_535a9f1f-ring-worker-rework` now has candidate
-  commits `0accf5f`, `0475383`, `abd7787`, and `680dbf1` (not pushed; no PR).
+  commits `0accf5f`, `0475383`, `abd7787`, `680dbf1`, and `aaef1af` (not pushed;
+  no PR).
   Every optional direct-R1 connect,
   discovery/MTU/subscription wait, battery read, health poll, packetAck drain,
   and ring write runs on the single `FaceclawRingLink` worker. The glasses
@@ -25,15 +26,24 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
   reset or the BLE manager is closed; a live/timed-out worker leaves the object
   fail-closed in stopping state for a later teardown retry. Delayed writes and
   probe gaps still revalidate the captured ring generation and stop on cancellation.
+- A second independent review found that the per-stage stopping checks still had
+  check-then-act gaps before manager calls. `aaef1af` replaces them with one
+  `withRingManagerOperation` barrier that holds `ringLock` from the final
+  stopping/session/generation check through every direct-R1 manager operation:
+  recovery disconnect, connect, discovery, priority/MTU, subscriptions, battery
+  read, service diagnostics, and writes. Since teardown publishes volatile
+  `stopping` before taking the same barrier, no new R1 manager side effect can
+  begin after teardown starts; an already in-flight operation must unwind before
+  teardown can pass the barrier.
 - `FaceclawBleManager` now serializes complete operations per address while a
   short static Bluetooth API lock protects only immediate Android GATT API
   initiation. Different-address callback waits no longer block glasses writes,
   and callbacks from an obsolete GATT are ignored.
-- Rework verification on `680dbf1`: focused ring contracts 18/18 and full suite
+- Rework verification on `aaef1af`: focused ring contracts 18/18 and full suite
   149/149 passed; `npm run typecheck` passed after linking the existing ignored
   dependency tree into the isolated worktree; and the JDK 21 / Android SDK 35
   debug build passed. APK:
-  `platforms/android/app/build/outputs/apk/debug/app-debug.apk` (335,917,511 bytes).
+  `platforms/android/app/build/outputs/apk/debug/app-debug.apk` (335,919,364 bytes).
   `git diff --check` passed and the added-line hardcoded-secret, shell-injection,
   eval/exec, and unsafe-deserialization scan found zero matches.
 - Rework install/launch passed on the USB A32 (`SM_A326B`, serial recorded only in
@@ -45,14 +55,23 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
   phone UI showed Hermes and `Connected`; no fatal runtime error or incomplete
   teardown was logged. Frame timings were pulled to
   `/tmp/t_535a9f1f-rework-frame-timings.txt` (23,289 bytes).
+- The `aaef1af` APK was then installed/launched again on the USB A32. A bounded
+  35-second smoke run showed distinct display/ring worker TIDs, direct R1 ready,
+  11 CRC-valid read-only responses, one full health poll, and one current-HR
+  request, with zero fatal exceptions or incomplete-teardown logs. A reversible
+  app force-stop removed the process and relaunch restored it. The untracked raw
+  smoke log is `/tmp/t_535a9f1f-atomic-gate-logcat.txt`; it may contain private
+  MAC/health material and must not be committed or published.
 - No timeout was fabricated and no pairing/ownership, permission, MAC,
   firmware/DFU, reset, power, or destructive operation was attempted; Even
   Bluetooth remained revoked. The MAC/raw-health log remains untracked under
   `/tmp` and must not be committed.
-- Review state: GPT-5.6 Sol medium-effort review of `abd7787` requested lifecycle
-  rework; `680dbf1` addresses those findings and is ready for mandatory re-review.
-  Only a reviewer-created delivery card may authorize push/PR. Remaining latency
-  siblings are the non-blocking wake barrier and shorter `waitForFrameFinished`.
+- Review state: GPT-5.6 Sol medium-effort reviews of `abd7787` and `4c03ec5`
+  requested lifecycle rework. `680dbf1` addressed start/join teardown and
+  `aaef1af` addresses the remaining atomic manager-side-effect gate; the new
+  frozen candidate is pending mandatory re-review. Only a reviewer-created
+  delivery card may authorize push/PR. Remaining latency siblings are the
+  non-blocking wake barrier and shorter `waitForFrameFinished`.
 
 Seven self-contained items were completed on the `hermes-g2` branch/current
 working tree:
