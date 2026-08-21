@@ -7,10 +7,21 @@ import {
   assistantBridgeTokenSetting,
   deepgramApiKeySetting,
   elevenLabsApiKeySetting,
+  evenAccountEmailSetting,
+  evenAccountPasswordSetting,
+  evenApiAccessKeySetting,
+  evenApiAccessSecretSetting,
+  evenApiAesIvSetting,
+  evenApiAesKeySetting,
+  evenApiAppIdSetting,
+  evenAuthTokenSetting,
   mapboxApiKeySetting,
+  nightscoutApiTokenSetting,
   openAiApiKeySetting,
+  roamApiTokenSetting,
   sonioxApiKeySetting,
 } from "../ui/dashboard-settings";
+import { removeSecretSetting } from "../native/settings-store";
 
 type TextChangeArgs = { value?: string; object?: { text?: string } };
 
@@ -48,6 +59,33 @@ export class ApiKeysViewModel extends Observable {
   onElevenLabsTextChange(args: TextChangeArgs): void { this._elevenLabsApiKey = args.object?.text ?? args.value ?? ""; }
   onSonioxTextChange(args: TextChangeArgs): void { this._sonioxApiKey = args.object?.text ?? args.value ?? ""; }
   onMapboxTextChange(args: TextChangeArgs): void { this._mapboxApiKey = args.object?.text ?? args.value ?? ""; }
+
+  onClearBridgeTokenTap(): void { this.clearSecret(assistantBridgeTokenSetting, "Hermes bridge token"); }
+  onClearAnthropicTap(): void { this.clearSecret(anthropicApiKeySetting, "Anthropic key"); }
+  onClearOpenAiTap(): void { this.clearSecret(openAiApiKeySetting, "OpenAI key"); }
+  onClearDeepgramTap(): void { this.clearSecret(deepgramApiKeySetting, "Deepgram key"); }
+  onClearElevenLabsTap(): void { this.clearSecret(elevenLabsApiKeySetting, "ElevenLabs key"); }
+  onClearSonioxTap(): void { this.clearSecret(sonioxApiKeySetting, "Soniox key"); }
+  onClearMapboxTap(): void { this.clearSecret(mapboxApiKeySetting, "Mapbox token"); }
+  onClearNightscoutTap(): void { this.clearSecret(nightscoutApiTokenSetting, "Nightscout token"); }
+  onClearRoamTap(): void { this.clearSecret(roamApiTokenSetting, "Roam token"); }
+  onClearEvenTap(): void {
+    this.clearSecrets([
+      evenAccountEmailSetting,
+      evenAccountPasswordSetting,
+      evenApiAppIdSetting,
+      evenApiAccessKeySetting,
+      evenApiAccessSecretSetting,
+      evenApiAesKeySetting,
+      evenApiAesIvSetting,
+      evenAuthTokenSetting,
+    ], "Even account and API credentials");
+  }
+  onClearTerminalTap(): void {
+    removeSecretSetting("terminal.newConnectionDraft");
+    removeSecretSetting("terminal.connections");
+    this.setClearStatus("Terminal connection credentials");
+  }
 
   onSaveTap(): void {
     const host = this._bridgeHost.trim();
@@ -89,6 +127,30 @@ export class ApiKeysViewModel extends Observable {
     this._elevenLabsApiKey = "";
     this._sonioxApiKey = "";
     this._mapboxApiKey = "";
+  }
+
+  private clearSecret(setting: { clearSecret(): void }, label: string): void {
+    setting.clearSecret();
+    this.setClearStatus(label);
+  }
+
+  private clearSecrets(settings: Array<{ clearSecret(): void }>, label: string): void {
+    for (const setting of settings) setting.clearSecret();
+    this.setClearStatus(label);
+  }
+
+  private setClearStatus(label: string): void {
+    this._status = `${label} cleared.`;
+    this.notifyPropertyChange("status", this._status);
+    for (const property of [
+      "bridgeTokenConfigured",
+      "anthropicConfigured",
+      "openAiConfigured",
+      "deepgramConfigured",
+      "elevenLabsConfigured",
+      "sonioxConfigured",
+      "mapboxConfigured",
+    ]) this.notifyPropertyChange(property, (this as any)[property]);
   }
 }
 

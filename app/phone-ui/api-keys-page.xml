@@ -12,22 +12,35 @@
             <TextField text="{{ bridgePort }}" textChange="{{ onBridgePortTextChange }}" keyboardType="number" />
             <Label text="{{ bridgeTokenConfigured }}" class="m-t-8" />
             <TextField hint="Bridge token — leave blank to keep" textChange="{{ onBridgeTokenTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
+            <Button text="Clear bridge token" tap="{{ onClearBridgeTokenTap }}" />
 
             <Label text="Assistant &amp; transcription providers" class="h2 m-t-20" />
             <Label text="{{ anthropicConfigured }}" class="m-t-8" />
             <TextField hint="Anthropic API key — leave blank to keep" textChange="{{ onAnthropicTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
+            <Button text="Clear Anthropic key" tap="{{ onClearAnthropicTap }}" />
             <Label text="{{ openAiConfigured }}" class="m-t-8" />
             <TextField hint="OpenAI API key — leave blank to keep" textChange="{{ onOpenAiTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
+            <Button text="Clear OpenAI key" tap="{{ onClearOpenAiTap }}" />
             <Label text="{{ deepgramConfigured }}" class="m-t-8" />
             <TextField hint="Deepgram API key — leave blank to keep" textChange="{{ onDeepgramTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
+            <Button text="Clear Deepgram key" tap="{{ onClearDeepgramTap }}" />
             <Label text="{{ elevenLabsConfigured }}" class="m-t-8" />
             <TextField hint="ElevenLabs API key — leave blank to keep" textChange="{{ onElevenLabsTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
+            <Button text="Clear ElevenLabs key" tap="{{ onClearElevenLabsTap }}" />
             <Label text="{{ sonioxConfigured }}" class="m-t-8" />
             <TextField hint="Soniox API key — leave blank to keep" textChange="{{ onSonioxTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
+            <Button text="Clear Soniox key" tap="{{ onClearSonioxTap }}" />
 
             <Label text="Maps" class="h2 m-t-20" />
             <Label text="{{ mapboxConfigured }}" class="m-t-8" />
             <TextField hint="Mapbox token — leave blank to keep" textChange="{{ onMapboxTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
+            <Button text="Clear Mapbox token" tap="{{ onClearMapboxTap }}" />
+
+            <Label text="Other integrations" class="h2 m-t-20" />
+            <Button text="Clear Nightscout token" tap="{{ onClearNightscoutTap }}" />
+            <Button text="Clear Roam token" tap="{{ onClearRoamTap }}" />
+            <Button text="Clear Even account &amp; API credentials" tap="{{ onClearEvenTap }}" />
+            <Button text="Clear terminal connection credentials" tap="{{ onClearTerminalTap }}" />
 
             <GridLayout columns="*,*" class="m-t-24">
                 <Button col="0" text="Save" tap="{{ onSaveTap }}" class="-primary" />

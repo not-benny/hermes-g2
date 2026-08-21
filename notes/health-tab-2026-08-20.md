@@ -1,5 +1,10 @@
 # Rich Health tab (2026-08-20)
 
+> **Historical pre-implementation snapshot.** Current HR/current-hour refresh,
+> hourly history, anchored timestamps, activity, calories, and persistence are
+> implemented. Sleep remains fail-closed. See `ROADMAP.md` and
+> `docs/audit-remediation-2026-08-21.md`.
+
 The Health tab is a direct-BLE ring dashboard: it reads the R1 ring's health
 frames (no Even cloud), computes insights locally, logs a rolling history, and
 can export / share it. Everything renders with plain NativeScript core views

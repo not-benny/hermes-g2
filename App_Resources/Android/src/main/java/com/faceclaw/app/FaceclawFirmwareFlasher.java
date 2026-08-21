@@ -541,7 +541,7 @@ public class FaceclawFirmwareFlasher implements FaceclawBleListener {
     @Override
     public void onConnectionStateChange(String address, boolean connected) {
         if (!connected) {
-            Log.i(TAG, "disconnected: " + address);
+            Log.i(TAG, "firmware transport disconnected");
         }
     }
 

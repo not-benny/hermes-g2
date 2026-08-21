@@ -77,9 +77,16 @@ to untrusted clients. See [docs/mcp-glasses-display.md](docs/mcp-glasses-display
 Direct-provider mode remains available as a fallback and uses its own provider
 credentials; those credentials are not used by the bridge.
 
+WhatsApp pairing is disabled in release builds while live-pair custody and the
+embedded Node 16 KiB page-size gate remain open. Terminal/g2mirror requires TLS
+for non-loopback hosts. See [release security](docs/release-security.md).
+
 ## R1 ring-health protocol
 
-Hermes reads R1 health data directly over the bonded BLE link. The ring is not
+Hermes exchanges bounded R1 health-session traffic directly over the bonded BLE
+link. Session setup includes the captured `healthEnable` and one-shot
+`systemTime` writes before read requests; these are positive-allowlisted and are
+not pairing, ownership, provisioning, NVM, power, or firmware operations. The ring is not
 blocked by a per-app application-layer authentication wall; the practical
 failure mode is contention when multiple central apps try to control the single
 command session.
@@ -124,7 +131,7 @@ Requirements:
 - JDK 21
 - Android SDK 35 with licences accepted
 - NativeScript Android prerequisites
-- Required Android NDK and CMake packages for native audio/model components
+- Android NDK 27.2.12479018 and CMake 3.22.1
 
 ```bash
 npm ci

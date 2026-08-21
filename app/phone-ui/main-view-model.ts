@@ -178,6 +178,7 @@ export class MainViewModel extends Observable {
       this.notifyPropertyChange("activeTextSettingId", value);
       this.notifyPropertyChange("textSettingEditorVisibility", this.textSettingEditorVisibility);
       this.notifyPropertyChange("isTextSettingEditorActive", this.isTextSettingEditorActive);
+      this.notifyPropertyChange("activeTextSettingSecure", this.activeTextSettingSecure);
     }
   }
 
@@ -205,6 +206,10 @@ export class MainViewModel extends Observable {
 
   get isTextSettingEditorActive(): boolean {
     return this._activeTextSettingId !== null;
+  }
+
+  get activeTextSettingSecure(): boolean {
+    return this._activeTextSettingId === "terminal-new-connection";
   }
 
   get textSettingEditorVisibility(): "visible" | "collapse" {

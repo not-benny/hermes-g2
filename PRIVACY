@@ -96,10 +96,18 @@ available and authorised.
 
 ## Local secrets and storage
 
-API keys, bridge tokens, connection settings, device addresses, conversation
-state, health history, and preferences are stored on the phone. Development
-helper scripts can extract Android preferences in plain text; that output must be
-treated as secret.
+API keys, bridge tokens, Even/Mapbox/Nightscout/Roam credentials, and terminal
+token-bearing connection records are encrypted with an app-scoped Android
+Keystore AES-GCM key. Migration deletes a legacy plaintext value only after an
+encrypted write and read-back succeeds. Explicit Clear actions remove both
+encrypted and legacy copies. Uninstall or app-data clear destroys the Keystore
+key, so credentials cannot be recovered; upgrade-in-place depends on preserving
+the existing app identity and signing certificate.
+
+Device addresses, conversation state, health history, and non-secret preferences
+remain app-private but are not all Keystore-encrypted. Android backup is disabled.
+Development preference pull/push helpers are not a supported credential backup
+path and any output they produce must be treated as secret.
 
 Never commit or publish:
 

@@ -16,23 +16,16 @@ import type { LayerContext } from "../layers";
 import { drawRightValueMenuItem, openModalMenu, type MenuItem } from "../menu";
 import { shell } from "../shell/shell";
 import {
-  anthropicApiKeySetting,
   assistantAllowProactiveSetting,
   assistantBackendSetting,
   assistantBridgeHostSetting,
   assistantBridgePortSetting,
-  assistantBridgeTokenSetting,
   assistantModelSetting,
   assistantSkipConfirmationSetting,
   batteryDisplayModeSetting,
   brightnessSetting,
-  elevenLabsApiKeySetting,
-  mapboxApiKeySetting,
-  openAiApiKeySetting,
   ringSensitivitySetting,
-  roamApiTokenSetting,
   roamGraphNameSetting,
-  sonioxApiKeySetting,
   enumSettingMenuItem,
   firmwareDebugFlagsSetting,
   lockScreenEnabledSetting,
@@ -47,7 +40,6 @@ import {
   uiFontSetting,
   notificationFontSizeSetting,
   dashboardSizeSetting,
-  deepgramApiKeySetting,
   notificationFilterModeSetting,
   voiceControlEnabledSetting,
   beepsEnabledSetting,
@@ -136,19 +128,7 @@ function settingsSections(): SettingsSection[] {
         toggleSettingMenuItem(assistantSkipConfirmationSetting),
         textSettingMenuItem(assistantBridgeHostSetting),
         textSettingMenuItem(assistantBridgePortSetting),
-        textSettingMenuItem(assistantBridgeTokenSetting),
         toggleSettingMenuItem(assistantAllowProactiveSetting),
-      ],
-    },
-    {
-      label: "API Keys",
-      items: [
-        textSettingMenuItem(elevenLabsApiKeySetting),
-        textSettingMenuItem(openAiApiKeySetting),
-        textSettingMenuItem(sonioxApiKeySetting),
-        textSettingMenuItem(deepgramApiKeySetting),
-        textSettingMenuItem(anthropicApiKeySetting),
-        textSettingMenuItem(mapboxApiKeySetting),
       ],
     },
     {
@@ -172,7 +152,6 @@ function settingsSections(): SettingsSection[] {
       label: "Roam",
       items: [
         textSettingMenuItem(roamGraphNameSetting),
-        textSettingMenuItem(roamApiTokenSetting),
       ],
     },
     {

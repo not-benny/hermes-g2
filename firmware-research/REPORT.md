@@ -1,5 +1,11 @@
 # Even Realities G2 CFW 2.2.8.4 - verification report
 
+> **Current-state correction:** the pinned owner candidate was later reported to
+> boot on one owner unit and the app's exact-hash installation path is enabled.
+> Older "never booted" or "installation disabled" passages below are historical.
+> Recovery, interrupted-transfer, rollback, and broad compatibility evidence are
+> still absent, so no additional flash or operational safety claim is authorized.
+
 **Prepared:** 2026-08-18
 **Upstream baseline:** `jimrandomh/g2flash` commit `877c8d9490db0d3717ca012dd0f54556af3701bd`
 **Current candidate:** `firmware/g2_2.2.8.4_cfw_FIXED.bin`

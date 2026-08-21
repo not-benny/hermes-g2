@@ -4,6 +4,7 @@ import {
   getBooleanSetting,
   getStringSetting,
   onSettingsStoreChanged,
+  removeSecretSetting,
   setBooleanSetting,
   setStringSetting,
 } from "~/native/settings-store";
@@ -202,6 +203,10 @@ export class ConfigSettingString<TId extends string = string> extends ConfigSett
     const normalized = this.normalizer(value);
     setStringSetting(this.storageKey, normalized);
     return normalized;
+  }
+
+  clearSecret(): void {
+    removeSecretSetting(this.storageKey);
   }
 }
 

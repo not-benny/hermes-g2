@@ -161,7 +161,11 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
     (args) => {
       const withinHours = clampNumber(args?.within_hours, 1, 24 * 60, 168);
       const maxEvents = clampNumber(args?.max_events, 1, 50, 10);
-      const events = readUpcomingEvents(maxEvents, withinHours * 60 * 60 * 1000);
+      const result = readUpcomingEvents(maxEvents, withinHours * 60 * 60 * 1000);
+      if (result.status === "permission_denied") return err("Calendar permission is not granted.");
+      if (result.status === "provider_unavailable") return err("Calendar provider is unavailable.");
+      if (result.status === "query_failed") return err("Calendar query failed.");
+      const events = result.events;
       if (!events.length) return ok("No upcoming events in that window.");
       return ok(events.map(formatEvent).join("\n"));
     },

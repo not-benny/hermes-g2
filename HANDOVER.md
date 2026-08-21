@@ -17,6 +17,17 @@ Do not resume work from the old `hermes-g2`, `integration/`, `work/`, `wt/`,
 
 ## Current verified implementation
 
+The active audit-remediation candidate is based on canonical `main` baseline
+`f37168cf007450cb2a58513b1f2624aee0b6d6af`. It adds permanent PR/main CI,
+CodeQL, Dependabot, SBOM/provenance and APK checks; Keystore AES-GCM credential
+storage with verified plaintext migration and explicit clear; discriminated
+calendar failures; exact active-operation foreground-service types; remote
+terminal TLS enforcement and launch revalidation; a positive R1 health-session
+allowlist; archive hashes and pinned NDK/CMake/NativeScript; and release-safe log
+sentinels. WhatsApp pairing/startup is disabled while its live-pair and 16 KiB
+runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
+`docs/release-security.md`.
+
 - Exact-GATT and generation ownership protect BLE connect, operation, timeout,
   disconnect, stale-callback, and replacement lifecycles.
 - Display and R1 workers have separate bounded teardown ownership.
@@ -36,14 +47,32 @@ Do not resume work from the old `hermes-g2`, `integration/`, `work/`, `wt/`,
 - External MCP calls require a live connection and exact originating turn (or an
   explicitly gated proactive call); cancellation reaches delayed side effects.
 
-The reviewed integration lineage reported 248/248 host tests, a passing
-TypeScript typecheck, and a passing JDK 21 / Android SDK 35 build after the final
-connection fix. The repository consolidation itself changes documentation and
-history only; application source remains that reviewed tree.
+Local candidate verification passed the complete 258-test host suite after the
+two stale branding expectations were updated for the now-lockfile-pinned CLI,
+TypeScript, JDK 21 / SDK 35 / NDK 27.2.12479018 / CMake 3.22.1 Android build,
+ZIP integrity, private-path scan, ZIP 16 KiB alignment, and APK-wide ELF LOAD
+alignment with the documented disabled-Node exception. The arm64-only debug APK
+is 322,307,392 bytes, versionCode 1000001 / versionName 1.0.0-preview.1, and its
+final SHA-256 is
+`81f78f286167769682d0340335930f8d46e52245f2cef4740bc2f5cda3dab4a2`.
+
+On the authorised Samsung A32, the existing and candidate APK certificates
+matched. Upgrade install, launch and resumed activity passed; package metadata
+reported the new version. The Settings UI showed WhatsApp disabled, replace-only
+secret fields, and explicit clear actions without displaying values. The bridge
+token migrated to the encrypted preferences file and was absent from ordinary
+`faceclaw_settings`. A 222-line PID-filtered log review found zero configured
+secret/pairing/content sentinels. Both G2 arms reached live GATT activity, but the
+session remained in reconnect attempts, so no new render/wearer, Doze, charging,
+phone-mic, calendar, or R1-value evidence is claimed. No gated dialog or
+destructive/pairing/firmware operation was performed.
 
 ## Deliberately blocked
 
 - Public MCP/skill publication and untrusted external `glasses.render_view`
+- WhatsApp production pairing/startup and stock Node 16 KiB compatibility
+- Stable signing and public-store release until signing custody and permission
+  minimisation are approved
 - First-time R1 provisioning, pair/unpair ownership, and NVM mutation
 - R1 firmware/DFU/OTA, recovery, reset, wipe, power, and destructive commands
 - Sleep decoding until a CRC-valid type-1 stage-bearing frame and absolute
@@ -73,10 +102,14 @@ unobserved hardware result from passing host tests.
 
 ## Next recommended work
 
-1. Run the full validation suite from a fresh checkout of consolidated `main`.
+1. Finish the audit-remediation PR review/CI/merge, then require the exact durable
+   `release-gate` and `codeql` checks plus review on protected `main` and read the
+   effective GitHub rules back through the API.
 2. Validate the private bridge end to end with an authenticated `wss://` server,
    exact-turn envelopes, credentials, and a disposable generic client.
-3. Obtain the missing type-1 R1 sleep evidence only under a separately reviewed,
+3. Complete the deferred non-destructive G2/R1/Doze/calendar/mic matrix when the
+   live devices are available without contention; do not infer it from this APK.
+4. Obtain the missing type-1 R1 sleep evidence only under a separately reviewed,
    reversible, private capture plan.
-4. Keep firmware/recovery work blocked unless every independent provenance,
+5. Keep firmware/recovery work blocked unless every independent provenance,
    authority, recovery, privacy, power, and per-run consent gate passes.

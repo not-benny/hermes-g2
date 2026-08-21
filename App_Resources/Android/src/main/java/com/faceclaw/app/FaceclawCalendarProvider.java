@@ -16,7 +16,7 @@ import org.json.JSONObject;
  * app. Queries the Instances table (rather than Events) so that recurring
  * events are expanded into concrete occurrences within the requested window.
  * Requires the READ_CALENDAR runtime permission; without it the content
- * resolver throws SecurityException and this returns an empty array.
+ * resolver throws SecurityException and this returns a typed failure result.
  */
 public final class FaceclawCalendarProvider {
     private static final String TAG = "FaceclawCalendar";
@@ -40,9 +40,8 @@ public final class FaceclawCalendarProvider {
      * title, startMs, endMs, allDay, location, and calendarName.
      */
     public static String getUpcomingEventsJson(Context context, int maxEvents, long windowMs) {
-        if (context == null || maxEvents <= 0) {
-            return "[]";
-        }
+        if (context == null) return result("provider_unavailable", new JSONArray());
+        if (maxEvents <= 0) return result("success", new JSONArray());
         long now = System.currentTimeMillis();
         long end = now + Math.max(0L, windowMs);
         int limit = Math.min(200, maxEvents);
@@ -61,27 +60,35 @@ public final class FaceclawCalendarProvider {
                     null,
                     null,
                     CalendarContract.Instances.BEGIN + " ASC");
-            if (cursor != null) {
-                while (cursor.moveToNext() && out.length() < limit) {
-                    try {
-                        out.put(buildEventJson(cursor));
-                    } catch (JSONException e) {
-                        Log.w(TAG, "failed to serialize calendar event", e);
-                    }
+            if (cursor == null) return result("provider_unavailable", out);
+            while (cursor.moveToNext() && out.length() < limit) {
+                try {
+                    out.put(buildEventJson(cursor));
+                } catch (JSONException e) {
+                    Log.w(TAG, "failed to serialize calendar event");
+                    return result("query_failed", new JSONArray());
                 }
             }
         } catch (SecurityException e) {
-            Log.w(TAG, "calendar access denied while reading events", e);
-            return "[]";
+            Log.w(TAG, "calendar access denied while reading events");
+            return result("permission_denied", new JSONArray());
         } catch (Throwable t) {
-            Log.w(TAG, "failed to read calendar events", t);
-            return "[]";
+            Log.w(TAG, "failed to read calendar events");
+            return result("query_failed", new JSONArray());
         } finally {
             if (cursor != null) {
                 cursor.close();
             }
         }
-        return out.toString();
+        return result("success", out);
+    }
+
+    private static String result(String status, JSONArray events) {
+        try {
+            return new JSONObject().put("status", status).put("events", events).toString();
+        } catch (JSONException impossible) {
+            return "{\"status\":\"query_failed\",\"events\":[]}";
+        }
     }
 
     private static JSONObject buildEventJson(Cursor cursor) throws JSONException {

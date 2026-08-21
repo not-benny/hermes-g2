@@ -8,6 +8,18 @@ Current as of 21 August 2026. `main` is the canonical branch.
 
 ### Repository and release
 
+- **IN PROGRESS — full audit remediation and protected release path (21 August
+  2026).** The candidate removes private-data logging, encrypts credential and
+  token-bearing settings with verified Keystore migration/clear, makes calendar
+  failures explicit, narrows foreground-service claims, disables unclosed
+  WhatsApp production pairing, requires TLS for remote terminal transport,
+  allowlists the R1 health-session boundary, hash-verifies native inputs, pins
+  NDK/CMake/NativeScript, and adds permanent CI/CodeQL/Dependabot/SBOM/APK
+  verification. Local host/build/APK and authorised A32 upgrade/launch evidence
+  pass; GitHub review, CI, merge, and protection read-back are the remaining
+  delivery steps. See `docs/audit-remediation-2026-08-21.md` and
+  `docs/release-security.md`.
+
 - **DONE — history consolidation.** The original release history, reviewed
   integration history, remaining PR heads, and superseded startup-race attempt
   are joined on `main`. The final tree keeps the newer reviewed application
@@ -40,6 +52,12 @@ Current as of 21 August 2026. `main` is the canonical branch.
 - **TODO — broader device matrix.** Repeat non-destructive startup, reconnect,
   charging, screen-off, and wearer-input checks on additional supported phones
   and G2 firmware revisions without weakening the existing safety gates.
+- **PARTIAL — audit device matrix (21 August 2026).** Same-certificate upgrade,
+  launch, Keystore migration, settings redaction, and log sentinels passed on the
+  authorised Samsung A32. Both G2 arms were visible at the GATT boundary, but the
+  live session was still reconnecting during this run; no wearer/render, Doze,
+  charging, phone-mic, calendar, or R1 value claim is inferred. No pairing,
+  provisioning, reset, wipe, firmware, or permission-dialog action was taken.
 
 ## R1 health
 

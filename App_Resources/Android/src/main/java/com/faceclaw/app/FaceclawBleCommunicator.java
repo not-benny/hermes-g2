@@ -15,8 +15,7 @@ import android.os.SystemClock;
 import android.util.Log;
 
 import java.io.ByteArrayOutputStream;
-import java.io.PrintWriter;
-import java.io.StringWriter;
+
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
@@ -1164,7 +1163,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
 
     @Override public void run() {
-        logLine(String.format(Locale.US, "communicator start R=%s L=%s ring=%s", rightAddress, leftAddress, ringAddress));
+        logLine("communicator start with configured device identities");
         while (true) {
             try {
                 if (!running) {
@@ -1282,7 +1281,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (!BleProtocol.NOTIFY_CHAR_UUID.equals(uuid)) {
             return;
         }
-        Log.d(TAG, "onNotification: address=" + address + " characteristicUuid=" + characteristicUuid + " data.length=" + data.length);
+        Log.d(TAG, "onNotification: characteristicUuid=" + characteristicUuid + " dataPresent=" + (data.length > 0));
         BleProtocol.ParsedFrame frame = BleProtocol.parseFrame(data);
         logRelayCandidateFrame(address, frame);
         int decodedWearState = BleProtocol.parseWearState(frame);
@@ -1887,7 +1886,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (stopping) {
             throw new IllegalStateException("ring connect cancelled");
         }
-        logLine("connecting direct ring " + ringAddress);
+        logLine("connecting configured direct ring");
         // Ring-specific SHORT timeouts limit retry latency on the optional worker.
         if (!withRingManagerOperation(RING_CONNECT_OPERATION,
                 () -> bleManager.connect(ringAddress, ConnectionOptions.RING_CONNECT_TIMEOUT_MS))) {
@@ -2265,9 +2264,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                         ConnectionOptions.WRITE_TYPE,
                         ConnectionOptions.WRITE_TIMEOUT_MS
                     ));
-                logLine("direct ring " + label + " write " + (ok ? "ok" : "failed") + " raw=" + hex(frame));
+                logLine("direct ring " + label + " write " + (ok ? "ok" : "failed"));
             } catch (Throwable t) {
-                logLine("direct ring " + label + " write error: " + safeMessage(t));
+                logLine("direct ring " + label + " write error");
             }
         }
     }
@@ -2286,6 +2285,26 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             }
         }
         return false;
+    }
+
+    private static boolean isAllowedRingHealthCommand(
+            int module, int cmd, int subCmd, int status,
+            byte[] payload, int payloadOffset, int payloadLength) {
+        if (payloadLength < 0 || payloadOffset < 0 || payloadOffset + payloadLength > payload.length) {
+            return false;
+        }
+        if (module == 0x02 && subCmd == 0x01 && status == 0x00 && payloadLength == 0) {
+            return cmd == 0x01 || cmd == 0x02 || cmd == 0x04 || cmd == 0x05 || cmd == 0x06;
+        }
+        if (module != 0x01 || cmd != 0x00) return false;
+        if ((subCmd == 0x01 || subCmd == 0x02) && status == 0x00 && payloadLength == 0) return true;
+        if (subCmd == 0x05 && status == 0x02 && payloadLength == 6) return true;
+        if (subCmd == 0x0e && status == 0x01 && payloadLength == 24) {
+            return payload[payloadOffset + 4] == 0x01;
+        }
+        if (subCmd == 0x7e && status == 0x01 && payloadLength == 10) return true;
+        return subCmd == 0x08 && status == 0x00 && payloadLength == 1
+                && payload[payloadOffset] == 0x01;
     }
 
     /**
@@ -2311,10 +2330,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             return "invalid transport CRC";
         }
         int module = frame[6] & 0xff;
+        int status = frame[10] & 0xff;
         int cmd = frame[11] & 0xff;
         int subCmd = frame[12] & 0xff;
         if (isBlocklistedRingSubCmd(module, cmd, subCmd)) {
             return "blocklisted module/cmd/subCmd";
+        }
+        if (!isAllowedRingHealthCommand(module, cmd, subCmd, status, frame, 17, innerLen - 12)) {
+            return "command is not allowlisted for the health session";
         }
         return null;
     }
@@ -2330,10 +2353,11 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
      * Returns null if (module,cmd,subCmd) is blocklisted.
      */
     private byte[] buildRingFrame(int module, int cmd, int subCmd, int status, byte[] payload) {
-        if (isBlocklistedRingSubCmd(module, cmd, subCmd)) {
+        byte[] data = payload != null ? payload : new byte[0];
+        if (isBlocklistedRingSubCmd(module, cmd, subCmd)
+                || !isAllowedRingHealthCommand(module, cmd, subCmd, status, data, 0, data.length)) {
             return null;
         }
-        byte[] data = payload != null ? payload : new byte[0];
         int innerLen = 12 + data.length;
         int serial;
         synchronized (ringLock) {
@@ -4235,17 +4259,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private static String safeMessage(Throwable t) {
-        if (t == null) {
-            return "unknown";
-        }
-        StringWriter writer = new StringWriter();
-        t.printStackTrace(new PrintWriter(writer));
-        String trace = writer.toString();
-        if (!trace.trim().isEmpty()) {
-            return trace;
-        }
-        String message = t.getMessage();
-        return message == null || message.trim().isEmpty() ? String.valueOf(t) : message;
+        return t == null ? "unknown" : t.getClass().getSimpleName();
     }
     
     private String getDesiredFingerprint() {

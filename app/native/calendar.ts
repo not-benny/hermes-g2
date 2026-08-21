@@ -20,23 +20,35 @@ export type CalendarEvent = {
   calendarName: string;
 };
 
+export type CalendarReadResult =
+  | { status: "success"; events: CalendarEvent[] }
+  | { status: "permission_denied" }
+  | { status: "provider_unavailable" }
+  | { status: "query_failed" };
+
 const DEFAULT_MAX_EVENTS = 50;
 const DEFAULT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const CACHE_MS = 30_000;
 
 let cache: { events: CalendarEvent[]; atMs: number; maxEvents: number; windowMs: number } | null = null;
+let lastPermissionState: boolean | null = null;
 
 /**
  * Upcoming events from now through the given window, ordered by start time.
- * Returns [] when calendar permission is absent. Cached for CACHE_MS; pass
- * forceRefresh to bypass the cache (e.g. right after the permission grant).
+ * Returns a discriminated result so failures cannot masquerade as an empty
+ * calendar. Successful results are cached for CACHE_MS; pass forceRefresh to
+ * bypass the cache (e.g. right after the permission grant).
  */
 export function readUpcomingEvents(
   maxEvents = DEFAULT_MAX_EVENTS,
   windowMs = DEFAULT_WINDOW_MS,
   forceRefresh = false,
-): CalendarEvent[] {
-  if (!global.isAndroid || !hasCalendarPermission()) return [];
+): CalendarReadResult {
+  if (!global.isAndroid) return { status: "provider_unavailable" };
+  const permissionGranted = hasCalendarPermission();
+  if (lastPermissionState !== permissionGranted) cache = null;
+  lastPermissionState = permissionGranted;
+  if (!permissionGranted) return { status: "permission_denied" };
 
   const now = Date.now();
   if (
@@ -46,11 +58,11 @@ export function readUpcomingEvents(
     cache.windowMs === windowMs &&
     now - cache.atMs < CACHE_MS
   ) {
-    return cache.events;
+    return { status: "success", events: [...cache.events] };
   }
 
   const context = Utils.android.getApplicationContext();
-  if (!context) return [];
+  if (!context) return { status: "provider_unavailable" };
 
   try {
     const json = spanCurrent("fetch-calendar-events", () =>
@@ -63,19 +75,27 @@ export function readUpcomingEvents(
       ),
     );
     const parsed = JSON.parse(json);
-    const events = Array.isArray(parsed)
-      ? parsed.map(normalizeEvent).filter((event): event is CalendarEvent => Boolean(event))
-      : [];
+    if (!parsed || typeof parsed !== "object") return { status: "query_failed" };
+    if (parsed.status !== "success") {
+      if (parsed.status === "permission_denied") return { status: "permission_denied" };
+      if (parsed.status === "provider_unavailable") return { status: "provider_unavailable" };
+      return { status: "query_failed" };
+    }
+    if (!Array.isArray(parsed.events)) return { status: "query_failed" };
+    const normalized = parsed.events.map(normalizeEvent);
+    if (normalized.some((event) => event === null)) return { status: "query_failed" };
+    const events = normalized as CalendarEvent[];
     cache = { events, atMs: now, maxEvents, windowMs };
-    return events;
+    return { status: "success", events: [...events] };
   } catch {
-    return [];
+    return { status: "query_failed" };
   }
 }
 
 /** Drop the cached events so the next read re-queries the provider. */
 export function invalidateCalendarCache(): void {
   cache = null;
+  lastPermissionState = null;
 }
 
 function normalizeEvent(value: any): CalendarEvent | null {

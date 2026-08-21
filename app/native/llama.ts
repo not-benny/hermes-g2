@@ -311,7 +311,7 @@ function assembleContent(raw: string): { text: string; content: LlmContentBlock[
         });
       }
     } catch {
-      console.error(`Local model emitted unparseable tool call: ${body.slice(0, 200)}`);
+      console.error("Local model emitted an unparseable tool call");
     }
     i = end + TOOL_CALL_CLOSE.length;
   }

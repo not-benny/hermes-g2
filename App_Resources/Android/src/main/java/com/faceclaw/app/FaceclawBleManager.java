@@ -342,11 +342,11 @@ public class FaceclawBleManager {
 
     private boolean sleepBeforeWriteRetry(String address, String reason, int retryIndex) {
         if (retryIndex >= WRITE_RETRY_DELAYS_MS.length) {
-            Log.w(TAG, "writeCharacteristic retry exhausted: address=" + address + " reason=" + reason);
+            Log.w(TAG, "writeCharacteristic retry exhausted: reason=" + reason);
             return false;
         }
         int delayMs = WRITE_RETRY_DELAYS_MS[retryIndex];
-        Log.w(TAG, "writeCharacteristic retry: address=" + address + " reason=" + reason + " delayMs=" + delayMs);
+        Log.w(TAG, "writeCharacteristic retry: reason=" + reason + " delayMs=" + delayMs);
         try {
             Thread.sleep(delayMs);
             return true;
