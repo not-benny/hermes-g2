@@ -82,6 +82,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private volatile boolean running;
     private volatile boolean stopping;
     private volatile boolean userDisconnectRequested;
+    private boolean closeRequested;
+    private boolean cleanupComplete;
+    private boolean cleanupStarted;
+    private boolean managerCleanupComplete;
+    private boolean wakeLockCleanupComplete;
+    private boolean receiverCleanupComplete;
+    private boolean stateCleanupComplete;
+    private volatile Thread cleanupThread;
 
     private String phase = "disconnected";
     private String status = "Disconnected.";
@@ -288,98 +296,132 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
     }
 
-    public void disconnect() {
+    public boolean disconnect() {
         synchronized (lifecycleLock) {
-            Thread threadToJoin;
-            Thread ringThreadToJoin;
-            boolean releaseFramebufferLease;
             synchronized (lock) {
-                releaseFramebufferLease = !stopping;
-                stopping = true;
-                threadToJoin = workerThread;
-                ringThreadToJoin = ringWorkerThread;
-            }
-
-            // Stop optional R1 work at method entry. The display worker remains
-            // alive briefly so it can deliver the required framebuffer release.
-            ringInterruptibleSleep.interrupt();
-            if (ringThreadToJoin != null) {
-                ringThreadToJoin.interrupt();
-            }
-            synchronized (ringLock) {
-                // Final ring-write barrier after stopping became visible.
-            }
-            if (releaseFramebufferLease) {
-                releaseFaceclawFramebufferLease();
-            }
-
-            synchronized (lock) {
+                if (!stopping) stopping = true;
                 userDisconnectRequested = true;
                 running = false;
                 audioCaptureActive = false;
                 audioPacketListener = null;
             }
-            setStateDisplay("disconnecting", "Disconnecting...");
+            releaseFaceclawFramebufferLease();
             interruptibleSleep.interrupt();
             ringInterruptibleSleep.interrupt();
-            if (threadToJoin != null) {
-                threadToJoin.interrupt();
-            }
-            if (ringThreadToJoin != null) {
-                ringThreadToJoin.interrupt();
-            }
+            Thread display = workerThread;
+            Thread ring = ringWorkerThread;
+            if (display != null) display.interrupt();
+            if (ring != null) ring.interrupt();
+            setStateDisplay("disconnecting", "Disconnecting...");
+        }
+        scheduleDeferredCleanup();
+        return awaitCleanup(5_000);
+    }
 
-            boolean displayWorkerStopped = joinWorker(threadToJoin);
-            boolean ringWorkerStopped = joinWorker(ringThreadToJoin);
-            if (!displayWorkerStopped || !ringWorkerStopped) {
-                logLine("disconnect incomplete; worker did not stop before timeout");
-                return;
+    private boolean awaitCleanup(long timeoutMs) {
+        long deadline = SystemClock.elapsedRealtime() + timeoutMs;
+        while (SystemClock.elapsedRealtime() < deadline) {
+            synchronized (lock) { if (cleanupComplete) return true; }
+            try { Thread.sleep(25); } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
             }
+        }
+        logLine("disconnect incomplete; deferred cleanup owns BLE resources");
+        return false;
+    }
 
+    private void scheduleDeferredCleanup() {
+        synchronized (lock) {
+            if (cleanupThread != null && cleanupThread.isAlive()) return;
+            cleanupThread = new Thread(() -> {
+                while (true) {
+                    Thread display;
+                    Thread ring;
+                    synchronized (lock) {
+                        if (cleanupComplete) return;
+                        display = workerThread;
+                        ring = ringWorkerThread;
+                    }
+                    if ((display == null || !display.isAlive()) && (ring == null || !ring.isAlive())) {
+                        if (completeCleanup()) return;
+                    } else {
+                        if (display != null) display.interrupt();
+                        if (ring != null) ring.interrupt();
+                    }
+                    try { Thread.sleep(100); } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+            }, "FaceclawBleCleanup");
+            cleanupThread.setDaemon(true);
+            cleanupThread.start();
+        }
+    }
+
+    private boolean completeCleanup() {
+        synchronized (lock) {
+            if (cleanupComplete || cleanupStarted) return cleanupComplete;
+            if ((workerThread != null && workerThread.isAlive()) || (ringWorkerThread != null && ringWorkerThread.isAlive())) return false;
+            cleanupStarted = true;
+        }
+        boolean success = true;
+        try {
             synchronized (lock) {
-                workerThread = null;
-                resetSessionStateLocked();
-                clearAllMessagesLocked("disconnect");
-                // Unknown until the next connection's first push or settings poll.
-                silentMode = -1;
+                if (!stateCleanupComplete) {
+                    workerThread = null;
+                    resetSessionStateLocked();
+                    clearAllMessagesLocked("disconnect");
+                    silentMode = -1;
+                    stateCleanupComplete = true;
+                }
             }
             synchronized (ringLock) {
                 ringWorkerThread = null;
                 resetRingStateLocked();
             }
-            bleManager.disconnect(rightAddress);
-            bleManager.disconnect(leftAddress);
-            if (hasRingAddress()) {
-                bleManager.disconnect(ringAddress);
+            if (!managerCleanupComplete) {
+                try {
+                    bleManager.disconnect(rightAddress);
+                    bleManager.disconnect(leftAddress);
+                    if (hasRingAddress()) bleManager.disconnect(ringAddress);
+                    bleManager.close();
+                    managerCleanupComplete = true;
+                } catch (Throwable t) {
+                    success = false;
+                    logLine("BLE manager cleanup failed: " + safeMessage(t));
+                }
             }
-            bleManager.close();
-            releaseG2ScreenWakeLock();
-            setStateDisplay("disconnected", "Disconnected.");
+            if (success && !wakeLockCleanupComplete) {
+                try { releaseG2ScreenWakeLock(); wakeLockCleanupComplete = true; }
+                catch (Throwable t) { success = false; logLine("wake-lock cleanup failed: " + safeMessage(t)); }
+            }
+            if (success && !receiverCleanupComplete) {
+                try {
+                    if (closeRequested && phoneLockReceiverRegistered) {
+                        appContext.unregisterReceiver(phoneLockReceiver);
+                        phoneLockReceiverRegistered = false;
+                    }
+                    receiverCleanupComplete = true;
+                } catch (Throwable t) { success = false; logLine("receiver cleanup failed: " + safeMessage(t)); }
+            }
+            if (success && managerCleanupComplete && wakeLockCleanupComplete && receiverCleanupComplete) {
+                synchronized (lock) { cleanupComplete = true; cleanupStarted = false; }
+                if (activeInstance == this) activeInstance = null;
+                setStateDisplay("disconnected", "Disconnected.");
+                return true;
+            }
+        } catch (Throwable t) {
+            logLine("deferred cleanup failed: " + safeMessage(t));
         }
+        synchronized (lock) { cleanupStarted = false; }
+        return false;
     }
 
-    private boolean joinWorker(Thread thread) {
-        if (thread == null) {
-            return true;
-        }
-        try {
-            thread.join(5_000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
-        }
-        return !thread.isAlive();
-    }
-
-    public void close() {
-        if (activeInstance == this) {
-            activeInstance = null;
-        }
-        disconnect();
-        if (phoneLockReceiverRegistered) {
-            phoneLockReceiverRegistered = false;
-            appContext.unregisterReceiver(phoneLockReceiver);
-        }
+    public boolean close() {
+        synchronized (lock) { closeRequested = true; }
+        return disconnect();
     }
 
     public void setG2ScreenOn(boolean screenOn) {
@@ -1126,6 +1168,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             }
         }
         logLine("communicator stop");
+        // The worker owns the deferred cleanup after a bounded close() could
+        // not join it. This path is idempotent and is the only path that can
+        // release BLE resources after a non-cooperative worker eventually exits.
+        completeCleanupIfQuiescent();
     }
 
     private void runRingLoop() {

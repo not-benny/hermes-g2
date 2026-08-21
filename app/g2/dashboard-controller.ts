@@ -970,7 +970,9 @@ class DashboardController {
   }
 
   async connect(): Promise<void> {
-    if (this.phase !== "disconnected") return;
+    // Retained ownership is authoritative until Java positively completes
+    // deferred worker and BLE cleanup.
+    if (this.phase !== "disconnected" || this.communicator !== null) return;
 
     const addresses = loadDeviceAddresses();
     if (!addresses.right || !addresses.left) {
@@ -1051,6 +1053,9 @@ class DashboardController {
           // the transport comes back, so do not make lock decisions from a
           // stale pre-disconnect value in the meantime.
           this.glassesWorn = null;
+        }
+        if (mappedPhase === "disconnected" && this.communicator === communicator) {
+          this.completePendingCommunicatorClose(communicator);
         }
         this.setPhase(mappedPhase);
         this.setStatus(state.status);
@@ -1262,28 +1267,63 @@ class DashboardController {
       await mediaControllerBridge.stop().catch(() => {});
       await nightscoutBridge.stop().catch(() => {});
       voiceControlBridge.stop();
+      let closeComplete = true;
       if (communicator) {
         await communicator.setFaceclawWakeLeaseEnabled(false).catch(() => false);
-        await communicator.close().catch(() => {});
+        closeComplete = await communicator.close().catch(() => false);
+        if (!closeComplete) {
+          this.appendLog("connect cleanup is still in progress; retaining BLE ownership");
+        }
       }
-      this.communicator = null;
-      this.lockSurfaceConfigured = false;
-      this.wearNotifySupported = false;
-      this.faceclawWakeLeaseSupported = false;
-      this.faceclawWakeLeaseState = null;
-      this.evenHubResumePromise = null;
-      this.clearDashboardTimer();
-      stopForegroundNotification();
-      this.setPhase("disconnected");
-      this.setStatus(`Failed: ${message}`);
+      if (closeComplete && this.communicator === communicator) this.communicator = null;
+      if (closeComplete) {
+        this.lockSurfaceConfigured = false;
+        this.wearNotifySupported = false;
+        this.faceclawWakeLeaseSupported = false;
+        this.faceclawWakeLeaseState = null;
+        this.evenHubResumePromise = null;
+        this.clearDashboardTimer();
+        stopForegroundNotification();
+        this.setPhase("disconnected");
+        this.setStatus(`Failed: ${message}`);
+      } else {
+        this.setPhase("disconnecting");
+        this.setStatus("Disconnecting; waiting for BLE worker...");
+      }
       this.appendLog(`error: ${message}`);
       throw error;
     }
   }
 
+  private completePendingCommunicatorClose(communicator: FaceclawCommunicatorBridge): void {
+    if (this.communicator !== communicator) return;
+    this.offState?.(); this.offState = null;
+    this.offLog?.(); this.offLog = null;
+    this.offRing?.(); this.offRing = null;
+    this.offBattery?.(); this.offBattery = null;
+    this.offRingHealthFrame?.(); this.offRingHealthFrame = null;
+    this.offRingHealthChange?.(); this.offRingHealthChange = null;
+    this.offSilentMode?.(); this.offSilentMode = null;
+    this.offWearState?.(); this.offWearState = null;
+    this.offPhoneLockState?.(); this.offPhoneLockState = null;
+    this.offEvenAppConflict?.(); this.offEvenAppConflict = null;
+    this.offFrameMetrics?.(); this.offFrameMetrics = null;
+    this.offFirmwareInfo?.(); this.offFirmwareInfo = null;
+    this.offVoiceStatus?.(); this.offVoiceStatus = null;
+    this.offVoiceWakeWord?.(); this.offVoiceWakeWord = null;
+    this.communicator = null;
+    stopForegroundNotification();
+    this.faceclawWakeLeaseSupported = false;
+    this.faceclawWakeLeaseState = null;
+    this.wearNotifySupported = false;
+    this.setPhase("disconnected");
+    this.setStatus("Disconnected.");
+    this.appendLog("Disconnected from the glasses.");
+  }
+
   async disconnect(): Promise<void> {
     this.clearEvenAppReleasePoll();
-    if (this.phase === "disconnected" || this.phase === "disconnecting") return;
+    if (this.phase === "disconnected") return;
 
     // Beep while the transport is still up (phase is still "connected" here);
     // await it so the queued frame flushes before teardown. ~300ms on a manual
@@ -1294,37 +1334,24 @@ class DashboardController {
     this.setPhase("disconnecting");
     this.setStatus("Disconnecting...");
     this.clearDashboardTimer();
-    this.offState?.();
-    this.offState = null;
-    this.offLog?.();
-    this.offLog = null;
-    this.offRing?.();
-    this.offRing = null;
-    this.offBattery?.();
-    this.offBattery = null;
-    this.offRingHealthFrame?.();
-    this.offRingHealthFrame = null;
-    this.offRingHealthChange?.();
-    this.offRingHealthChange = null;
-    this.offSilentMode?.();
-    this.offSilentMode = null;
-    this.offWearState?.();
-    this.offWearState = null;
-    this.offPhoneLockState?.();
-    this.offPhoneLockState = null;
-    this.offEvenAppConflict?.();
-    this.offEvenAppConflict = null;
-    this.offFrameMetrics?.();
-    this.offFrameMetrics = null;
-    this.offFirmwareInfo?.();
-    this.offFirmwareInfo = null;
-    this.offVoiceStatus?.();
-    this.offVoiceStatus = null;
-    this.offVoiceWakeWord?.();
-    this.offVoiceWakeWord = null;
+    const clearCommunicatorSubscriptions = () => {
+      this.offState?.(); this.offState = null;
+      this.offLog?.(); this.offLog = null;
+      this.offRing?.(); this.offRing = null;
+      this.offBattery?.(); this.offBattery = null;
+      this.offRingHealthFrame?.(); this.offRingHealthFrame = null;
+      this.offRingHealthChange?.(); this.offRingHealthChange = null;
+      this.offSilentMode?.(); this.offSilentMode = null;
+      this.offWearState?.(); this.offWearState = null;
+      this.offPhoneLockState?.(); this.offPhoneLockState = null;
+      this.offEvenAppConflict?.(); this.offEvenAppConflict = null;
+      this.offFrameMetrics?.(); this.offFrameMetrics = null;
+      this.offFirmwareInfo?.(); this.offFirmwareInfo = null;
+      this.offVoiceStatus?.(); this.offVoiceStatus = null;
+      this.offVoiceWakeWord?.(); this.offVoiceWakeWord = null;
+    };
 
     const communicator = this.communicator;
-    this.communicator = null;
     this.lockSurfaceConfigured = false;
     this.evenHubSessionSuspended = false;
     this.evenHubResumePromise = null;
@@ -1361,15 +1388,26 @@ class DashboardController {
       await mediaControllerBridge.stop().catch(() => {});
       await nightscoutBridge.stop().catch(() => {});
       voiceControlBridge.stop();
-      await communicator?.close().catch(() => {});
+      const closed = await communicator?.close().catch((error) => {
+        this.appendLog(`BLE cleanup failed: ${this.formatError(error)}`);
+        return false;
+      });
+      if (closed !== true) {
+        this.appendLog("BLE worker is still stopping; retaining communicator ownership");
+        return;
+      }
+      clearCommunicatorSubscriptions();
+      if (this.communicator === communicator) this.communicator = null;
     } finally {
-      stopForegroundNotification();
-      this.faceclawWakeLeaseSupported = false;
-      this.faceclawWakeLeaseState = null;
-      this.wearNotifySupported = false;
-      this.setPhase("disconnected");
-      this.setStatus("Disconnected.");
-      this.appendLog("Disconnected from the glasses.");
+      if (this.communicator === null) {
+        stopForegroundNotification();
+        this.faceclawWakeLeaseSupported = false;
+        this.faceclawWakeLeaseState = null;
+        this.wearNotifySupported = false;
+        this.setPhase("disconnected");
+        this.setStatus("Disconnected.");
+        this.appendLog("Disconnected from the glasses.");
+      }
     }
   }
 

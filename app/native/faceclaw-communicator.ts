@@ -641,8 +641,8 @@ export class FaceclawCommunicatorBridge {
     });
   }
 
-  async disconnect(): Promise<void> {
-    await this.enqueueJavaCall(() => this.communicator.disconnect());
+  async disconnect(): Promise<boolean> {
+    return this.enqueueJavaCall(() => Boolean(this.communicator.disconnect()));
   }
 
   async sendShutdown(exitMode = 0): Promise<boolean> {
@@ -695,7 +695,7 @@ export class FaceclawCommunicatorBridge {
     });
   }
 
-  async close(): Promise<void> {
-    await this.enqueueJavaCall(() => this.communicator.close());
+  async close(): Promise<boolean> {
+    return this.enqueueJavaCall(() => Boolean(this.communicator.close()));
   }
 }

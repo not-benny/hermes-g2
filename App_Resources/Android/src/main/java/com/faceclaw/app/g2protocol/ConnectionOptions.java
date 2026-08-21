@@ -10,8 +10,9 @@ public class ConnectionOptions {
     public static final int DESCRIPTOR_TIMEOUT_MS = 5_000;
     public static final int RING_DESIRED_MTU = 247;
     public static final int RING_RECONNECT_DELAY_MS = 2_000;
-    // The ring is optional (battery/health only). Its dedicated link worker still
-    // fails fast and backs off hard to avoid hammering an absent or sleeping R1.
+    // The ring is optional (battery/health only) and shares the display worker
+    // thread, so a failed attempt must fail fast and back off hard, otherwise an
+    // absent/dead ring freezes the whole display pump on a ~12s cadence.
     public static final int RING_RECONNECT_MAX_DELAY_MS = 5 * 60_000;
     public static final int RING_CONNECT_TIMEOUT_MS = 2_500;
     public static final int RING_SERVICES_TIMEOUT_MS = 2_500;

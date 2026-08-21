@@ -146,8 +146,8 @@ test("direct ring requests MTU 247 before subscribing and probing", () => {
     "utf8",
   );
   assert.match(options, /RING_DESIRED_MTU = 247/);
-  const start = src.indexOf("private int connectRing()");
-  const end = src.indexOf("private void refreshRingBattery(int generation)", start);
+  const start = src.indexOf("private void connectRing()");
+  const end = src.indexOf("private void refreshRingBattery()", start);
   const body = src.slice(start, end);
   const discover = body.indexOf("discoverServices(ringAddress");
   const requestMtu = body.indexOf("requestMtu(");
@@ -167,12 +167,9 @@ test("worker refreshes current HR every 15 seconds without re-polling all metric
   assert.match(src, /RING_CURRENT_HR_POLL_INTERVAL_MS = 15_000L/);
   assert.match(src, /maybeReRingCurrentHrPoll\(\)/);
   const start = src.indexOf("private void maybeReRingCurrentHrPoll()");
-  const end = src.indexOf("private void probeRingHealth(int generation)", start);
+  const end = src.indexOf("private void probeRingHealth()", start);
   const body = src.slice(start, end);
-  assert.match(
-    body,
-    /sendRingCommandForGeneration\(generation,\s*"heartRate\/current-hour GET", 0x02, 0x01, 0x01, 0x00, null\)/,
-  );
+  assert.match(body, /sendRingCommand\("heartRate\/current-hour GET", 0x02, 0x01, 0x01, 0x00, null\)/);
   assert.doesNotMatch(body, /spo2\/daily|hrv\/daily|activity\/daily|sleep\/daily|deviceStatus GET/);
 });
 
@@ -181,12 +178,7 @@ test("health pushes queue packetAck cursors and the worker drains them safely", 
     new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
     "utf8",
   );
-  assert.match(src, /queueRingPacketAck\(data, generation\)/);
-  assert.match(
-    src,
-    /if \(!isRingOperationAllowedLocked\(generation\)\) return;[\s\S]*new RingPacketAckCursor\(payload, generation\)/,
-    "an accepted health push cannot enqueue its cursor into a replacement ring generation",
-  );
+  assert.match(src, /queueRingPacketAck\(data\)/);
   assert.match(src, /drainRingPacketAcks\(\)/);
   assert.match(src, /ringConnectionGeneration/);
   assert.match(src, /sendRingPacketAck\(cursor\)/);
@@ -194,10 +186,10 @@ test("health pushes queue packetAck cursors and the worker drains them safely", 
   const guardedStart = src.indexOf("private void sendRingPacketAck(RingPacketAckCursor cursor)");
   const guardedEnd = src.indexOf("private void sendRingCommand(", guardedStart);
   const guarded = src.slice(guardedStart, guardedEnd);
-  assert.match(guarded, /synchronized \(ringLock\)/);
+  assert.match(guarded, /synchronized \(lock\)/);
   assert.ok(
-    guarded.indexOf("isRingOperationAllowedLocked(cursor.generation)") < guarded.indexOf('sendRingCommand("packetAck"'),
-    "generation and lifecycle must be revalidated under the ring lock at the final write boundary",
+    guarded.indexOf("cursor.generation != ringConnectionGeneration") < guarded.indexOf('sendRingCommand("packetAck"'),
+    "generation must be revalidated under the lifecycle lock at the final write boundary",
   );
   assert.match(src, /payload\[0\] = frame\[6\]/); // module
   assert.match(src, /payload\[1\] = frame\[11\]/); // cmd
