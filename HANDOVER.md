@@ -179,7 +179,8 @@ pull the log + the Even app's built-in health-data export zip, and validate.
 
 ## 8. Direct in-process assistant tool registration (local review candidate)
 
-- Candidate branch: `work/t_2c2d05f9-inprocess-tools-rework`, based on
+- Candidate branch: `work/t_2c2d05f9-inprocess-tools-rework`, implementation commit
+  `8ba024d`, based on
   `origin/hermes-g2@ae89fd5e398a78ce9a7d00c66a47d92d02812319`. The in-process
   window adapter accepts optional unprefixed `open`/`foreground` declarations,
   uses the shared `ToolRegistry`, prefixes names as `app.<appId>.*`, and checks
@@ -188,6 +189,11 @@ pull the log + the Even app's built-in health-data export zip, and validate.
   surface cleanup; the registry's same-name fallback remains available. The
   behavioral contract test exercises listing, foreground gating, direct
   invocation, notifications, unknown-after-close behavior, and fallback.
-- Verification is pending on the frozen candidate commit. No hardware, BLE,
-  firmware, pairing, reset, wipe, or other destructive operation was used; no
-  push or PR is authorized until independent `g2-reviewer` approval.
+- Verification: focused `node --test tests/in-process-surface.test.mjs
+  tests/tool-registry.test.mjs` passes 8/8; `npm run typecheck` passes; Android
+  JDK 21 / SDK debug `npm run build` passes. `npm run test` runs 145 tests,
+  143 pass, with two existing date-gated activity failures in
+  `tests/ring-health-store.test.mjs`. `git diff --check` passes. No hardware,
+  BLE, firmware, pairing, reset, wipe, or other destructive operation was
+  used; nothing was pushed and no PR is open pending independent
+  `g2-reviewer` approval.
