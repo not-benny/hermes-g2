@@ -111,7 +111,7 @@ test("worker host closes a same-ID replacement before it declares tools", async 
     startTextSettingEdit: () => {},
     endTextSettingEdit: () => {},
   });
-  host.openWindow({ windowId: "reused", title: "old", iconLetter: "O" });
+  const oldWindow = host.openWindow({ windowId: "reused", title: "old", iconLetter: "O" });
   worker.onmessage({ data: { type: "set-tools", windowId: "reused", tools: [openSpec] } });
   assert.deepEqual(toolRegistry.listTools().map((spec) => spec.name), ["app.demo.open"]);
 
@@ -120,4 +120,22 @@ test("worker host closes a same-ID replacement before it declares tools", async 
   replacement.close();
   assert.deepEqual(toolRegistry.listTools(), []);
   assert.equal(changes, 2);
+
+  // Once the replacement owns a lease, the old ShellWindow's close must be a
+  // stale no-op and leave the replacement callable until it closes.
+  const currentWindow = host.openWindow({ windowId: "reused", title: "current", iconLetter: "C" });
+  worker.onmessage({ data: { type: "set-tools", windowId: "reused", tools: [openSpec] } });
+  assert.deepEqual(toolRegistry.listTools().map((spec) => spec.name), ["app.demo.open"]);
+  let call;
+  worker.postMessage = (message) => { if (message.type === "tool-call") call = message; };
+  const resultPromise = toolRegistry.callTool("app.demo.open", {});
+  assert.equal(call?.name, "open");
+  worker.onmessage({ data: { type: "tool-result", callId: call.callId, result: { ok: true, content: "current" } } });
+  assert.deepEqual(await resultPromise, { ok: true, content: "current" });
+  oldWindow.close();
+  assert.deepEqual(toolRegistry.listTools().map((spec) => spec.name), ["app.demo.open"]);
+  assert.equal(changes, 3);
+  currentWindow.close();
+  assert.deepEqual(toolRegistry.listTools(), []);
+  assert.equal(changes, 4);
 });

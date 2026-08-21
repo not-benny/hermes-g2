@@ -7,11 +7,7 @@ app-tool leases through the registry, in-process adapter, and worker windows.
 Stale or repeated teardown cannot remove a same-windowId replacement; replacing
 an open worker window releases its still-current lease before installing the new
 lifecycle state, including when the replacement closes before declaring tools.
-Focused registry/in-process tests pass on this frozen stack. `npm run typecheck`
-and configured `npm run build` currently fail on the repository's 35 inherited
-NativeScript Android/AndroidX/Java and `Array.create` diagnostics; no changed-file
-diagnostic was reported and no APK was produced or installed. No hardware
-verification was needed for this registry lifecycle change.
+Focused registry/in-process tests pass 11/11, and the full `npm run test` suite passes 164/164 on this frozen stack. `npm run typecheck` and configured `npm run build` fail on the repository's 35 inherited NativeScript Android/AndroidX/Java and `Array.create` diagnostics; no changed-file diagnostic was reported and no APK was produced or installed. No hardware verification was needed for this registry lifecycle change.
 
 ## BLE callback identity gate (2026-08-21)
 
