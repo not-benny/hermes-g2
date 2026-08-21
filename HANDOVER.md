@@ -4,7 +4,24 @@ A snapshot of project state, what was accomplished, what is pending, and how to
 pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
 the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
-## 0. Latest continuation (2026-08-20)
+## 0. Latest continuation (2026-08-21)
+
+### Trusted caller gate for health MCP reads (local, review pending)
+
+The health MCP tool is now fail-closed for the current external plaintext
+`ws://` bridge: consent alone cannot expose or execute `health.get_ring_data`.
+MCP list/call policy checks require a live connection generation and an explicit
+trusted-caller predicate, while the registry rechecks the policy immediately
+before loading the handler. Calls also carry the exact active voice-turn
+generation, so replaced or finished turns cannot authorize a delayed read.
+Direct/on-device callers can opt into the trusted predicate; certificate-
+validated WSS/server proof is still required before enabling it for external
+transport. No hardware verification applies; this is assistant policy code.
+
+Focused and full tests, typecheck, and Android build remain to be run on the
+frozen local candidate. Nothing has been pushed and no PR has been opened;
+fresh independent `g2-reviewer` approval is required before delivery.
+
 
 ### Persistent ring-health pull candidate (local, re-review pending)
 

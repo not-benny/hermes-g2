@@ -149,6 +149,7 @@ test("health tool works through initialized MCP tools/list and tools/call", asyn
   native.setTestConsent(true);
   const sent = [];
   const server = new AssistantMcpServer({ send: (message) => sent.push(message), isTurnActive: () => true,
+    getTurnGeneration: () => "turn-1", isHealthCallerTrusted: () => true, connectionGeneration: 1,
     allowProactive: () => false, registry });
   server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
   server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
@@ -159,4 +160,53 @@ test("health tool works through initialized MCP tools/list and tools/call", asyn
   const reply = sent.find((message) => message.id === 3);
   assert.equal(reply.result.isError, false);
   assert.equal(JSON.parse(reply.result.content[0].text).source, "hermes-g2-ring");
+});
+
+test("consented health is hidden and rejected for an unverified external session", async () => {
+  const registry = setup();
+  native.setTestConsent(true);
+  const sent = [];
+  const server = new AssistantMcpServer({ send: (message) => sent.push(message), isTurnActive: () => true,
+    getTurnGeneration: () => "turn-1", isHealthCallerTrusted: () => false, connectionGeneration: 7,
+    allowProactive: () => false, registry });
+  server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+  assert.equal(sent.at(-1).result.tools.some((tool) => tool.name === TOOL_NAME), false);
+  server.handleMessage({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(sent.at(-1).result.isError, true);
+  assert.match(sent.at(-1).result.content[0].text, /unverified external/);
+});
+
+test("health call is denied when its live turn generation is replaced", async () => {
+  const registry = setup();
+  native.setTestConsent(true);
+  const generations = ["turn-1", "turn-2"];
+  const sent = [];
+  const server = new AssistantMcpServer({ send: (message) => sent.push(message), isTurnActive: () => true,
+    getTurnGeneration: () => generations.shift() ?? "turn-2", isHealthCallerTrusted: () => true, connectionGeneration: 8,
+    allowProactive: () => false, registry });
+  server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+
+  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(sent.at(-1).result.isError, true);
+  assert.match(sent.at(-1).result.content[0].text, /authorizing assistant turn/);
+});
+
+test("health call is denied after its connection generation becomes stale", async () => {
+  const registry = setup();
+  native.setTestConsent(true);
+  const sent = [];
+  const server = new AssistantMcpServer({ send: (message) => sent.push(message), isTurnActive: () => true,
+    getTurnGeneration: () => "turn-1", isHealthCallerTrusted: () => true, connectionGeneration: 9,
+    isConnectionGenerationActive: () => false, allowProactive: () => false, registry });
+  server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(sent.at(-1).result.isError, true);
+  assert.match(sent.at(-1).result.content[0].text, /current live connection/);
 });

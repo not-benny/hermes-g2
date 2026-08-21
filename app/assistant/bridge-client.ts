@@ -196,6 +196,12 @@ export class AssistantBridgeClient {
       this.mcpServer = new AssistantMcpServer({
         send: (msg) => this.sendMcpForSocket(generation, socket, msg),
         isTurnActive: () => this.activeTurn !== null,
+        getTurnGeneration: () => this.activeTurn?.turnId ?? null,
+        // External mode currently uses plaintext ws:// without server proof;
+        // sensitive health data therefore remains fail-closed for this caller.
+        isHealthCallerTrusted: () => false,
+        connectionGeneration: generation,
+        isConnectionGenerationActive: () => this.connectionGuard.isCurrent(generation),
         allowProactive: this.options!.allowProactive,
       });
     } catch (error) {
