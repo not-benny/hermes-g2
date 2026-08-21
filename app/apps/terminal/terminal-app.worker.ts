@@ -44,6 +44,7 @@ import {
 } from "../../native/g2mirror-client";
 import { onSettingsStoreChanged } from "../../native/settings-store";
 import { clamp } from "../../util/numeric-util";
+import { beginToolAuthorization, cancelToolAuthorization, isToolAuthorizationActive } from "../tool-authorization";
 import {
   terminalAutoReconnectSetting,
   terminalLaunchPresetsSetting,
@@ -360,17 +361,21 @@ global.onmessage = (event: { data: WorkerAppMessage }) => {
       break;
     case "tool-call": {
       const callId = message.callId;
-      Promise.resolve(handleTerminalTool(message.name, message.args))
-        .then((result) => post({ type: "tool-result", callId, result }))
+      beginToolAuthorization(message.authorizationId);
+      Promise.resolve(handleTerminalTool(message.name, message.args, () => isToolAuthorizationActive(message.authorizationId)))
+        .then((result) => { cancelToolAuthorization(message.authorizationId); post({ type: "tool-result", callId, result }); })
         .catch((error) =>
-          post({
+          (cancelToolAuthorization(message.authorizationId), post({
             type: "tool-result",
             callId,
             result: { ok: false, error: String((error as Error)?.message ?? error) },
-          }),
+          })),
         );
       break;
     }
+    case "cancel-tool-call":
+      cancelToolAuthorization(message.authorizationId);
+      break;
   }
 };
 
@@ -1581,12 +1586,12 @@ function sessionLabel(session: G2MirrorSession): string {
 }
 
 /** Dispatch an assistant tool-call (unprefixed name) to its handler. */
-function handleTerminalTool(name: string, args: any): ToolResult | Promise<ToolResult> {
+function handleTerminalTool(name: string, args: any, isAllowed: () => boolean): ToolResult | Promise<ToolResult> {
   switch (name) {
     case "list_sessions":
       return toolListSessions();
     case "send_input":
-      return toolSendInput(args);
+      return toolSendInput(args, isAllowed);
     case "read_screen":
       return toolReadScreen();
     case "list_launch_presets":
@@ -1665,11 +1670,12 @@ function toolListSessions(): ToolResult {
   return { ok: true, content: lines.join("\n") };
 }
 
-function toolSendInput(args: any): ToolResult {
+function toolSendInput(args: any, isAllowed: () => boolean): ToolResult {
   const text = String(args?.text ?? "");
   if (!text) return { ok: false, error: "send_input requires non-empty text." };
   const view = resolveActiveView();
   if (!view) return { ok: false, error: "No terminal session is open to send input to." };
+  if (!isAllowed()) return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
   view.client.submitInput(text);
   return { ok: true, content: `Sent to ${view.label}.` };
 }

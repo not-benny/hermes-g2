@@ -1,4 +1,4 @@
-# MentraOS app compatibility for Faceclaw - feasibility assessment (2026-07-23)
+# MentraOS app compatibility for Faceclaw — feasibility assessment (2026-07-23)
 
 MentraOS: https://github.com/Mentra-Community/MentraOS (MIT), docs at https://docs.mentraglass.com.
 
@@ -7,8 +7,8 @@ MentraOS: https://github.com/Mentra-Community/MentraOS (MIT), docs at https://do
 Technically feasible with moderate effort, but the timing is awkward: MentraOS is
 **deprecating its entire current app API**. MentraOS 3.0 ships **Aug 3, 2026** and
 cloud-SDK apps stop working on it (a "MentraOS Legacy" mode preserves them through
-**October 2026**). The replacement - a **Miniapp SDK** where apps are phone-local JS
-bundles running in a WebView - gets a public spec in **September 2026**, and that model
+**October 2026**). The replacement — a **Miniapp SDK** where apps are phone-local JS
+bundles running in a WebView — gets a public spec in **September 2026**, and that model
 is a *much* better fit for Faceclaw than the cloud model. Recommendation: wait for the
 miniapp spec and target that; only build a minimal cloud-protocol emulator if access to
 the existing app corpus is wanted in the interim.
@@ -21,15 +21,15 @@ the existing app corpus is wanted in the interim.
   to the app's registered URL; the app dials back to `websocketUrl` and sends
   `tpa_connection_init {packageName, sessionId, apiKey}`; cloud acks with settings +
   device capabilities. **The webhook carries the WS URL, so an unmodified `@mentra/sdk`
-  app can be pointed at any server** - that is the compat hook.
+  app can be pointed at any server** — that is the compat hook.
 - Protocol: JSON over WebSocket (binary frames for audio). 28 app→cloud + 28 cloud→app
   message types, defined in `cloud/packages/sdk/src/types/` (`message-types.ts`,
   `streams.ts`, `layouts.ts`, `webhooks.ts`, `capabilities.ts`). The TS types are the spec.
 - Subscriptions: `subscription_update` with a full list of stream types, some
   parameterized (`transcription:en-US`, `touch_event:forward_swipe`). Events arrive in a
   `data_stream` envelope.
-- Display: 7 layout types - `text_wall`, `double_text_wall`, `dashboard_card`,
-  `reference_card`, `bitmap_view` (base64), `bitmap_animation`, `clear_view` - sent as
+- Display: 7 layout types — `text_wall`, `double_text_wall`, `dashboard_card`,
+  `reference_card`, `bitmap_view` (base64), `bitmap_animation`, `clear_view` — sent as
   `display_event {view: 'main'|'dashboard', layout, durationMs?, forceDisplay?}`.
   Cloud throttles displays to 1 per 300 ms. Dashboard = shared look-up surface.
 - Streams: `transcription` (`{text, isFinal, ...}`), `translation`, `VAD`, `audio_chunk`
@@ -71,11 +71,11 @@ app as a `ShellWindow` and:
   missing). Work item: input is currently routed only to the focused window; MentraOS
   wants multi-subscriber fan-out (background apps), so a broadcast layer is needed.
 - **Transcription** → the load-bearing stream, and Faceclaw already has it:
-  `voiceControlBridge.onTranscript` (`{text, isFinal}`, replace semantics - matches
+  `voiceControlBridge.onTranscript` (`{text, isFinal}`, replace semantics — matches
   MentraOS's `TranscriptionData` model well). Onboard Moonshine is English-only;
   parameterized languages would fall back to ElevenLabs/Whisper cloud providers.
   Needs multi-consumer fan-out and a policy for when the mic is open (MentraOS keeps it
-  effectively continuous; Faceclaw is PTT/wakeword-oriented - battery implications).
+  effectively continuous; Faceclaw is PTT/wakeword-oriented — battery implications).
 - **VAD** → sherpa endpointing exists. **audio_chunk** → PCM already surfaced on the
   ElevenLabs path (`onPcm`).
 - **Battery / phone notifications / calendar** → data already flows in Faceclaw
@@ -89,14 +89,14 @@ app as a `ShellWindow` and:
 - **Settings** → MentraOS per-app settings map onto the shared `FaceclawSettings` store
   with a `mentra.<packageName>.*` prefix; the 9 setting types map onto
   `ConfigSetting` subclasses, mostly.
-- **Not applicable on G2**: camera/photo/RTMP/LiveKit, LED, WiFi setup - can be
+- **Not applicable on G2**: camera/photo/RTMP/LiveKit, LED, WiFi setup — can be
   rejected via capabilities, which the protocol explicitly supports.
 
 ## The hard parts
 
 1. **Who plays "cloud"?** Cloud-SDK apps dial out to a WS URL given in a webhook, so
-   Faceclaw must (a) run a WS **server** - none exists anywhere in the codebase today,
-   all networking is outbound okhttp client (`FaceclawWebSocket`, g2mirror pattern) -
+   Faceclaw must (a) run a WS **server** — none exists anywhere in the codebase today,
+   all networking is outbound okhttp client (`FaceclawWebSocket`, g2mirror pattern) —
    reachable from wherever the app server runs (fine on LAN; NAT pain otherwise), and
    (b) send the session webhook itself (simple outbound HTTP POST). A phone-hosted
    mini-cloud with Java-WebSocket/NanoWSD listening on LAN is the sane MVP; self-hosting
@@ -121,11 +121,11 @@ and mostly not worth it.
 
 ## Recommendation
 
-- **Don't invest in the cloud-TPA protocol as the long-term target** - the vendor is
+- **Don't invest in the cloud-TPA protocol as the long-term target** — the vendor is
   killing it within ~3 months of now, and the ecosystem's apps will migrate to miniapps.
 - **Target the Miniapp SDK when its spec lands (Sept 2026).** It's strictly easier for
-  Faceclaw: JS bundle in an Android WebView with an injected `session` bridge - no
-  server, no webhooks, no reconnect protocol - and Faceclaw already has every underlying
+  Faceclaw: JS bundle in an Android WebView with an injected `session` bridge — no
+  server, no webhooks, no reconnect protocol — and Faceclaw already has every underlying
   facility the bridge needs. The rasterizer/input/transcription plumbing built for it
   would be shared with any interim TPA emulator anyway.
 - If interim access to existing cloud-SDK apps matters, build the minimal LAN emulator

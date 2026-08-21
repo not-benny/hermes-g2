@@ -1,0 +1,13 @@
+{
+  "name": "faceclaw-whatsapp-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "In-app WhatsApp multi-device engine (Baileys) for Hermes G2, run on the embedded nodejs-mobile runtime.",
+  "main": "main.js",
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc13",
+    "express": "^4.21.0",
+    "pino": "^9.0.0"
+  }
+}

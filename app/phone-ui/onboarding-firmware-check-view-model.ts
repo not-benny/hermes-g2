@@ -190,13 +190,13 @@ export class OnboardingFirmwareCheckViewModel extends Observable {
         this.headline = "Custom Firmware Detected";
         this.status =
           `Your glasses already run Hermes G2 custom firmware${version ? ` (version ${version})` : ""}` +
-          `${capabilities ? `, extensions: ${capabilities}` : ""}. No flashing needed — you're all set.`;
+          `${capabilities ? `, extensions: ${capabilities}` : ""}. No flashing needed - you're all set.`;
         break;
       case "flashable-stock":
         this.setPhase("flashable");
         this.headline = "Ready to Install";
         this.status =
-          `Your glasses run stock firmware ${version}. This is compatible — tap Install Firmware to flash ` +
+          `Your glasses run stock firmware ${version}. This is compatible - tap Install Firmware to flash ` +
           "Hermes G2 custom firmware.";
         break;
       case "newer-stock":
@@ -208,7 +208,7 @@ export class OnboardingFirmwareCheckViewModel extends Observable {
           "You can proceed anyway, or go back.";
         break;
       default:
-        // "unknown" — connected but no version. Treat as a probe failure (hard block).
+        // "unknown" - connected but no version. Treat as a probe failure (hard block).
         this.toError(
           "Connected, but couldn't read a firmware version. Make sure the glasses are on and the Even app is " +
             "disconnected, then retry.",
@@ -232,7 +232,7 @@ export class OnboardingFirmwareCheckViewModel extends Observable {
     setOnboardingCompleted(true);
     this.disposeProbe();
     Frame.topmost()?.navigate({
-      moduleName: "phone-ui/main-page",
+      moduleName: "phone-ui/shell-page",
       clearHistory: true,
     });
   }
@@ -242,7 +242,7 @@ export class OnboardingFirmwareCheckViewModel extends Observable {
     setOnboardingCompleted(true);
     this.disposeProbe();
     Frame.topmost()?.navigate({
-      moduleName: "phone-ui/main-page",
+      moduleName: "phone-ui/shell-page",
       clearHistory: true,
     });
   }

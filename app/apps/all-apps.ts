@@ -1,5 +1,6 @@
 import { type AppDefinition } from "./app-definition";
 import launcherApp from "./launcher";
+import healthApp from "./health";
 import timerApp from "./timer";
 import terminalApp from "./terminal";
 import filesApp from "./files";
@@ -26,6 +27,7 @@ import settingsApp from "./settings";
  */
 export const ALL_APPS: readonly AppDefinition[] = [
   launcherApp,
+  healthApp,
   timerApp,
   terminalApp,
   filesApp,

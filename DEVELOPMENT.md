@@ -1,39 +1,98 @@
-# Development notes
+# Development guide
 
-Hermes G2 is an Android program based on Faceclaw that provides a user
-interface on the Even Realities G2 smart glasses. It is written in a mix of
-Typescript/NativeScript (for the user interface parts) and Java (for the
-low-level bluetooth parts and for interfacing with the Android SDK).
+Hermes G2 is an Android application built with TypeScript/NativeScript and Java.
+The TypeScript application lives under `app/`; Android and BLE integration lives
+under `App_Resources/Android/src/main/java/com/faceclaw/app/`.
 
-Typescript parts are in `app/`. Java parts are in
-`App_Resources/Android/src/main/java/com/faceclaw/app/`.
+## Canonical branch
 
-## Building and running
+Develop from `main`. The repository previously contained two unrelated Git
+histories and numerous task branches; they were deliberately consolidated on
+21 August 2026. Do not base new work on archived `work/`, `wt/`, `integration/`,
+or dated cleanup branches.
 
-Typecheck (fast): `npm run typecheck` (runs `tsc --noEmit`).
+Use a focused feature branch, keep commits reviewable, and merge through a pull
+request. Never force-push or rewrite a reviewed shared branch unless the owner
+explicitly asks for that exact operation.
 
-Tests: `node --test tests/*.test.mjs`. Typescript modules are tested by
-transpiling with the `typescript` devDependency and importing a `data:` URL;
-see `tests/edge-scroll.test.mjs` for the pattern.
+## Toolchain
 
-Deploy to a phone with adb enabled:
+- Node.js 20 or newer
+- npm
+- JDK 21
+- Android SDK 35
+- NativeScript Android prerequisites
+- Required NDK and CMake packages for the native audio/model components
+
+JDK 21 is intentional. Newer JDKs have failed this Gradle stack's `jlink` stage.
+
+## Install, test, and build
 
 ```bash
-ns run android --device <id> --justlaunch
+npm ci
+npm test
+npm run typecheck
+npm run build
 ```
 
-If no phone is connected, the build still completes but the install step
-fails with "Cannot find connected devices." Use `adb logcat` to view runtime
-results.
+Useful focused suites include:
 
-Note that the Android Gradle Plugin in use requires JDK 21; newer JDKs fail.
+```bash
+node --test tests/ring-parser.test.mjs
+node --test tests/ring-health-store.test.mjs
+node --test tests/render-view.test.mjs tests/mcp-server.test.mjs
+node --test tests/connection-state-lifecycle.test.mjs tests/communicator-teardown.test.mjs
+```
 
-## Protocol references
+The tests transpile pure TypeScript modules with the declared TypeScript
+devDependency and import them through `data:` URLs. Keep new protocol and
+lifecycle logic Android-free where practical so it can be exercised under Node.
 
-For low-level communication work, see
-https://github.com/Commute773/g2-kit-unofficial/ and its `ble/docs/` and
-`ble/gen/` directories. That repository contains protobuf schemas, some
-communication test scripts, and documentation of caveats that come up when
-communicating with the headset.
+To launch on an authorised device:
 
-The R1 ring health BLE protocol is documented in `docs/ring-health/`.
+```bash
+npx ns run android --device <adb-device-id> --justlaunch
+```
+
+Use package-filtered `adb logcat` for runtime evidence. A successful build is not
+the same as a successful install or hardware test; report each separately.
+
+## Repository map
+
+- `app/assistant/` — bridge, MCP server, tool registry, and direct backends
+- `app/g2/` — dashboard controller and G2 session lifecycle
+- `app/health/` — R1 frame parsing, health state, and persistence contracts
+- `app/native/` — NativeScript-to-Android bridges
+- `app/ui/` — glasses shell, layers, settings, notifications, and rendering
+- `App_Resources/Android/` — Android manifest, Java BLE implementation, and assets
+- `tests/` — host-side regression tests
+- `docs/` — maintained public-facing protocol and integration documentation
+- `notes/` — detailed research, threat models, validation matrices, and gates
+- `firmware-research/` — source-only G2 firmware port research; no proprietary binaries
+
+## Safety boundaries
+
+Do not weaken the repository's fail-closed gates to make a test pass.
+
+- R1 pairing ownership, NVM provisioning, reset, wipe, DFU/OTA, power-control,
+  and destructive raw commands remain blocked.
+- Public MCP/skill publication remains blocked until transport, identity,
+  licensing, credential, generic-client, and real-device gates are met.
+- Custom G2 firmware may brick hardware. The owner-unit boot report is not a
+  recovery guarantee or broad compatibility proof.
+- Keep health data, Bluetooth captures, firmware binaries, credentials, device
+  identifiers, and completed consent records outside Git.
+
+## Secrets and generated data
+
+The following must never be committed:
+
+- `secrets.local.md` or similar local secret files
+- `ground-truth-private/`
+- raw health exports or Bluetooth captures
+- firmware binaries
+- pulled Android settings/preferences
+- API tokens, bridge tokens, MAC addresses, serials, or private IP addresses
+- generated build outputs under `platforms/`, `dist/`, or `node_modules/`
+
+Run `git diff --check` and inspect the exact staged paths before every commit.

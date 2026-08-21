@@ -9,12 +9,35 @@
                 <Button col="0" text="Wake screen" tap="{{ onWakeScreenTap }}" isEnabled="{{ canControl }}" />
                 <Button col="1" text="Blank screen" tap="{{ onBlankScreenTap }}" isEnabled="{{ canControl }}" />
             </GridLayout>
-            <Button text="{{ brightnessLabel }}" tap="{{ onBrightnessTap }}" class="m-t-8" />
+            <StackLayout class="control-row">
+                <GridLayout columns="*,auto">
+                    <Label col="0" text="Brightness" class="control-row-label" />
+                    <Label col="1" text="{{ brightnessValueLabel }}" class="control-row-value" />
+                </GridLayout>
+                <Slider minValue="0" maxValue="{{ brightnessSliderMax }}" value="{{ brightnessSliderValue }}" class="m-t-4" />
+            </StackLayout>
             <Button text="{{ timeoutLabel }}" tap="{{ onTimeoutTap }}" class="m-t-8" />
-            <Button text="{{ lockLabel }}" tap="{{ onLockScreenTap }}" class="m-t-8" />
+            <GridLayout columns="*,auto" class="control-row">
+                <Label col="0" text="Lock screen" class="control-row-label" />
+                <Switch col="1" checked="{{ lockScreenChecked }}" />
+            </GridLayout>
             <Button text="{{ verticalPositionLabel }}" tap="{{ onVerticalPositionTap }}" class="m-t-8" />
-            <Button text="{{ timeFormatLabel }}" tap="{{ onTimeFormatTap }}" class="m-t-8" />
-            <Button text="{{ batteryDisplayLabel }}" tap="{{ onBatteryDisplayTap }}" class="m-t-8" />
+            <StackLayout class="control-row">
+                <Label text="Clock" class="control-row-label m-b-4" />
+                <SegmentedBar items="{{ timeFormatItems }}" selectedIndex="{{ timeFormatIndex }}" />
+            </StackLayout>
+            <StackLayout class="control-row">
+                <Label text="Battery display" class="control-row-label m-b-4" />
+                <SegmentedBar items="{{ batteryDisplayItems }}" selectedIndex="{{ batteryDisplayIndex }}" />
+            </StackLayout>
+            <StackLayout class="control-row">
+                <Label text="Dashboard size" class="control-row-label m-b-4" />
+                <SegmentedBar items="{{ dashboardSizeItems }}" selectedIndex="{{ dashboardSizeIndex }}" />
+            </StackLayout>
+            <StackLayout class="control-row">
+                <Label text="Font" class="control-row-label m-b-4" />
+                <SegmentedBar items="{{ uiFontItems }}" selectedIndex="{{ uiFontIndex }}" />
+            </StackLayout>
 
             <Label text="Sensors &amp; connection" class="h2 m-t-20" />
             <Label text="{{ wearStatus }}" textWrap="true" class="m-t-8" />
@@ -23,24 +46,47 @@
                 <Button col="1" text="Open compass" tap="{{ onOpenCompassTap }}" isEnabled="{{ canControl }}" />
             </GridLayout>
             <Label text="{{ ringStatus }}" textWrap="true" class="m-t-12" />
-            <Button text="{{ ringSensitivityLabel }}" tap="{{ onRingSensitivityTap }}" class="m-t-8" />
+            <Label text="{{ ringFirmwareVersion }}" textWrap="true" class="m-t-4" />
+            <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="m-t-8">
+                <Label text="{{ evenAppConflictMessage }}" textWrap="true" />
+                <GridLayout columns="*,*" class="m-t-4">
+                    <Button col="0" text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" />
+                    <Button col="1" text="Retry R1" tap="{{ onRetryRingTap }}" />
+                </GridLayout>
+            </StackLayout>
+            <StackLayout class="control-row">
+                <GridLayout columns="*,auto">
+                    <Label col="0" text="Ring sensitivity" class="control-row-label" />
+                    <Label col="1" text="{{ ringSensitivityValueLabel }}" class="control-row-value" />
+                </GridLayout>
+                <Slider minValue="0" maxValue="{{ ringSensitivitySliderMax }}" value="{{ ringSensitivitySliderValue }}" class="m-t-4" />
+            </StackLayout>
             <Button text="Reconnect R1" tap="{{ onReconnectRingTap }}" isEnabled="{{ canControl }}" class="m-t-8" />
             <Button text="Reconnect glasses" tap="{{ onReconnectGlassesTap }}" class="m-t-8" />
 
             <Label text="Voice diagnostics" class="h2 m-t-20" />
+            <GridLayout columns="*,auto" class="control-row">
+                <Label col="0" text="Voice control" class="control-row-label" />
+                <Switch col="1" checked="{{ voiceControlChecked }}" />
+            </GridLayout>
             <Button text="{{ voiceProviderLabel }}" tap="{{ onVoiceProviderTap }}" class="m-t-8" />
             <Button text="{{ wakeWordActionLabel }}" tap="{{ onWakeWordActionTap }}" class="m-t-8" />
-            <Button text="{{ voiceRecordingLabel }}" tap="{{ onSaveVoiceRecordingTap }}" class="m-t-8" />
+            <GridLayout columns="*,auto" class="control-row">
+                <Label col="0" text="Save voice recordings" class="control-row-label" />
+                <Switch col="1" checked="{{ saveVoiceRecordingsChecked }}" />
+            </GridLayout>
             <Button text="Test voice input" tap="{{ onTestVoiceInputTap }}" isEnabled="{{ canControl }}" class="m-t-8" />
 
             <Label text="Notification filtering" class="h2 m-t-20" />
             <Button text="{{ notificationFilterLabel }}" tap="{{ onNotificationFilterModeTap }}" class="m-t-8" />
             <Label text="{{ selectedAppsLabel }}" textWrap="true" class="m-t-8" />
-            <Button text="{{ notificationFontSizeLabel }}" tap="{{ onNotificationFontSizeTap }}" class="m-t-8" />
+            <StackLayout class="control-row">
+                <Label text="Notification text size" class="control-row-label m-b-4" />
+                <SegmentedBar items="{{ notificationFontSizeItems }}" selectedIndex="{{ notificationFontSizeIndex }}" />
+            </StackLayout>
             <Button text="Manage notification apps" tap="{{ onOpenNotificationAppsTap }}" class="m-t-8" />
             <Button text="Manage media sources" tap="{{ onOpenMediaAppsTap }}" class="m-t-8" />
 
-            <Button text="Back" tap="{{ onBackTap }}" class="m-t-24" />
         </StackLayout>
     </ScrollView>
 </Page>

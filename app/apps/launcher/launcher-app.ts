@@ -9,6 +9,7 @@ import {
   GESTURE_SCROLL,
 } from "../../ui/gestures";
 import { DashboardInputEvent, Layer, LayerActions, LayerContext } from "../../ui/layers";
+import { type MenuItem } from "../../ui/menu";
 import { drawSelectionHighlight, scrollToKeepSelectionVisible } from "../../ui/menu";
 import { EdgeBounce, EdgeWrapScroller } from "../../ui/edge-scroll";
 import { onAnySettingChanged } from "../../ui/dashboard-settings";
@@ -30,6 +31,8 @@ export type LauncherOptions = {
   submitFrame: (image: GrayImage, paintMs: number, frameId: number) => Promise<void>;
   /** Flip the launcher's compositor surface visibility on foreground changes. */
   setSurfaceVisible: (visible: boolean) => void;
+  /** Extra long-press menu entries (e.g. "Unhide health tab"); read at open time. */
+  menuItems?: () => MenuItem[];
 };
 
 export const LAUNCHER_WINDOW_ID = "launcher";
@@ -296,6 +299,7 @@ export function createLauncherWindow(options: LauncherOptions): ShellWindow {
     baseLayer: new LauncherGridLayer(options),
     submitFrame: options.submitFrame,
     setSurfaceVisible: options.setSurfaceVisible,
+    menuItems: options.menuItems,
   });
   // The assistant's folder tools change the grouping from outside the window;
   // the settings broadcast is the change signal, and the fingerprint check

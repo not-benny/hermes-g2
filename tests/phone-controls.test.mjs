@@ -12,8 +12,10 @@ test("phone UI exposes safe live glasses controls", () => {
   const controller = read("app/g2/dashboard-controller.ts");
   const communicator = read("app/native/faceclaw-communicator.ts");
 
-  assert.match(mainPage, /Glasses controls/);
-  assert.match(mainModel, /onGlassesControlsTap/);
+  // Glasses controls is now the Controls tab of the bottom-tab shell.
+  const shell = read("app/phone-ui/shell-page.xml");
+  assert.match(shell, /title="Controls"/);
+  assert.match(shell, /phone-ui\/glasses-controls-page/);
   assert.match(controlsPage, /Wake screen/);
   assert.match(controlsPage, /Blank screen/);
   assert.match(controlsPage, /Refresh wear status/);
@@ -32,6 +34,22 @@ test("phone UI exposes safe live glasses controls", () => {
   assert.match(controlsModel, /onReconnectRingTap/);
   assert.match(controller, /reconnectRing/);
   assert.match(communicator, /requestRingReconnect/);
+
+  const nativeCommunicator = read(
+    "App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java",
+  );
+  assert.match(controlsPage, /\{\{ ringFirmwareVersion \}\}/);
+  assert.match(controlsModel, /ringHealthStore\.onChange/);
+  assert.match(controlsModel, /get ringFirmwareVersion\(\)/);
+  assert.match(
+    nativeCommunicator,
+    /sendRingCommandForGeneration\(generation,[\s\S]*"deviceInfo GET \(firmware version\)", 0x01, 0x00, 0x02, 0x00, null\)/,
+  );
+  const sessionStart = nativeCommunicator.indexOf("if (openSession) {");
+  const pairAuth = nativeCommunicator.indexOf('sendRawRingFrameForGeneration(generation, "pairAuth (session open)"', sessionStart);
+  const deviceInfo = nativeCommunicator.indexOf('"deviceInfo GET (firmware version)"', pairAuth);
+  const healthEnable = nativeCommunicator.indexOf('"healthEnable SET"', deviceInfo);
+  assert.ok(sessionStart >= 0 && pairAuth > sessionStart && deviceInfo > pairAuth && healthEnable > deviceInfo);
 });
 
 test("notification filtering applies to the mirrored list, tray, and alerts", () => {
@@ -68,8 +86,11 @@ test("phone UI offers replace-only API-key and Hermes bridge credential fields",
   const keysPage = read("app/phone-ui/api-keys-page.xml");
   const keysModel = read("app/phone-ui/api-keys-view-model.ts");
 
-  assert.match(mainPage, /API keys/);
-  assert.match(mainModel, /onApiKeysTap/);
+  // API keys is now reached from the Settings tab hub, not the main overflow.
+  const settingsPage = read("app/phone-ui/settings-page.xml");
+  const settingsModel = read("app/phone-ui/settings-view-model.ts");
+  assert.match(settingsPage, /API keys/);
+  assert.match(settingsModel, /onApiKeysTap/);
   assert.match(keysPage, /secure="true"/);
   assert.match(keysPage, /Leave blank to keep/);
   assert.match(keysModel, /set bridgeHost\(/);

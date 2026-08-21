@@ -28,11 +28,12 @@ test("ring sensitivity has phone-app parity in the glasses controls screen", () 
   const vm = read("app/phone-ui/glasses-controls-view-model.ts");
   const xml = read("app/phone-ui/glasses-controls-page.xml");
 
-  // Label getter, tap-to-cycle action, live refresh, and a bound XML row.
-  assert.match(vm, /get ringSensitivityLabel\(\): string/);
-  assert.match(vm, /onRingSensitivityTap\(\): void \{\s*ringSensitivitySetting\.set\(ringSensitivitySetting\.next\(\)\)/);
-  assert.match(vm, /"ringSensitivityLabel"/);
-  assert.match(xml, /text="\{\{ ringSensitivityLabel \}\}" tap="\{\{ onRingSensitivityTap \}\}"/);
+  // Batch H: ring sensitivity is now a Slider (index over ringSensitivitySetting
+  // values) with a value chip, plus a live-refresh notify and a bound XML row.
+  assert.match(vm, /get ringSensitivitySliderValue\(\): number/);
+  assert.match(vm, /set ringSensitivitySliderValue\(/);
+  assert.match(vm, /"ringSensitivityValueLabel"/);
+  assert.match(xml, /value="\{\{ ringSensitivitySliderValue \}\}"/);
 });
 
 test("group-summary and empty notifications are filtered from the mirrored list", () => {

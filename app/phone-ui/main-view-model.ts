@@ -403,6 +403,14 @@ export class MainViewModel extends Observable {
     Frame.topmost()?.navigate("phone-ui/api-keys-page");
   }
 
+  onEvenHealthTap(): void {
+    Frame.topmost()?.navigate("phone-ui/even-health-page");
+  }
+
+  onWhatsAppTap(): void {
+    Frame.topmost()?.navigate("phone-ui/whatsapp-page");
+  }
+
   async onInstallFirmwareTap(): Promise<void> {
     await this.openFlashPage("install");
   }
@@ -446,6 +454,11 @@ export class MainViewModel extends Observable {
 
   onOpenEvenAppSettingsTap(): void {
     dashboardController.openEvenAppSettings();
+  }
+
+  async onRetryRingTap(): Promise<void> {
+    const queued = await dashboardController.retryRingAfterEvenAppStop();
+    this.status = queued ? "R1 reconnect requested." : "Force stop Even first, then retry R1.";
   }
 
   async onSyntheticUpTap(): Promise<void> {

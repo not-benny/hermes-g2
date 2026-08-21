@@ -40,7 +40,7 @@ export function registerTimerTools(
       timeoutMs: TIMER_WRAPPER_TIMEOUT_MS,
       proactive: true,
     },
-    (args) => callAppToolWithLaunch(registry, launchApp, "timer", "set_timer", args ?? {}),
+    (args, signal, isSideEffectAllowed) => callAppToolWithLaunch(registry, launchApp, "timer", "set_timer", args ?? {}, signal, isSideEffectAllowed),
   );
 
   registry.registerSystemTool(
@@ -52,7 +52,7 @@ export function registerTimerTools(
       timeoutMs: TIMER_WRAPPER_TIMEOUT_MS,
       proactive: true,
     },
-    () => callAppToolWithLaunch(registry, launchApp, "timer", "list_timers", {}),
+    (_args, signal, isSideEffectAllowed) => callAppToolWithLaunch(registry, launchApp, "timer", "list_timers", {}, signal, isSideEffectAllowed),
   );
 
   registry.registerSystemTool(
@@ -71,6 +71,6 @@ export function registerTimerTools(
       timeoutMs: TIMER_WRAPPER_TIMEOUT_MS,
       proactive: true,
     },
-    (args) => callAppToolWithLaunch(registry, launchApp, "timer", "cancel_timer", args ?? {}),
+    (args, signal, isSideEffectAllowed) => callAppToolWithLaunch(registry, launchApp, "timer", "cancel_timer", args ?? {}, signal, isSideEffectAllowed),
   );
 }

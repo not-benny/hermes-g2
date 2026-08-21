@@ -135,6 +135,15 @@ export class LayerStack {
     return false;
   }
 
+  /** Remove an owned layer even when another overlay is above it. */
+  remove(target: Layer): boolean {
+    const index = this.layers.indexOf(target);
+    if (index <= 0) return false;
+    const [removed] = this.layers.splice(index, 1);
+    notifyRemoved(removed);
+    return true;
+  }
+
   clearToBase(): void {
     for (const layer of this.layers.splice(1)) {
       notifyRemoved(layer);

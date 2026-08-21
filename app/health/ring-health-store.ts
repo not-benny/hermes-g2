@@ -18,6 +18,8 @@ import {
   parseInnerFrame,
   reassembleHealthFrames,
   decodeRingBattery,
+  decodeRingFirmwareVersion,
+  isCanonicalRingInnerFrame,
   RING_HEALTH_CMD,
   type Bytes,
   type RingActivitySample,
@@ -25,6 +27,58 @@ import {
   type RingHealthSample,
   type RingHrvSample,
 } from "./ring-parser";
+
+export interface RingActivitySnapshot {
+  slots: RingActivitySample[];
+  dayBaseSec: number;
+  timezoneOffsetMinutes: number;
+  totalSteps: number;
+  activeCalories: number;
+  totalCalories: number;
+  restingCalories: number;
+}
+
+/** Rebuild a persisted/live activity snapshot from canonical source fields. */
+export function canonicalizeActivitySnapshot(value: unknown, nowMs = Date.now()): RingActivitySnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<RingActivitySnapshot>;
+  const base = candidate.dayBaseSec;
+  const timezone = candidate.timezoneOffsetMinutes;
+  if (!Number.isInteger(base) || !Number.isInteger(timezone) || !Array.isArray(candidate.slots)) return null;
+  if (timezone! < -14 * 60 || timezone! > 14 * 60) return null;
+  const nowSec = Math.floor(nowMs / 1000);
+  const expectedBase = Math.floor((nowSec + timezone! * 60) / 86400) * 86400 - timezone! * 60;
+  if (base !== expectedBase) return null;
+
+  const bySlot = new Map<number, RingActivitySample>();
+  for (const raw of candidate.slots) {
+    if (
+      !raw || !Number.isInteger(raw.slot) || raw.slot < 0 || raw.slot > 143 ||
+      !Number.isInteger(raw.steps) || raw.steps < 0 || raw.steps > 0xffff ||
+      !Number.isInteger(raw.activeCalories) || raw.activeCalories < 0 || raw.activeCalories > 0xffff ||
+      !Number.isInteger(raw.totalCalories) || raw.totalCalories < raw.activeCalories || raw.totalCalories > 0xffff
+    ) return null;
+    bySlot.set(raw.slot, {
+      slot: raw.slot,
+      timestampSec: base! + raw.slot * 600,
+      steps: raw.steps,
+      activeCalories: raw.activeCalories,
+      totalCalories: raw.totalCalories,
+      restingCalories: raw.totalCalories - raw.activeCalories,
+    });
+  }
+  const slots = Array.from(bySlot.values()).sort((a, b) => a.slot - b.slot);
+  if (slots.length === 0) return null;
+  return {
+    slots,
+    dayBaseSec: base!,
+    timezoneOffsetMinutes: timezone!,
+    totalSteps: slots.reduce((sum, slot) => sum + slot.steps, 0),
+    activeCalories: slots.reduce((sum, slot) => sum + slot.activeCalories, 0),
+    totalCalories: slots.reduce((sum, slot) => sum + slot.totalCalories, 0),
+    restingCalories: slots.reduce((sum, slot) => sum + slot.restingCalories, 0),
+  };
+}
 
 /** Latest decoded ring values. Null until the metric has been seen. */
 export interface RingHealthSnapshot {
@@ -36,12 +90,22 @@ export interface RingHealthSnapshot {
   temperature: RingHealthSample | null;
   /** Latest HRV record (milliseconds in `latest`). */
   hrv: RingHrvSample | null;
-  /** Latest activity batch: raw slots plus their summed step count. */
-  activity: { slots: RingActivitySample[]; totalSteps: number } | null;
+  /** Accumulated confirmed activity buckets for one local day. */
+  activity: RingActivitySnapshot | null;
   /** Ring battery percent from the deviceStatus response. */
   batteryPercent: number | null;
+  /** Read-only firmware version from the deviceInfo response. */
+  firmwareVersion: string | null;
   /** Wall-clock ms of the last applied update, null before the first. */
   updatedAtMs: number | null;
+  /** The day's full hourly record arrays (for insights + sparklines). */
+  heartRateSeries: RingHealthSample[];
+  spo2Series: RingHealthSample[];
+  hrvSeries: RingHrvSample[];
+  /** Live/current heart rate from the point-push stream (null until wired/worn). */
+  currentHr: number | null;
+  /** Nightly body temperature in degC (from the sleep record; null until decoded). */
+  bodyTempC: number | null;
 }
 
 const EMPTY: RingHealthSnapshot = {
@@ -51,7 +115,13 @@ const EMPTY: RingHealthSnapshot = {
   hrv: null,
   activity: null,
   batteryPercent: null,
+  firmwareVersion: null,
   updatedAtMs: null,
+  heartRateSeries: [],
+  spo2Series: [],
+  hrvSeries: [],
+  currentHr: null,
+  bodyTempC: null,
 };
 
 /** Incomplete batches kept while their fragments trickle in. */
@@ -62,6 +132,7 @@ const MODULE_SYSTEM = 1;
 const MODULE_HEALTH = 2;
 const CMD_SYSTEM = 0;
 const SUBCMD_DEVICE_STATUS = 1;
+const SUBCMD_DEVICE_INFO = 2;
 
 export class RingHealthStore {
   private snapshotState: RingHealthSnapshot = { ...EMPTY };
@@ -70,6 +141,8 @@ export class RingHealthStore {
   private listeners = new Set<(snapshot: RingHealthSnapshot) => void>();
   private log: (line: string) => void = () => {};
 
+  constructor(private readonly nowMs: () => number = () => Date.now()) {}
+
   /** Route decode diagnostics into the app log (optional). */
   setLog(log: (line: string) => void): void {
     this.log = log;
@@ -77,6 +150,14 @@ export class RingHealthStore {
 
   snapshot(): RingHealthSnapshot {
     return this.snapshotState;
+  }
+
+  /** Restore today's validated activity buckets from device-local persistence. */
+  restoreActivity(activity: RingActivitySnapshot | null): void {
+    const canonical = canonicalizeActivitySnapshot(activity, this.nowMs());
+    if (!canonical) return;
+    this.snapshotState = { ...this.snapshotState, activity: canonical };
+    this.emit();
   }
 
   onChange(listener: (snapshot: RingHealthSnapshot) => void): () => void {
@@ -89,6 +170,15 @@ export class RingHealthStore {
     this.pending.clear();
     this.pendingOrder = [];
     this.snapshotState = { ...EMPTY };
+    this.emit();
+  }
+
+  /**
+   * Preview/demo only: install a complete mock snapshot and notify listeners, so
+   * the Health tab + HUD look alive with no ring connected. Cleared via reset().
+   */
+  seedMock(snapshot: RingHealthSnapshot): void {
+    this.snapshotState = snapshot;
     this.emit();
   }
 
@@ -139,7 +229,21 @@ export class RingHealthStore {
           this.snapshotState = {
             ...this.snapshotState,
             batteryPercent: percent,
-            updatedAtMs: Date.now(),
+            updatedAtMs: this.nowMs(),
+          };
+          this.emit();
+        }
+      } else if (
+        parsed.cmd === CMD_SYSTEM &&
+        parsed.subCmd === SUBCMD_DEVICE_INFO &&
+        parsed.status === 3
+      ) {
+        const version = decodeRingFirmwareVersion(parsed.data);
+        if (version) {
+          this.snapshotState = {
+            ...this.snapshotState,
+            firmwareVersion: version,
+            updatedAtMs: this.nowMs(),
           };
           this.emit();
         }
@@ -152,31 +256,53 @@ export class RingHealthStore {
     if (!metric) return; // sleep (cmd 6) and unknown cmds: layout not decoded yet.
 
     if (metric === "activity") {
+      // Only the confirmed rich daily push layout may populate native totals.
+      if (parsed.status !== 2 || parsed.subCmd !== 1 || !isCanonicalRingInnerFrame(inner)) return;
       const daily = decodeDailyData(parsed.data, "activity");
-      if (daily.records.length === 0) return;
-      const totalSteps = daily.records.reduce((sum, r) => sum + r.steps, 0);
+      const previous = this.snapshotState.activity?.dayBaseSec === daily.dayBaseSec
+        ? this.snapshotState.activity.slots
+        : [];
+      const activity = canonicalizeActivitySnapshot({
+        dayBaseSec: daily.dayBaseSec,
+        timezoneOffsetMinutes: daily.timezoneOffsetMinutes,
+        slots: [...previous, ...daily.records],
+      }, this.nowMs());
+      if (!activity) return;
       this.snapshotState = {
         ...this.snapshotState,
-        activity: { slots: daily.records, totalSteps },
-        updatedAtMs: Date.now(),
+        activity,
+        updatedAtMs: this.nowMs(),
       };
       this.emit();
       return;
     }
 
+    // Vital timestamps may reach persisted/user-visible state only through the
+    // exact daily-push envelope and incoming MODBUS CRC gate.
+    if (parsed.status !== 2 || parsed.subCmd !== 1 || !isCanonicalRingInnerFrame(inner)) return;
+
     if (metric === "hrv") {
       const daily = decodeDailyData(parsed.data, "hrv");
-      const newest = latestByTs(daily.records);
+      const newest = latestByHour(daily.records);
       if (!newest) return;
-      this.snapshotState = { ...this.snapshotState, hrv: newest, updatedAtMs: Date.now() };
+      const series = [...daily.records].sort((a, b) => a.hourIdx - b.hourIdx);
+      this.snapshotState = { ...this.snapshotState, hrv: newest, hrvSeries: series, updatedAtMs: this.nowMs() };
       this.emit();
       return;
     }
 
     const daily = decodeDailyData(parsed.data, metric);
-    const newest = latestByTs(daily.records);
+    const newest = latestByHour(daily.records);
     if (!newest) return;
-    this.snapshotState = { ...this.snapshotState, [metric]: newest, updatedAtMs: Date.now() };
+    const series = [...daily.records].sort((a, b) => a.hourIdx - b.hourIdx);
+    let seriesPatch: Partial<RingHealthSnapshot> = {};
+    if (metric === "heartRate") {
+      // The frame header carries the ring's live/current reading; surface it.
+      seriesPatch = { heartRateSeries: series, currentHr: daily.current };
+    } else if (metric === "spo2") {
+      seriesPatch = { spo2Series: series };
+    }
+    this.snapshotState = { ...this.snapshotState, [metric]: newest, ...seriesPatch, updatedAtMs: this.nowMs() };
     this.emit();
   }
 
@@ -188,10 +314,10 @@ export class RingHealthStore {
   }
 }
 
-function latestByTs<T extends { ts: number }>(records: T[]): T | null {
+function latestByHour<T extends { hourIdx: number }>(records: T[]): T | null {
   let newest: T | null = null;
   for (const record of records) {
-    if (!newest || record.ts >= newest.ts) newest = record;
+    if (!newest || record.hourIdx >= newest.hourIdx) newest = record;
   }
   return newest;
 }

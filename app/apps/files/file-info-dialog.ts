@@ -5,6 +5,7 @@ import type { DirectoryEntry } from "../../native/file-access";
 import { GESTURE_DOUBLE_CLICK } from "../../ui/gestures";
 import { Layer, type DashboardInputEvent, type LayerContext, type PaintBelow } from "../../ui/layers";
 import { drawSelectionHighlight } from "../../ui/menu";
+import { EdgeBounce, EdgeWrapScroller } from "../../ui/edge-scroll";
 
 const DIALOG_X = 8;
 const DIALOG_Y = 8;
@@ -27,6 +28,8 @@ export type FileInfoAction = {
  */
 export class FileInfoDialogLayer implements Layer {
   private selectedIndex = 0;
+  private readonly wrapScroller = new EdgeWrapScroller(undefined, "file-info");
+  private readonly edgeBounce = new EdgeBounce();
 
   constructor(
     private readonly entry: DirectoryEntry,
@@ -69,8 +72,9 @@ export class FileInfoDialogLayer implements Layer {
       return image;
     }
     const focused = ctx.stack.isFocused();
+    const bounceY = this.edgeBounce.offsetPx();
     for (let index = 0; index < this.actions.length; index++) {
-      const rowY = y + index * ACTION_ROW_HEIGHT;
+      const rowY = y + index * ACTION_ROW_HEIGHT + bounceY;
       const selected = index === this.selectedIndex;
       if (selected) {
         drawSelectionHighlight(image, DIALOG_X + 12, rowY, DIALOG_WIDTH - 24, ACTION_ROW_HEIGHT - 1, focused, 8);
@@ -84,18 +88,24 @@ export class FileInfoDialogLayer implements Layer {
     switch (event.type) {
       case "scroll-up":
         if (this.actions.length) {
-          this.selectedIndex = (this.selectedIndex + this.actions.length - 1) % this.actions.length;
+          const step = this.wrapScroller.step(this.selectedIndex, this.actions.length, -1, Date.now());
+          this.selectedIndex = step.index;
+          if (step.atEdge) this.edgeBounce.trigger(-1, () => ctx.actions.requestRender());
         }
         return;
       case "scroll-down":
         if (this.actions.length) {
-          this.selectedIndex = (this.selectedIndex + 1) % this.actions.length;
+          const step = this.wrapScroller.step(this.selectedIndex, this.actions.length, 1, Date.now());
+          this.selectedIndex = step.index;
+          if (step.atEdge) this.edgeBounce.trigger(1, () => ctx.actions.requestRender());
         }
         return;
       case "click":
+        this.wrapScroller.reset();
         await this.actions[this.selectedIndex]?.onSelect(ctx);
         return;
       case "double-click":
+        this.wrapScroller.reset();
         ctx.stack.pop();
         return;
       default:

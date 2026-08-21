@@ -1,10 +1,13 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" actionBarHidden="true">
     <GridLayout rows="*,auto" class="p-20">
         <ScrollView row="0">
-            <StackLayout>
-                <Label text="{{ headline }}" class="h1 text-center m-t-24" textWrap="true" />
-                <ActivityIndicator busy="{{ busy }}" visibility="{{ busyVisibility }}" class="m-t-16" />
-                <Label text="{{ status }}" class="m-t-16 text-center" textWrap="true" />
+            <StackLayout verticalAlignment="center" class="p-8">
+                <StackLayout class="onb-card">
+                    <Label text="🛠️" class="onb-icon text-center" />
+                    <Label text="{{ headline }}" class="h2 text-center m-t-8" textWrap="true" />
+                    <ActivityIndicator busy="{{ busy }}" visibility="{{ busyVisibility }}" class="m-t-16" />
+                    <Label text="{{ status }}" class="onb-body text-center m-t-16" textWrap="true" />
+                </StackLayout>
             </StackLayout>
         </ScrollView>
 

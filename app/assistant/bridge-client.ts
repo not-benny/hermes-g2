@@ -1,5 +1,6 @@
 import { AssistantMcpServer } from "./mcp-server";
 import { toolRegistry } from "./tool-registry";
+import { BridgeConnectionGuard } from "./bridge-connection-guard";
 import type { AssistantContext, AssistantTurnCallbacks, AssistantTurnHandle } from "./types";
 
 declare const com: any;
@@ -25,6 +26,8 @@ const RECONNECT_MAX_MS = 60_000;
 const PING_INTERVAL_MS = 20_000;
 /** No inbound traffic for this long => the link is dead (half-open TCP). */
 const LIVENESS_TIMEOUT_MS = 45_000;
+const AUTH_TIMEOUT_MS = 15_000;
+const MAX_BRIDGE_FRAME_BYTES = 64 * 1024;
 /** Backstop on a turn the bridge never finishes (server-side cap is 2 min). */
 const TURN_TIMEOUT_MS = 3 * 60 * 1000;
 
@@ -61,11 +64,13 @@ export class AssistantBridgeClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelayMs = RECONNECT_MIN_MS;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private authTimer: ReturnType<typeof setTimeout> | null = null;
   private lastTrafficMs = 0;
   private activeTurn: ActiveTurn | null = null;
   private turnSeq = 0;
   private mcpServer: AssistantMcpServer | null = null;
   private unsubscribeToolsChanged: (() => void) | null = null;
+  private readonly connectionGuard = new BridgeConnectionGuard();
   private readonly stateListeners = new Set<(state: AssistantBridgeState) => void>();
 
   state(): AssistantBridgeState {
@@ -89,11 +94,7 @@ export class AssistantBridgeClient {
     this.stop();
     this.options = options;
     this.stopped = false;
-    this.mcpServer = new AssistantMcpServer({
-      send: (msg) => this.send({ chan: "mcp", msg }),
-      isTurnActive: () => this.activeTurn !== null,
-      allowProactive: options.allowProactive,
-    });
+
     this.unsubscribeToolsChanged = toolRegistry.onToolsChanged(() => {
       if (this.phase === "connected") this.mcpServer?.sendToolsChanged();
     });
@@ -103,13 +104,16 @@ export class AssistantBridgeClient {
   /** Disconnect and stay down until the next configure(). */
   stop(): void {
     this.stopped = true;
+    this.connectionGuard.invalidateCurrent();
     this.clearReconnectTimer();
     this.clearKeepalive();
+    this.clearAuthTimer();
     this.failActiveTurn("Bridge connection closed");
     if (this.unsubscribeToolsChanged) {
       this.unsubscribeToolsChanged();
       this.unsubscribeToolsChanged = null;
     }
+    this.mcpServer?.close();
     this.mcpServer = null;
     if (this.ws) {
       try {
@@ -160,49 +164,61 @@ export class AssistantBridgeClient {
 
   private connect(): void {
     if (this.stopped || this.ws || !this.options) return;
+    const generation = this.connectionGuard.beginConnection();
     const { host, port } = this.options;
-    const url = `ws://${host}:${port}`;
+    const url = `wss://${host}:${port}`;
     this.setState("connecting", `Connecting to ${host}:${port}...`);
+    let socket: any = null;
     this.listenerProxy = new com.faceclaw.app.FaceclawWebSocketListener({
       onOpen: () => {
-        if (this.stopped) return;
+        if (!this.isCurrentSocket(generation, socket)) return;
         this.setState("connecting", "Authenticating...");
-        this.send({
-          chan: "ctl",
-          type: "hello",
-          version: PROTOCOL_VERSION,
-          token: this.options!.token,
-          deviceName: this.options!.deviceName,
-          capabilities: ["chat", "mcp"],
-        });
+        this.startAuthTimer(generation, socket);
+        this.send({ chan: "ctl", type: "hello", version: PROTOCOL_VERSION, token: this.options!.token,
+          deviceName: this.options!.deviceName, capabilities: ["chat", "mcp"] });
       },
       onTextMessage: (message: string) => {
-        if (this.stopped) return;
-        this.handleMessage(String(message));
+        if (!this.isCurrentSocket(generation, socket)) return;
+        this.handleMessage(String(message), generation);
       },
       onClosed: (code: number, reason: string) => {
-        if (this.stopped || !this.ws) return;
-        this.handleConnectionLost(
-          `Connection closed (${Number(code)}${reason ? `: ${String(reason)}` : ""})`,
-        );
+        if (!this.isCurrentSocket(generation, socket)) return;
+        this.handleConnectionLost(`Connection closed (${Number(code)}${reason ? `: ${String(reason)}` : ""})`, generation);
       },
       onFailure: (message: string) => {
-        if (this.stopped || !this.ws) return;
-        this.handleConnectionLost(`Connection failed: ${String(message)}`);
+        if (!this.isCurrentSocket(generation, socket)) return;
+        this.handleConnectionLost(`Connection failed: ${String(message)}`, generation);
       },
     });
     try {
-      this.ws = new com.faceclaw.app.FaceclawWebSocket(url, this.listenerProxy, null, null);
+      socket = new com.faceclaw.app.FaceclawWebSocket(url, this.listenerProxy, null, null);
+      this.ws = socket;
+      this.mcpServer?.close();
+      this.mcpServer = new AssistantMcpServer({
+        send: (msg) => this.sendMcpForSocket(generation, socket, msg),
+        isTurnActive: () => this.activeTurn !== null,
+        getTurnGeneration: () => this.activeTurn?.turnId ?? null,
+        // The configured WSS endpoint has no repository-owned deployment or
+        // runtime server-proof evidence; sensitive health remains fail-closed.
+        isHealthCallerTrusted: () => false,
+        connectionGeneration: generation,
+        isConnectionGenerationActive: () => this.connectionGuard.isCurrent(generation),
+        allowProactive: this.options!.allowProactive,
+      });
     } catch (error) {
       this.ws = null;
-      this.handleConnectionLost(
-        `Connection failed: ${String((error as Error)?.message ?? error)}`,
-      );
+      this.handleConnectionLost(`Connection failed: ${String((error as Error)?.message ?? error)}`, generation);
     }
   }
 
-  private handleMessage(raw: string): void {
+  private handleMessage(raw: string, generation: number): void {
     this.lastTrafficMs = Date.now();
+    if (raw.length > MAX_BRIDGE_FRAME_BYTES) {
+      const socket = this.ws;
+      this.handleConnectionLost("Bridge frame exceeded the bounded message limit", generation);
+      try { socket?.close(1009, "message too large"); } catch { /* already torn down */ }
+      return;
+    }
     let frame: any = null;
     try {
       frame = JSON.parse(raw);
@@ -210,23 +226,46 @@ export class AssistantBridgeClient {
       return;
     }
     if (!frame || typeof frame !== "object") return;
+    if (frame.v !== PROTOCOL_VERSION) {
+      const socket = this.ws;
+      this.handleConnectionLost("Bridge protocol version mismatch", generation);
+      try { socket?.close(1002, "protocol version mismatch"); } catch { /* already torn down */ }
+      return;
+    }
     switch (frame.chan) {
       case "ctl":
-        this.handleCtl(frame);
+        this.handleCtl(frame, generation);
         return;
       case "chat":
+        if (!this.requireAuthenticated(generation)) return;
         this.handleChat(frame);
         return;
       case "mcp":
-        this.mcpServer?.handleMessage(frame.msg);
+        if (!this.requireAuthenticated(generation)) return;
+        this.mcpServer?.handleMessage(
+          frame.msg,
+          frame.proactive === true
+            ? { proactive: true }
+            : typeof frame.turnId === "string"
+              ? { turnGeneration: frame.turnId }
+              : undefined,
+        );
         return;
       default:
         return;
     }
   }
 
-  private handleCtl(frame: any): void {
+  private handleCtl(frame: any, generation: number): void {
     if (frame.type === "hello-ack") {
+      if (frame.version !== undefined && Number(frame.version) !== PROTOCOL_VERSION) {
+        const socket = this.ws;
+        this.handleConnectionLost("Bridge protocol version mismatch", generation);
+        try { socket?.close(1002, "protocol version mismatch"); } catch { /* already torn down */ }
+        return;
+      }
+      if (!this.connectionGuard.authenticate(generation)) return;
+      this.clearAuthTimer();
       this.reconnectDelayMs = RECONNECT_MIN_MS;
       this.lastTrafficMs = Date.now();
       this.startKeepalive();
@@ -275,10 +314,14 @@ export class AssistantBridgeClient {
     }
   }
 
-  private handleConnectionLost(status: string): void {
+  private handleConnectionLost(status: string, generation: number): void {
+    if (!this.connectionGuard.invalidate(generation)) return;
+    this.mcpServer?.close();
+    this.mcpServer = null;
     this.ws = null;
     this.listenerProxy = null;
     this.clearKeepalive();
+    this.clearAuthTimer();
     // Keep a ctl-error status (e.g. "invalid token") in preference to the
     // generic close message that follows it.
     const detail = this.status.startsWith("Bridge error:") ? this.status : status;
@@ -304,6 +347,22 @@ export class AssistantBridgeClient {
     }
   }
 
+  private startAuthTimer(generation: number, socket: any): void {
+    this.clearAuthTimer();
+    this.authTimer = setTimeout(() => {
+      this.authTimer = null;
+      if (!this.isCurrentSocket(generation, socket) || this.connectionGuard.canHandlePrivileged(generation)) return;
+      this.handleConnectionLost("Bridge authentication timed out", generation);
+      try { socket.close(1008, "authentication timeout"); } catch { /* already torn down */ }
+    }, AUTH_TIMEOUT_MS);
+  }
+
+  private clearAuthTimer(): void {
+    if (!this.authTimer) return;
+    clearTimeout(this.authTimer);
+    this.authTimer = null;
+  }
+
   private startKeepalive(): void {
     this.clearKeepalive();
     this.pingTimer = setInterval(() => this.checkLiveness(), PING_INTERVAL_MS);
@@ -326,7 +385,7 @@ export class AssistantBridgeClient {
       } catch {
         // ignore
       }
-      this.handleConnectionLost("Connection timed out (no traffic from bridge)");
+      this.handleConnectionLost("Connection timed out (no traffic from bridge)", this.connectionGuard.currentGeneration());
       return;
     }
     this.send({ chan: "ctl", type: "ping", ts: Date.now() });
@@ -347,11 +406,26 @@ export class AssistantBridgeClient {
 
   private send(frame: object): void {
     if (!this.ws) return;
-    try {
-      this.ws.sendText(JSON.stringify({ v: PROTOCOL_VERSION, ...frame }));
-    } catch {
-      // A send on a dying socket; the close/failure callback handles recovery.
-    }
+    try { this.ws.sendText(JSON.stringify({ v: PROTOCOL_VERSION, ...frame })); }
+    catch { /* close/failure callback handles recovery */ }
+  }
+
+  private sendMcpForSocket(generation: number, socket: any, msg: object): void {
+    if (!this.isCurrentSocket(generation, socket)) return;
+    try { socket.sendText(JSON.stringify({ v: PROTOCOL_VERSION, chan: "mcp", msg })); }
+    catch { /* socket callback handles failure */ }
+  }
+
+  private isCurrentSocket(generation: number, socket: any): boolean {
+    return !this.stopped && socket !== null && this.ws === socket && this.connectionGuard.isCurrent(generation);
+  }
+
+  private requireAuthenticated(generation: number): boolean {
+    if (this.connectionGuard.canHandlePrivileged(generation)) return true;
+    const socket = this.ws;
+    this.handleConnectionLost("Rejected privileged frame before authentication", generation);
+    try { socket?.close(1008, "authentication required"); } catch { /* already torn down */ }
+    return false;
   }
 
   private setState(phase: AssistantBridgePhase, status: string): void {

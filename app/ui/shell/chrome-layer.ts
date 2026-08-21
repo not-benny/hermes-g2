@@ -64,6 +64,8 @@ export type ShellChromeState = {
   focus: "sidebar" | "window";
   /** The selected tab is picked up for reordering (scroll moves it, tap drops). */
   reordering: boolean;
+  /** Quick-close mode: the selected card shows a close marker; a tap closes it. */
+  closing: boolean;
   /** While reordering, whether the picked-up tab can still move up / down. */
   reorderCanMoveUp: boolean;
   reorderCanMoveDown: boolean;
@@ -71,7 +73,7 @@ export type ShellChromeState = {
   foregroundHeightMode: WindowHeightMode;
   /** Vertical bounce offset for the sidebar tab list when stopped at an end. */
   sidebarBounceY: number;
-  /** Ring heart rate (bpm) for the HUD, null hides the readout entirely. */
+  /** Ring heart rate (bpm) for the HUD; null renders the heart with "--". */
   ringHeartRate: number | null;
   battery: {
     headset: number | null;
@@ -244,6 +246,17 @@ export class ShellChromeLayer implements Layer {
         drawChevron(image, markX, selTabTop + ICON_SIZE + 5, 1);
       }
     }
+
+    // Quick-close mode: a bold X over the selected card signals a tap closes it.
+    if (state.closing && selSlot) {
+      const cx = selSlot.column * SIDEBAR_COLUMN_WIDTH + ICON_MARGIN_X + (ICON_SIZE >> 1);
+      const cy = selSlot.y + (ICON_SIZE >> 1);
+      const r = (ICON_SIZE >> 1) - 1;
+      for (const dx of [0, 1]) {
+        image.drawLine(cx - r + dx, cy - r, cx + r + dx, cy + r, 255);
+        image.drawLine(cx - r + dx, cy + r, cx + r + dx, cy - r, 255);
+      }
+    }
   }
 
   private drawTopBar(image: GrayImage, state: ShellChromeState): void {
@@ -353,13 +366,12 @@ export class ShellChromeLayer implements Layer {
     }
 
     // Ring heart rate, leftmost in the block: a small heart plus the live bpm,
-    // shown only once the ring has synced a reading.
-    if (state.ringHeartRate !== null && Number.isFinite(state.ringHeartRate)) {
-      const bpmText = String(Math.max(0, Math.min(255, Math.round(state.ringHeartRate))));
-      leftEdge -= 10 + HEART_ICON.width + labelGap + font.measureText(bpmText);
-      image.bitBlt(HEART_ICON, leftEdge, centerY(HEART_ICON.height), { transparentZero: true });
-      image.drawText(font, leftEdge + HEART_ICON.width + labelGap, textY, bpmText, 200);
-    }
+    // or "--" when there is no live reading (the heart stays put either way).
+    const hr = state.ringHeartRate;
+    const bpmText = hr !== null && Number.isFinite(hr) ? String(Math.max(0, Math.min(255, Math.round(hr)))) : "--";
+    leftEdge -= 10 + HEART_ICON.width + labelGap + font.measureText(bpmText);
+    image.bitBlt(HEART_ICON, leftEdge, centerY(HEART_ICON.height), { transparentZero: true });
+    image.drawText(font, leftEdge + HEART_ICON.width + labelGap, textY, bpmText, 200);
     return leftEdge;
   }
 }

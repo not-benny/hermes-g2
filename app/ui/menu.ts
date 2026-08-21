@@ -187,6 +187,12 @@ export class MenuLayer implements Layer {
       width: DEFAULT_MENU_WIDTH,
     },
     public readonly paintOverBase = false,
+    // Instant (no-detent) wraparound, like the notification action menu: a
+    // single swipe-up from the top item jumps straight to the last item. Use
+    // for short action menus where the last item is a fast target (e.g. the
+    // window menu's Close window), not for scrollable lists where the detent
+    // guards against overshooting.
+    private readonly instantWrap = false,
   ) {}
 
   /** Start a newly opened picker on its current value. */
@@ -290,12 +296,20 @@ export class MenuLayer implements Layer {
     }
     switch (event.type) {
       case "scroll-up": {
+        if (this.instantWrap) {
+          this.selectedIndex = (this.selectedIndex - 1 + this.items.length) % this.items.length;
+          return;
+        }
         const step = this.wrapScroller.step(this.selectedIndex, this.items.length, -1, Date.now());
         this.selectedIndex = step.index;
         if (step.atEdge) this.edgeBounce.trigger(-1, () => ctx.actions.requestRender());
         return;
       }
       case "scroll-down": {
+        if (this.instantWrap) {
+          this.selectedIndex = (this.selectedIndex + 1) % this.items.length;
+          return;
+        }
         const step = this.wrapScroller.step(this.selectedIndex, this.items.length, 1, Date.now());
         this.selectedIndex = step.index;
         if (step.atEdge) this.edgeBounce.trigger(1, () => ctx.actions.requestRender());

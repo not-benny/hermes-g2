@@ -46,6 +46,11 @@ export type FirmwareInfo = {
   capabilities: string;
 };
 
+export type WakeBarrierCompletion = {
+  requestToken: number;
+  success: boolean;
+};
+
 /**
  * Compositor surface configuration. Position/size are in screen pixels;
  * surfaces composite in ascending zOrder onto a black background. A
@@ -373,6 +378,8 @@ export class FaceclawCommunicatorBridge {
     }
   }
 
+
+
   /**
    * Resolve with the frame's outcome once the Java side finishes it (sent,
    * discarded, or timed out), or with null after timeoutMs. Used as transmit
@@ -583,8 +590,8 @@ export class FaceclawCommunicatorBridge {
     });
   }
 
-  async disconnect(): Promise<void> {
-    await this.enqueueJavaCall(() => this.communicator.disconnect());
+  async disconnect(): Promise<boolean> {
+    return this.enqueueJavaCall(() => Boolean(this.communicator.disconnect()));
   }
 
   async sendShutdown(exitMode = 0): Promise<boolean> {
@@ -607,20 +614,14 @@ export class FaceclawCommunicatorBridge {
     return this.enqueueJavaCall(() => Boolean(this.communicator.resumeEvenHubSession()));
   }
 
-  /**
-   * Own CFW's fail-open stock-wake policy while Faceclaw handles wakewords or
-   * suspends EvenHub with the screen off. Returns after both arm writes complete.
-   */
+  /** Own CFW's fail-open stock-wake policy; resolves after both arm writes complete. */
   async setFaceclawWakeLeaseEnabled(enabled: boolean): Promise<boolean> {
     return this.enqueueJavaCall(() =>
       Boolean(this.communicator.setFaceclawWakeLeaseEnabled(enabled)),
     );
   }
 
-  /**
-   * Resolve only once the recreated layout, image warmup, and retained frame
-   * are visible. CFW's deferred-dashboard READY is emitted from this barrier.
-   */
+  /** Resolve after layout, warmup, retained frame, and deferred-dashboard READY. */
   async awaitEvenHubSessionReady(timeoutMs: number): Promise<boolean> {
     return this.enqueueJavaCall(() =>
       Boolean(this.communicator.awaitEvenHubSessionReady(Math.round(nonNegativeNumber(timeoutMs)))),
@@ -635,7 +636,7 @@ export class FaceclawCommunicatorBridge {
     });
   }
 
-  async close(): Promise<void> {
-    await this.enqueueJavaCall(() => this.communicator.close());
+  async close(): Promise<boolean> {
+    return this.enqueueJavaCall(() => Boolean(this.communicator.close()));
   }
 }

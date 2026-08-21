@@ -125,6 +125,10 @@ test("README and privacy lead with Hermes while preserving upstream and GPL attr
   const readme = read("README.md");
   assert.match(readme, /^# Hermes G2\b/);
   assert.match(readme, /Hermes Agent bridge/);
+  assert.match(readme, /Complete first-time setup in Even before handing the\s+devices over to Hermes/i);
+  assert.match(readme, /Keep the Even app installed/i);
+  assert.match(readme, /disable its Bluetooth\s+permission/i);
+  assert.match(readme, /Do not uninstall Even yet/i);
   assert.match(readme, /based on \[Faceclaw\]\(https:\/\/github\.com\/jimrandomh\/faceclaw\)/i);
   assert.match(readme, /GNU General Public License, version 3|GPLv3/i);
 

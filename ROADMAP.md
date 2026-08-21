@@ -1,0 +1,102 @@
+# Hermes G2 roadmap
+
+Current as of 21 August 2026. `main` is the canonical branch.
+
+**Status key:** DONE · IN PROGRESS · TODO · RESEARCH · BLOCKED
+
+## Now
+
+### Repository and release
+
+- **DONE — history consolidation.** The original release history, reviewed
+  integration history, remaining PR heads, and superseded startup-race attempt
+  are joined on `main`. The final tree keeps the newer reviewed application
+  implementation and restores the maintained public ring-health documentation,
+  firmware-research archive, and development guide from the original line.
+- **TODO — fresh-checkout release validation.** Run `npm ci`, the full host test
+  suite, TypeScript typechecking, and the JDK 21 / Android SDK 35 build from a
+  clean checkout of consolidated `main`. The application snapshot itself is the
+  previously reviewed and hardware-tested integration tree; consolidation adds
+  documentation, preserved research, and Git ancestry.
+- **TODO — development-preview release.** Produce a debug preview only after the
+  clean-checkout gate passes. Do not publish private captures, firmware binaries,
+  identifiers, credentials, or generated settings.
+
+### Connection and lifecycle reliability
+
+- **DONE — startup connection race.** A delayed constructor-time disconnected
+  snapshot can no longer release a newly connecting communicator. Retained
+  ownership remains authoritative until exact teardown completion.
+- **DONE — exact GATT ownership.** Connects and operations use exact
+  `BluetoothGatt` identity plus monotonic generations; stale callbacks and
+  timed-out operations cannot retire replacements.
+- **DONE — worker isolation and bounded teardown.** Display and R1 workers have
+  separate lifecycle ownership, generation-bound packet acknowledgements, and
+  deferred exact-once cleanup.
+- **TODO — broader device matrix.** Repeat non-destructive startup, reconnect,
+  charging, screen-off, and wearer-input checks on additional supported phones
+  and G2 firmware revisions without weakening the existing safety gates.
+
+## R1 health
+
+- **DONE — vital decoding and persistence.** Battery, read-only firmware version,
+  current/current-hour heart rate, hourly HR/SpO2/HRV, nullable anchored
+  timestamps, history, export, and fail-closed persistence are implemented.
+- **DONE — activity and calories.** Confirmed 10-minute step, active-calorie,
+  total-calorie, and derived resting-calorie buckets are validated by envelope,
+  CRC, shape, and current-local-day gates.
+- **DONE — session clock and polling.** A one-shot best-effort `systemTime`
+  command runs during session setup; HR-only refresh remains separate from the
+  slower full-health poll.
+- **RESEARCH — sleep.** Three CRC-valid type-2 frames establish ordered relative
+  interval endpoints in seconds. Full decoding remains blocked until a matching
+  type-1 summary/stage frame and the absolute time-base handoff are proven.
+  `decodeSleep` must remain fail-closed.
+- **BLOCKED — first-time provisioning and ownership.** Pair/unpair, host binding,
+  NVM mutation, recovery, and fresh-device onboarding remain unproven and are not
+  authorised for implementation or hardware use.
+
+## Assistant, MCP, and glasses rendering
+
+- **DONE — private bounded render surface.** `glasses.render_view` has operation
+  IDs, exact owner/revision checks, TTL and rate limits, inert content, strict
+  compositor receipts, gesture-event polling, cancellation, and no wake/focus.
+- **DONE — turn and connection binding.** External calls require a live
+  connection and exact claimed originating turn, or an explicitly gated
+  proactive call. Disconnect and cancellation retire owned work.
+- **BLOCKED — public MCP/skill publication.** No public skill or untrusted remote
+  rendering until authenticated `wss://` server identity, compatible licensed
+  adapter, credentials, generic-client behaviour, mutation/privacy gates, and
+  real-G2 tool-specific evidence all pass.
+- **TODO — private end-to-end bridge validation.** Exercise wakeword → bridge →
+  agent → bounded tool → reply on a disposable private deployment, including
+  cancellation, reconnect, stale-turn rejection, and certificate failure.
+
+## Firmware
+
+### G2 glasses
+
+- **RESEARCH / LIMITED OWNER EVIDENCE.** The reviewed 2.2.8.4 custom candidate has
+  reportedly booted and run on one owner unit. That does not establish broad
+  compatibility, reproducibility, or recovery.
+- **BLOCKED — recovery assurance.** Do not claim the flash path safe until a
+  documented, independently witnessed recovery procedure succeeds on appropriate
+  sacrificial hardware.
+
+### R1 ring
+
+- **BLOCKED / DO NOT BUILD.** Standalone R1 DFU/OTA remains absent. Secure DFU
+  requires a genuine compatible vendor-signed image, while provenance, authority,
+  recovery, privacy, power, and per-run consent gates remain unsatisfied.
+- **BLOCKED.** Reset, wipe, pair-delete, host rebinding, algorithm-key mutation,
+  power-control, and raw-command bypasses stay blocklisted.
+
+## Later
+
+- Non-Even first-time glasses onboarding, only after safe ownership and recovery
+  boundaries are documented and independently validated.
+- Additional local-first assistant and accessibility features that do not expand
+  the trusted-data or device-mutation boundary.
+- A public release and community-list submission only when release documentation
+  accurately distinguishes implemented, hardware-verified, research-only, and
+  blocked capabilities.

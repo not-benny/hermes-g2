@@ -6,8 +6,10 @@ import { type MenuItem } from "../menu";
 import { WindowMenuLayer } from "../window-menu";
 import { windowIcon } from "./chrome-layer";
 import { type IconName } from "../../graphics/icons";
-import { appViewportSize, type WindowHeightMode } from "./geometry";
+import { appViewportSize, windowDefaultHeightMode, type WindowHeightMode } from "./geometry";
 import { shell, type ShellWindow } from "./shell";
+import { toolRegistry } from "../../assistant/tool-registry";
+import { registerInProcessTools, type InProcessTools } from "../../assistant/in-process-tool-adapter";
 
 /**
  * A window whose app logic runs on the main thread (launcher, settings):
@@ -39,6 +41,8 @@ export type InProcessWindowOptions = {
   setSurfaceVisible: (visible: boolean) => void;
   removeSurface?: () => void;
   onClosed?: () => void;
+  /** Optional tools contributed while this in-process window is open. */
+  tools?: InProcessTools;
 };
 
 export type InProcessWindow = {
@@ -86,7 +90,7 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
       }
     })();
   };
-  const heightMode = options.heightMode ?? "min";
+  const heightMode = options.heightMode ?? windowDefaultHeightMode();
   const stack = new LayerStack(
     options.baseLayer,
     { ...options.actions, requestRender },
@@ -99,6 +103,13 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
   // requires fresh data (same contract as the dashboard render loop).
   let nextRenderWantsFreshData = false;
   let closed = false;
+  const removeTools = registerInProcessTools(
+    toolRegistry,
+    options.windowId,
+    options.appId,
+    options.tools,
+    () => shell.foregroundWindow()?.windowId === options.windowId,
+  );
 
   async function render(frameId: number): Promise<void> {
     if (closed) {
@@ -172,7 +183,9 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
     closeable: options.closeable,
     heightMode,
     close: () => {
+      if (closed) return;
       closed = true;
+      removeTools();
       // Fire onRemoved for any pushed layers so they release resources (e.g. a
       // demo that enabled a hardware stream) even when closed from within.
       stack.clearToBase();
@@ -195,6 +208,9 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
     markSurfaceReady,
     setForeground: (foreground) => {
       options.setSurfaceVisible(foreground);
+      // Foreground availability is dynamic; notify assistant clients whenever
+      // the shell changes this window's focus so their tool list is refreshed.
+      toolRegistry.fireToolsChanged();
     },
   };
   return { window, stack, requestRender, markSurfaceReady };
