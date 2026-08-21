@@ -177,8 +177,8 @@ session-open frame is hardcoded/universal (not per-device).
   ECDSA-P256 signature verification. Custom/patched images are impossible without Even's private key; the
   most achievable action is re-pushing Even's OWN signed image (zero custom value, unrecoverable-brick risk).
   A private candidate exists but is not provenance-, compatibility-, signature-, rights-, or recovery-approved;
-  the genuine-image gate therefore remains BLOCKED/UNKNOWN. The auth-walled Even `check_firmware` request has
-  a fail-closed sanitizer/capture harness under `tools/even-api-capture/`, but the real contract is still uncaptured.
+  the genuine-image gate therefore remains BLOCKED/UNKNOWN. The auth-walled Even `check_firmware` request remains
+  uncaptured; an earlier draft harness was omitted after adversarial safety/privacy review failed it.
   No DFU flow is authorized. **DO NOT build standalone ring firmware update.** The recovery gate remains
   BLOCKED/UNKNOWN in `notes/ring-sacrificial-recovery-gate-2026-08-21.md`.
   Two actionable follow-ups it surfaced live as their own items: firmware-version display (NEXT) and the
@@ -214,9 +214,9 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   `/sdcard/Android/data/com.even.sg/files/evenTemp/` (pull it before flashing). The backend is gin-vue-admin
   (JWT `iss=qmPlus`, `aud=GVA`); auth is an `x-token: <jwt>` header. Endpoints
   `https://api.evenrealities.com/v2/g/check_firmware` and `/v2/g/list_devices` accept the JWT but return
-  403 "Your device went wrong" without the app's extra device-identifying params/headers. The checked-in
-  fail-closed capture sanitizer records only request/response shape and has executable tests; actual official-app
-  interception remains blocked by TLS trust/instrumentation and no headless watcher/downloader exists.
+  403 "Your device went wrong" without the app's extra device-identifying params/headers. Official-app
+  interception remains blocked by TLS trust/instrumentation and the lack of an enforceable Bluetooth/proxy
+  containment design; no capture harness or headless watcher/downloader is shipped.
 - **RESEARCH** (high value) — **Reverse-engineer the R1 ring firmware (Ghidra).** Captured the Even OTA
   artifact today (2026-08-20): a Nordic nRF DFU zip (application.bin + application.dat + manifest.json),
   nRF52 ARM Cortex-M, build Aug 14 2026, version banner 603MV1.9.3. Confirmed it is the R1 RING firmware

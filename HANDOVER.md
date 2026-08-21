@@ -52,15 +52,16 @@ canonical PR #11 head `448b7221310ed696bbbeab4d3b73bfd06f409923`.
   `notes/r1-provisioning-static-analysis-2026-08-21.md`. It is static intelligence only:
   0x0a/0x0c remain blocklisted, Even remains required for first-time provisioning, and
   pairing/unpair UI remains blocked.
-- `tools/even-api-capture/` provides the fail-closed, value-redacting capture sanitizer and
-  validator for a future official `check_firmware` request. The real request remains
-  uncaptured; no watcher, downloader, firmware client, replay, or credential handling was added.
+- The archived `check_firmware` capture attempt remains incomplete. Its draft harness was
+  deliberately omitted after adversarial review found fail-open validation, unenforced Bluetooth
+  denial, global-proxy scope, and exact-state-restoration gaps. No watcher, downloader, firmware
+  client, replay, credential handling, or capture procedure is shipped.
 - The sacrificial recovery protocol is documented, but the recovery and genuine-image gates
   remain BLOCKED/UNKNOWN. A private candidate's existence is not provenance, compatibility,
   signature, rights, or recovery proof. Firmware/DFU/OTA remains NO-GO / DO NOT BUILD.
 
 Verification: focused decoder/persistence/Java/wiring/ring-store coverage passes
-60/60; the capture sanitizer passes 13/13; full `npm run test` passes 234/234;
+69/69; full `npm run test` passes 235/235;
 `npm run typecheck` passes after worktree-local `npm ci`; JDK 21 / SDK 35 Android
 `npm run build` passes with full Java/native compilation; `git diff --check` and the
 added-diff private-data/artifact scans pass.
@@ -75,12 +76,11 @@ before that page's persistence listener was active; after selection the cache wa
 anchored persisted row was **NOT OBSERVED** in this bounded run. Static decoder/persistence tests
 pass, but end-to-end anchored persistence remains operationally pending. The first independent
 review found missing vital envelope/CRC gates, partial-count acceptance, timestamp/date identity
-gaps across timezone changes, dynamic JSON/query-key leakage, false `list_devices` completion,
-an unsafe Bluetooth fallback, stale cleanup wording, a committed device identifier, and a
-no-write/DFU contradiction. The candidate now rejects malformed vital envelopes and truncated
-counts, binds persisted timestamps to fixed-offset date/hour identity, redacts all JSON/query key
-text, accepts only `check_firmware`, prohibits Bluetooth fallback, validates the sanitizer schema,
-and corrects the safety documentation. No pairing, permission,
+gaps across timezone changes, plus multiple fail-open capture-harness/privacy blockers. The
+candidate now rejects malformed vital envelopes and truncated counts, binds persisted timestamps
+to fixed-offset date/hour identity, and retains valid anchored rows across phone date-line changes;
+the unsafe capture harness was removed rather than
+published, and the firmware safety documentation was corrected. No pairing, permission,
 credential, NVM, firmware, recovery, reset, wipe, or private-data state was changed.
 
 Independent frozen-SHA review, GitHub delivery, and remote readback remain pending at this checkpoint.

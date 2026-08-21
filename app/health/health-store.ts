@@ -132,12 +132,16 @@ function canonicalHistory(value: unknown, cutoff: string, today: string): DailyH
   return history;
 }
 
-function canonicalHourlyRows(value: unknown, cutoff: string, today: string): HourlyPoint[] {
+function canonicalHourlyRows(value: unknown, cutoff: string, today: string, nowMs: number): HourlyPoint[] {
   const rows = new Map<string, HourlyPoint>();
   if (!Array.isArray(value)) return [];
   for (const candidate of value) {
     const point = canonicalHourly(candidate);
-    if (!point || point.dateKey < cutoff || point.dateKey > today) continue;
+    if (!point) continue;
+    if (point.timestampSec !== undefined) {
+      const timestampMs = point.timestampSec * 1000;
+      if (timestampMs > nowMs || timestampMs < nowMs - HEALTH_RETENTION_DAYS * 86400000) continue;
+    } else if (point.dateKey < cutoff || point.dateKey > today) continue;
     const key = `${point.dateKey}#${point.hourIdx}`;
     const previous = rows.get(key);
     rows.set(key, {
@@ -165,7 +169,7 @@ export function canonicalizeHealthDocument(value: unknown, nowMs = Date.now()): 
     updatedAtMs: typeof raw.updatedAtMs === "number" && Number.isFinite(raw.updatedAtMs) ? raw.updatedAtMs : nowMs,
     retentionDays: HEALTH_RETENTION_DAYS,
     history: canonicalHistory(raw.history, cutoff, today),
-    hourly: canonicalHourlyRows(raw.hourly, cutoff, today),
+    hourly: canonicalHourlyRows(raw.hourly, cutoff, today, nowMs),
     activity: canonicalizeActivitySnapshot(raw.activity, nowMs),
   };
 }

@@ -108,6 +108,19 @@ test("hourly rows require valid bounds and finite metrics, merge partial duplica
   assert.deepEqual(doc.hourly[1].spo2, { avg: 97, max: 99, min: 95 });
 });
 
+test("anchored hourly rows survive a phone timezone/date-line change", () => {
+  const timestampSec = Math.floor(Date.UTC(2026, 7, 20, 10, 0, 0) / 1000);
+  const doc = canonicalizeHealthDocument({ hourly: [{
+    dateKey: "2026-08-21",
+    hourIdx: 0,
+    timestampSec,
+    timezoneOffsetMinutes: 840,
+    hr: { avg: 60, max: 70, min: 50 },
+  }] }, timestampSec * 1000);
+  assert.equal(doc.hourly.length, 1);
+  assert.equal(doc.hourly[0].dateKey, "2026-08-21");
+});
+
 test("activity is accepted only for the current local day and recomputes totals from slots", () => {
   const timezoneOffsetMinutes = -new Date(NOW).getTimezoneOffset();
   const nowSec = Math.floor(NOW / 1000);
