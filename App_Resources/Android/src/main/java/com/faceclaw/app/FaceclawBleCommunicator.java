@@ -1025,7 +1025,6 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     @Override public void onNotification(BluetoothGatt gatt, String address, String characteristicUuid, byte[] data) {
-        if (!bleManager.isCurrentGatt(gatt, address)) return;
         onNotification(address, characteristicUuid, data);
     }
 
@@ -1288,7 +1287,6 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     @Override public void onConnectionStateChange(BluetoothGatt gatt, String address, boolean connected) {
-        if (!bleManager.isCurrentGatt(gatt, address)) return;
         onConnectionStateChange(address, connected);
     }
 

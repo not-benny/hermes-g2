@@ -2,7 +2,7 @@
 
 ## BLE callback identity gate (2026-08-21)
 
-Candidate commit: `9698cab3fbd70c756c8bbf2bb86006388a8f0397` on branch `wt/t_5e85b756`; clean, committed, unpushed, and no PR opened.
+Candidate branch: `wt/t_5e85b756`; implementation is locally committed below, clean, unpushed, and no PR opened.
 
 FaceclawBleManager now carries the source BluetoothGatt through both
 characteristic-change callback overloads and rejects callbacks whose object is
@@ -10,14 +10,17 @@ not the current address entry. Connection callbacks use the same identity gate:
 stale CONNECTED callbacks cannot publish or release latches, while stale
 DISCONNECTED callbacks only close their own GATT. Same-address callers share the
 owning exact-GATT attempt; explicit disconnect and owner timeout fail and release
-pending waiters without retiring a replacement attempt. Listener delivery occurs
-outside the Bluetooth API lock and carries the exact GATT identity across the
-boundary. Focused source-contract tests pass 4/4 and the full Node suite passes
-161/161. Direct javac of FaceclawBleManager, FaceclawBleListener, BleProtocol,
-and CollectionUtils against Android-35 passes. Typecheck and Android build remain
-blocked by the existing 35 NativeScript Android/JavaScript namespace errors
-(`android`, `androidx`, `java`, and `Array.create`); no hardware reconnect
-interleaving was attempted, so operational verification remains NO-GO.
+pending waiters without retiring a replacement attempt. A per-address reentrant
+callback boundary serializes identity retirement/replacement with listener side
+effects without holding the process-wide Bluetooth API lock through listeners;
+the retiring current GATT remains valid through its DISCONNECTED delivery.
+Focused source-contract tests pass 5/5 and the full Node suite passes 162/162.
+Direct javac of FaceclawBleManager, FaceclawBleListener, BleProtocol, and
+CollectionUtils against Android-35 passes with deprecation warnings. Typecheck
+and Android build remain blocked by the unchanged 35 NativeScript
+Android/JavaScript namespace errors (`android`, `androidx`, `java`, and
+`Array.create`); no hardware reconnect interleaving was attempted, so
+operational verification remains NO-GO.
 
 ## WhatsApp pairing options evaluation (2026-08-21)
 

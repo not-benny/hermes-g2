@@ -55,7 +55,8 @@ test("listener delivery carries exact GATT and occurs after the identity lock", 
   assert.match(manager, /current\.onNotification\(gatt, address, characteristicUuid, copy\)/);
   assert.match(manager, /current\.onConnectionStateChange\(gatt, address, connected\)/);
   const dispatch = methodBody("private void dispatchNotification(BluetoothGatt gatt,");
-  assert.ok(dispatch.indexOf("}") < dispatch.indexOf("current.onNotification"));
+  assert.match(dispatch, /callbackLock\.lock\(\)/);
+  assert.match(dispatch, /callbackLock\.unlock\(\)/);
   assert.match(readFileSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleListener.java", import.meta.url), "utf8"), /default void onNotification\(BluetoothGatt gatt/);
 });
 
@@ -69,6 +70,6 @@ test("every production listener consumes the exact-GATT boundary", () => {
   for (const source of sources) {
     assert.match(source, /onConnectionStateChange\(BluetoothGatt gatt, String address, boolean connected\)/);
     assert.match(source, /onNotification\(BluetoothGatt gatt, String address, String characteristicUuid, byte\[\] data\)/);
-    assert.match(source, /bleManager\.isCurrentGatt\(gatt, address\)/);
+    assert.doesNotMatch(source, /bleManager\.isCurrentGatt\(gatt, address\)/);
   }
 });

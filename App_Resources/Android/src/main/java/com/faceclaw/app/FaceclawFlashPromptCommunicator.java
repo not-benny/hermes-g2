@@ -306,7 +306,6 @@ public class FaceclawFlashPromptCommunicator implements FaceclawBleListener {
 
     @Override
     public void onNotification(BluetoothGatt gatt, String address, String characteristicUuid, byte[] data) {
-        if (!bleManager.isCurrentGatt(gatt, address)) return;
         onNotification(address, characteristicUuid, data);
     }
 
@@ -358,7 +357,6 @@ public class FaceclawFlashPromptCommunicator implements FaceclawBleListener {
 
     @Override
     public void onConnectionStateChange(BluetoothGatt gatt, String address, boolean connected) {
-        if (!bleManager.isCurrentGatt(gatt, address)) return;
         onConnectionStateChange(address, connected);
     }
 
