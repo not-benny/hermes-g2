@@ -497,6 +497,11 @@ public class FaceclawFirmwareFlasher implements FaceclawBleListener {
     // ---- listener callbacks --------------------------------------------------
 
     @Override
+    public void onNotification(BluetoothGatt gatt, String address, String characteristicUuid, byte[] data) {
+        onNotification(address, characteristicUuid, data);
+    }
+
+    @Override
     public void onNotification(String address, String characteristicUuid, byte[] data) {
         if (!BleProtocol.OTA_DATA_NOTIFY_UUID.equalsIgnoreCase(characteristicUuid)) {
             return; // acks arrive on the data-notify char; ignore heartbeat responses
@@ -506,6 +511,11 @@ public class FaceclawFirmwareFlasher implements FaceclawBleListener {
             return;
         }
         dataAcks.add(Arrays.copyOf(frame.pb, Math.min(frame.pb.length, 2)));
+    }
+
+    @Override
+    public void onConnectionStateChange(BluetoothGatt gatt, String address, boolean connected) {
+        onConnectionStateChange(address, connected);
     }
 
     @Override
