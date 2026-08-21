@@ -15,7 +15,7 @@ export const LEGACY_HOURLY_KEY = "health.hourly.v1";
 export const LEGACY_ACTIVITY_KEY = "health.activity.v1";
 export const HERMES_CONSENT_KEY = "health.hermes.consent.v1";
 const LEGACY_KEYS = [LEGACY_HISTORY_KEY, LEGACY_HOURLY_KEY, LEGACY_ACTIVITY_KEY] as const;
-type RingHour = { hourIdx: number; avg: number; max: number; min: number };
+type RingHour = { hourIdx: number; avg: number; max: number; min: number; timestampSec?: number | null };
 
 export interface HealthApplicationSettings {
   hasKey?(key: string): boolean;
@@ -66,6 +66,8 @@ function isValidPersistedDocument(value: Record<string, unknown>, nowMs: number)
     const point = candidate as Record<string, unknown>;
     if (!isDateKey(point.dateKey) || !Number.isInteger(point.hourIdx) ||
       (point.hourIdx as number) < 0 || (point.hourIdx as number) > 23) return true;
+    if (point.timestampSec !== undefined &&
+      (!Number.isInteger(point.timestampSec) || (point.timestampSec as number) < 0)) return true;
     if (!["hr", "spo2", "hrv"].some((field) => point[field] !== undefined)) return true;
     return ["hr", "spo2", "hrv"].some((field) => {
       if (point[field] === undefined) return false;

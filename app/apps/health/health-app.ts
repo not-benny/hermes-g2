@@ -54,8 +54,8 @@ function liveHealth(): { readiness: ReadinessInsights; hr: HeartRateInsights; ho
   const s = ringHealthStore.snapshot();
   const hours: HourHr[] = hourly.filter((p) => p.hr).map((p) => ({ hourIdx: p.hourIdx, min: p.hr!.min, max: p.hr!.max, avg: p.hr!.avg }));
   const inputs = {
-    heartRate: hours.map((h) => ({ hourIdx: h.hourIdx, avg: h.avg, max: h.max, min: h.min })),
-    hrv: hourly.filter((p) => p.hrv).map((p) => ({ hourIdx: p.hourIdx, ...p.hrv! })),
+    heartRate: hours.map((h) => ({ hourIdx: h.hourIdx, avg: h.avg, max: h.max, min: h.min, timestampSec: null })),
+    hrv: hourly.filter((p) => p.hrv).map((p) => ({ hourIdx: p.hourIdx, timestampSec: p.timestampSec ?? null, ...p.hrv! })),
     sleep: null,
     liveHr: s.currentHr,
     bodyTempC: s.bodyTempC,

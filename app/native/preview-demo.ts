@@ -59,9 +59,9 @@ function demoHistory(nowMs: number): DailyHealthSummary[] {
 }
 
 function demoSnapshot(nowMs: number): RingHealthSnapshot {
-  const series = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: h.avg, max: h.max, min: h.min }));
-  const spo2Series = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: 97, max: 99, min: 95 }));
-  const hrvSeries = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: 44 + (h.hourIdx % 5) * 3, max: 62, min: 38 }));
+  const series = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: h.avg, max: h.max, min: h.min, timestampSec: null }));
+  const spo2Series = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: 97, max: 99, min: 95, timestampSec: null }));
+  const hrvSeries = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: 44 + (h.hourIdx % 5) * 3, max: 62, min: 38, timestampSec: null }));
   const newest = series[series.length - 1];
   return {
     heartRate: newest,

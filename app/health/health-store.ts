@@ -99,6 +99,10 @@ function canonicalHourly(value: unknown): HourlyPoint | null {
   const raw = value as Record<string, unknown>;
   if (!parseLocalDateKey(raw.dateKey) || !Number.isInteger(raw.hourIdx) || (raw.hourIdx as number) < 0 || (raw.hourIdx as number) > 23) return null;
   const point: HourlyPoint = { dateKey: raw.dateKey as string, hourIdx: raw.hourIdx as number };
+  if (raw.timestampSec !== undefined) {
+    if (!Number.isInteger(raw.timestampSec) || (raw.timestampSec as number) < 0) return null;
+    point.timestampSec = raw.timestampSec as number;
+  }
   for (const field of ["hr", "spo2", "hrv"] as const) {
     if (raw[field] === undefined) continue;
     const metric = canonicalMetric(raw[field]);
@@ -130,6 +134,7 @@ function canonicalHourlyRows(value: unknown, cutoff: string, today: string): Hou
     rows.set(key, {
       dateKey: point.dateKey,
       hourIdx: point.hourIdx,
+      timestampSec: point.timestampSec ?? previous?.timestampSec,
       hr: point.hr ?? previous?.hr,
       spo2: point.spo2 ?? previous?.spo2,
       hrv: point.hrv ?? previous?.hrv,

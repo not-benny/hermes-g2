@@ -259,11 +259,11 @@ export class RingHealthStore {
       // Only the confirmed rich daily push layout may populate native totals.
       if (parsed.status !== 2 || parsed.subCmd !== 1 || !isCanonicalRingInnerFrame(inner)) return;
       const daily = decodeDailyData(parsed.data, "activity");
-      const previous = this.snapshotState.activity?.dayBaseSec === daily.base
+      const previous = this.snapshotState.activity?.dayBaseSec === daily.dayBaseSec
         ? this.snapshotState.activity.slots
         : [];
       const activity = canonicalizeActivitySnapshot({
-        dayBaseSec: daily.base,
+        dayBaseSec: daily.dayBaseSec,
         timezoneOffsetMinutes: daily.timezoneOffsetMinutes,
         slots: [...previous, ...daily.records],
       }, this.nowMs());

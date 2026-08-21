@@ -160,12 +160,13 @@ independent recovery gates below remain separate prerequisites. The current cons
   STOP. Custom firmware is impossible, and re-pushing Even's image is not worth the brick risk.
 - **Phase 2 - Pairing workstream (independent, safer, higher value).** Reverse
   `advStart(0x0a)` host-MAC bind and `setAlgoKey(0x0c)` provisioning to own the bond
-  standalone. Prerequisite for update AND independently useful for onboarding. Does not risk
-  bricking, so prioritize it over update regardless.
-- **Phase 3 - Recovery harness on a sacrificial ring.** Only with a genuine signed image in
-  hand: build and prove the Secure DFU client, shifted-address rediscovery, and
-  interrupted-transfer retry to completion. **GATE:** no recovery demonstrated, never ship
-  writes.
+  standalone. Prerequisite for update AND independently useful for onboarding. It has lower
+  DFU-brick risk but can still strand bond, host-identity, or provisioning state, so it remains
+  blocklisted and operationally NO-GO without recovery-backed authorization.
+- **Phase 3 - Recovery harness on sacrificial rings (BLOCKED/UNKNOWN).** The evidence gate is
+  defined in `notes/ring-sacrificial-recovery-gate-2026-08-21.md`; it requires an independent
+  proven recovery route, two authorized units, and per-scenario repeatability. **GATE:** no
+  independent recovery path is terminal FAIL; no recovery evidence means never ship writes.
 - **Phase 4 - Guarded replay feature (only if Phases 1-3 all pass).** Hash-pinned,
   consent-gated re-push of Even's genuine image, mirroring the glasses'
   `requireCanonicalImageDigest()` precheck. Accept that this delivers no CFW upside.

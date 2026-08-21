@@ -53,6 +53,20 @@ test("buildHourlyPoints groups metrics by (date,hour) and attaches each", () => 
   assert.equal(h20.spo2, undefined);
 });
 
+test("buildHourlyPoints uses anchored timestamps and preserves them across metric merges", () => {
+  const historical = Math.floor(new Date(2026, 6, 4, 6, 0, 0).getTime() / 1000);
+  const points = buildHourlyPoints(
+    [{ hourIdx: 6, avg: 60, max: 70, min: 55, timestampSec: historical }],
+    [{ hourIdx: 6, avg: 97, max: 98, min: 96, timestampSec: historical }],
+    [],
+    NOW,
+  );
+  assert.equal(points.length, 1);
+  assert.equal(points[0].dateKey, keyOf(historical * 1000));
+  assert.equal(points[0].timestampSec, historical);
+  assert.deepEqual(points[0].spo2, { avg: 97, max: 98, min: 96 });
+});
+
 test("upsertHourly accumulates and never erases a metric with an absent one", () => {
   const today = keyOf(NOW);
   const store = upsertHourly([], buildHourlyPoints([{ hourIdx: 6, avg: 60, max: 70, min: 55 }], [], [], NOW), NOW);
@@ -69,6 +83,19 @@ test("upsertHourly overwrites a metric when a newer poll provides it", () => {
   store = upsertHourly(store, buildHourlyPoints([{ hourIdx: 6, avg: 64, max: 72, min: 58 }], [], [], NOW), NOW);
   assert.deepEqual(hourlyForDay(store, today)[0].hr, { avg: 64, max: 72, min: 58 });
   assert.equal(hourlyForDay(store, today).length, 1, "same hour is not duplicated");
+});
+
+test("upsertHourly upgrades legacy points and never erases an anchored timestamp", () => {
+  const today = keyOf(NOW);
+  const timestampSec = Math.floor(new Date(2026, 7, 20, 6, 0, 0).getTime() / 1000);
+  const legacy = [{ dateKey: today, hourIdx: 6, hr: { avg: 60, max: 70, min: 55 } }];
+  const anchored = [{ dateKey: today, hourIdx: 6, timestampSec, spo2: { avg: 97, max: 98, min: 96 } }];
+  const upgraded = upsertHourly(legacy, anchored, NOW);
+  assert.equal(upgraded[0].timestampSec, timestampSec);
+  const unanchored = upsertHourly(upgraded, [
+    { dateKey: today, hourIdx: 6, hrv: { avg: 40, max: 50, min: 30 } },
+  ], NOW);
+  assert.equal(unanchored[0].timestampSec, timestampSec);
 });
 
 test("upsertHourly drops points older than the retention window and sorts", () => {

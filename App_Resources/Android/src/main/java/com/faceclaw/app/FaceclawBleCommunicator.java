@@ -28,6 +28,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 
 @SuppressLint("MissingPermission")
 public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
@@ -2084,15 +2085,25 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             // records hourly data and streams current HR when worn. subCmd 0x0e
             // (healthSettings) is not blocklisted; payload = epoch secs u32 LE at
             // [0..3], enable=0x01 at [4], zeros after.
-            long epoch = System.currentTimeMillis() / 1000L;
+            long nowMs = System.currentTimeMillis();
+            long epochSec = nowMs / 1000L;
             byte[] enable = new byte[24];
-            enable[0] = (byte) (epoch & 0xff);
-            enable[1] = (byte) ((epoch >> 8) & 0xff);
-            enable[2] = (byte) ((epoch >> 16) & 0xff);
-            enable[3] = (byte) ((epoch >> 24) & 0xff);
+            enable[0] = (byte) (epochSec & 0xff);
+            enable[1] = (byte) ((epochSec >> 8) & 0xff);
+            enable[2] = (byte) ((epochSec >> 16) & 0xff);
+            enable[3] = (byte) ((epochSec >> 24) & 0xff);
             enable[4] = 0x01;
             if (!sendRingCommandForGeneration(generation,
                     "healthEnable SET", 0x01, 0x00, 0x0e, 0x01, enable)) return;
+            if (!ringProbeGap(generation)) return;
+            // Best-effort clock synchronization captured from the official app.
+            // It is sent once per new health session so daily vital headers can
+            // carry a local-midnight day anchor. Failure never blocks health GETs.
+            int timezoneOffsetMinutes = TimeZone.getDefault().getOffset(nowMs) / 60_000;
+            byte[] clockPayload = FaceclawRingClock.encode(epochSec, timezoneOffsetMinutes);
+            sendRingCommandForGeneration(generation,
+                    "systemTime SET", 0x01, 0x00, 0x05, 0x02, clockPayload);
+            logLine("ring systemTime SET best-effort; write failures are logged; continuing health poll");
             if (!ringProbeGap(generation)) return;
         }
         // Health data GETs (re-fired every poll): module=health(2), subCmd=daily(1),

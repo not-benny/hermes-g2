@@ -33,7 +33,7 @@ import { estimateActiveCalories } from "../health/calories";
 import { loadCalorieProfile } from "../native/calorie-profile";
 
 /** Minimal per-hour shape (hourIdx + avg/max/min) the insights + charts consume. */
-type RingHour = { hourIdx: number; avg: number; max: number; min: number };
+type RingHour = { hourIdx: number; avg: number; max: number; min: number; timestampSec: number | null };
 
 const RING_STATUS_LABELS: Record<RingConnectionState, string> = {
   "not-configured": "Ring: no address configured",
@@ -169,9 +169,9 @@ export class EvenHealthViewModel extends Observable {
   }
 
   // --- accumulated-hourly accessors ------------------------------------------
-  private hrHours(): RingHour[] { return this.hourlyToday.filter((p) => p.hr).map((p) => ({ hourIdx: p.hourIdx, ...p.hr! })); }
-  private spo2Hours(): RingHour[] { return this.hourlyToday.filter((p) => p.spo2).map((p) => ({ hourIdx: p.hourIdx, ...p.spo2! })); }
-  private hrvHours(): RingHour[] { return this.hourlyToday.filter((p) => p.hrv).map((p) => ({ hourIdx: p.hourIdx, ...p.hrv! })); }
+  private hrHours(): RingHour[] { return this.hourlyToday.filter((p) => p.hr).map((p) => ({ hourIdx: p.hourIdx, timestampSec: p.timestampSec ?? null, ...p.hr! })); }
+  private spo2Hours(): RingHour[] { return this.hourlyToday.filter((p) => p.spo2).map((p) => ({ hourIdx: p.hourIdx, timestampSec: p.timestampSec ?? null, ...p.spo2! })); }
+  private hrvHours(): RingHour[] { return this.hourlyToday.filter((p) => p.hrv).map((p) => ({ hourIdx: p.hourIdx, timestampSec: p.timestampSec ?? null, ...p.hrv! })); }
   private latestHour(hours: RingHour[]): RingHour | null {
     let n: RingHour | null = null;
     for (const h of hours) if (!n || h.hourIdx >= n.hourIdx) n = h;

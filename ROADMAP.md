@@ -56,8 +56,14 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   correct, it is NOT an open root cause). Command table confirmed: module system=1 / health=2 / sport=3;
   health cmd HR=1 / SpO2=2 / temp=3 / HRV=4 / activity=5 / sleep=6, subCmd daily=1; battery = deviceStatus
   data[0]. HR/SpO2 hourly record = [hourIdx u8][avg u8][max u8][min u8]; HRV record = [hourIdx u8][avg u16 LE]
-  [max u16 LE][min u16 LE]; header count@0, base/timestamp@7, live current@11. Matches Hermes' current decoder
-  and is regression-tested, so HR / HRV / SpO2 decode is CONFIRMED-by-RE. Full byte-verified spec lives
+  [max u16 LE][min u16 LE]. The vital header is count@0, signed timezone@1, local-midnight day base@3,
+  current-value timestamp@7, and live current@11. Hermes now derives nullable absolute hourly timestamps from
+  `dayBaseSec + hourIdx*3600`, persists/exports them additively, and preserves the legacy today/yesterday fallback
+  for invalid or zero anchors. A best-effort captured `systemTime(0x05)` SET runs once per new health session,
+  after health enable and before daily GETs; it is nonfatal and does not alter polling cadence. A bounded A32/R1
+  run observed exactly that order, no repeated clock write during HR-only polls, and four aligned daily frames;
+  an anchored persisted row was not observed because the one-shot cache handover preceded Health-page listener
+  activation, so end-to-end persistence remains hardware-pending. Full spec lives
   privately at `ground-truth-private/firmware/re/DECODE-SPEC.md` (repo-excluded).
 - **TODO** (unblocked, awaiting capture) — Sleep (cmd=6) decode. Schema and stage map fully known: 0=Wake,
   1=REM, 2=Light, 3=Deep at 30s epochs; total/wake/rem/light/deep seconds; body_temp_delta. Remaining work: a
@@ -112,9 +118,12 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
 Even is currently a HARD dependency (first-time ring pairing/provisioning, glasses onboarding routes through
 Even's disconnect step, ring firmware). Guidance to users: **disable, don't uninstall.** The pairAuth
 session-open frame is hardcoded/universal (not per-device).
-- **TODO** — **T2 Ring pairing independence** — reverse advStart (0x0a host-MAC bind) + setAlgoKey (0x0c
-  provisioning) so Hermes can do first-time ring pairing/provisioning itself (currently blocklisted,
-  FaceclawBleCommunicator.java ~1700–1746). Prerequisite to T1 and independently valuable. RE work.
+- **STATIC RE PARTIAL / OPERATIONAL NO-GO** — **T2 Ring pairing independence.** The reviewed official-app
+  call trace documents current `advStart` GET/0x00 12-byte right+left identity serialization,
+  bare `getAlgoKeyStatus` GET/0x00, and conditional `setAlgoKey` SET/0x01 after an authenticated lookup.
+  Legacy six-byte versus current 12-byte behavior, fresh-bond order, durable NVM activation, rollback,
+  and recovery remain unproven. Hermes still requires Even for first-time provisioning; 0x0a/0x0c remain
+  blocklisted and no pairing UI is authorized. See `notes/r1-provisioning-static-analysis-2026-08-21.md`.
 - **TODO** — **T3 Non-Even glasses onboarding** — a glasses pair/flash path that doesn't route through
   Even's disconnect step.
 - **DONE** (2026-08-20, on-device verified) — Ring firmware **version display**: Hermes sends the safe,
@@ -137,7 +146,8 @@ session-open frame is hardcoded/universal (not per-device).
   server proof, per-turn generation authorization, and cancellation/idempotency for timed-out side effects.
 
 ### Smaller backlog (do not lose)
-- **TODO** — S5 Ring pair/unpair + direct phone-to-ring link management UI (ties to T2).
+- **BLOCKED** — S5 Ring pair/unpair + direct phone-to-ring link management UI remains gated on fresh-device
+  lifecycle/recovery evidence and separate hardware authorization; shipping blocklists stay intact.
 - **IMPLEMENTED / HARDWARE VALIDATION BLOCKED** (2026-08-20) — S6 Ring-health contention UX: direct R1 failures and glasses write failures surface
   an Even-app warning on Main, Controls, and Health with Open settings + Retry R1 actions. Opening settings
   starts a bounded release poll; once Even releases Bluetooth, the warning clears and R1 retries automatically.
@@ -166,8 +176,11 @@ session-open frame is hardcoded/universal (not per-device).
 - **BLOCKED** — Ring uses **Nordic Secure DFU** (service 0000fe59, buttonless char 8ec90003) enforcing
   ECDSA-P256 signature verification. Custom/patched images are impossible without Even's private key; the
   most achievable action is re-pushing Even's OWN signed image (zero custom value, unrecoverable-brick risk).
-  No image source (auth-walled Even cloud check_firmware) and no captured DFU flow. **DO NOT build standalone
-  ring firmware update.** Feasibility design doc: `notes/ring-firmware-update-design.md` (commit 00f9940).
+  A private candidate exists but is not provenance-, compatibility-, signature-, rights-, or recovery-approved;
+  the genuine-image gate therefore remains BLOCKED/UNKNOWN. The auth-walled Even `check_firmware` request has
+  a fail-closed sanitizer/capture harness under `tools/even-api-capture/`, but the real contract is still uncaptured.
+  No DFU flow is authorized. **DO NOT build standalone ring firmware update.** The recovery gate remains
+  BLOCKED/UNKNOWN in `notes/ring-sacrificial-recovery-gate-2026-08-21.md`.
   Two actionable follow-ups it surfaced live as their own items: firmware-version display (NEXT) and the
   `sendRawRingFrame` blocklist-bypass fix (NOW / Security).
 
@@ -201,9 +214,9 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   `/sdcard/Android/data/com.even.sg/files/evenTemp/` (pull it before flashing). The backend is gin-vue-admin
   (JWT `iss=qmPlus`, `aud=GVA`); auth is an `x-token: <jwt>` header. Endpoints
   `https://api.evenrealities.com/v2/g/check_firmware` and `/v2/g/list_devices` accept the JWT but return
-  403 "Your device went wrong" without the app's extra device-identifying params/headers. Concrete next step:
-  a one-time TLS intercept (mitmproxy or frida) of the app's real check_firmware request to capture those
-  params before a headless cron can poll for new firmware.
+  403 "Your device went wrong" without the app's extra device-identifying params/headers. The checked-in
+  fail-closed capture sanitizer records only request/response shape and has executable tests; actual official-app
+  interception remains blocked by TLS trust/instrumentation and no headless watcher/downloader exists.
 - **RESEARCH** (high value) — **Reverse-engineer the R1 ring firmware (Ghidra).** Captured the Even OTA
   artifact today (2026-08-20): a Nordic nRF DFU zip (application.bin + application.dat + manifest.json),
   nRF52 ARM Cortex-M, build Aug 14 2026, version banner 603MV1.9.3. Confirmed it is the R1 RING firmware

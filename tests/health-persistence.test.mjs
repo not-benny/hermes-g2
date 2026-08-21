@@ -277,6 +277,22 @@ test("record operations update only the single canonical data key", () => {
   assert.equal(document.hourly.length, 1);
 });
 
+test("optional anchored hourly timestamps survive canonical persistence while legacy rows remain valid", () => {
+  const settings = new FakeSettings();
+  const store = createHealthPersistence(settings, () => NOW);
+  store.loadHealthDocument();
+  const timestampSec = Math.floor(new Date(2026, 7, 20, 8, 0, 0).getTime() / 1000);
+  store.recordHourly([{ hourIdx: 8, avg: 60, max: 70, min: 50, timestampSec }], [], [], NOW);
+  assert.equal(store.loadHealthDocumentResult().document?.hourly[0].timestampSec, timestampSec);
+
+  const legacySettings = new FakeSettings();
+  legacySettings.values.set(HEALTH_STORE_KEY, JSON.stringify({
+    version: 1, updatedAtMs: NOW, retentionDays: 90, history: [], activity: null,
+    hourly: [{ dateKey: "2026-08-20", hourIdx: 8, hr: { avg: 60, max: 70, min: 50 } }],
+  }));
+  assert.equal(createHealthPersistence(legacySettings, () => NOW).loadHealthDocumentResult().ok, true);
+});
+
 test("clear removes canonical and all legacy health traces", () => {
   const settings = new FakeSettings();
   for (const key of [HEALTH_STORE_KEY, LEGACY_HISTORY_KEY, LEGACY_HOURLY_KEY, LEGACY_ACTIVITY_KEY]) settings.values.set(key, "data");

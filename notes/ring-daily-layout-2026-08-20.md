@@ -1,7 +1,6 @@
 # Ring daily-data record layout (reverse-engineered 2026-08-20)
 
-Captured live from the R1 on bae80013 (exclusive access, Even app stopped) and
-cross-checked against the Even app's decoded `health.sqlite` (values are
+Confirmed from independent firmware and sanitized capture cross-checks (values are
 `{avg,max,min}` per hour, no per-record "latest"). The previous stride-9/stride-13
 decoder was WRONG: it read record 0 roughly right by luck, then produced garbage
 (hour 104/113, min 0) for later records.
@@ -9,34 +8,28 @@ decoder was WRONG: it read record 0 roughly right by luck, then produced garbage
 ## Real inner-frame `data` layout (module=health, subCmd=1 daily)
 
 ```
-[0]        count            (u8)  number of hour records
-[1..6]     reserved         (6 bytes, zero)
-[7..10]    base             (u32 LE, meaning TBD; low byte varies per metric)
-[11..]     current          live/instant reading: u8 for HR/SpO2, u16 LE for HRV
+[0]        count                  (u8)     number of hour records
+[1..2]     timezoneOffsetMinutes  (i16 LE) signed UTC offset in minutes
+[3..6]     dayBaseSec             (u32 LE) local-midnight epoch second
+[7..10]    currentTimestampSec    (u32 LE) timestamp for the current value
+[11..]     current                         live value: u8 for HR/SpO2, u16 LE for HRV
 [then N records]
   HR / SpO2 record (4 bytes):  [hourIdx u8][avg u8][max u8][min u8]
   HRV record      (7 bytes):   [hourIdx u8][avg u16 LE][max u16 LE][min u16 LE]
   (trailing zero padding after the records)
 ```
 
+For a valid day anchor, each hourly record is timestamped exactly as
+`dayBaseSec + hourIdx * 3600`. The offset must be within ±14 hours, the day base
+must be nonzero, and local-midnight alignment must hold. Invalid metadata leaves
+the metric values available with a null timestamp. `currentTimestampSec` is
+independently accepted only within the validated day and never substitutes for
+the hourly base.
+
 The `current` value (frame header, not a record) is the ring's live reading —
 this is the byte the old decoder misread as a record's `.latest` (the 112-vs-range
 bug). The Even app discards it; we can surface it as the live current HR.
 
-## Golden vectors (real captures, hex = inner-frame `data`)
-
-- **heartRate** count=3, current=106:
-  `03 000000000000 da620000 6a 044958 3b·wait` -> bytes:
-  `030000000000 00 da62 0000 6a 04 49 58 3b 05 69 7a 57 06 68 71 58 00000000`
-  -> current 106; hour4 avg73/max88/min59; hour5 105/122/87; hour6 104/113/88.
-- **spo2** count=2, current=98:
-  `020000000000008a6200006204616161065f5f5f00000000`
-  -> hour4 97/97/97; hour6 95/95/95.
-- **hrv** count=3, current=39 (u16):
-  `03000000000000b3620000270004350035003500056200620062000641004100410000000000`
-  -> hour4 53/53/53; hour5 98/98/98; hour6 65/65/65 (ms).
-
-Every record is internally consistent (min<=avg<=max).
 
 ## Why the app only sees a few hours (the "sparse data" problem)
 
@@ -49,8 +42,8 @@ single "give me everything" ring query to reproduce the cloud history.
 
 ## Downstream implications
 
-- ring-parser `decodeDailyData`: rewrite to this layout; records carry
-  hourIdx/avg/max/min only (no per-record ts or latest).
+- ring-parser `decodeDailyData`: implemented with hourIdx/avg/max/min plus a
+  nullable derived absolute timestamp.
 - Frame `current` -> store.currentHr (live HR), feeds insights `liveHr`.
 - Persist HOURLY records into history (Ben: daily granularity is useless), so
   charts + export show hour-by-hour across days as they accumulate.

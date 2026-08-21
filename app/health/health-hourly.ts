@@ -22,6 +22,8 @@ export interface HourlyMetric {
 export interface HourlyPoint {
   dateKey: string; // "YYYY-MM-DD" (local)
   hourIdx: number; // 0..23
+  /** Absolute epoch second supplied by a validated ring day anchor. */
+  timestampSec?: number;
   hr?: HourlyMetric;
   spo2?: HourlyMetric;
   hrv?: HourlyMetric;
@@ -33,6 +35,7 @@ interface RingHour {
   avg: number;
   max: number;
   min: number;
+  timestampSec?: number | null;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -65,12 +68,19 @@ export function buildHourlyPoints(
 ): HourlyPoint[] {
   const byKey = new Map<string, HourlyPoint>();
   const at = (r: RingHour): HourlyPoint => {
-    const dateKey = dateForHour(r.hourIdx, nowMs);
+    const timestampSec = Number.isInteger(r.timestampSec) && (r.timestampSec as number) >= 0
+      ? r.timestampSec as number
+      : undefined;
+    const dateKey = timestampSec === undefined
+      ? dateForHour(r.hourIdx, nowMs)
+      : dateKeyOf(timestampSec * 1000);
     const key = `${dateKey}#${r.hourIdx}`;
     let p = byKey.get(key);
     if (!p) {
-      p = { dateKey, hourIdx: r.hourIdx };
+      p = { dateKey, hourIdx: r.hourIdx, ...(timestampSec === undefined ? {} : { timestampSec }) };
       byKey.set(key, p);
+    } else if (p.timestampSec === undefined && timestampSec !== undefined) {
+      p.timestampSec = timestampSec;
     }
     return p;
   };
@@ -107,6 +117,7 @@ export function upsertHourly(
     merged.set(keyOf(p), {
       dateKey: p.dateKey,
       hourIdx: p.hourIdx,
+      timestampSec: p.timestampSec ?? existing?.timestampSec,
       hr: p.hr ?? existing?.hr,
       spo2: p.spo2 ?? existing?.spo2,
       hrv: p.hrv ?? existing?.hrv,

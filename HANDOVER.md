@@ -31,6 +31,53 @@ direct-R1, teardown, packetAck, and release work once.
 - The remaining open queue is #1, #2, #10, and #11. None currently has visible CI
   check rollups; local verification below is evidence, not a claim of green GitHub CI.
 
+## R1 health and protocol completion candidate
+
+The current task branch is `task/t_41b671d9-r1-health-protocol`, based exactly on
+canonical PR #11 head `448b7221310ed696bbbeab4d3b73bfd06f409923`.
+
+- Daily HR/SpO2/temperature/HRV decoding now names and validates the signed timezone,
+  local-midnight day base, and independent current-value timestamp. Anchored hourly
+  records carry `timestampSec = dayBaseSec + hourIdx*3600`; malformed/zero anchors
+  preserve metric/current values with null timestamps and the prior today/yesterday
+  persistence fallback.
+- `health.store.v1` and consent-bounded health export/query preserve an optional hourly
+  `timestampSec` without migrating or invalidating legacy rows. Metric-only updates cannot
+  erase an existing anchor.
+- Android now builds the captured six-byte `systemTime(0x05)` payload in the Android-free,
+  host-tested `FaceclawRingClock` helper and sends one best-effort SET during initial health
+  session setup, after health enable and before daily GETs. It is not repeated by 15-second
+  or 60-second polls, and failure does not block health reads.
+- The public-safe provisioning call trace is consolidated in
+  `notes/r1-provisioning-static-analysis-2026-08-21.md`. It is static intelligence only:
+  0x0a/0x0c remain blocklisted, Even remains required for first-time provisioning, and
+  pairing/unpair UI remains blocked.
+- `tools/even-api-capture/` provides the fail-closed, value-redacting capture sanitizer and
+  validator for a future official `check_firmware` request. The real request remains
+  uncaptured; no watcher, downloader, firmware client, replay, or credential handling was added.
+- The sacrificial recovery protocol is documented, but the recovery and genuine-image gates
+  remain BLOCKED/UNKNOWN. A private candidate's existence is not provenance, compatibility,
+  signature, rights, or recovery proof. Firmware/DFU/OTA remains NO-GO / DO NOT BUILD.
+
+Verification: focused decoder/persistence/Java/wiring/ring-store/frame coverage passes
+71/71; the capture sanitizer passes 10/10; full `npm run test` passes 233/233;
+`npm run typecheck` passes after worktree-local `npm ci`; JDK 21 / SDK 35 Android
+`npm run build` passes with full Java/native compilation; `git diff --check` and the
+added-diff private-data/artifact scans pass.
+
+Bounded A32/R1 evidence used the exact built APK and existing ownership only. Install and
+launch passed; the R1 reached MTU-247/notify-ready. Sanitized package logs prove one successful
+`systemTime SET` between health enable and the first daily GET, followed by repeated 15-second
+HR-only polls with no repeated clock write. Four received daily vital frames had a nonzero,
+timezone-aligned day anchor and passed the derived record formula check without recording raw
+frames or readings. The phone Health page rendered, but the first one-shot cache handover occurred
+before that page's persistence listener was active; after selection the cache was drained, so an
+anchored persisted row was **NOT OBSERVED** in this bounded run. Static decoder/persistence tests
+pass, but end-to-end anchored persistence remains operationally pending. No pairing, permission,
+credential, NVM, firmware, recovery, reset, wipe, or private-data state was changed.
+
+Independent frozen-SHA review, GitHub delivery, and remote readback remain pending at this checkpoint.
+
 ## Integrated behavior
 
 ### BLE and direct R1 lifecycle
@@ -146,9 +193,8 @@ CI logs, or public artifacts.
 
 ## Next action
 
-Repeat the blocked vertical rows in one worn, off-charger session with the private
-assistant endpoint reachable and an isolated disposable g2mirror session available.
-Use synthetic calendar/Terminal/notification data only. Separately, review and
-merge the independent open PRs in conflict-free order, rechecking after each base
-advance. GitHub CI remains distinct from local evidence. Do not expand the firmware
-or destructive-operation authorization boundary.
+Finish the R1 candidate's full validation matrix and bounded non-destructive A32/R1
+session-open check, then freeze it for independent adversarial review before updating
+canonical PR #11. Keep cmd=6 sleep separately parked until correlated same-night evidence
+exists. Do not expand pairing, ownership, NVM, recovery, firmware, reset, wipe, or
+private-data publication authorization.

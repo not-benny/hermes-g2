@@ -85,10 +85,11 @@ The inner-frame `data` region for a daily-push metric begins with a header,
 followed by fixed-stride hourly records:
 
 ```
-[0]        count     u8       number of hourly records
-[1..6]     reserved  6 bytes
-[7..10]    base      u32 LE   base/timestamp; exact meaning still open
-[11..]     current            live current-hour reading: u8 (HR/SpO2), u16 LE (HRV)
+[0]        count                  u8       number of hourly records
+[1..2]     timezoneOffsetMinutes i16 LE   signed UTC offset in minutes
+[3..6]     dayBaseSec            u32 LE   local-midnight Unix epoch second
+[7..10]    currentTimestampSec   u32 LE   timestamp for the header current value
+[11..]     current                         live value: u8 (HR/SpO2), u16 LE (HRV)
 [then N records]
 ```
 
@@ -102,10 +103,15 @@ HRV record      (7 bytes):   [hourIdx u8][avg u16 LE][max u16 LE][min u16 LE]
 
 - HR/SpO2 units: bpm and percent; values direct, no scaling.
 - HRV units: milliseconds.
-- `hourIdx` = hour-of-day (0..23). There is no per-record timestamp.
+- `hourIdx` = hour-of-day (0..23). Its absolute timestamp is
+  `dayBaseSec + hourIdx * 3600` only when the offset is within ±14 hours and
+  `dayBaseSec + offset*60` is aligned to 86400 seconds. Invalid/uninitialized
+  metadata leaves the record usable but unanchored.
 
 The header `current` field is the ring's live current-hour reading; it is what a
-live read surfaces. The **finest resolution the ring stores is hourly** min/max/avg.
+live read surfaces. `currentTimestampSec` is trusted only when it falls within
+the validated day and is never used as the hourly base. The **finest resolution
+the ring stores is hourly** min/max/avg.
 There is no per-beat or per-second stream.
 
 ## 6. Decoder status
@@ -139,8 +145,8 @@ There is no per-beat or per-second stream.
 
 - Capture an overnight `cmd=6` sleep frame and decode its byte layout against a
   known session (start/end, stage durations, hypnogram, body-temp delta).
-- Determine the meaning of the `base`/timestamp field at offset 7 so per-record
-  absolute timestamps can be reconstructed rather than inferred from `hourIdx`.
+- Daily vital timestamps and the independent current-value timestamp are
+  confirmed and implemented with fail-closed legacy fallback.
 - MTU 247 and packetAck are implemented: connect requests MTU after service
   discovery and before notify subscription/probing, with a logged safe fallback;
   only complete CRC-valid health pushes queue a bounded cursor, and the
