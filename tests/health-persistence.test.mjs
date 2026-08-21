@@ -58,9 +58,13 @@ class FakeSettings {
   stringWrites = [];
   failWrites = false;
   corruptReadBack = false;
+  throwOnReadBack = false;
+  removeCalls = [];
+  failRemoveAfter = null;
 
   hasKey(key) { return this.values.has(key); }
   getString(key, fallback = "") {
+    if (key === HEALTH_STORE_KEY && this.throwOnReadBack && this.stringWrites.length) throw new Error("synthetic read-back failure");
     const value = this.values.has(key) ? this.values.get(key) : fallback;
     if (key === HEALTH_STORE_KEY && this.corruptReadBack && this.stringWrites.length) return `${value}corrupt`;
     return typeof value === "string" ? value : fallback;
@@ -75,7 +79,11 @@ class FakeSettings {
     return typeof value === "boolean" ? value : fallback;
   }
   setBoolean(key, value) { this.values.set(key, value); }
-  remove(key) { this.values.delete(key); }
+  remove(key) {
+    this.removeCalls.push(key);
+    if (this.failRemoveAfter !== null && this.removeCalls.length > this.failRemoveAfter) throw new Error("synthetic cleanup failure");
+    this.values.delete(key);
+  }
 }
 
 test("successful migration writes one canonical document, verifies it, then removes legacy keys", () => {
@@ -160,6 +168,90 @@ test("an existing canonical document is authoritative and stale legacy values ar
   assert.equal(settings.values.has(LEGACY_HISTORY_KEY), false);
 });
 
+test("verified canonical data survives partial legacy cleanup and retries remaining keys", () => {
+  const settings = new FakeSettings();
+  settings.values.set(LEGACY_HISTORY_KEY, JSON.stringify([daily("2026-08-20", { steps: 5 })]));
+  settings.values.set(LEGACY_HOURLY_KEY, "[]");
+  settings.values.set(LEGACY_ACTIVITY_KEY, "null");
+  settings.failRemoveAfter = 1;
+  const store = createHealthPersistence(settings, () => NOW);
+  assert.equal(store.loadHealthDocument().history[0].steps, 5);
+  assert.equal(settings.values.has(HEALTH_STORE_KEY), true);
+  assert.equal(settings.values.has(LEGACY_HISTORY_KEY), false);
+  assert.equal(settings.values.has(LEGACY_HOURLY_KEY), true);
+  settings.failRemoveAfter = null;
+  store.loadHealthDocument();
+  assert.equal(settings.values.has(LEGACY_HOURLY_KEY), false);
+  assert.equal(settings.values.has(LEGACY_ACTIVITY_KEY), false);
+});
+
+test("malformed canonical values are preserved as an error outcome", () => {
+  const settings = new FakeSettings();
+  const raw = "not-json";
+  settings.values.set(HEALTH_STORE_KEY, raw);
+  settings.values.set(LEGACY_HISTORY_KEY, JSON.stringify([daily("2026-08-20", { steps: 77 })]));
+  const result = createHealthPersistence(settings, () => NOW).loadHealthDocumentResult();
+  assert.equal(result.ok, false);
+  assert.equal(settings.values.get(HEALTH_STORE_KEY), raw);
+  assert.equal(settings.values.has(LEGACY_HISTORY_KEY), true);
+});
+
+test("structurally invalid canonical values are preserved byte-for-byte", () => {
+  const invalidValues = [
+    { history: [daily("2026-02-31")] },
+    { hourly: [{ dateKey: "2026-08-20", hourIdx: 8 }] },
+    { activity: { slots: [], dayBaseSec: 0, timezoneOffsetMinutes: 0,
+      totalSteps: "bad", activeCalories: 0, totalCalories: 0, restingCalories: 0 } },
+  ];
+  for (const fields of invalidValues) {
+    const settings = new FakeSettings();
+    const raw = JSON.stringify({ version: 1, retentionDays: 90, updatedAtMs: NOW,
+      history: [], hourly: [], activity: null, ...fields });
+    settings.values.set(HEALTH_STORE_KEY, raw);
+    settings.values.set(LEGACY_HISTORY_KEY, JSON.stringify([daily("2026-08-20", { steps: 77 })]));
+    const result = createHealthPersistence(settings, () => NOW).loadHealthDocumentResult();
+    assert.equal(result.ok, false);
+    assert.equal(settings.values.get(HEALTH_STORE_KEY), raw);
+    assert.equal(settings.values.has(LEGACY_HISTORY_KEY), true);
+  }
+});
+
+test("a first migration removes an unverifiable candidate and retries legacy data", () => {
+  const settings = new FakeSettings();
+  settings.values.set(LEGACY_HISTORY_KEY, JSON.stringify([daily("2026-08-20", { steps: 88 })]));
+  settings.throwOnReadBack = true;
+  const first = createHealthPersistence(settings, () => NOW).loadHealthDocumentResult();
+  assert.equal(first.ok, false);
+  assert.equal(settings.values.has(HEALTH_STORE_KEY), false);
+  assert.equal(settings.values.has(LEGACY_HISTORY_KEY), true);
+  settings.throwOnReadBack = false;
+  const retry = createHealthPersistence(settings, () => NOW).loadHealthDocumentResult();
+  assert.equal(retry.ok, true);
+  assert.equal(retry.document?.history[0].steps, 88);
+});
+
+test("unsupported future canonical values are preserved through every ordinary mutation", () => {
+  for (const mutate of [
+    (store) => store.recordHealthDay({ steps: 1, updatedAtMs: NOW }),
+    (store) => store.recordHourly([{ hourIdx: 8, avg: 60, max: 70, min: 50 }], [], [], NOW),
+    (store) => store.recordActivity({ slots: [], dayBaseSec: 0, timezoneOffsetMinutes: 0,
+      totalSteps: 0, activeCalories: 0, totalCalories: 0, restingCalories: 0 }),
+  ]) {
+    const settings = new FakeSettings();
+    const raw = JSON.stringify({ version: 2, history: [], hourly: [], activity: null });
+    settings.values.set(HEALTH_STORE_KEY, raw);
+    mutate(createHealthPersistence(settings, () => NOW));
+    assert.equal(settings.values.get(HEALTH_STORE_KEY), raw);
+  }
+});
+
+test("failed replacement exposes failure and does not claim persistence", () => {
+  const settings = new FakeSettings();
+  settings.failWrites = true;
+  const result = createHealthPersistence(settings, () => NOW).replaceHealthDocument({ history: [], hourly: [], activity: null });
+  assert.equal(result.ok, false);
+  assert.equal(result.document, undefined);
+});
 test("consent defaults off, is preserved separately, and clear does not revoke it", () => {
   const settings = new FakeSettings();
   const store = createHealthPersistence(settings, () => NOW);

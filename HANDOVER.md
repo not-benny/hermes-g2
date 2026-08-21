@@ -32,43 +32,29 @@ is assistant policy code. Nothing has been pushed and no PR has been opened;
 fresh independent `g2-reviewer` approval is required before delivery.
 
 
-### Persistent ring-health pull candidate (local, re-review pending)
+### Health persistence fail-closed remediation (local, review pending)
 
-Branch `feature/persistent-health-mcp-t_3e9c4645` contains local candidate commits
-`587dff7`, `bafe63f`, and review-rework commit `f8dca5a` for the planned push-to-pull
-replacement from baseline `ae89fd5`.
-Ring health now has one
-canonical app-private `health.store.v1` document, independently validated legacy
-migration with exact read-back before old-key removal, and exact 90-local-date
-retention. The new conversation-only `health.get_ring_data` registry/MCP tool is
-hidden and rejected without persisted consent, rechecks consent inside its
-handler, defaults to seven days, caps requests at 31 days, and projects current
-activity totals without slots or identifiers. The Health toggle now describes
-on-demand reads and local retention; all immediate/periodic `/health` HTTP push
-code and its timer are removed. Explicit JSON file export remains user-driven.
+Branch `wt/t_c7e739-fix` is based directly on preserved PR #3 head
+`81d55c65e5cb13600811b503729fb17fc0525922`. The reviewed candidate final HEAD is
+`9ba82eb34c75c60e73060653abafb54a4b36cfdd`, with focused range
+`38354d5082b7e08e58782ba869dfda5fd4c5e140..9ba82eb34c75c60e73060653abafb54a4b36cfdd`
+(remediation `4ad7291263bfc950fb211326982266fb8409338f` followed by the
+handover-only commit `9ba82eb34c75c60e73060653abafb54a4b36cfdd`). The remediation
+strictly validates real calendar dates,
+complete hourly metrics, and activity slot/totals schemas before normalizing; preserves
+invalid canonical bytes; removes unverifiable first-migration candidates safely; and
+retains retryable legacy fragments. Preview seeding sets its flag only after verified
+replacement and retries after failure.
 
-Verification after review rework is green: the required focused command passes
-48/48 tests, the full suite passes 165/165, `npm run typecheck` passes, and the JDK 21 / Android SDK 35
-debug build completes at the normal ignored APK path. The debug APK installed and
-launched on USB A32 `RFCR707RQGV`; the package process remained alive with zero
-bounded package-log uncaught/fatal markers and zero former health-push markers.
-The attached install exposed no app-private preference data through `run-as`, so
-pre-upgrade chart preservation and consent persistence could not be truthfully
-observed on this device run; synthetic adapter/MCP tests cover those paths. A safe
-configured synthetic on-device MCP endpoint was not available, so no personal
-health was sent over the current plaintext external transport. Independent
-`g2-reviewer` review requested changes against frozen candidate `bafe63f`: an
-unverifiable first migration could leave a candidate canonical key that masked
-the still-valid legacy source on restart, migrated-preview clearing had only a
-source assertion, and the roadmap retained stale 3-hour-sync wording. Local
-rework now removes only a failed first-migration candidate so the next process
-retries untouched legacy fragments, adds two-instance restart coverage and a
-behavioral migrated-preview clear test, and marks the old roadmap behavior as
-superseded. Focused/full tests, typecheck, Android build, and A32 reinstall/
-launch pass after rework; the package process remained alive with zero bounded
-fatal/uncaught or old health-push markers. Frozen rework commit `f8dca5a` awaits
-independent re-review; nothing was pushed and no PR was opened. The repository-
-wide public MCP/skill publication gate remains NO-GO.
+Focused `node --test tests/health-persistence.test.mjs tests/preview-demo.test.mjs`
+passes 18/18 and full `npm run test` passes 172/172. `git diff --check` passes.
+`npm run typecheck` fails on 35 inherited NativeScript Android ambient namespace and
+`ArrayConstructor.create` diagnostics outside the five changed-file remediation.
+With `JAVA_HOME=/usr/lib/jvm/java-21-openjdk`, `ANDROID_HOME=/home/benny/Android/Sdk`,
+and `ANDROID_SDK_ROOT=/home/benny/Android/Sdk`, `npm run build` reaches webpack and
+fails on the same 35 inherited diagnostics. No hardware was required or used. The
+candidate is local only, nothing was pushed, and independent `g2-reviewer` review is
+required before delivery.
 
 Seven self-contained items were completed on the `hermes-g2` branch/current
 working tree:
