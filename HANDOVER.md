@@ -2,13 +2,16 @@
 
 ## Communicator teardown ownership hardening (2026-08-21)
 
-The incomplete-close path now returns an explicit boolean and retains the
-communicator while its worker is alive. BLE/GATT, wake-lock, receiver, and
-thread cleanup is idempotent and deferred to the worker's eventual exit; the
-dashboard no longer discards ownership or publishes Disconnected when close
-does not reach quiescence. Added `tests/communicator-teardown.test.mjs` static
-contracts. Hardware verification was not performed; this change is static and
-unit-test scoped.
+The communicator teardown remediation is based on the preserved PR #7
+ring-worker chain through `c2534b7`. `disconnect()`/`close()` now return false
+until an external deferred coordinator observes both display and ring workers
+stopped; only then does exactly-once manager/GATT, wake-lock, receiver, state,
+and thread cleanup complete and publish Disconnected. The dashboard retains the
+exact communicator and subscriptions on incomplete cleanup and blocks a
+replacement communicator until positive completion. Focused lifecycle tests
+cover non-cooperative workers, duplicate close, cleanup retry, and ownership
+retention. Hardware verification was not performed; operational state remains
+NO-GO.
 
 ## WhatsApp pairing options evaluation (2026-08-21)
 

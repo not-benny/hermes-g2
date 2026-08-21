@@ -968,7 +968,9 @@ class DashboardController {
   }
 
   async connect(): Promise<void> {
-    if (this.phase !== "disconnected") return;
+    // Retained ownership is authoritative until Java positively completes
+    // deferred worker and BLE cleanup.
+    if (this.phase !== "disconnected" || this.communicator !== null) return;
 
     const addresses = loadDeviceAddresses();
     if (!addresses.right || !addresses.left) {
@@ -1049,6 +1051,9 @@ class DashboardController {
           // the transport comes back, so do not make lock decisions from a
           // stale pre-disconnect value in the meantime.
           this.glassesWorn = null;
+        }
+        if (mappedPhase === "disconnected" && this.communicator === communicator) {
+          this.completePendingCommunicatorClose(communicator);
         }
         this.setPhase(mappedPhase);
         this.setStatus(state.status);
@@ -1288,9 +1293,35 @@ class DashboardController {
     }
   }
 
+  private completePendingCommunicatorClose(communicator: FaceclawCommunicatorBridge): void {
+    if (this.communicator !== communicator) return;
+    this.offState?.(); this.offState = null;
+    this.offLog?.(); this.offLog = null;
+    this.offRing?.(); this.offRing = null;
+    this.offBattery?.(); this.offBattery = null;
+    this.offRingHealthFrame?.(); this.offRingHealthFrame = null;
+    this.offRingHealthChange?.(); this.offRingHealthChange = null;
+    this.offSilentMode?.(); this.offSilentMode = null;
+    this.offWearState?.(); this.offWearState = null;
+    this.offPhoneLockState?.(); this.offPhoneLockState = null;
+    this.offEvenAppConflict?.(); this.offEvenAppConflict = null;
+    this.offFrameMetrics?.(); this.offFrameMetrics = null;
+    this.offFirmwareInfo?.(); this.offFirmwareInfo = null;
+    this.offVoiceStatus?.(); this.offVoiceStatus = null;
+    this.offVoiceWakeWord?.(); this.offVoiceWakeWord = null;
+    this.communicator = null;
+    stopForegroundNotification();
+    this.faceclawWakeLeaseSupported = false;
+    this.faceclawWakeLeaseState = null;
+    this.wearNotifySupported = false;
+    this.setPhase("disconnected");
+    this.setStatus("Disconnected.");
+    this.appendLog("Disconnected from the glasses.");
+  }
+
   async disconnect(): Promise<void> {
     this.clearEvenAppReleasePoll();
-    if (this.phase === "disconnected" || this.phase === "disconnecting") return;
+    if (this.phase === "disconnected") return;
 
     // Beep while the transport is still up (phase is still "connected" here);
     // await it so the queued frame flushes before teardown. ~300ms on a manual
