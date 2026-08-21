@@ -17,7 +17,7 @@ export type ForegroundActivities = {
 function createIntent(
   action: string,
   text?: string,
-  activities?: ForegroundActivities,
+  activities?: Partial<ForegroundActivities>,
 ): android.content.Intent {
   const context = getContext();
   const intent = new android.content.Intent(context, com.faceclaw.app.FaceclawForegroundService.class);
@@ -26,9 +26,9 @@ function createIntent(
     intent.putExtra(com.faceclaw.app.FaceclawForegroundService.EXTRA_TEXT, text);
   }
   if (activities) {
-    intent.putExtra(com.faceclaw.app.FaceclawForegroundService.EXTRA_CONNECTED_DEVICE_ACTIVE, activities.connectedDevice);
-    intent.putExtra(com.faceclaw.app.FaceclawForegroundService.EXTRA_PHONE_MIC_ACTIVE, activities.phoneMic);
-    intent.putExtra(com.faceclaw.app.FaceclawForegroundService.EXTRA_LOCATION_ACTIVE, activities.location);
+    if (activities.connectedDevice !== undefined) intent.putExtra(com.faceclaw.app.FaceclawForegroundService.EXTRA_CONNECTED_DEVICE_ACTIVE, activities.connectedDevice);
+    if (activities.phoneMic !== undefined) intent.putExtra(com.faceclaw.app.FaceclawForegroundService.EXTRA_PHONE_MIC_ACTIVE, activities.phoneMic);
+    if (activities.location !== undefined) intent.putExtra(com.faceclaw.app.FaceclawForegroundService.EXTRA_LOCATION_ACTIVE, activities.location);
   }
   return intent;
 }
@@ -36,7 +36,8 @@ function createIntent(
 export function setForegroundActivities(activities: ForegroundActivities, text: string): void {
   if (!global.isAndroid) return;
   if (!activities.connectedDevice && !activities.phoneMic && !activities.location) {
-    stopForegroundNotification();
+    const context = getContext();
+    context.startService(createIntent(com.faceclaw.app.FaceclawForegroundService.ACTION_STOP));
     return;
   }
   const context = getContext();
@@ -44,16 +45,26 @@ export function setForegroundActivities(activities: ForegroundActivities, text: 
   androidx.core.content.ContextCompat.startForegroundService(context, intent);
 }
 
+export function setForegroundActivity(
+  activity: keyof ForegroundActivities,
+  active: boolean,
+  text: string,
+): void {
+  if (!global.isAndroid) return;
+  const context = getContext();
+  const activities: Partial<ForegroundActivities> = { [activity]: active };
+  const intent = createIntent(com.faceclaw.app.FaceclawForegroundService.ACTION_UPDATE, text, activities);
+  androidx.core.content.ContextCompat.startForegroundService(context, intent);
+}
+
 export function startForegroundNotification(text: string): void {
-  setForegroundActivities({ connectedDevice: true, phoneMic: false, location: false }, text);
+  setForegroundActivity("connectedDevice", true, text);
 }
 
 export function updateForegroundNotification(text: string): void {
-  setForegroundActivities({ connectedDevice: true, phoneMic: false, location: false }, text);
+  setForegroundActivity("connectedDevice", true, text);
 }
 
 export function stopForegroundNotification(): void {
-  if (!global.isAndroid) return;
-  const context = getContext();
-  context.startService(createIntent(com.faceclaw.app.FaceclawForegroundService.ACTION_STOP));
+  setForegroundActivity("connectedDevice", false, "Glasses disconnected");
 }

@@ -47,14 +47,15 @@ runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
 - External MCP calls require a live connection and exact originating turn (or an
   explicitly gated proactive call); cancellation reaches delayed side effects.
 
-Local candidate verification passed the complete 258-test host suite after the
+Local candidate verification passed the complete 259-test host suite after the
 two stale branding expectations were updated for the now-lockfile-pinned CLI,
 TypeScript, JDK 21 / SDK 35 / NDK 27.2.12479018 / CMake 3.22.1 Android build,
-ZIP integrity, private-path scan, ZIP 16 KiB alignment, and APK-wide ELF LOAD
-alignment with the documented disabled-Node exception. The arm64-only debug APK
-is 322,307,392 bytes, versionCode 1000001 / versionName 1.0.0-preview.1, and its
+ZIP integrity, private-content/path scan, ZIP 16 KiB alignment, and APK-wide ELF
+LOAD alignment. The disabled WhatsApp/Node runtime is excluded. The arm64-only
+debug APK is 194,871,051 bytes, versionCode 1000001 / versionName
+1.0.0-preview.1, and its
 final SHA-256 is
-`81f78f286167769682d0340335930f8d46e52245f2cef4740bc2f5cda3dab4a2`.
+`78891adfa9e76f1ada56d28521f9cc5d5b82253a722cb6d283eee54d0b62e350`.
 
 On the authorised Samsung A32, the existing and candidate APK certificates
 matched. Upgrade install, launch and resumed activity passed; package metadata
@@ -73,6 +74,8 @@ destructive/pairing/firmware operation was performed.
 - WhatsApp production pairing/startup and stock Node 16 KiB compatibility
 - Stable signing and public-store release until signing custody and permission
   minimisation are approved
+- G2 firmware flashing/recovery experiments until separately authorized
+  sacrificial recovery evidence exists
 - First-time R1 provisioning, pair/unpair ownership, and NVM mutation
 - R1 firmware/DFU/OTA, recovery, reset, wipe, power, and destructive commands
 - Sleep decoding until a CRC-valid type-1 stage-bearing frame and absolute

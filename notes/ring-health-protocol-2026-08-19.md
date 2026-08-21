@@ -47,7 +47,7 @@ as a byte-level reference for the data-frame layout (§7). Samsung's snoop is al
 
 ## 3. GATT / link facts
 
-- Ring MAC `DC:BE:DA:94:20:B8`, name `EVEN R1_9420B8`, LE, bonded, `EncryptionStatus keySize=16`.
+- Authorized test ring identity redacted, LE, bonded, `EncryptionStatus keySize=16`.
 - **MTU is negotiated to 247** (`mtu: 247`). Hermes should request MTU 247 too — big health
   frames fragment badly at the default 23. (Possible secondary contributor to prior flakiness.)
 - Service `bae80001-4f05-4503-8e65-3af1f7329d1f`:

@@ -2,7 +2,7 @@
 
 Current as of 21 August 2026. `main` is the canonical branch.
 
-**Status key:** DONE · IN PROGRESS · TODO · RESEARCH · BLOCKED
+**Status key:** DONE · IN PROGRESS · PARTIAL · TODO · RESEARCH · BLOCKED
 
 ## Now
 

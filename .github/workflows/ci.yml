@@ -21,7 +21,6 @@ jobs:
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-      JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/21.0.8-9/x64
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -45,11 +44,18 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
       - name: Diff hygiene
-        run: git diff --check "${{ github.event.before || 'HEAD^' }}" HEAD
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then base=$(git rev-parse HEAD^); fi
+          git diff --check "$base"...HEAD
       - name: Runtime dependency audit
-        run: npm audit --omit=dev --audit-level=high
+        run: |
+          npm audit --omit=dev --audit-level=high
+          npm --prefix App_Resources/Android/whatsapp-node audit --omit=dev --audit-level=high
       - name: Generate CycloneDX dependency inventory
-        run: npm sbom --sbom-format=cyclonedx > sbom.cdx.json
+        run: |
+          npm sbom --sbom-format=cyclonedx > sbom.cdx.json
+          npm --prefix App_Resources/Android/whatsapp-node sbom --sbom-format=cyclonedx > whatsapp-sbom.cdx.json
       - name: Android JDK 21 / SDK 35 build
         run: npm run build
       - name: Verify APK integrity, privacy, and native alignment
@@ -57,8 +63,8 @@ jobs:
       - name: Record APK and SBOM provenance
         run: |
           apk=$(find platforms/android/app/build/outputs/apk -type f -name '*.apk' -print -quit)
-          sha256sum "$apk" sbom.cdx.json > SHA256SUMS
-          printf 'source=%s\nnode=%s\njava=%s\n' "$GITHUB_SHA" "$(node --version)" "$(java -version 2>&1 | sed -n '1p')" > PROVENANCE.txt
+          sha256sum "$apk" sbom.cdx.json whatsapp-sbom.cdx.json > SHA256SUMS
+          printf 'source=%s\nsize=%s\nnode=%s\njava=%s\n' "$GITHUB_SHA" "$(stat -c %s "$apk")" "$(node --version)" "$(java -version 2>&1 | sed -n '1p')" > PROVENANCE.txt
       - name: Upload verified evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -68,6 +74,7 @@ jobs:
             SHA256SUMS
             PROVENANCE.txt
             sbom.cdx.json
+            whatsapp-sbom.cdx.json
             build/reports/native-alignment.txt
           if-no-files-found: error
           retention-days: 30

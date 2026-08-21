@@ -1,7 +1,7 @@
-// In-app WhatsApp engine for Hermes G2. Runs on the embedded nodejs-mobile
-// runtime and links Ben's WhatsApp as a companion device ("Hermes G2") via the
-// multi-device pairing-code flow. Forked from the proven ~/.hermes whatsapp
-// bridge, adapted for in-app use: app-private session dir, 127.0.0.1 loopback
+// Experimental in-app WhatsApp engine for Hermes G2. Runs on the embedded
+// nodejs-mobile runtime and links an explicitly authorized disposable account
+// as a companion device via the multi-device pairing-code flow. Adapted for
+// app-private session storage, 127.0.0.1 loopback
 // bound + bearer-token guarded, pairing code instead of QR, SSE event stream.
 //
 // Args: node main.js --port <p> --token <t> --session <dir>
@@ -233,10 +233,10 @@ app.listen(PORT, '127.0.0.1', () => {
 // the next /pair to clear.
 if (isRegistered()) {
   console.log('[wa] registered session found, auto-connecting');
-  startSocket().catch((e) => { lastError = String(e); console.error('[wa] auto-connect failed: ' + e); });
+  startSocket().catch(() => { lastError = 'auto_connect_failed'; console.error('[wa] auto-connect failed'); });
 } else if (fs.existsSync(path.join(SESSION_DIR, 'creds.json'))) {
   console.log('[wa] stale unregistered session on boot, leaving for next /pair to clear');
 }
 
-process.on('uncaughtException', (e) => console.error('[wa] uncaught: ' + (e?.stack || e)));
-process.on('unhandledRejection', (e) => console.error('[wa] unhandled: ' + (e?.stack || e)));
+process.on('uncaughtException', () => console.error('[wa] uncaught exception'));
+process.on('unhandledRejection', () => console.error('[wa] unhandled rejection'));

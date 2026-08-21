@@ -7,6 +7,7 @@
  * guidance text (right pane) updates per GPS fix and ships as small deltas.
  */
 import "@nativescript/core/globals";
+import { setForegroundActivity } from "../../native/foreground-service";
 import { GrayImage } from "../../graphics/image";
 import { getDefaultSmallFont, getFont } from "../../graphics/bdffont";
 import * as frameTimings from "../../native/frame-timings";
@@ -386,6 +387,7 @@ function waitForFix(): Promise<TrackedLocation> {
 
 function ensureTickTimer(): void {
   const shouldRun = phase === "navigating";
+  setForegroundActivity("location", shouldRun, shouldRun ? "Navigation active" : "Navigation stopped");
   if (shouldRun && tickTimer === null) {
     tickTimer = setInterval(() => {
       if (!screenOn) return;

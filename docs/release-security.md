@@ -27,7 +27,10 @@ Permanent `CI / release-gate` runs on pull requests and pushes to `main`: locked
 
 All downloaded native/model/source archives have checked-in SHA-256 identities. Downloads use a `.part` file, are hashed before atomic publication, and invalid cache entries are rejected. Native toolchains are pinned to NDK `27.2.12479018` and CMake `3.22.1`; NativeScript CLI `9.0.7` is in `package-lock.json` and invoked without network installation.
 
-The stock `libnode.so` exception is accepted only while WhatsApp remains release-disabled. It is not 16 KiB hardware evidence. Every other packaged native library and ZIP entry must pass the release verifier.
+The unvalidated embedded Node runtime and WhatsApp asset are excluded from the
+APK while WhatsApp remains release-disabled. Every packaged native library and
+ZIP entry must pass the 16 KiB release verifier. This is static artifact evidence,
+not 16 KiB hardware evidence.
 
 ## Permission posture
 

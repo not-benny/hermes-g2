@@ -112,9 +112,9 @@ other units or firmware revisions is not established. The native writer accepts
 only the pinned stock image or its exact reviewed derivative; this is not a
 recovery guarantee.
 
-The full 640×480 glasses UI requires custom firmware. Keep both lenses powered
-and nearby, disconnect Even first, read every warning, and accept that a failed
-flash can brick the glasses. The supporting source-only research is under
+The full 640×480 glasses UI requires custom firmware, but installation is
+release-disabled. Do not flash or run recovery experiments without separate
+authorization and independently reviewed sacrificial recovery evidence. The supporting source-only research is under
 [firmware-research](firmware-research); proprietary firmware binaries are not
 included.
 

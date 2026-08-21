@@ -27,6 +27,9 @@ public class FaceclawForegroundService extends Service {
 
     private static final String CHANNEL_ID = "faceclaw-dashboard";
     private static final int NOTIFICATION_ID = 4201;
+    private boolean connectedDeviceActive;
+    private boolean phoneMicActive;
+    private boolean locationActive;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -49,9 +52,15 @@ public class FaceclawForegroundService extends Service {
             return START_NOT_STICKY;
         }
 
-        boolean connectedDeviceActive = intent.getBooleanExtra(EXTRA_CONNECTED_DEVICE_ACTIVE, false);
-        boolean phoneMicActive = intent.getBooleanExtra(EXTRA_PHONE_MIC_ACTIVE, false);
-        boolean locationActive = intent.getBooleanExtra(EXTRA_LOCATION_ACTIVE, false);
+        if (intent.hasExtra(EXTRA_CONNECTED_DEVICE_ACTIVE)) {
+            connectedDeviceActive = intent.getBooleanExtra(EXTRA_CONNECTED_DEVICE_ACTIVE, false);
+        }
+        if (intent.hasExtra(EXTRA_PHONE_MIC_ACTIVE)) {
+            phoneMicActive = intent.getBooleanExtra(EXTRA_PHONE_MIC_ACTIVE, false);
+        }
+        if (intent.hasExtra(EXTRA_LOCATION_ACTIVE)) {
+            locationActive = intent.getBooleanExtra(EXTRA_LOCATION_ACTIVE, false);
+        }
         if (!connectedDeviceActive && !phoneMicActive && !locationActive) {
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();

@@ -27,6 +27,7 @@ def faceclawArchiveSha256 = [
 def faceclawJniLibsDir = file("$projectDir/src/main/jniLibs/$faceclawAbi")
 def faceclawAssetsDir = file("$projectDir/src/main/assets/faceclaw-voice-asr")
 def faceclawNativeBuildDir = file("$buildDir/faceclaw-native")
+def faceclawFilePrefixMap = "-ffile-prefix-map=${rootProject.projectDir.absolutePath}=."
 
 def faceclawSha256 = { File source ->
   def digest = MessageDigest.getInstance("SHA-256")
@@ -73,6 +74,9 @@ def faceclawNdkHostTag = {
 def faceclawFindNdkRoot = {
   def explicitNdk = System.getenv("ANDROID_NDK_HOME")
   if (explicitNdk != null && file(explicitNdk).exists()) {
+    if (file(explicitNdk).name != faceclawNdkVersion) {
+      throw new GradleException("ANDROID_NDK_HOME must point to NDK $faceclawNdkVersion")
+    }
     return file(explicitNdk)
   }
   def sdkRoot = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
@@ -80,11 +84,7 @@ def faceclawFindNdkRoot = {
     def pinnedNdk = file("$sdkRoot/ndk/$faceclawNdkVersion")
     if (pinnedNdk.exists()) return pinnedNdk
   }
-  try {
-    return android.ndkDirectory
-  } catch (Throwable ignored) {
-    return null
-  }
+  return null
 }
 
 tasks.register("prepareFaceclawNativeLibs") {
@@ -168,6 +168,7 @@ tasks.register("prepareFaceclawNativeLibs") {
         "-shared",
         "-fPIC",
         "-O3",
+        faceclawFilePrefixMap,
         "-DLC3_PLUS=0",
         "-DLC3_PLUS_HR=0",
         "-I${file("$lc3Root/include").absolutePath}",
@@ -252,8 +253,8 @@ tasks.register("prepareFaceclawLlama") {
           "-DANDROID_PLATFORM=android-24",
           "-DCMAKE_BUILD_TYPE=Release",
           "-DLLAMA_CPP_SOURCE_DIR=${llamaSourceDir.absolutePath}",
-          "-DCMAKE_C_FLAGS=$march",
-          "-DCMAKE_CXX_FLAGS=$march",
+          "-DCMAKE_C_FLAGS=$march $faceclawFilePrefixMap",
+          "-DCMAKE_CXX_FLAGS=$march $faceclawFilePrefixMap",
         ])
       }
     }
@@ -417,5 +418,4 @@ android {
 tasks.matching { it.name == "preBuild" }.configureEach {
   dependsOn tasks.named("prepareFaceclawNativeLibs")
   dependsOn tasks.named("prepareFaceclawLlama")
-  dependsOn tasks.named("prepareFaceclawNode")
 }

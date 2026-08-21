@@ -28,6 +28,13 @@ test("durable PR and main CI enforce the release safety matrix", () => {
   assert.match(verifier, /"\$ZIPALIGN"[^\n]*-P 16/);
   assert.match(verifier, /llvm-readelf/);
   assert.match(verifier, /ground-truth-private/);
+  assert.match(verifier, /"\$APKSIGNER" verify/);
+  assert.match(verifier, /versionCode='1000001'/);
+  assert.match(verifier, /private content in APK/);
+  assert.doesNotMatch(verifier, /WAIVED \(feature disabled\)/);
+  assert.match(ci, /pull_request\.base\.sha/);
+  assert.match(ci, /npm --prefix App_Resources\/Android\/whatsapp-node audit/);
+  assert.match(ci, /whatsapp-sbom\.cdx\.json/);
 });
 
 test("Android native inputs and release metadata are pinned", () => {

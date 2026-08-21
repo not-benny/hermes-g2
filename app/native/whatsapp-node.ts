@@ -13,6 +13,7 @@ import { ApplicationSettings, Http, Utils } from "@nativescript/core";
 declare const com: any;
 
 const NODE_PORT = 8799; // 127.0.0.1 on the phone; unrelated to the LAN bridge port
+export const WHATSAPP_PRODUCTION_ENABLED = false;
 let token = "";
 let started = false;
 
@@ -30,6 +31,7 @@ function makeToken(): string {
 
 /** Start the embedded Node runtime (idempotent). No-op off Android. */
 export function startWhatsAppNode(): void {
+  if (!WHATSAPP_PRODUCTION_ENABLED) return;
   if (started || !global.isAndroid) return;
   try {
     token = makeToken();
@@ -38,7 +40,7 @@ export function startWhatsAppNode(): void {
     started = true;
     console.log(`[whatsapp-node] runtime start requested on 127.0.0.1:${NODE_PORT}`);
   } catch (error) {
-    console.error(`[whatsapp-node] failed to start runtime: ${error}`);
+    console.error("[whatsapp-node] failed to start runtime");
   }
 }
 
@@ -53,6 +55,7 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
  * number. Resolves null on failure.
  */
 export async function requestWhatsAppPairing(phoneNumber: string): Promise<string | null> {
+  if (!WHATSAPP_PRODUCTION_ENABLED) return null;
   try {
     const res = await Http.request({
       url: `http://127.0.0.1:${NODE_PORT}/pair`,

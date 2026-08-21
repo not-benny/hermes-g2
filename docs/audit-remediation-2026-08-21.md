@@ -19,7 +19,10 @@ Exact-turn ownership, authenticated app-side WSS enforcement, cancellation, dupl
 
 Current R1 heart-rate/history/activity decoding is implemented. Historical health notes remain snapshots of the pre-implementation investigation. Sleep is still fail-closed pending a correlated type-1 stage/summary frame and absolute timebase.
 
-One owner-unit G2 custom-firmware boot report exists and installation code is enabled for the pinned owner candidate. That does not provide recovery or broad compatibility assurance; flashing and destructive recovery tests remain prohibited without a separately authorized sacrificial plan.
+One owner-unit G2 custom-firmware boot report exists. Installation is
+release-disabled because that does not provide recovery or broad compatibility
+assurance; flashing and destructive recovery tests remain prohibited without a
+separately authorized sacrificial plan.
 
 ## Honest limits
 

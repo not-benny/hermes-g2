@@ -53,6 +53,9 @@ test("credential settings migrate to Android Keystore encryption before plaintex
   assert.match(javaStore, /AES\/GCM\/NoPadding/);
   assert.match(javaStore, /commit\s*\(\s*\)/);
   assert.match(javaStore, /getSecret\s*\([^)]*\)[\s\S]*remove\s*\(/);
+  assert.match(javaStore, /previousEncrypted/);
+  assert.match(javaStore, /restoreEncryptedValue/);
+  assert.match(javaStore, /if \(prefs\.contains\(key\)\)[\s\S]*prefs\.getString/);
   for (const key of [
     "assistant.bridgeToken",
     "voice.openAiApiKey",
@@ -132,4 +135,15 @@ test("R1 raw writes use a positive health-session allowlist and redact frame pay
   assert.match(communicator, /return "command is not allowlisted for the health session"/);
   assert.doesNotMatch(communicator, /write " \+ \(ok \? "ok" : "failed"\) \+ " raw=" \+ hex\(frame\)/);
   assert.doesNotMatch(communicator, /write error: " \+ safeMessage\(t\)/);
+  assert.doesNotMatch(communicator, /raw=" \+ hex\(data\)|pb=%s[\s\S]*hex\(frame\.pb\)/);
+});
+
+test("WhatsApp and G2 flashing are fail-closed at their side-effect boundaries", () => {
+  const whatsapp = read("app/native/whatsapp-node.ts");
+  const mainModel = read("app/phone-ui/main-view-model.ts");
+  const firmware = read("app/g2/firmware-compat.ts");
+  assert.match(whatsapp, /WHATSAPP_PRODUCTION_ENABLED = false/);
+  assert.match(whatsapp, /if \(!WHATSAPP_PRODUCTION_ENABLED\) return/);
+  assert.doesNotMatch(mainModel, /onWhatsAppTap/);
+  assert.match(firmware, /EXPERIMENTAL_FIRMWARE_INSTALL_ENABLED = false/);
 });

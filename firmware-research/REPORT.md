@@ -1,8 +1,10 @@
 # Even Realities G2 CFW 2.2.8.4 - verification report
 
 > **Current-state correction:** the pinned owner candidate was later reported to
-> boot on one owner unit and the app's exact-hash installation path is enabled.
-> Older "never booted" or "installation disabled" passages below are historical.
+> boot on one owner unit. The app's exact-hash installation path is now
+> release-disabled pending separately authorized sacrificial recovery evidence.
+> Older "never booted" passages and later installation-enabled passages below
+> are historical.
 > Recovery, interrupted-transfer, rollback, and broad compatibility evidence are
 > still absent, so no additional flash or operational safety claim is authorized.
 

@@ -104,6 +104,7 @@ public final class FaceclawSettings {
                 return decrypt(securePrefs.getString(key, ""));
             } catch (Exception e) {
                 Log.w(TAG, "encrypted setting could not be read");
+                if (prefs.contains(key)) return prefs.getString(key, defaultValue);
                 return defaultValue;
             }
         }
@@ -138,14 +139,26 @@ public final class FaceclawSettings {
     }
 
     private boolean setSecretInternal(String key, String value) {
+        boolean hadPreviousEncrypted = securePrefs.contains(key);
+        String previousEncrypted = hadPreviousEncrypted ? securePrefs.getString(key, "") : null;
+        boolean replacementCommitted = false;
         try {
             String encrypted = encrypt(value);
             if (!securePrefs.edit().putString(key, encrypted).commit()) return false;
-            return value.equals(decrypt(securePrefs.getString(key, "")));
+            replacementCommitted = true;
+            if (value.equals(decrypt(securePrefs.getString(key, "")))) return true;
         } catch (Exception e) {
             Log.w(TAG, "encrypted setting could not be written");
-            return false;
         }
+        if (replacementCommitted) restoreEncryptedValue(key, hadPreviousEncrypted, previousEncrypted);
+        return false;
+    }
+
+    private void restoreEncryptedValue(String key, boolean hadPreviousEncrypted, String previousEncrypted) {
+        SharedPreferences.Editor editor = securePrefs.edit();
+        if (hadPreviousEncrypted) editor.putString(key, previousEncrypted);
+        else editor.remove(key);
+        if (!editor.commit()) Log.w(TAG, "encrypted setting rollback failed");
     }
 
     private SecretKey getOrCreateSecretKey() throws Exception {

@@ -1420,13 +1420,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     /**
-     * Route A health spike (discovery): log glasses frames on the ring-relay /
-     * health service IDs, and any other unhandled SID, with their protobuf
-     * bytes. Read-only — this is how we learn whether the glasses forward ring
-     * RingRawData (health) over the phone's existing link without any phone↔ring
-     * auth. A frame on SID_RING_ROW_DATA/SID_RING_DATA_RELAY/SID_HEALTH is the
-     * signal that the relay path works; total silence means the relay needs a
-     * request kick (next spike step) or the ring isn't sampling.
+     * Record only the presence of relay frames. Their protobuf bytes can contain
+     * private health data and must never reach the application log.
      */
     private void logRelayCandidateFrame(String address, BleProtocol.ParsedFrame frame) {
         if (frame == null || !frame.ok) {
@@ -1438,8 +1433,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             || sid == BleProtocol.SID_HEALTH;
         if (relaySid) {
             logLine(String.format(Locale.US,
-                "RING-RELAY frame arm=%s sid=0x%02x flag=0x%02x pb=%s",
-                armLabel(address), sid, frame.flag, hex(frame.pb)));
+                "RING-RELAY frame arm=%s sid=0x%02x flag=0x%02x payload=present",
+                armLabel(address), sid, frame.flag));
             return;
         }
         // Widen the net: an unhandled SID could be an unforeseen relay channel.
@@ -1454,8 +1449,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 return;
             default:
                 logLine(String.format(Locale.US,
-                    "unhandled frame arm=%s sid=0x%02x flag=0x%02x pb=%s",
-                    armLabel(address), sid, frame.flag, hex(frame.pb)));
+                    "unhandled frame arm=%s sid=0x%02x flag=0x%02x payload=present",
+                    armLabel(address), sid, frame.flag));
         }
     }
 
@@ -1469,7 +1464,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (address.equalsIgnoreCase(leftAddress)) {
             return "L";
         }
-        return address;
+        return "other";
     }
 
     private void handleDirectRingNotification(String characteristicUuid, byte[] data, int generation) {
@@ -1496,8 +1491,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             if (!isRingNotificationDispatchAllowed(generation)) {
                 return;
             }
-            logDirectRingLine("direct ring notify " + shortCharUuid(uuid) + " "
-                + describeRingFrame(data) + " raw=" + hex(data), generation);
+            logDirectRingLine("direct ring notify " + shortCharUuid(uuid) + " payload=present", generation);
             if (BleProtocol.R1_NOTIFY_CHAR_UUID.equals(uuid)) {
                 // Health/command channel: hand the raw frame to the JS decode
                 // path (app/health) for reassembly and state.health population.
@@ -1519,8 +1513,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (!isRingNotificationDispatchAllowed(generation)) {
             return;
         }
-        logDirectRingLine("direct ring " + decoded.label + " " + decoded.detail
-            + " raw=" + hex(data), generation);
+        logDirectRingLine("direct ring " + decoded.label + " event decoded", generation);
         int frameId = FrameTimings.getInstance().startFrame("input:ring:" + decoded.label);
         FrameTimings.getInstance().log(frameId, "input event decoded from direct ring notification");
         emitDirectRingEvent(event.kind, event.containerName, event.eventType,
