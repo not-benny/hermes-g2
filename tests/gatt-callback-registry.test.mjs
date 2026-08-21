@@ -25,7 +25,7 @@ public final class GattCallbackRegistryHarness {
         AtomicInteger notifications = new AtomicInteger();
 
         GattCallbackRegistry.Operation<Object> connectA = registry.beginConnect(address);
-        require(registry.completeConnect(address, gattA, true, notifications::incrementAndGet), "early A connect callback");
+        require(registry.completeConnect(address, gattA, true, lease -> notifications.incrementAndGet()), "early A connect callback");
         require(registry.bindConnectReturn(address, connectA, gattA), "connectGatt return preserves early A callback");
         require(connectA.await(1), "A connect latch");
 
@@ -43,9 +43,9 @@ public final class GattCallbackRegistryHarness {
 
         require(registry.retire(address, gattA, null), "retire A");
         GattCallbackRegistry.Operation<Object> connectB = registry.beginConnect(address);
-        require(!registry.completeConnect(address, gattA, true, notifications::incrementAndGet), "old connected callback cannot claim B pending connect");
+        require(!registry.completeConnect(address, gattA, true, lease -> notifications.incrementAndGet()), "old connected callback cannot claim B pending connect");
         require(registry.bindConnectReturn(address, connectB, gattB), "bind B");
-        require(registry.completeConnect(address, gattB, true, notifications::incrementAndGet), "complete B connect");
+        require(registry.completeConnect(address, gattB, true, lease -> notifications.incrementAndGet()), "complete B connect");
         GattCallbackRegistry.Operation<Object> readB = registry.beginOperation(address, "read", gattB);
 
         releaseOldCallback.countDown();
@@ -55,8 +55,8 @@ public final class GattCallbackRegistryHarness {
         require(readB.remaining() == 1, "old value callback did not satisfy B");
         require(readA.remaining() == 0, "retirement wakes obsolete waiter");
 
-        require(!registry.dispatchIfCurrent(address, gattA, notifications::incrementAndGet), "old notification rejected");
-        require(!registry.disconnectIfCurrent(address, gattA, notifications::incrementAndGet), "old disconnect rejected");
+        require(!registry.dispatchIfCurrent(address, gattA, lease -> notifications.incrementAndGet()), "old notification rejected");
+        require(!registry.disconnectIfCurrent(address, gattA, lease -> notifications.incrementAndGet()), "old disconnect rejected");
         require(registry.isCurrent(address, gattB), "B remains current");
         require(notifications.get() == 2, "only A and B connected notifications dispatched");
 
@@ -68,7 +68,7 @@ public final class GattCallbackRegistryHarness {
         CountDownLatch listenerEntered = new CountDownLatch(1);
         CountDownLatch releaseListener = new CountDownLatch(1);
         Thread listener = new Thread(() -> {
-            require(registry.dispatchIfCurrent(address, gattB, () -> {
+            require(registry.dispatchIfCurrent(address, gattB, lease -> {
                 listenerEntered.countDown();
                 await(releaseListener);
             }), "current listener dispatch");
@@ -86,6 +86,24 @@ public final class GattCallbackRegistryHarness {
         GattCallbackRegistry.Operation<Object> connectC = registry.beginConnect(address);
         require(connectC.generation() > connectB.generation(), "generation monotonically advances");
         require(!registry.completeConnect(address, gattB, true, null), "B generation cannot claim C");
+        require(registry.bindConnectReturn(address, connectC, new Object()), "bind C");
+        Object gattC = registry.current(address);
+        require(registry.completeConnect(address, gattC, true, lease -> {}), "complete C connect");
+
+        CountDownLatch leaseEntered = new CountDownLatch(1);
+        CountDownLatch releaseLease = new CountDownLatch(1);
+        AtomicInteger staleEffects = new AtomicInteger();
+        Thread staleListener = new Thread(() -> registry.dispatchIfCurrent(address, gattC, lease -> {
+            leaseEntered.countDown();
+            await(releaseLease);
+            if (lease.isCurrent()) staleEffects.incrementAndGet();
+        }));
+        staleListener.start();
+        require(leaseEntered.await(1, java.util.concurrent.TimeUnit.SECONDS), "lease listener entered");
+        require(registry.retire(address, gattC, null), "retire C while listener is blocked");
+        releaseLease.countDown();
+        staleListener.join(1_000);
+        require(staleEffects.get() == 0, "old listener lease rejected after replacement");
     }
 
     private static void await(CountDownLatch latch) {

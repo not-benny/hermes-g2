@@ -309,6 +309,9 @@ public class FaceclawBleManager {
                     return false;
                 }
                 Integer status = operation.status();
+                if (operation.failed()) {
+                    return false;
+                }
                 if (isGattSuccess(operation)) {
                     return true;
                 }
@@ -429,7 +432,7 @@ public class FaceclawBleManager {
                     address,
                     gatt,
                     true,
-                    () -> dispatchConnectionState(gatt, address, true)
+                    lease -> dispatchConnectionState(gatt, address, true, lease)
                 );
                 return;
             }
@@ -439,13 +442,13 @@ public class FaceclawBleManager {
                     address,
                     gatt,
                     false,
-                    () -> dispatchConnectionState(gatt, address, false)
+                    lease -> dispatchConnectionState(gatt, address, false, lease)
                 );
                 if (!accepted) {
                     accepted = callbackRegistry.disconnectIfCurrent(
                         address,
                         gatt,
-                        () -> dispatchConnectionState(gatt, address, false)
+                        lease -> dispatchConnectionState(gatt, address, false, lease)
                     );
                 }
                 if (accepted) {
@@ -504,7 +507,7 @@ public class FaceclawBleManager {
             callbackRegistry.dispatchIfCurrent(
                 address,
                 gatt,
-                () -> dispatchNotification(gatt, characteristic.getUuid().toString(), value)
+                lease -> dispatchNotification(gatt, characteristic.getUuid().toString(), value, lease)
             );
         }
 
@@ -515,22 +518,24 @@ public class FaceclawBleManager {
             callbackRegistry.dispatchIfCurrent(
                 address,
                 gatt,
-                () -> dispatchNotification(gatt, characteristic.getUuid().toString(), characteristic.getValue())
+                lease -> dispatchNotification(gatt, characteristic.getUuid().toString(), characteristic.getValue(), lease)
             );
         }
     };
 
-    private void dispatchConnectionState(BluetoothGatt gatt, String address, boolean connected) {
+    private void dispatchConnectionState(BluetoothGatt gatt, String address, boolean connected,
+                                         GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
         FaceclawBleListener current = listener;
         if (current == null) return;
-        current.onConnectionStateChange(gatt, address, connected);
+        current.onConnectionStateChange(gatt, address, connected, lease);
     }
 
-    private void dispatchNotification(BluetoothGatt gatt, String characteristicUuid, byte[] data) {
+    private void dispatchNotification(BluetoothGatt gatt, String characteristicUuid, byte[] data,
+                                      GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
         String address = gatt.getDevice().getAddress();
         FaceclawBleListener current = listener;
         if (current == null) return;
         byte[] copy = data != null ? data.clone() : new byte[0];
-        current.onNotification(gatt, address, characteristicUuid, copy);
+        current.onNotification(gatt, address, characteristicUuid, copy, lease);
     }
 }

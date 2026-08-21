@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /** Identity- and generation-bound BLE callback state. */
 final class GattCallbackRegistry<G> {
@@ -19,6 +20,7 @@ final class GattCallbackRegistry<G> {
         private G gatt;
         private Integer status;
         private byte[] value;
+        private boolean failed;
 
         private Operation(G gatt, long generation) {
             this.gatt = gatt;
@@ -27,9 +29,40 @@ final class GattCallbackRegistry<G> {
         boolean await(int timeoutMs) throws InterruptedException { return latch.await(timeoutMs, TimeUnit.MILLISECONDS); }
         long remaining() { return latch.getCount(); }
         Integer status() { return status; }
+        boolean failed() { return failed; }
         byte[] value() { return value != null ? value.clone() : null; }
         G gatt() { return gatt; }
         long generation() { return generation; }
+    }
+
+    static final class DispatchLease<G> {
+        private final GattCallbackRegistry<G> registry;
+        private final String address;
+        private final G gatt;
+        private final long generation;
+        private final boolean retiredDelivery;
+
+        private DispatchLease(GattCallbackRegistry<G> registry, String address, G gatt, long generation,
+                              boolean retiredDelivery) {
+            this.registry = registry;
+            this.address = address;
+            this.gatt = gatt;
+            this.generation = generation;
+            this.retiredDelivery = retiredDelivery;
+        }
+
+        boolean isCurrent() {
+            synchronized (registry) {
+                boolean current = registry.currentGatts.get(address) == gatt
+                    && registry.currentGeneration(address) == generation
+                    && !registry.isRetired(gatt);
+                boolean terminal = retiredDelivery
+                    && registry.currentGatts.get(address) == null
+                    && registry.currentGeneration(address) == -1L
+                    && registry.nextGenerations.getOrDefault(address, 0L) == generation;
+                return current || terminal;
+            }
+        }
     }
 
     private final Map<String, G> currentGatts = new HashMap<>();
@@ -70,7 +103,8 @@ final class GattCallbackRegistry<G> {
         return operation;
     }
 
-    boolean completeConnect(String address, G gatt, boolean connected, Runnable dispatch) {
+    boolean completeConnect(String address, G gatt, boolean connected, Consumer<DispatchLease<G>> dispatch) {
+        DispatchLease<G> lease;
         synchronized (this) {
             Operation<G> operation = operationFor(address, CONNECT);
             if (operation == null || gatt == null || isRetired(gatt)) return false;
@@ -83,11 +117,12 @@ final class GattCallbackRegistry<G> {
             if (operation.gatt != gatt || currentGatts.get(address) != gatt
                     || operation.generation != currentGeneration(address)) return false;
             operation.status = connected ? 1 : 0;
+            lease = new DispatchLease<>(this, address, gatt, operation.generation, !connected);
             removeOperation(address, CONNECT, operation);
             if (!connected) retireLocked(address, gatt);
             operation.latch.countDown();
         }
-        if (dispatch != null) dispatch.run();
+        if (dispatch != null) dispatch.accept(lease);
         return true;
     }
 
@@ -103,17 +138,23 @@ final class GattCallbackRegistry<G> {
             return true;
         }
     }
-    boolean dispatchIfCurrent(String address, G gatt, Runnable dispatch) {
-        synchronized (this) { if (!isCurrent(address, gatt)) return false; }
-        dispatch.run();
-        return true;
-    }
-    boolean disconnectIfCurrent(String address, G gatt, Runnable dispatch) {
+    boolean dispatchIfCurrent(String address, G gatt, Consumer<DispatchLease<G>> dispatch) {
+        DispatchLease<G> lease;
         synchronized (this) {
             if (!isCurrent(address, gatt)) return false;
+            lease = new DispatchLease<>(this, address, gatt, currentGeneration(address), false);
+        }
+        dispatch.accept(lease);
+        return true;
+    }
+    boolean disconnectIfCurrent(String address, G gatt, Consumer<DispatchLease<G>> dispatch) {
+        DispatchLease<G> lease;
+        synchronized (this) {
+            if (!isCurrent(address, gatt)) return false;
+            lease = new DispatchLease<>(this, address, gatt, currentGeneration(address), true);
             retireLocked(address, gatt);
         }
-        if (dispatch != null) dispatch.run();
+        if (dispatch != null) dispatch.accept(lease);
         return true;
     }
     synchronized boolean cancel(String address, String kind, Operation<G> operation) {
@@ -122,12 +163,14 @@ final class GattCallbackRegistry<G> {
         operation.latch.countDown();
         return true;
     }
-    boolean retire(String address, G gatt, Runnable dispatch) {
+    boolean retire(String address, G gatt, Consumer<DispatchLease<G>> dispatch) {
+        DispatchLease<G> lease;
         synchronized (this) {
             if (gatt == null || currentGatts.get(address) != gatt) return false;
+            lease = new DispatchLease<>(this, address, gatt, currentGeneration(address), false);
             retireLocked(address, gatt);
         }
-        if (dispatch != null) dispatch.run();
+        if (dispatch != null) dispatch.accept(lease);
         return true;
     }
     private Map<String, Operation<G>> operationsFor(String address) { return operations.computeIfAbsent(address, ignored -> new HashMap<>()); }
@@ -152,7 +195,7 @@ final class GattCallbackRegistry<G> {
         Iterator<Map.Entry<String, Operation<G>>> iterator = addressOperations.entrySet().iterator();
         while (iterator.hasNext()) {
             Operation<G> operation = iterator.next().getValue();
-            if (operation.gatt == gatt) { operation.latch.countDown(); iterator.remove(); }
+            if (operation.gatt == gatt) { operation.failed = true; operation.latch.countDown(); iterator.remove(); }
         }
         if (addressOperations.isEmpty()) operations.remove(address);
     }

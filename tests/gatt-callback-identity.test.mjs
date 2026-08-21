@@ -30,8 +30,8 @@ test("connection callbacks reject stale GATTs before state or latch publication"
   const callback = methodBody("public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState)");
   assert.match(callback, /callbackRegistry\.completeConnect\(/);
   assert.match(callback, /callbackRegistry\.disconnectIfCurrent\(/);
-  assert.match(callback, /dispatchConnectionState\(gatt, address, true\)/);
-  assert.match(callback, /dispatchConnectionState\(gatt, address, false\)/);
+  assert.match(callback, /dispatchConnectionState\(gatt, address, true, lease\)/);
+  assert.match(callback, /dispatchConnectionState\(gatt, address, false, lease\)/);
 });
 
 test("connect owns one exact-GATT attempt and disconnect releases its waiters", () => {
@@ -47,17 +47,15 @@ test("connect owns one exact-GATT attempt and disconnect releases its waiters", 
 test("registry does not invoke listener code while holding its monitor", () => {
   const registry = readFileSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/GattCallbackRegistry.java", import.meta.url), "utf8");
   assert.match(registry, /boolean dispatchIfCurrent\(/);
-  assert.match(registry, /synchronized \(this\) \{ if \(!isCurrent/);
-  assert.match(registry, /\}\n        dispatch\.run\(\);/);
+  assert.match(registry, /synchronized \(this\) \{/);
+  assert.match(registry, /dispatch\.accept\(lease\)/);
   assert.match(registry, /private final long generation/);
   assert.match(registry, /operation\.generation != currentGeneration\(address\)/);
 });
 
 test("listener delivery carries exact GATT and is serialized against retirement", () => {
-  assert.match(manager, /current\.onNotification\(gatt, address, characteristicUuid, copy\)/);
-  assert.match(manager, /current\.onConnectionStateChange\(gatt, address, connected\)/);
-  assert.match(manager, /current\.onNotification\(gatt, address, characteristicUuid, copy\)/);
-  assert.match(manager, /current\.onConnectionStateChange\(gatt, address, connected\)/);
+  assert.match(manager, /current\.onNotification\(gatt, address, characteristicUuid, copy, lease\)/);
+  assert.match(manager, /current\.onConnectionStateChange\(gatt, address, connected, lease\)/);
   assert.match(manager, /callbackRegistry\.dispatchIfCurrent\(/);
   assert.match(readFileSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleListener.java", import.meta.url), "utf8"), /default void onNotification\(BluetoothGatt gatt/);
 });
