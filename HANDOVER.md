@@ -1,712 +1,129 @@
 # Hermes G2 handover (2026-08-21)
 
-## In-process call cancellation successor (2026-08-21)
-
-Focused successor branch `fix/t284b41e4-pr6-r2` preserves base
-`bf59c2b7f7ddfa36a93c5fd45e8eeeae6e37f77c`, implementation commit
-`57e8955c56c135f06913942509a241847a37fe74`, and prior reviewed candidate
-`2e2068fd917eb58fcda4567811fdedbf9aebf6d0`. The prior candidate was extended
-by `fed6a8e566d3089f0327dcd14757def378bf1f75` with listener cleanup and
-synchronous-close cancellation. The current review candidate is the local
-documentation-correction commit on this branch; its exact HEAD is recorded in
-the active Kanban handoff. Nothing was pushed and no PR was opened or updated.
-
-Current-candidate verification at the implementation HEAD `fed6a8e`: focused
-in-process/registry tests pass 13/13; full `npm run test` passes 166/166;
-changed-file standalone TypeScript check, `git diff --check`, base ancestry,
-and worktree cleanliness pass; the candidate branch is absent from `origin`.
-Repository `npm run typecheck` fails on exactly 35 inherited NativeScript
-Android/AndroidX/Java/`Array.create` diagnostics outside changed files. The
-configured Android build reaches webpack then fails with the same 35 inherited
-diagnostics (exit 127); no APK was produced or installed. No hardware
-verification was performed and no hardware/display/BLE behavior changed.
-Fresh independent review and no-premature-delivery checks remain pending for
-the documentation-correction HEAD.
-
-## Generation-safe app-tool teardown (2026-08-21)
-
-The focused PR #6 successor deliberately propagates opaque, generation-specific
-app-tool leases through the registry, in-process adapter, and worker windows.
-Stale or repeated teardown cannot remove a same-windowId replacement; replacing
-an open worker window releases its still-current lease before installing the new
-lifecycle state, including when the replacement closes before declaring tools.
-Focused registry/in-process tests pass 11/11, and the full `npm run test` suite passes 164/164 on this frozen stack. `npm run typecheck` and configured `npm run build` fail on the repository's 35 inherited NativeScript Android/AndroidX/Java and `Array.create` diagnostics; no changed-file diagnostic was reported and no APK was produced or installed. No hardware verification was needed for this registry lifecycle change.
-
-## BLE callback identity gate (2026-08-21)
-
-Delivered branch: `wt/t_5e85b756`; implementation commit is
-`993139f859964fec3aa4a408a5c9abb94a0bb501`; the GPT-5.6 Sol medium-effort
-approved review HEAD and GitHub PR head are
-`4258fc1649016eb0c5f04d1d6241b7c325f7cdb1`. PR #6 is open against
-`hermes-g2`: https://github.com/not-benny/hermes-g2/pull/6. The delivered
-commit is pushed without force. This handover update is intentionally local
-until the changed commit receives a fresh review; no hardware reconnect
-interleaving was exercised and operational verification remains NO-GO.
-
-FaceclawBleManager now carries the source BluetoothGatt through both
-characteristic-change callback overloads and rejects callbacks whose object is
-not the current address entry. Connection callbacks use the same identity gate:
-stale CONNECTED callbacks cannot publish or release latches, while stale
-DISCONNECTED callbacks only close their own GATT. Same-address callers share the
-owning exact-GATT attempt; explicit disconnect and owner timeout fail and release
-pending waiters without retiring a replacement attempt. A per-address reentrant
-callback boundary serializes identity retirement/replacement with listener side
-effects without holding the process-wide Bluetooth API lock through listeners;
-the retiring current GATT remains valid through its DISCONNECTED delivery.
-Communicator state retirement now completes before synchronous manager teardown,
-removing the communicator-monitor to BLE callback-boundary lock inversion without
-leaving an unversioned delayed address-only teardown that could close a replacement.
-Focused source-contract tests pass 6/6 and the full Node suite passes 163/163.
-Direct javac of FaceclawBleManager, FaceclawBleListener, BleProtocol, and
-CollectionUtils against Android-35 passes with deprecation warnings. Typecheck
-and Android build remain blocked by the unchanged 35 NativeScript
-Android/JavaScript namespace errors (`android`, `androidx`, `java`, and
-`Array.create`); no hardware reconnect interleaving was attempted, so
-operational verification remains NO-GO.
-
-## WhatsApp pairing options evaluation (2026-08-21)
-
-Added `notes/whatsapp-pairing-options-2026-08.md`. The safe recommendation is to
-shelve live WhatsApp pairing and keep batches 3–6 paused while monitoring the
-embedded link-code repair path; the existing Hermes Agent bridge is not a
-WhatsApp bridge and cannot be reused as a QR shortcut. A host-side QR bridge is
-technically feasible only as a new, separately authorized service with its own
-session custody, authenticated encrypted transport, QR/status relay, and
-validation gates. No production pairing, live-link batch, credential migration,
-or bridge enablement was performed.
-
-## WhatsApp link-code regression investigation (2026-08-21)
-
-Added `notes/whatsapp-link-code-regression-2026-08.md` and reconciled the WhatsApp blocker in `ROADMAP.md`.
-The embedded rc13 client deterministically emits `Chrome (Hermes G2)`, which matches upstream's documented
-April `400 bad-request` failure for non-canonical pairing displays; rc13 also returns one code before the
-later IQ error, so its retry loop cannot observe or repair that asynchronous rejection. Upstream PR #2559
-is an actionable but unreleased fix. Issue #2488's original missing-success report was retracted after the
-required 515 reconnect was added. Later #2737 confirms a `companion_reg_refresh` change after QR scans, but
-its link-code attempt stops at the separate stage-1 400; its impact on canonicalized link-code pairing is
-unknown. No live-link batches were started; batches 3–6 stay gated pending safe validation. No confirmed
-upstream release/timeline restores the full pairing path yet, although the April failure has a viable patch
-path.
-
-## G2 protobuf transport primitives (2026-08-21)
-
-Added descriptor-accurate, non-negative-validated G2Setting X distance/Y height encoders and package-internal ACK-tracked `MessageBuilder` wrappers. Added an internal-only DeviceSettings quick-restart encoder; it is not queued or exposed through the communicator/UI. Provenance and exact vectors are recorded in `notes/g2-proto-transport.md`, and `ROADMAP.md` now separates implemented transport from unresolved coordinate-range and reboot authorization gates.
-
-Verification update: `node --test tests/g2-proto-transport.test.mjs` passes behavioral zero/multi-byte-varint/quick-restart vectors, both package-internal `MessageBuilder` wrappers (distinct kind/label, sid/flag, allocated magic in payload, and 3500 ms ACK timeout), all negative-input boundaries, and no-runtime-surface contracts. The date-sensitive activity fixtures now inject a matching current-day clock without weakening production validation; `npm run test` passes 157/157, `npm run typecheck` passes, `JAVA_HOME=/usr/lib/jvm/java-21-openjdk ANDROID_HOME=/home/benny/Android/Sdk npm run build` passes, and `git diff --check` passes. The debug APK installed/launched on USB Samsung A32 `RFCR707RQGV` (PID 11481). PID-filtered logcat shows repeated G2 connect failures for `E8:12:4B:04:AF:43` and no normal sid `0x09` settings ACK; the glasses were unavailable, so hardware protocol behavior remains unverified. No sid `0x80` message was sent and quick restart remains **NO-GO**.
-
-## Latest hardening continuation (2026-08-21)
-
-The display/MCP safety follow-up now adds exact-turn-generation revalidation at
-the display handler boundary, cancellation propagation through system tools into
-alert delivery, post-delivery turn checks, generation-bound compositor waits,
-best-effort non-throwing ordinary shell renders, and identity-safe replace-only
-shell alerts with owner-specific delivery receipts. Android backups are
-disabled and cleartext bridge traffic is blocked by the manifest; the available
-sibling bridge has no verified compatible WSS/server-proof path, so external
-operation remains NO-GO. No credentials, personal data, hardware claims, or
-publication authorization were added.
-
-Verification for this continuation: focused MCP/registry/display tests pass
-17/17, `npm run typecheck` passes, and `git diff --check` passes. The Android
-debug build passes with JDK 21/SDK 35. The full `npm test` run is 154/156;
-the two known date-sensitive activity failures remain at
-`tests/ring-health-store.test.mjs:158` and `:190`. The debug APK installed and
-launched on USB Samsung A32 `RFCR707RQGV`; package-filtered startup logs show
-normal NativeScript startup plus standard platform warnings. Real G2 lens
-transport and secure bridge verification remain unavailable/not performed;
-A32-only app launch evidence must not be read as glasses-display evidence.
-
-## Delivery state (2026-08-21)
-
-The GPT-5.6 Sol medium-effort review-approved direct-R1 worker isolation
-implementation is published unchanged in PR #7 against `hermes-g2` from
-`work/t_535a9f1f-ring-worker-rework`, at implementation SHA
-`1dc65327ef33284877d3d9658ebc354b77cbbc2a`. Pull request:
-https://github.com/not-benny/hermes-g2/pull/7.
-GitHub reports the PR open with a clean merge state; no CI checks were reported
-at delivery time. Local verification and safe Samsung A32 evidence remain as
-recorded below; no destructive BLE, pairing, ownership, firmware, reset, power,
-wipe, or private-evidence publication occurred. Any later handover updates are
-documentation-only follow-ups separate from the frozen reviewed implementation
-and do not change the approved implementation SHA.
-
-## PacketAck retirement race hardening (2026-08-21)
-
-This focused continuation is based on clean `origin/hermes-g2`
-(`ae89fd5e398a78ce9a7d00c66a47d92d02812319`) on local branch
-`wt/t_2aa76f3a-clean` at implementation commit
-`d9d192839dfc7d3f9805f2a09cc0df4b24803214`; prior review candidate
-`3d7f41d9ebb809587eef96675ab0af89f733b121` was rejected for handover
-accuracy, and the current committed branch tip is unpushed pending independent
-review. Queue, drain, and final send now all require
-`running && sessionReady && ringConnected && ringNotificationsReady`, and hard
-transport failure retires ring connection/readiness before invalidating the
-generation and queue; arm loss invalidates packetAck generation/queue before
-retiring `sessionReady` while leaving the direct ring flags unchanged. Focused
-packetAck contracts pass 11/11. Full tests are
-145/147: the two
-existing date-sensitive activity fixtures fail at
-`tests/ring-health-store.test.mjs:158` and `:190`; typecheck and the documented
-JDK-21/SDK Android build each fail on the same 35 pre-existing NativeScript
-Android-global/`Array.create` errors. `git diff --check` passes. A USB A32 and two wireless targets are visible, but
-no APK was installed or
-reconnect race exercised in this continuation; operational authorization is
-therefore **NO-GO**.
-
-A snapshot of project state, what was accomplished, what is pending, and how to
-pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
-the private `DECODE-SPEC.md` (see "Out-of-repo data").
-
-## 0. Latest continuation (2026-08-21)
-
-### Trusted caller gate for health MCP reads (local, review pending)
-
-The health MCP tool is now fail-closed for the current external plaintext
-`ws://` bridge: consent alone cannot expose or execute `health.get_ring_data`.
-MCP list/call policy checks require a live connection generation, callable
-connection revalidation, an explicit trusted-caller predicate, and a unique
-live voice-turn generation with callable turn revalidation. Missing validators
-fail closed; the registry rechecks the policy immediately before loading the
-handler. Calls also carry the exact active voice-turn generation, so replaced
-or finished turns cannot authorize a delayed read.
-Direct/on-device callers can opt into the trusted predicate; certificate-
-validated WSS/server proof is still required before enabling it for external
-transport. No hardware verification applies; this is assistant policy code.
-
-Focused and full tests pass (16/16 focused; 172/172 full) and `git diff --check`
-passes. Focused behavioral coverage includes final-check stale connection and
-finished-turn races, missing/empty live identity validators, and consent revoke
-between `tools/list` and `tools/call`; each asserts zero health-document loads.
-`npm run typecheck` and the Android build were attempted with the
-repository's installed dependencies; both are blocked by pre-existing missing
-NativeScript Android globals/types (`android`, `androidx`, `java`, and
-`Array.create`) across unrelated files. No hardware verification applies; this
-is assistant policy code. Nothing has been pushed and no PR has been opened;
-fresh independent `g2-reviewer` approval is required before delivery.
-
-
-### Health persistence fail-closed remediation (local, review pending)
-
-Branch `wt/t_c7e739-fix` is based directly on preserved PR #3 head
-`81d55c65e5cb13600811b503729fb17fc0525922`. The reviewed candidate final HEAD is
-`9ba82eb34c75c60e73060653abafb54a4b36cfdd`, with focused range
-`38354d5082b7e08e58782ba869dfda5fd4c5e140..9ba82eb34c75c60e73060653abafb54a4b36cfdd`
-(remediation `4ad7291263bfc950fb211326982266fb8409338f` followed by the
-handover-only commit `9ba82eb34c75c60e73060653abafb54a4b36cfdd`). The remediation
-strictly validates real calendar dates,
-complete hourly metrics, and activity slot/totals schemas before normalizing; preserves
-invalid canonical bytes; removes unverifiable first-migration candidates safely; and
-retains retryable legacy fragments. Preview seeding sets its flag only after verified
-replacement and retries after failure.
-
-Focused `node --test tests/health-persistence.test.mjs tests/preview-demo.test.mjs`
-passes 18/18 and full `npm run test` passes 172/172. `git diff --check` passes.
-`npm run typecheck` fails on 35 inherited NativeScript Android ambient namespace and
-`ArrayConstructor.create` diagnostics outside the five changed-file remediation.
-With `JAVA_HOME=/usr/lib/jvm/java-21-openjdk`, `ANDROID_HOME=/home/benny/Android/Sdk`,
-and `ANDROID_SDK_ROOT=/home/benny/Android/Sdk`, `npm run build` reaches webpack and
-fails on the same 35 inherited diagnostics. No hardware was required or used. The
-candidate is local only, nothing was pushed, and independent `g2-reviewer` review is
-required before delivery.
-
-### Direct-R1 worker isolation candidate (2026-08-21)
-
-- The approved rework branch `work/t_535a9f1f-ring-worker-rework` was pushed
-  unchanged at `1dc65327ef33284877d3d9658ebc354b77cbbc2a`; PR #7 is open at
-  https://github.com/not-benny/hermes-g2/pull/7. It contains candidate commits
-  `0accf5f`, `0475383`, `abd7787`, `680dbf1`, `aaef1af`, and callback
-  identity/dispatch fixes `9671839`, `f0f4892`, `a46cb12`, `58bd941`, and
-  `8330e9b`.
-  Every optional direct-R1 connect,
-  discovery/MTU/subscription wait, battery read, health poll, packetAck drain,
-  and ring write runs on the single `FaceclawRingLink` worker. The glasses
-  `FaceclawBleCommunicator` loop and initial glasses connect path perform no
-  direct-ring work.
-- Direct-ring lifecycle, timers, generation, battery, and bounded packetAck
-  state are protected by a distinct `ringLock`. Following the first independent
-  review, teardown now installs a durable `stopping` gate before the framebuffer
-  release wait, wakes and interrupts the ring worker immediately, and revalidates
-  that gate at every direct-ring entry/GATT stage/final write. A separate
-  lifecycle lock serializes `start()` across the complete teardown. Both bounded
-  joins must report their workers dead before thread fields or session state are
-  reset or the BLE manager is closed; a live/timed-out worker leaves the object
-  fail-closed in stopping state for a later teardown retry. Delayed writes and
-  probe gaps still revalidate the captured ring generation and stop on cancellation.
-- A second independent review found that the per-stage stopping checks still had
-  check-then-act gaps before manager calls. `aaef1af` replaces them with one
-  `withRingManagerOperation` barrier that holds `ringLock` from the final
-  stopping/session/generation check through every direct-R1 manager operation:
-  recovery disconnect, connect, discovery, priority/MTU, subscriptions, battery
-  read, service diagnostics, and writes. Since teardown publishes volatile
-  `stopping` before taking the same barrier, no new R1 manager side effect can
-  begin after teardown starts; an already in-flight operation must unwind before
-  teardown can pass the barrier.
-- `FaceclawBleManager` now serializes complete operations per address while a
-  short static Bluetooth API lock protects only immediate Android GATT API
-  initiation. Different-address callback waits no longer block glasses writes,
-  and callbacks from an obsolete GATT are ignored. A third independent review
-  found the original standalone current-GATT check was still check-then-act:
-  callback A could pass it, then publish into address-keyed latch/result state
-  created for replacement GATT B. `9671839` replaces those maps with an
-  Android-free identity registry. Current GATT identity, exact-GATT operation
-  context, result/value publication, latch completion, connected/disconnected
-  notification, and data dispatch are validated under one short callback-state
-  protocol. Every callback operation timeout retires/closes that GATT before a
-  same-address replacement can start, so an untagged late Android callback can
-  never be mistaken for a later operation on the same object. Weak identity
-  tombstones preserve callback-before-wait handling without retaining closed
-  GATT objects indefinitely.
-- A fourth independent review reproduced a registry-monitor ↔ `ringLock`
-  inversion because accepted callbacks invoked external listeners while still
-  holding the callback registry monitor. `f0f4892` now completes callback state
-  atomically and returns a one-shot exact-generation dispatch token without
-  invoking external code. Each BLE listener acquires its own state lock first
-  and claims that token before any listener state mutation. A replacement
-  generation invalidates blocked connected, disconnected, and notification
-  tokens; a current disconnect remains dispatchable. The registry monitor is
-  therefore never held while a callback waits for `ringLock`, and callback token
-  claim follows the same state-lock → registry-lock order as ring manager
-  operations.
-- A fifth independent review found that a current direct-R1 notification token
-  queued behind `ringLock` could still be claimed after teardown published
-  `stopping`. `a46cb12` records ring callback identity before selecting the
-  callback lock and, once it acquires `ringLock`, rejects stopped/not-running
-  communicator state before token claim or legacy notification dispatch. The
-  glasses callback path retains `lock`, so framebuffer-release notifications
-  needed during teardown remain available. A precise regression pins the
-  callback-waits-behind-`ringLock` ordering and fail-closed gate.
-- A sixth independent review found that the accepted direct-R1 callback still
-  called its legacy handler while holding `ringLock`; that handler acquired the
-  display `lock` and forwarded health/gesture state, creating a hidden
-  `ringLock` -> `lock` edge. `58bd941` now claims the exact-GATT token and copies
-  notification bytes plus the volatile ring generation under `ringLock`, then
-  releases it before decoding or touching display state. Display mutations,
-  packetAck enqueue, log forwarding, health forwarding, and gesture forwarding
-  revalidate stopping/running/generation state; main-thread health, gesture, and
-  log callbacks also drop retired generations. PacketAck cursors retain the
-  accepted generation instead of adopting a replacement session. The source
-  contract now rejects transitive lock nesting and stale downstream dispatch.
-- A seventh independent review found the same transitive `ringLock` -> display
-  `lock` edge in the exact-GATT direct-R1 connection callback: the guarded
-  overload called the legacy disconnect handler while still holding
-  `ringLock`, and its battery snapshot acquired the display lock. `8330e9b`
-  now claims the exact-GATT token and updates only generation-bound ring
-  lifecycle state under `ringLock`, then releases it before battery snapshot,
-  logging, listener delivery, or ring-worker wake. Connected and disconnected
-  post-lock delivery revalidates stopping/running/generation state; battery and
-  log main-thread callbacks also reject retired generations. A precise
-  transitive source regression covers both connection states while preserving
-  the glasses framebuffer-release callback path.
-- Final rework verification on `58bd941`: callback concurrency plus focused ring
-  contracts 21/21 and full suite 152/152 passed; `npm run typecheck` passed after
-  linking the existing ignored dependency tree into the isolated worktree; and
-  the JDK 21 / Android SDK 35 debug build passed. APK:
-  `platforms/android/app/build/outputs/apk/debug/app-debug.apk` (336,310,280 bytes,
-  SHA-256 `da78a81b867fd51ce7c324ab39be09c4e33f723af3993f2e8766edd46a147e29`).
-  `git diff --check` passed and the added-line hardcoded-secret, shell-injection,
-  eval/exec, and unsafe-deserialization scan found zero matches.
-- Rework install/launch passed on the USB A32 (`SM_A326B`, serial recorded only in
-  the task handoff). A natural, non-induced initial R1 connection failure lasted
-  2.557 seconds on ring TID 25864; 43 glasses frame/write log lines completed on
-  display TID 25863 inside that exact failure window. Automatic retry then reached
-  ready with MTU 247 and both notifications, followed by 13 CRC-valid read-only
-  responses, one full health poll, and three 15-second current-HR requests. The
-  phone UI showed Hermes and `Connected`; no fatal runtime error or incomplete
-  teardown was logged. Frame timings were pulled to
-  `/tmp/t_535a9f1f-rework-frame-timings.txt` (23,289 bytes).
-- The `aaef1af` APK was then installed/launched again on the USB A32. A bounded
-  35-second smoke run showed distinct display/ring worker TIDs, direct R1 ready,
-  11 CRC-valid read-only responses, one full health poll, and one current-HR
-  request, with zero fatal exceptions or incomplete-teardown logs. A reversible
-  app force-stop removed the process and relaunch restored it. The untracked raw
-  smoke log is `/tmp/t_535a9f1f-atomic-gate-logcat.txt`; it may contain private
-  MAC/health material and must not be committed or published.
-- The `9671839` APK was installed and relaunched on the same USB A32 for a
-  bounded 45-second reconnect smoke. The process remained alive; display TID
-  1336 (`FaceclawBleComm`) and ring TID 1337 (`FaceclawRingLin`) were distinct;
-  direct R1 reached ready with MTU 247 and both notification subscriptions;
-  11 CRC-valid read-only notifications, five health GET writes, one current-HR
-  write, and 52 glasses frame/write lines were observed. There were zero fatal
-  exceptions and zero incomplete-teardown logs. The untracked raw log is
-  `/tmp/t_535a9f1f-callback-registry-logcat.txt`; it may contain private
-  MAC/health material and must not be committed or published.
-- The final dispatch-token code was installed and relaunched on the USB A32.
-  A bounded 45-second final-artifact capture kept the process alive with exactly
-  one `FaceclawBleComm` and one `FaceclawRingLin` thread. Direct R1 reached ready
-  with MTU 247; 12 CRC-valid/read-only notifications, one full health poll, and
-  14 glasses frame-timing lines were observed, with zero fatal exceptions and
-  zero incomplete-teardown logs. The earlier natural 2.557-second failure
-  interleaving remains the stronger timeout evidence. Raw final logs remain
-  untracked at `/tmp/t_535a9f1f-dispatch-token-final-logcat.txt` and must not be
-  committed or published.
-- The `a46cb12` APK was installed and relaunched on the USB A32 for a bounded
-  final smoke. The app process remained alive with exactly one display worker
-  (`FaceclawBleComm`, TID 14864) and one ring worker (`FaceclawRingLin`, TID
-  14865). Two natural, non-induced direct-R1 failures lasted 2.741 s and 2.685 s;
-  one glasses frame completed on a separate display TID inside the first failure
-  interval. The subsequent safe force-stop/relaunch reconnect reached direct-R1
-  ready with MTU 247, three CRC-valid/read-only health notifications, one full
-  health poll, and 23 frame-timing lines. The phone UI showed Hermes and
-  `Connected`; no fatal exception or incomplete teardown was logged. Raw logs
-  remain untracked at `/tmp/t_535a9f1f-fifth-review-logcat.txt` and must not be
-  committed or published.
-- The final `58bd941` APK was installed with `adb install --no-streaming -r` and relaunched
-  on the USB A32 for 45 seconds. Exactly one display worker (TID 9987) and one
-  ring worker (TID 9988) remained alive. A natural, non-induced direct-R1 failure
-  lasted 2.570 seconds while one glasses frame completed on the separate display
-  TID; automatic retry reached ready over 3.515 seconds with another frame inside
-  that connection interval. Four CRC-valid read-only notifications and 13 frame
-  timing lines followed, with zero fatal exceptions and zero incomplete-teardown
-  logs. Raw output is untracked at
-  `/tmp/t_535a9f1f-sixth-review-final-logcat.txt`; it may contain MAC/health data
-  and must not be committed or published.
-- Seventh-review verification on `8330e9b`: callback-inclusive focused tests
-  passed 22/22, the full suite passed 153/153, and `npm run typecheck` passed.
-  The first incremental NativeScript build reported success but retained the
-  preceding APK; hardware worker-start logs exposed the stale artifact. After
-  an explicit Gradle clean, the required JDK 21 / Android SDK 35 build compiled
-  Java and passed. The canonical APK is
-  `platforms/android/app/build/outputs/apk/debug/app-debug.apk` (335,763,275
-  bytes, SHA-256
-  `07830540335b0bf948e4d7494ac5981d35261011b96e030395f02738a1c03e3d`).
-  `git diff --check` passed and the added-line secret/injection/eval/unsafe
-  deserialization scan found zero matches.
-- That clean final APK installed successfully on the USB A32. Runtime showed
-  exactly one display worker (TID 7930, `FaceclawBleComm`) and one dedicated
-  ring worker (TID 7933, `FaceclawRingLin`). Four natural direct-R1 connection
-  failures lasted 2.550-2.571 seconds on the ring TID; frame #5 completed on a
-  separate GATT/display path inside the first 2.558-second failure interval.
-  A later safe force-stop/relaunch retry reached direct-R1 ready with MTU 247,
-  both notification subscriptions, ten CRC-valid read-only responses, and one
-  full health poll. The app remained alive with no fatal exception or incomplete
-  teardown log. Sanitized summary evidence is in this handover; raw MAC/health
-  logs remain untracked under `/tmp/t_535a9f1f-seventh-review-clean-*.txt` and
-  must not be committed or published.
-- No timeout was fabricated and no pairing/ownership, permission, MAC,
-  firmware/DFU, reset, power, or destructive operation was attempted; Even
-  Bluetooth remained revoked. The MAC/raw-health log remains untracked under
-  `/tmp` and must not be committed.
-- Review state: seven GPT-5.6 Sol medium-effort reviews requested lifecycle,
-  atomic ring-side-effect, stale-GATT callback, cross-lock dispatch, and
-  queued teardown-notification plus notification/connection transitive-lock rework.
-  `680dbf1`, `aaef1af`, `9671839`, `f0f4892`, `a46cb12`, `58bd941`, and
-  `8330e9b` address those findings respectively. The resulting frozen candidate
-  was approved by GPT-5.6 Sol medium-effort review and published unchanged at
-  `1dc65327ef33284877d3d9658ebc354b77cbbc2a` on PR #7 against `hermes-g2`.
-  Remaining latency siblings are the non-blocking wake barrier and shorter
-  `waitForFrameFinished`. The approved implementation is published unchanged
-  at `1dc65327ef33284877d3d9658ebc354b77cbbc2a` on PR #7; subsequent handover
-  edits are documentation-only and separate from that implementation.
-
-Seven self-contained items were completed on the `hermes-g2` branch/current
-working tree:
-
-- **Raw ring-frame security gate:** `sendRawRingFrame()` now fails closed before
-  writing to `bae80012`. It accepts only a complete canonical single-frame
-  envelope with a valid declared length and transport CRC, then applies the same
-  pairing/host/firmware sub-command blocklist as `buildRingFrame()`. Captured
-  `otaStart`, `advStart`, `setAlgoKey`, `nvRecover`, `powerControl`, and
-  `pairDelete` frames can no longer bypass the policy gate. Regression coverage
-  is in `tests/ring-frame.test.mjs`.
-- **Honest setup README / T4:** `README.md` now matches the in-app onboarding:
-  provision the G2 and R1 in Even first, explicitly disconnect the glasses,
-  release Even's Bluetooth access during Hermes use, and keep Even installed for
-  provisioning and official maintenance. This closes the remaining T4 release
-  gate.
-- **Read-only R1 firmware version:** Hermes now sends `system/deviceInfo(0x02)`
-  after session open, decodes the first NUL-padded 16-byte ASCII field from the
-  CRC-valid ack, and displays it in phone Glasses Controls. Verified live on the
-  A32 with the connected R1 as `2.2.8.0002`. No firmware-write behavior exists.
-- **Ring-native activity:** `cmd=5` is confirmed against the capture, firmware
-  struct accesses, and matching Even CSV rows. Hermes decodes 10-minute steps,
-  active kcal, total kcal, and derived resting kcal; merges and persists buckets
-  by local day; uses native active kcal as primary with Keytel as fallback; and
-  drains captured `packetAck` cursors through a bounded worker-thread queue.
-  Activity ingestion requires the exact daily push envelope, incoming MODBUS
-  inner CRC, and current local day. Persisted buckets are canonicalized, and
-  packet cursors are generation-bound across reconnects. Explicit test coverage
-  proves both stale (previous day) and future day bases are rejected, closing
-  the regression-coverage gap from commit `6b812fd`.
-- **R1 MTU contract:** direct-ring connect already requested MTU 247 after
-  service discovery and before notification subscription/health probing. The
-  result is now logged as `ok` or `fallback`, and a source-contract regression
-  test pins the constant and ordering without making MTU failure fatal.
-- **Fast current HR refresh:** the communicator worker now sends only the
-  heart-rate daily/current-hour GET every 15 seconds, matching the observed Even
-  cadence. Full HR/SpO2/HRV/activity/sleep/battery polling remains at 60 seconds,
-  and a full poll resets the fast timer so it never immediately duplicates HR.
-- **Ring-contention recovery UX:** direct R1 connection failures now surface the
-  same Even-app warning as glasses write failures. Main, Controls, and Health all
-  offer Open Even settings + Retry R1; opening settings starts a bounded release
-  poll that clears the warning and retries R1 once Even releases Bluetooth.
-- **MCP / skill publish audit:** the phone exposes 24 assistant tools, but public
-  MCP/skill publication is NO-GO. The complete matrix now classifies every tool,
-  the bridge/server, in-process surface, APK, render design, future skill, and
-  sibling adapter; no row is release-ready. The bridge still lacks
-  authenticated secure transport/server proof, per-turn generation
-  authorization, and cancellable/idempotent side effects. A bounded shell-owned
-  `glasses.render_view` v1 and `hermes-g2-glasses` skill remain blocked. See
-  `notes/mcp-skill-publish-audit-2026-08-20.md`.
-- **Bridge/MCP hardening pass 1:** privileged frames now require current-generation
-  authentication; stale socket callbacks are ignored; schemas are enforced;
-  app-tool ownership is window-safe; availability failures fail closed; MCP
-  initialization/errors and side-effecting notification rejection are covered;
-  proactive quota follows preflight. MCP lifecycle/replies are connection-bound;
-  duplicate IDs and late replies are suppressed; unsupported schemas fail closed;
-  array bounds/schema-valued extra properties are enforced; owner fallback,
-  top-level protocol-version/socket closure, and auth timeout are covered.
-  Targeted MCP/bridge/registry/in-process validation passes 19/19; the full
-  repository run currently reports 143 passed and 2 pre-existing ring activity
-  failures. These results are static/unit evidence only and do not close
-  hardware, credential, generic-client, or release gates.
-- **MCP glasses-display threat model:** added `notes/mcp-glasses-display-threat-model-2026-08-21.md`
-  with the end-to-end asset/trust-boundary model, threat register, safe-failure contract, exact P0/P1/P2
-  backlog, and STATIC/SIMULATED/A32-ONLY/A32+REAL-G2 evidence ledger. Static review remains **FAIL for
-  publication** and operational authorization remains **NO-GO**; no render implementation, publication,
-  or hardware claim was added.
-- **MCP display safety hardening:** added a pure display-text policy and focused
-  tests. `glasses.show_alert` now enforces a 160-character inert-text bound,
-  rejects control characters/markup/URLs, rejects off/disconnected sessions,
-  awaits the real shell transport result, and removes the alert on compositor
-  failure instead of reporting false success. Behavioral tests cover rejected
-  content, privacy-sensitive sentinels, unavailable display, transport failure,
-  and ordinary success. Proactive bridge actions now default off. Added
-  `docs/mcp-glasses-display.md` with configuration, privacy, troubleshooting,
-  disable/rollback, and honest hardware-evidence limits. This does not close the
- secure transport, turn-generation, idempotency, licensing, generic-client, or
- real-G2 publication gates.
-
-Verification for this hardening candidate: focused display handler checks pass
-4/4; prior MCP/registry/in-process checks pass 13/13; the full repository run
-still reports 147 passed and 2 known
-date-sensitive ring activity failures at `tests/ring-health-store.test.mjs:158`
-and `:190`. TypeScript typechecking passed, and a debug Android build completed
-with Android SDK 35 and JDK 21 at
-`platforms/android/app/build/outputs/apk/debug/app-debug.apk`. Debug APK builds
-are not reproducible, so no build-instance hash is treated as a canonical release
-identity.
-JDK 26 is present but fails this Gradle stack's `jlink` step; use
-`JAVA_HOME=/usr/lib/jvm/java-21-openjdk` and `ANDROID_HOME=/home/benny/Android/Sdk`.
-
-**Freeze status:** activity ingestion and packetAck lifecycle hardening passed
-independent static review, merged with the contention UX, passed 133 tests,
-typecheck, and a combined Android build, and was installed on the A32.
-
-**Next recommended item:** continue the external assistant bridge/MCP hardening:
-add authenticated secure transport/server proof, then bind MCP calls to unique
-live turn generations and add cancellation/idempotency for timed-out mutations.
-`glasses.render_view` and its skill stay blocked until those global gates close. After Benny provides a worn
-overnight capture, correlate `cmd=6` against the matching export.
-
-## 1. What this project is
-
-Hermes G2 is an unofficial Android interface for the Even Realities G2 glasses
-(NativeScript UI + Java BLE), plus a decoder for the Even R1 ring's health data.
-It talks directly to the ring over BLE and renders a glasses UI, health cards, a
-HUD, voice, notifications, navigation, and more.
-
-## 2. Where things live (READ THIS BEFORE MOVING MACHINES)
-
-The git repo is `hermes-faceclaw` (pushed to the private `not-benny/hermes-g2`).
-Two important things live OUTSIDE the repo and do NOT travel via git clone:
-
-- `../ground-truth-private/` — Even health-export CSVs, btsnoop captures, an
-  **unverified** R1 ring-firmware candidate (zip + extracted `application.bin`),
-  the RE harness `fwre.py`, and the full `DECODE-SPEC.md`. Personal health data +
-  proprietary firmware. Copy by hand when moving machines; the candidate is not
-  an approved image and must not be treated as one.
-- `secrets.local.md` — dev identifiers (device IP, BLE MACs, git identity, Even
-  API token location). Gitignored; recreate on the new machine.
-
-`ROADMAP.md` is tracked in the repository and is the canonical planning source
-that travels with a clone. Treat any older out-of-repo copy as archival unless
-it has explicitly newer changes.
-
-In-repo, the ring-health work is:
-- `app/health/ring-parser.ts` — frame reassembly, CRC-32C transport, inner-frame
-  unwrap, `decodeDailyData` (HR/SpO2/HRV/activity), `decodeRingBattery`.
-- `app/health/ring-health-store.ts` — decodes pushes, merges current-day activity
-  slots, and rejects malformed/unanchored/non-push activity frames.
-- `app/health/health-hourly.ts`, `health-insights.ts`, `health-history.ts`,
-  `calories.ts` — hourly persistence, readiness/HR insights, Keytel calorie fallback.
-- `app/apps/health/health-app.ts` — the glasses Health side card + HUD heart feed.
-- `App_Resources/.../FaceclawBleCommunicator.java` — ring connection, `probeRingHealth`,
-  `sendRingCommand`, `buildRingFrame` (CRC-32 correct; do not regress to random bytes).
-- `notes/ring-wire-format-2026-08-20.md` — the confirmed BLE wire format (public-safe).
-- `notes/ring-groundtruth-2026-08-20.md` — the ground-truth harness + CSV schemas.
-- `tests/ring-parser.test.mjs`, `ring-health-store.test.mjs` — decoder regression tests.
-
-## 3. What the ring-health/RE effort accomplished (this session)
-
-- Ring health data DECODED and confirmed by reverse-engineering the ring firmware:
-  frame envelope byte-verified (CRC-32C Castagnoli over the transport, inner
-  CRC-16/MODBUS), command table confirmed (health module=2; HR=1/SpO2=2/temp=3/
-  HRV=4/activity=5/sleep=6), HR/SpO2 = `[hour][avg][max][min]` u8, HRV = u16.
-- Live HR resolved: the daily-frame header `current` field (offset 11) is the live
-  current-hour reading, routed to `store.currentHr` and the HUD. Finest resolution
-  is hourly; there is no per-beat stream. The old "no live HR" was a mix of an
-  already-fixed CRC-32 write bug, Even-app ring contention, and a HUD wiring
-  regression (all resolved).
-- Ground truth captured: the Even app's own 7-CSV health export + a btsnoop of the
-  Even<->ring traffic, now the validation harness for every decoder.
-- R1 ring firmware extracted (Nordic DFU, nRF52840) and reverse-engineered with a
-  capstone harness (`fwre.py`) using format-string anchoring. Full byte-level
-  `DECODE-SPEC.md` written (private).
-- Activity/steps/calories decoder CONFIRMED and enabled: cmd=5 header carries
-  timezone + local-midnight epoch, records are 10-minute slot/steps/active-kcal/
-  total-kcal tuples, and resting kcal is derived as total-active. The captured
-  slot reproduces the matching Even CSV row exactly; buckets merge and persist.
-
-## 4. What is pending (see ROADMAP.md for the full list)
-
-- `cmd=6` sleep decode is deliberately deferred until Benny wears the ring
-  overnight. Schema + stage map known (0=Wake/1=REM/2=Light/3=Deep, 30s
-  epochs, total/wake/rem/light/deep seconds, body_temp_delta). Needs a real overnight
-  capture correlated to a live DB session. `decodeSleep` stays a throwing stub.
-- Request-layer MTU 247, `packetAck`, and the 15-second HR-only current refresh
-  are implemented.
-- Even firmware auto-track cron: the check_firmware API accepts the account JWT
-  (`x-token`) but returns 403 without the app's device-identifying params; finishing
-  it needs a one-time TLS intercept (mitmproxy/frida) of the app's real request.
-
-### 4a. Ring firmware consent gate (current NO-GO)
-
-- `notes/ring-firmware-consent-gate.md` is the reusable documentation-only informed-consent
-  gate for any future R1 firmware investigation or sacrificial-device test. It requires a
-  scope-limited phase approval plus a separately recorded per-run GO/NO-GO, with distinct
-  owner/custodian, hands-on operator, Benny as Hermes G2 safety approver, and (for destructive
-  work) an independent recovery lead/witness. Missing, stale, expanded, or revoked approval
-  fails closed; any signatory may stop and the owner may revoke future consent.
-- Operational authorization remains **NO-GO / BLOCKED / DO NOT BUILD**. The gate does not
-  establish protocol intelligence, a genuine vendor-signed hash-pinned image, Hermes-owned
-  pairing authority, or independent recovery. It never authorizes Secure DFU bypass, key
-  extraction, validation weakening, bootloader patching, downgrade/exploit paths, or device
-  modification. Private approvals, exact identifiers, captures, and raw logs belong under
-  `../ground-truth-private/firmware/approvals/<approval-id>/`; public records retain only
-  redacted aliases, approval IDs, statuses, hashes, and dates.
-- Next review trigger: only reassess after every independent gate is evidenced and a fresh
-  completed phase approval and per-run record are available for the specifically named scope,
-  device, artifact, procedure revision, and UTC window. No approval transfers to another run.
-
-## 5. Resuming the firmware RE on a new machine
-
-1. Copy `../ground-truth-private/` over (it holds the firmware + `fwre.py`).
-2. `pip install capstone` (that is the only RE dependency; no Ghidra needed).
-3. `cd ground-truth-private/firmware/re && python3 -c "import fwre; print(fwre.find_str('sleep'))"`.
-   Technique: firmware log/format strings are referenced from the code that builds
-   the matching record; `fwre.xrefs_to_str` -> `fwre.show(func)` reveals struct
-   offsets (ldr/str Rx,[Ry,#off]). See `DECODE-SPEC.md` for the confirmed layouts.
-
-## 6. Capturing fresh ground truth (needs the device + Even app)
-
-Full method is in `notes/ring-groundtruth-2026-08-20.md`. Summary: enable full
-btsnoop (Samsung path `/data/log/bt/btsnoop_hci.log`), briefly re-enable the Even
-app (then re-disable + re-revoke BT per the standing rule), reproduce the metric,
-pull the log + the Even app's built-in health-data export zip, and validate.
-
-## 7. Conventions
-
-- The repo is private now; commits use the trailers (Co-Authored-By + Claude-Session)
-  and the `not-benny` identity. A fresh PUBLIC repo will be curated later, at which
-  point the public scrubbing rules (no personal data, no MACs, no tokens) reapply.
-- Even app: disable-don't-uninstall (it owns pairing/firmware/ground-truth). Keep its
-  Bluetooth revoked; re-enable on demand only, then re-revoke.
-- Never commit `ground-truth-private/`, the Even API JWT, or raw health captures.
-
-## 8. Direct in-process assistant tool registration (local review candidate)
-
-- Candidate branch: `work/t_2c2d05f9-inprocess-tools-rework`, replacement frozen
-  commit chain `4b99bb8` (implementation), `8ba024d` (behavioral coverage),
-  and `d5ddd67` (focus-change notifications), based on
-  `origin/hermes-g2@ae89fd5e398a78ce9a7d00c66a47d92d02812319`. The in-process
-  window adapter accepts optional unprefixed `open`/`foreground` declarations,
-  uses the shared `ToolRegistry`, prefixes names as `app.<appId>.*`, and checks
-  checks the live shell foreground window at list and call time. Focus changes
-  notify the registry so clients refresh foreground-tool availability.
-- Closing a window removes its registration once before existing layer, app, and
-  surface cleanup; the registry's same-name fallback remains available. The
-  behavioral contract test exercises listing, foreground gating, direct
-  invocation, notifications, unknown-after-close behavior, and fallback.
-- Verification (frozen at `d5ddd67`): focused `node --test tests/in-process-surface.test.mjs
-  tests/tool-registry.test.mjs` passes 8/8; `npm run typecheck` passes; Android
-  JDK 21 / SDK debug `npm run build` passes. `npm run test` runs 145 tests,
-  143 pass, with two existing date-gated activity failures in
-  `tests/ring-health-store.test.mjs`. `git diff --check` passes. No hardware,
-  BLE, firmware, pairing, reset, wipe, or other destructive operation was
-  used; nothing was pushed and no PR is open pending independent
-  `g2-reviewer` approval.
-
-## 9. Non-blocking wake barrier (2026-08-21)
-
-- Implemented a worker-owned, generation/token-tagged wake barrier in
-  `FaceclawBleCommunicator.java`. Wake lease, readiness, and resume APIs now
-  register and return promptly; CLAIM/prelude/READY progression stays on the
-  communicator worker, with two-arm delivery counting, stale-generation
-  rejection, bounded deadlines, and disconnect/reset failure completion.
-- Added `onWakeBarrierComplete` through the Java listener and NativeScript bridge,
-  including bounded completion retention and timeout cleanup so a completion that
-  races waiter registration cannot settle a newer request.
-- Focused source-contract coverage is in `tests/wake-barrier.test.mjs` (2/2).
-  `npm run typecheck` passes and the JDK 21 / Android SDK debug build passes.
-  The full `npm test` baseline remains 143 passed / 2 existing date-gated ring
-  activity failures in `tests/ring-health-store.test.mjs`; no new failures were
-  observed. A32 USB serial `RFCR707RQGV` was used for a non-destructive debug APK
-  install and launch (`com.faceclaw.app`); bounded package-filtered logcat showed
-  normal NativeScript/node startup and no `AndroidRuntime`/`FATAL EXCEPTION`.
-- No firmware bytes, BLE framing, pairing, reset, wipe, or destructive device
-  operation was changed or used. Nothing has been pushed and no PR is open.
-
-## 10. Authorization-gated assistant and Terminal hardware matrix
-
-- The executable, authorization-gated runbook is
-  `notes/direct-assistant-app-tools-hardware-test-matrix.md`. It covers direct
-  calendar/provider behavior, wakeword policy, and the background Terminal
-  `list_sessions`, `send_input`, `read_screen`, and no-active-view cases.
-- No hardware or device-connected service result was produced. Execution is
-  unverified and pending an explicit, separately recorded GO naming the
-  authorized phone/G2, data/actions, disposable Terminal session, commands,
-  evidence scope, expiry, and exclusions.
-
-## 11. Held awesome-list submissions inventory (2026-08-21)
-
-- There is one target repository and two intended, separate suggestions:
-  `pangoleen/awesome-even-realities-g2` (`https://github.com/pangoleen/awesome-even-realities-g2`).
-  The contributor guide is `contributing.md` and requires one PR per suggestion,
-  appending to the appropriate category, the format
-  `- [Name](link) - Description.`, concise present-tense descriptions, a
-  canonical working link, and `npx awesome-lint`.
-- Suggestion 1 is the ring-health reverse-engineering material under
-  **Protocol and Reverse Engineering**. Intended public link:
-  `https://github.com/not-benny/hermes-g2/tree/main/docs/ring-health`.
-  The concrete scrubbed submission artifact is
-  `docs/ring-health/{README.md,capture-method.md,ring-frame-decoder.py}` on
-  `origin/main` at `f60bf48138e6e259ddf6d9d6b783a588c4f59ccb`; those files were
-  added in historical commit `af0362519045c1006c587b78738d7b1337c402b7`.
-  The current task ancestry's `notes/ring-health-protocol-2026-08-19.md` is a
-  working note containing private/raw-evidence references and is not the
-  publication source. Exact proposed entry:
-  `- [Hermes G2 Ring Health](https://github.com/not-benny/hermes-g2/tree/main/docs/ring-health) - Reverse-engineered R1 ring-health BLE protocol documentation with capture methods and a self-testing frame decoder.`
-- Suggestion 2 is **Hermes G2** under **AI and Agent Integrations**:
-  `https://github.com/not-benny/hermes-g2`. Intended description: an unofficial
-  Android companion for Even Realities G2 glasses, built around Hermes Agent,
-  with voice interaction, notifications, media, navigation, terminal mirroring,
-  and R1/glasses controls. Exact proposed entry:
-  `- [Hermes G2](https://github.com/not-benny/hermes-g2) - Unofficial Android companion for Even Realities G2 glasses, built around Hermes Agent, with voice interaction, notifications, media, navigation, terminal mirroring, and R1/glasses controls.`
-- The contributor fork exists at
-  `https://github.com/not-benny/awesome-even-realities-g2`. Its only branch is
-  `main` at `9c7ae1b`; no topic branch, draft commit, or persisted two-entry
-  patch was found. The fork's README does not contain either entry. The parent
-  currently has only unrelated open PR #1 (`add-er-studio`), and GitHub search
-  found no related issue or PR in either repository.
-- Publication is **NOT READY**: `not-benny/hermes-g2` is currently private,
-  unauthenticated requests to its root and intended ring-health URL return 404,
-  and its releases/tags API is empty. Therefore both intended links fail the
-  list's public-link/release gate and the exact release snapshot path must be
-  revalidated before preparing the entries. The public release, stable URLs,
-  and a durable fork patch are blockers; no awesome-list PR has been opened.
-- GitHub authentication is available as `not-benny` with `repo` scope and the
-  fork is owned by that account. Parent-repository collaborator permission
-  could not be queried (GitHub returned 403 because the account is not a
-  collaborator), so push access to `pangoleen/awesome-even-realities-g2` is
-  unconfirmed. A PR from the owned fork may be possible after the release gate,
-  but must be handled as reviewed delivery and not inferred from this inventory.
+## Current repository outcome
+
+The former PR #1-#9 queue is being consolidated without rewriting reviewed history.
+The canonical integration branch is `integration/t_30a956f8`; its frozen implementation
+commit is `49c865e7eff398e4de0c76ccc25507b7b74a518f`. The branch is based on
+`origin/hermes-g2@ae89fd5e398a78ce9a7d00c66a47d92d02812319` and retains the reviewed
+commits by merge ancestry while resolving overlapping health, assistant-tool, GATT,
+direct-R1, teardown, packetAck, and release work once.
+
+### Live GitHub queue at the documentation freeze
+
+- PR #1 (`test/activity-stale-day-gate`) was safely fast-forwarded to reviewed
+  `41514c508ada1053715c22786d39085874fed4b6`.
+- PR #2 (`wt/t_f56ee8c2`) was safely fast-forwarded to reviewed
+  `5427dee70b3f4ea07fb1034355b6b8a25f97a2be`.
+- PR #3 was previously fast-forwarded to reviewed trusted-health head
+  `3381ee1fc98c6a22017abca06b28fbba2286ca16`; the integration branch also
+  preserves the separately reviewed fail-closed persistence head
+  `9161ea6b781ba11b1a6ab04a154237a11b30d339`.
+- PR #4 was safely fast-forwarded to reviewed generation-safe head
+  `9ce65d308bb6f15627aded13cda4379ed45fdbae`.
+- Old broad PR #5 was closed as superseded. Focused docs-only replacement PR #10
+  is https://github.com/not-benny/hermes-g2/pull/10 at reviewed
+  `84d5c17a72b6a9c3d5020d76a794221716dc9830`; it excludes stale wake-barrier code.
+- PRs #6, #7, and #8 remain preserved at `bf59c2b7`, `c2534b7a`, and `f4f9761f`
+  until the canonical integration PR is remotely verified, then they should be
+  closed with factual supersession comments. Their reviewed commits are retained
+  in the integration ancestry; their overlapping lifecycle implementation is
+  represented by the corrected integrated result rather than independent merges.
+- PR #9 remains preserved at `9be278fc`; its changelog commit is retained in the
+  integration ancestry and must not claim operational BLE evidence.
+- GitHub showed no CI check rollups on these PRs at freeze time. Local verification
+  below is evidence, not a claim that GitHub checks are green.
+
+## Integrated behavior
+
+### BLE and direct R1 lifecycle
+
+- All GATT connection and operation completions are bound to exact
+  `BluetoothGatt` identity plus a monotonic generation in `GattCallbackRegistry`.
+- Disconnect/timeout retires only the owned GATT, fails its waiters closed, and
+  cannot retire a same-address replacement.
+- Stale CONNECTED and DISCONNECTED callbacks are idempotently retired and close
+  only the obsolete exact object.
+- External notification/connection listeners run on one ordered manager executor,
+  not the Android BLE callback thread. Copied payloads revalidate their exact
+  dispatch lease under the per-address retirement gate immediately before mutation.
+- Manager close rejects queued effects and shuts down the callback executor.
+- Display and ring workers have separate lifecycle ownership. Incomplete bounded
+  teardown retains the communicator and subscriptions, blocks replacement, and
+  completes manager/GATT, wake-lock, receiver, and thread cleanup exactly once
+  after both workers quiesce.
+- Glasses connection attempts carry a generation. Arm loss, hard transport failure,
+  reset, and user disconnect invalidate a stale attempt before it can republish
+  `sessionReady` or start the R1 path.
+- packetAck work is queued only for the live ready ring generation, bounded to 16,
+  worker-drained, and revalidated under `ringLock` through the final BLE write.
+  Ring loss, arm loss, failed ring connect, successful replacement, hard transport
+  failure, reset, and disconnect increment generation and clear queued cursors.
+- The rejected asynchronous wake-barrier implementation and its disconnected test
+  model were removed. The retained PR #7 synchronous wake/readiness contract is
+  used by the NativeScript bridge; no stale completion-token map remains.
+
+### Assistant and persistence lifecycle
+
+- Health MCP data remains consent-gated and unavailable to the plaintext external
+  bridge. Trusted calls require a live caller, connection generation, turn
+  generation, and final pre-load policy check.
+- Canonical health persistence is fail-closed: malformed/future data is preserved,
+  replacement is read-back verified, partial legacy cleanup is retryable, and
+  preview seeding does not claim success after failed persistence.
+- In-process tool registration and teardown use generation-specific leases.
+  Window close/replacement aborts only owned calls and prevents stale cleanup from
+  deleting or cancelling a replacement.
+- Cancellation reaches worker terminal input, timer mutations, Roam writes,
+  navigation/timer launch wrappers, and the final delayed alert delivery predicate.
+
+## Verification on the integrated implementation commit
+
+- Focused BLE/lifecycle suite: 39/39 passed:
+  `node --test tests/gatt-callback-registry.test.mjs tests/gatt-callback-identity.test.mjs tests/gatt-callback-dispatch.test.mjs tests/ring-worker-isolation.test.mjs tests/ring-worker-lifecycle.test.mjs tests/communicator-teardown.test.mjs tests/ring-frame.test.mjs tests/ring-packetack-lifecycle.test.mjs`.
+- Full host suite: `npm run test` passed 225/225.
+- TypeScript: `npm run typecheck` passed after resolving four integration-only
+  launch-wrapper signature errors.
+- `git diff --check`: passed before the documentation commit.
+- Android JDK 21 / SDK 35 build: pending final documentation commit; record the
+  exact outcome here before delivery.
+- Independent adversarial review: required on the final frozen SHA before push.
+- Hardware: the integrated APK has not yet been installed or exercised. Static
+  review and host tests do not authorize BLE runtime claims.
+
+Static review: PENDING — final frozen SHA has not yet completed independent review.
+Operational authorization: NO-GO — final A32/G2/R1 runtime lifecycle checks are not yet complete.
+Firmware/DFU authorization: NO-GO / DO NOT BUILD — no firmware, pairing ownership,
+provisioning, reset, wipe, or destructive operation is authorized by this queue work.
+
+## Safe hardware boundary
+
+Non-destructive USB debugging on the configured Samsung A32 is permitted: build,
+install, launch, package-PID logcat, screenshots, and read-only observation. Do not
+clear app/device data, change pairing ownership, provision NVM, flash firmware,
+perform DFU/OTA, factory reset, unpair, or publish private captures. If the phone,
+G2, or R1 is unavailable, report the missing evidence rather than inferring success.
+
+## Out-of-repo private data
+
+Private health exports, btsnoop captures, firmware binaries, decode notes, device
+identifiers, credentials, and approval evidence remain outside the repository under
+the existing private project directories. Do not copy them into commits, PR bodies,
+CI logs, or public artifacts.
+
+## Delivery sequence
+
+1. Commit this HANDOVER/ROADMAP freeze and record the final SHA.
+2. Run the final full suite, typecheck, JDK21/SDK35 Android build, diff check, and
+   added-line secret/private-data scan.
+3. Run independent adversarial review against that exact SHA. Fix blockers and
+   re-review a new frozen SHA if needed.
+4. Perform safe A32/G2/R1 runtime checks when the devices are available; otherwise
+   keep operational authorization NO-GO.
+5. Push `integration/t_30a956f8` without force and open the canonical integration PR
+   against `hermes-g2`.
+6. Read back remote SHA, base/head, files, commits, body, state, mergeability, and
+   checks. Only then close overlapping PRs #3/#4/#6/#7/#8/#9 as superseded where
+   their work is demonstrably preserved. Keep PRs #1, #2, and #10 independent.
+7. A final HANDOVER-only delivery-state commit may use the bounded deterministic
+   documentation exception after diff/security checks and exact remote readback.

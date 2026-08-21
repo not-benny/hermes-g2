@@ -1,6 +1,6 @@
 # Hermes G2 — ROADMAP
 
-Living planning doc (Now / Next / Later). Canonical for planning as of 2026-08-20.
+Living planning doc (Now / Next / Later). Canonical for planning as of 2026-08-21.
 Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
 
 **Status key:** DONE · IN-PROGRESS · BLOCKED · TODO · RESEARCH
@@ -32,6 +32,17 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
 ---
 
 ## NOW — active / next to land
+
+### Repository queue consolidation
+- **IN-PROGRESS** (2026-08-21) — Canonical successor `integration/t_30a956f8`
+  preserves the reviewed PR #3/#4/#6/#7/#8/#9 histories while integrating their
+  overlapping health, app-tool, GATT, direct-R1, teardown, packetAck, and release
+  work once. Host tests and typecheck pass on implementation commit `49c865e7`;
+  final Android build, independent frozen-SHA review, remote PR readback, and safe
+  hardware evidence remain required. PR #1 and #2 were fast-forwarded to reviewed
+  heads. Broad PR #5 is closed; focused docs-only replacement PR #10 excludes the
+  rejected asynchronous wake-barrier implementation. Do not merge or close the
+  overlapping preserved PRs until the canonical remote successor is verified.
 
 ### Health (ring) — session largely CLOSED
 - **CONFIRMED (firmware RE, 2026-08-20)** — Ring protocol byte-verified against the captured firmware and real
@@ -67,10 +78,12 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   glasses HUD (re-wired this session). The frame envelope for this path is byte-verified (see CONFIRMED above),
   which closes the earlier "finish the frame-format decode" sub-item. A worker-thread HR-only GET now refreshes
   the current-hour value every 15s (NOT per-beat), while heavier full-health polling stays at 60s.
-- **DONE** (2026-08-20) — Request-layer MTU + packetAck: direct-ring connect requests MTU 247 after
+- **IMPLEMENTED / HARDWARE VALIDATION PENDING** (2026-08-21) — Request-layer MTU + packetAck: direct-ring connect requests MTU 247 after
   service discovery and before notify subscription/probing, logging `ok` or safe `fallback`; the captured
   system/packetAck (0x7e) cursor loop uses CRC/shape validation, a bounded callback queue, generation tags,
-  comprehensive reset clearing, and worker-thread writes.
+  reset clearing across ring/arm/transport/replacement teardown, and worker-thread writes with a final
+  generation gate under `ringLock`. Integrated host regressions pass; final A32/G2/R1 reconnect evidence
+  is still required before operational PASS.
   The same worker runs an HR-only 15s current refresh without re-polling all metrics.
 
 ### Security
@@ -129,8 +142,10 @@ session-open frame is hardcoded/universal (not per-device).
   over-claim is SAFE; a wrong gate could UNDER-claim and break voice capture. Leave until exercisable on-device.
 
 ### Release / repo
-- **IN-PROGRESS** — Q: the 1.0.0 `CHANGELOG.md` is drafted. The debug preview APK and GitHub Release remain
-  pending, followed by the held awesome-list PRs. Keep the public repo evolving.
+- **IN-PROGRESS** — Q: the 1.0.0 `CHANGELOG.md` is drafted. Land and remotely
+  verify the canonical queue integration before producing the debug preview APK,
+  GitHub Release, and held awesome-list PRs. Do not overstate unverified BLE
+  hardware behavior in release copy.
 
 ---
 
