@@ -12,9 +12,10 @@ import java.util.concurrent.TimeUnit;
 /**
  * Identity-bound callback state shared by BLE caller and callback threads.
  *
- * All current-GATT checks, operation result publication, waiter completion, and
- * listener dispatch happen under this object's monitor. Callers must not invoke
- * Android Bluetooth APIs while holding this monitor.
+ * Current-GATT checks, operation result publication, and waiter completion happen
+ * under this object's monitor. External listeners receive a one-shot generation
+ * token and must claim it under their own state lock before mutating state. No
+ * listener or Android Bluetooth API runs while this monitor is held.
  */
 final class GattCallbackRegistry<G> {
     static final String CONNECT = "connect";
@@ -24,9 +25,11 @@ final class GattCallbackRegistry<G> {
         private G gatt;
         private Integer status;
         private byte[] value;
+        private final long generation;
 
-        private Operation(G gatt) {
+        private Operation(G gatt, long generation) {
             this.gatt = gatt;
+            this.generation = generation;
         }
 
         boolean await(int timeoutMs) throws InterruptedException {
@@ -52,7 +55,37 @@ final class GattCallbackRegistry<G> {
 
     private final Map<String, G> currentGatts = new HashMap<>();
     private final Map<String, Map<String, Operation<G>>> operations = new HashMap<>();
+    private final Map<String, Long> generations = new HashMap<>();
     private final List<WeakReference<G>> retiredGatts = new LinkedList<>();
+    private long nextGeneration;
+
+    private final class Dispatch implements FaceclawBleListener.DispatchToken {
+        private final String address;
+        private final G gatt;
+        private final long generation;
+        private final boolean requireCurrent;
+        private boolean claimed;
+
+        private Dispatch(String address, G gatt, long generation, boolean requireCurrent) {
+            this.address = address;
+            this.gatt = gatt;
+            this.generation = generation;
+            this.requireCurrent = requireCurrent;
+        }
+
+        @Override public boolean claim() {
+            synchronized (GattCallbackRegistry.this) {
+                if (claimed || !Long.valueOf(generation).equals(generations.get(address))) {
+                    return false;
+                }
+                if (requireCurrent && (currentGatts.get(address) != gatt || isRetired(gatt))) {
+                    return false;
+                }
+                claimed = true;
+                return true;
+            }
+        }
+    }
 
     synchronized G current(String address) {
         return currentGatts.get(address);
@@ -63,7 +96,9 @@ final class GattCallbackRegistry<G> {
     }
 
     synchronized Operation<G> beginConnect(String address) {
-        Operation<G> operation = new Operation<>(null);
+        long generation = ++nextGeneration;
+        generations.put(address, generation);
+        Operation<G> operation = new Operation<>(null, generation);
         operationsFor(address).put(CONNECT, operation);
         return operation;
     }
@@ -93,25 +128,29 @@ final class GattCallbackRegistry<G> {
         if (!isCurrent(address, gatt)) {
             throw new IllegalStateException("Not connected: " + address);
         }
-        Operation<G> operation = new Operation<>(gatt);
+        Operation<G> operation = new Operation<>(gatt, generationFor(address));
         operationsFor(address).put(kind, operation);
         return operation;
     }
 
-    synchronized boolean completeConnect(String address, G gatt, boolean connected, Runnable dispatch) {
+    synchronized FaceclawBleListener.DispatchToken completeConnect(
+            String address,
+            G gatt,
+            boolean connected
+    ) {
         Operation<G> operation = operationFor(address, CONNECT);
         if (operation == null || gatt == null || isRetired(gatt)) {
-            return false;
+            return null;
         }
         if (operation.gatt == null) {
             if (currentGatts.get(address) != null) {
-                return false;
+                return null;
             }
             operation.gatt = gatt;
             currentGatts.put(address, gatt);
         }
         if (operation.gatt != gatt || currentGatts.get(address) != gatt) {
-            return false;
+            return null;
         }
 
         operation.status = connected ? 1 : 0;
@@ -120,10 +159,7 @@ final class GattCallbackRegistry<G> {
             retireLocked(address, gatt);
         }
         operation.latch.countDown();
-        if (dispatch != null) {
-            dispatch.run();
-        }
-        return true;
+        return new Dispatch(address, gatt, operation.generation, connected);
     }
 
     synchronized boolean completeOperation(
@@ -144,23 +180,20 @@ final class GattCallbackRegistry<G> {
         return true;
     }
 
-    synchronized boolean dispatchIfCurrent(String address, G gatt, Runnable dispatch) {
+    synchronized FaceclawBleListener.DispatchToken dispatchIfCurrent(String address, G gatt) {
         if (!isCurrent(address, gatt)) {
-            return false;
+            return null;
         }
-        dispatch.run();
-        return true;
+        return new Dispatch(address, gatt, generationFor(address), true);
     }
 
-    synchronized boolean disconnectIfCurrent(String address, G gatt, Runnable dispatch) {
+    synchronized FaceclawBleListener.DispatchToken disconnectIfCurrent(String address, G gatt) {
         if (!isCurrent(address, gatt)) {
-            return false;
+            return null;
         }
+        long generation = generationFor(address);
         retireLocked(address, gatt);
-        if (dispatch != null) {
-            dispatch.run();
-        }
-        return true;
+        return new Dispatch(address, gatt, generation, false);
     }
 
     synchronized boolean cancel(String address, String kind, Operation<G> operation) {
@@ -172,15 +205,17 @@ final class GattCallbackRegistry<G> {
         return true;
     }
 
-    synchronized boolean retire(String address, G gatt, Runnable dispatch) {
+    synchronized boolean retire(String address, G gatt) {
         if (gatt == null || currentGatts.get(address) != gatt) {
             return false;
         }
         retireLocked(address, gatt);
-        if (dispatch != null) {
-            dispatch.run();
-        }
         return true;
+    }
+
+    private long generationFor(String address) {
+        Long generation = generations.get(address);
+        return generation != null ? generation : 0;
     }
 
     private Map<String, Operation<G>> operationsFor(String address) {

@@ -167,6 +167,20 @@ public class FaceclawDeviceInfoProbe implements FaceclawBleListener {
     }
 
     @Override
+    public void onNotification(
+            String address,
+            String characteristicUuid,
+            byte[] data,
+            FaceclawBleListener.DispatchToken dispatchToken
+    ) {
+        synchronized (lock) {
+            if (dispatchToken != null && dispatchToken.claim()) {
+                onNotification(address, characteristicUuid, data);
+            }
+        }
+    }
+
+    @Override
     public void onNotification(String address, String characteristicUuid, byte[] data) {
         if (!BleProtocol.NOTIFY_CHAR_UUID.equalsIgnoreCase(characteristicUuid)) {
             return;
@@ -182,6 +196,19 @@ public class FaceclawDeviceInfoProbe implements FaceclawBleListener {
             if (awaitLatch != null && frame.sid == awaitSid && frame.msgSeq == awaitMagic) {
                 awaitPb = frame.pb;
                 awaitLatch.countDown();
+            }
+        }
+    }
+
+    @Override
+    public void onConnectionStateChange(
+            String address,
+            boolean connected,
+            FaceclawBleListener.DispatchToken dispatchToken
+    ) {
+        synchronized (lock) {
+            if (dispatchToken != null && dispatchToken.claim()) {
+                onConnectionStateChange(address, connected);
             }
         }
     }

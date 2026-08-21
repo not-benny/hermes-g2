@@ -1169,6 +1169,24 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
     }
 
+    @Override public void onNotification(
+            String address,
+            String characteristicUuid,
+            byte[] data,
+            FaceclawBleListener.DispatchToken dispatchToken
+    ) {
+        if (address == null || dispatchToken == null) {
+            return;
+        }
+        Object callbackLock = isConfiguredRingAddress(address) ? ringLock : lock;
+        synchronized (callbackLock) {
+            if (!dispatchToken.claim()) {
+                return;
+            }
+            onNotification(address, characteristicUuid, data);
+        }
+    }
+
     @Override public void onNotification(String address, String characteristicUuid, byte[] data) {
         if (address == null || characteristicUuid == null || data == null) {
             return;
@@ -1424,6 +1442,23 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             listenerToCall.onAudioPacket(Arrays.copyOf(data, data.length), arm, arrivalMs);
         } catch (Throwable t) {
             logLine("G2 mic packet listener failed: " + safeMessage(t));
+        }
+    }
+
+    @Override public void onConnectionStateChange(
+            String address,
+            boolean connected,
+            FaceclawBleListener.DispatchToken dispatchToken
+    ) {
+        if (address == null || dispatchToken == null) {
+            return;
+        }
+        Object callbackLock = isConfiguredRingAddress(address) ? ringLock : lock;
+        synchronized (callbackLock) {
+            if (!dispatchToken.claim()) {
+                return;
+            }
+            onConnectionStateChange(address, connected);
         }
     }
 
