@@ -10,30 +10,25 @@ implementation freeze was `49c865e7eff398e4de0c76ccc25507b7b74a518f`). The branc
 commits by merge ancestry while resolving overlapping health, assistant-tool, GATT,
 direct-R1, teardown, packetAck, and release work once.
 
-### Live GitHub queue at the documentation freeze
+### Final live GitHub queue
 
 - PR #1 (`test/activity-stale-day-gate`) was safely fast-forwarded to reviewed
   `41514c508ada1053715c22786d39085874fed4b6`.
 - PR #2 (`wt/t_f56ee8c2`) was safely fast-forwarded to reviewed
   `5427dee70b3f4ea07fb1034355b6b8a25f97a2be`.
-- PR #3 was previously fast-forwarded to reviewed trusted-health head
-  `3381ee1fc98c6a22017abca06b28fbba2286ca16`; the integration branch also
-  preserves the separately reviewed fail-closed persistence head
-  `9161ea6b781ba11b1a6ab04a154237a11b30d339`.
-- PR #4 was safely fast-forwarded to reviewed generation-safe head
-  `9ce65d308bb6f15627aded13cda4379ed45fdbae`.
+- Canonical integration PR #11 is https://github.com/not-benny/hermes-g2/pull/11
+  at exact reviewed remote head `46cff6c87d47311140e2f678529561ce30b47009`,
+  base `hermes-g2`. GitHub readback reports OPEN, non-draft, MERGEABLE, with the
+  intended files/body/commits; `statusCheckRollup` is empty and there is no formal
+  review decision.
 - Old broad PR #5 was closed as superseded. Focused docs-only replacement PR #10
   is https://github.com/not-benny/hermes-g2/pull/10 at reviewed
   `84d5c17a72b6a9c3d5020d76a794221716dc9830`; it excludes stale wake-barrier code.
-- PRs #6, #7, and #8 remain preserved at `bf59c2b7`, `c2534b7a`, and `f4f9761f`
-  until the canonical integration PR is remotely verified, then they should be
-  closed with factual supersession comments. Their reviewed commits are retained
-  in the integration ancestry; their overlapping lifecycle implementation is
-  represented by the corrected integrated result rather than independent merges.
-- PR #9 remains preserved at `9be278fc`; its changelog commit is retained in the
-  integration ancestry and must not claim operational BLE evidence.
-- GitHub showed no CI check rollups on these PRs at freeze time. Local verification
-  below is evidence, not a claim that GitHub checks are green.
+- PRs #3, #4, #6, #7, #8, and #9 are closed with factual #11 supersession
+  comments after remote ancestry/readback proved their reviewed heads are retained.
+  Their branches and exact SHAs were not deleted or rewritten.
+- The remaining open queue is #1, #2, #10, and #11. None currently has visible CI
+  check rollups; local verification below is evidence, not a claim of green GitHub CI.
 
 ## Integrated behavior
 
@@ -95,7 +90,8 @@ direct-R1, teardown, packetAck, and release work once.
   publication and timeout-retirement ownership gaps; `329af655` adds a shared
   generation lock, timeout-boundary completion rechecks, and exact retirement-owned
   close. Focused 40/40, full 226/226, typecheck, and Android build pass afterward.
-  A final exact-SHA adversarial review is required before push.
+  Final exact-SHA adversarial review at `46cff6c8`: PASS, with no remaining
+  file/line/interleaving blocker.
 - Hardware: the 335,803,763-byte debug APK installed successfully over USB on the
   configured Samsung A32 and launched as PID 26465. Package-filtered logs showed
   both G2 arms CONNECTED, prelude ACK, `session ready`, direct R1 CONNECTED,
@@ -109,8 +105,7 @@ direct-R1, teardown, packetAck, and release work once.
   or communicator-loop error. This proves startup/retry/connect/read-path behavior,
   but not every stale-callback or concurrent teardown interleaving.
 
-Static review: PENDING — final `329af655` code plus this documentation freeze has
-not yet completed independent re-review.
+Static review: PASS — exact reviewed and remotely delivered head `46cff6c87d47311140e2f678529561ce30b47009`.
 Operational authorization: LIMITED GO for the observed non-destructive startup and
 read-only G2/R1 path; NO-GO for unexercised stale-callback/concurrent-teardown cases.
 Firmware/DFU authorization: NO-GO / DO NOT BUILD — no firmware, pairing ownership,
@@ -131,19 +126,10 @@ identifiers, credentials, and approval evidence remain outside the repository un
 the existing private project directories. Do not copy them into commits, PR bodies,
 CI logs, or public artifacts.
 
-## Delivery sequence
+## Next action
 
-1. Commit this HANDOVER/ROADMAP freeze and record the final SHA.
-2. Run the final full suite, typecheck, JDK21/SDK35 Android build, diff check, and
-   added-line secret/private-data scan.
-3. Run independent adversarial review against that exact SHA. Fix blockers and
-   re-review a new frozen SHA if needed.
-4. Perform safe A32/G2/R1 runtime checks when the devices are available; otherwise
-   keep operational authorization NO-GO.
-5. Push `integration/t_30a956f8` without force and open the canonical integration PR
-   against `hermes-g2`.
-6. Read back remote SHA, base/head, files, commits, body, state, mergeability, and
-   checks. Only then close overlapping PRs #3/#4/#6/#7/#8/#9 as superseded where
-   their work is demonstrably preserved. Keep PRs #1, #2, and #10 independent.
-7. A final HANDOVER-only delivery-state commit may use the bounded deterministic
-   documentation exception after diff/security checks and exact remote readback.
+Review and merge the independent open PRs in a conflict-free order: #1, #2, #10,
+then canonical #11 (or re-evaluate after each base advance). GitHub CI is still
+absent, so do not equate local evidence with required status checks. After landing,
+build the preview release and held awesome-list submissions without expanding the
+firmware or destructive-operation authorization boundary.

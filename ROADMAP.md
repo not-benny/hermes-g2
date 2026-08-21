@@ -40,11 +40,12 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   work once. Host tests, typecheck, JDK21/SDK35 Android build, and safe USB A32
   G2/R1 startup/read-path checks pass; the first independent review's four BLE
   blockers and two re-review races were fixed through code commit `329af655`.
-  Exact-SHA re-review and remote
-  PR readback remain required. PR #1 and #2 were fast-forwarded to reviewed
+  Exact-SHA re-review passed and canonical PR #11 was remotely verified at
+  `46cff6c8`; overlapping PRs #3/#4/#6/#7/#8/#9 are closed as preserved
+  superseded branches. PR #1 and #2 were fast-forwarded to reviewed
   heads. Broad PR #5 is closed; focused docs-only replacement PR #10 excludes the
-  rejected asynchronous wake-barrier implementation. Do not merge or close the
-  overlapping preserved PRs until the canonical remote successor is verified.
+  rejected asynchronous wake-barrier implementation. The remaining open PRs are
+  #1, #2, #10, and #11; re-check conflicts after every base-branch merge.
 
 ### Health (ring) — session largely CLOSED
 - **CONFIRMED (firmware RE, 2026-08-20)** — Ring protocol byte-verified against the captured firmware and real
