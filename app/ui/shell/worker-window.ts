@@ -281,6 +281,13 @@ export class WorkerAppHost {
   openWindow(spec: WorkerWindowSpec): ShellWindow {
     const surfaceId = `window:${spec.windowId}`;
     const heightMode = spec.heightMode ?? windowDefaultHeightMode();
+    // ShellWindow IDs may be reused. Release the replaced generation before
+    // replacing its lifecycle state, so a replacement that closes before it
+    // declares tools cannot leave the old window's tools callable.
+    const previousState = this.openWindows.get(spec.windowId);
+    if (previousState?.lease) {
+      toolRegistry.removeAppTools(spec.windowId, previousState.lease);
+    }
     const windowState = { lease: undefined as AppToolLease | undefined };
     this.openWindows.set(spec.windowId, windowState);
     this.post({

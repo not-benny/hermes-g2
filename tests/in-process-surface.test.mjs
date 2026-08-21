@@ -82,3 +82,42 @@ test("in-process adapter registers, gates, invokes, notifies, and tears down too
   assert.match(window, /if \(closed\) return;\s*closed = true;\s*removeTools\(\);/);
   assert.match(window, /setForeground: \(foreground\) => \{[\s\S]*toolRegistry\.fireToolsChanged\(\);/);
 });
+
+test("worker host closes a same-ID replacement before it declares tools", async () => {
+  const registryUrl = dataUrl(transpile(read("app/assistant/tool-registry.ts")));
+  const workerSource = transpile(read("app/ui/shell/worker-window.ts"))
+    .replace('"../../graphics/image"', JSON.stringify(dataUrl("export class GrayImage {}")))
+    .replace('"./chrome-layer"', JSON.stringify(dataUrl("export const windowIcon = () => undefined;")))
+    .replace('"../../graphics/icons"', JSON.stringify(dataUrl("export {};")))
+    .replace('"../../assistant/tool-registry"', JSON.stringify(registryUrl))
+    .replace('"./geometry"', JSON.stringify(dataUrl("export const appViewportSize = () => ({ width: 1, height: 1 }); export const windowDefaultHeightMode = () => \"min\";")))
+    .replace('"./shell"', JSON.stringify(dataUrl("export const shell = { foregroundWindow: () => undefined, isScreenOn: () => true, focusWindow: () => {}, wake: () => {}, yieldFocusToSidebar: () => {}, setWindowAttention: () => {}, closeWindow: () => {}, beginReorderFromMenu: () => {}, startVoiceInput: () => {}, setTrayIcon: () => {}, isWindowFocused: () => false, registerWindow: () => {} };")));
+  const [{ WorkerAppHost }, { toolRegistry }] = await Promise.all([
+    import(dataUrl(workerSource)),
+    import(registryUrl),
+  ]);
+  const openSpec = { name: "open", description: "open", inputSchema: { type: "object" }, availability: "open" };
+  const worker = { postMessage: () => {}, onmessage: null, onerror: null };
+  let changes = 0;
+  toolRegistry.onToolsChanged(() => { changes++; });
+  const host = new WorkerAppHost({
+    appId: "demo",
+    worker,
+    configureSurface: async () => {},
+    setSurfaceVisible: () => {},
+    removeSurface: () => {},
+    requestShellRender: () => {},
+    openSettings: () => {},
+    startTextSettingEdit: () => {},
+    endTextSettingEdit: () => {},
+  });
+  host.openWindow({ windowId: "reused", title: "old", iconLetter: "O" });
+  worker.onmessage({ data: { type: "set-tools", windowId: "reused", tools: [openSpec] } });
+  assert.deepEqual(toolRegistry.listTools().map((spec) => spec.name), ["app.demo.open"]);
+
+  const replacement = host.openWindow({ windowId: "reused", title: "new", iconLetter: "N" });
+  assert.deepEqual(toolRegistry.listTools(), []);
+  replacement.close();
+  assert.deepEqual(toolRegistry.listTools(), []);
+  assert.equal(changes, 2);
+});
