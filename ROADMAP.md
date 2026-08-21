@@ -23,8 +23,8 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   Even app's built-in health-data export (7 CSVs). Together these give ground truth for validating every ring
   decoder (HR, sleep, calories, steps, temperature). The Even-BT re-enable MUST be reverted afterward per the
   standing rule above.
-- **Private ground-truth data is repo-excluded.** The Even export CSVs and btsnoop captures live at
-  `/home/benny/Documents/hermes-g2/ground-truth-private/`, the captured R1 ring firmware zip under
+- **Private ground-truth data is repo-excluded.** The Even export CSVs and btsnoop captures live in the
+  repo-excluded sibling private project directory, with the captured R1 ring firmware zip under
   `ground-truth-private/firmware/`, and the byte-verified decode spec at
   `ground-truth-private/firmware/re/DECODE-SPEC.md`. None of it may EVER be committed to the public repo
   (personal health data and the proprietary firmware binary).

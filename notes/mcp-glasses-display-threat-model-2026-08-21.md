@@ -269,7 +269,7 @@ escape tests. Until then, retain `FAIL for publication` and `NO-GO`.
   `FaceclawBleCommunicator.java:700-801,1383-1434`.
 - Publication matrix and exact v1 limits:
   `notes/mcp-skill-publish-audit-2026-08-20.md:101-142,173-232`.
-- Sibling bridge evidence: `/home/benny/Documents/hermes-g2/hermes-faceclaw-agent-bridge/README.md:13-37,72-95,107-147,194-224`,
+- Sibling bridge evidence: `<sibling-bridge>/README.md:13-37,72-95,107-147,194-224`,
   `lib/bridge-service.js:24-57,93-280,282-358`,
   `lib/mcp-client.js:23-43,92-124`, `lib/tools.js:28-81`.
 

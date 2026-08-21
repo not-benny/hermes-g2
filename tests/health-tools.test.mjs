@@ -74,7 +74,7 @@ const daily = (dateKey, over = {}) => ({
 function setup() {
   native.setTestConsent(false);
   native.resetLoadCount();
-  native.setTestDocument({ history: [daily(TODAY, { steps: 12, bridgeToken: "forbidden" })], hourly: [] });
+  native.setTestDocument({ history: [daily(TODAY, { steps: 12, privateMarker: "forbidden" })], hourly: [] });
   const registry = new ToolRegistry();
   registerHealthTools(registry);
   registerHealthTools(registry);

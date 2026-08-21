@@ -102,7 +102,7 @@ Static commands (no device or connected-service interaction):
 npm ci
 npm test
 npm run typecheck
-JAVA_HOME=/usr/lib/jvm/java-21-openjdk ANDROID_HOME=/home/benny/Android/Sdk npm run build
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk ANDROID_HOME="$HOME/Android/Sdk" npm run build
 sha256sum platforms/android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
