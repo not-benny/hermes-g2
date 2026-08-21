@@ -181,7 +181,12 @@ test("health pushes queue packetAck cursors and the worker drains them safely", 
     new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
     "utf8",
   );
-  assert.match(src, /queueRingPacketAck\(data\)/);
+  assert.match(src, /queueRingPacketAck\(data, generation\)/);
+  assert.match(
+    src,
+    /if \(!isRingOperationAllowedLocked\(generation\)\) return;[\s\S]*new RingPacketAckCursor\(payload, generation\)/,
+    "an accepted health push cannot enqueue its cursor into a replacement ring generation",
+  );
   assert.match(src, /drainRingPacketAcks\(\)/);
   assert.match(src, /ringConnectionGeneration/);
   assert.match(src, /sendRingPacketAck\(cursor\)/);

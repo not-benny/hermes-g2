@@ -76,8 +76,8 @@ test("ring lifecycle state and wakeups are isolated from the display sleeper", (
   assert.match(communicator, /private final InterruptibleSleep ringInterruptibleSleep = new InterruptibleSleep\(\)/);
   assert.match(methodBody(communicator, "public boolean requestRingReconnect()"), /ringInterruptibleSleep\.interrupt\(\)/);
   assert.doesNotMatch(methodBody(communicator, "public boolean requestRingReconnect()"), /interruptibleSleep\.interrupt\(\)/);
-  assert.match(methodBody(communicator, "private void queueRingPacketAck(byte[] frame)"), /synchronized \(ringLock\)/);
-  assert.match(methodBody(communicator, "private void queueRingPacketAck(byte[] frame)"), /ringInterruptibleSleep\.interrupt\(\)/);
+  assert.match(methodBody(communicator, "private void queueRingPacketAck(byte[] frame, int generation)"), /synchronized \(ringLock\)/);
+  assert.match(methodBody(communicator, "private void queueRingPacketAck(byte[] frame, int generation)"), /ringInterruptibleSleep\.interrupt\(\)/);
   assert.match(methodBody(communicator, "private void sendRingPacketAck(RingPacketAckCursor cursor)"), /synchronized \(ringLock\)/);
 });
 
@@ -121,7 +121,6 @@ test("stopping is a durable gate for every direct-ring entry and side effect", (
     "private void tryConnectRing(String reason)",
     "private void handleRingFailure(String reason, Throwable failure)",
     "private int connectRing()",
-    "private void queueRingPacketAck(byte[] frame)",
     "private boolean isRingOperationAllowedLocked(int generation)",
     "private void sendRawRingFrame(String label, byte[] frame)",
   ]) {
@@ -151,7 +150,7 @@ test("stopping is a durable gate for every direct-ring entry and side effect", (
   }
 });
 
-test("a queued direct-R1 notification is rejected after teardown wins ringLock", () => {
+test("direct-R1 notification acceptance never nests ringLock with display dispatch", () => {
   const body = methodBody(
     communicator,
     "public void onNotification(\n            String address,\n            String characteristicUuid,\n            byte[] data,\n            FaceclawBleListener.DispatchToken dispatchToken",
@@ -160,18 +159,59 @@ test("a queued direct-R1 notification is rejected after teardown wins ringLock",
   const callbackLock = body.indexOf("synchronized (callbackLock)");
   const stoppingGate = body.indexOf("if (ringCallback && (stopping || !running))");
   const tokenClaim = body.indexOf("dispatchToken.claim()");
-  const dispatch = body.indexOf("onNotification(address, characteristicUuid, data)");
+  const generationCapture = body.indexOf("ringConnectionGeneration");
+  const dataCopy = body.indexOf("Arrays.copyOf(data, data.length)");
+  const callbackBlock = synchronizedBodies(body, "callbackLock")[0];
+  const dispatch = body.indexOf("handleDirectRingNotification(");
+  const callbackBlockEnd = body.indexOf(callbackBlock) + callbackBlock.length;
 
   assert.ok(ringIdentity >= 0, "the callback records direct-R1 identity before selecting its state lock");
   assert.ok(callbackLock > ringIdentity, "direct-R1 notification dispatch waits for ringLock");
   assert.ok(
-    stoppingGate > callbackLock && tokenClaim > stoppingGate && dispatch > tokenClaim,
-    "teardown state is revalidated under ringLock before token claim or legacy dispatch",
+    stoppingGate > callbackLock
+      && tokenClaim > stoppingGate
+      && generationCapture > tokenClaim
+      && dataCopy > tokenClaim,
+    "teardown and generation state are captured under ringLock after exact-GATT token claim",
   );
+  assert.doesNotMatch(
+    callbackBlock,
+    /handleDirectRingNotification\(|synchronized \(lock\)|emitRing(?:Event|HealthFrame)\(/,
+    "ringLock acceptance must not enter the legacy/display/downstream dispatch path",
+  );
+  assert.match(
+    callbackBlock,
+    /if \(ringCallback\)[\s\S]*acceptedRingGeneration = ringConnectionGeneration;[\s\S]*acceptedRingData = data == null \? null : Arrays\.copyOf\(data, data\.length\);[\s\S]*else[\s\S]*onNotification\(address, characteristicUuid, data\);/,
+    "only the non-ring callback branch may enter legacy notification dispatch under its display lock",
+  );
+  assert.ok(dispatch > callbackBlockEnd, "accepted direct-R1 data is processed only after ringLock is released");
   assert.match(
     body,
     /Object callbackLock = ringCallback \? ringLock : lock/,
     "glasses callbacks retain their display lock and framebuffer-release notification path",
+  );
+
+  const directHandler = methodBody(
+    communicator,
+    "private void handleDirectRingNotification(String characteristicUuid, byte[] data, int generation)",
+  );
+  assert.match(directHandler, /isRingNotificationDispatchAllowed\(generation\)/);
+  assert.doesNotMatch(
+    directHandler,
+    /synchronized \(ringLock\)[\s\S]*synchronized \(lock\)|synchronized \(lock\)[\s\S]*synchronized \(ringLock\)/,
+    "direct notification processing must never transitively nest the two state locks",
+  );
+  assert.doesNotMatch(directHandler, /\blogLine\(/, "direct-R1 logs must not post stale listener callbacks");
+  assert.match(directHandler, /logDirectRingLine\([^;]*generation\)/);
+  assert.match(
+    methodBody(communicator, "private void emitRingHealthFrame(String charUuid, String hexData, int generation)"),
+    /isRingNotificationDispatchAllowed\(generation\)/,
+    "main-thread health delivery must reject a stale generation or teardown",
+  );
+  assert.match(
+    methodBody(communicator, "private void logDirectRingLine(String line, int generation)"),
+    /mainHandler\.post\([\s\S]*isRingNotificationDispatchAllowed\(generation\)/,
+    "main-thread direct-R1 log delivery must reject a stale generation or teardown",
   );
 });
 

@@ -111,7 +111,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         T run();
     }
     private final ArrayDeque<RingPacketAckCursor> ringPacketAckQueue = new ArrayDeque<>();
-    private int ringConnectionGeneration = 0;
+    // Written under ringLock. Volatile lets post-lock callback dispatch reject a
+    // retired ring session without acquiring ringLock while it takes display state.
+    private volatile int ringConnectionGeneration = 0;
     // Re-poll the ring health GETs periodically: the ring auto-connects while
     // off-head (empty window), so a one-shot poll never sees worn data. Re-firing
     // every RING_HEALTH_POLL_INTERVAL_MS means data arrives on the next poll once
@@ -1180,6 +1182,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
         boolean ringCallback = isConfiguredRingAddress(address);
         Object callbackLock = ringCallback ? ringLock : lock;
+        int acceptedRingGeneration = -1;
+        byte[] acceptedRingData = null;
         synchronized (callbackLock) {
             if (ringCallback && (stopping || !running)) {
                 return;
@@ -1187,8 +1191,16 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             if (!dispatchToken.claim()) {
                 return;
             }
-            onNotification(address, characteristicUuid, data);
+            if (ringCallback) {
+                acceptedRingGeneration = ringConnectionGeneration;
+                acceptedRingData = data == null ? null : Arrays.copyOf(data, data.length);
+            } else {
+                onNotification(address, characteristicUuid, data);
+                return;
+            }
         }
+        // Never enter display state or downstream listeners while holding ringLock.
+        handleDirectRingNotification(characteristicUuid, acceptedRingData, acceptedRingGeneration);
     }
 
     @Override public void onNotification(String address, String characteristicUuid, byte[] data) {
@@ -1197,7 +1209,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
         String uuid = characteristicUuid.toLowerCase(Locale.US);
         if (isDirectRingNotification(address, uuid)) {
-            handleDirectRingNotification(uuid, data);
+            handleDirectRingNotification(uuid, data, ringConnectionGeneration);
             return;
         }
         if (BleProtocol.RENDER_NOTIFY_UUID.equals(uuid)) {
@@ -1398,22 +1410,37 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         return address;
     }
 
-    private void handleDirectRingNotification(String characteristicUuid, byte[] data) {
+    private void handleDirectRingNotification(String characteristicUuid, byte[] data, int generation) {
+        if (characteristicUuid == null || data == null
+                || !isRingNotificationDispatchAllowed(generation)) {
+            return;
+        }
+        String uuid = characteristicUuid.toLowerCase(Locale.US);
+        if (!BleProtocol.R1_PHONE_NOTIFY_CHAR_UUID.equals(uuid)
+                && !BleProtocol.R1_NOTIFY_CHAR_UUID.equals(uuid)) {
+            return;
+        }
         FaceclawRingEventDecoder.DirectRingEvent decoded = FaceclawRingEventDecoder.decode(data);
         if (decoded == null) {
             // Not a gesture event. Could be a health/command RESPONSE (bae80013) or
             // a phone-notify status frame (bae80011). Surface it in the in-app log
             // with the frame envelope decoded, so a ring reply is finally visible.
             synchronized (lock) {
+                if (!isRingNotificationDispatchAllowed(generation)) {
+                    return;
+                }
                 lastIncomingAtMs = SystemClock.elapsedRealtime();
             }
-            logLine("direct ring notify " + shortCharUuid(characteristicUuid) + " "
-                + describeRingFrame(data) + " raw=" + hex(data));
-            if (BleProtocol.R1_NOTIFY_CHAR_UUID.equalsIgnoreCase(characteristicUuid)) {
+            if (!isRingNotificationDispatchAllowed(generation)) {
+                return;
+            }
+            logDirectRingLine("direct ring notify " + shortCharUuid(uuid) + " "
+                + describeRingFrame(data) + " raw=" + hex(data), generation);
+            if (BleProtocol.R1_NOTIFY_CHAR_UUID.equals(uuid)) {
                 // Health/command channel: hand the raw frame to the JS decode
                 // path (app/health) for reassembly and state.health population.
-                queueRingPacketAck(data);
-                emitRingHealthFrame(shortCharUuid(characteristicUuid), hex(data));
+                queueRingPacketAck(data, generation);
+                emitRingHealthFrame(shortCharUuid(uuid), hex(data), generation);
             }
             return;
         }
@@ -1421,14 +1448,26 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         G2Event event = decoded.event;
         long arrivalMs = SystemClock.elapsedRealtime();
         synchronized (lock) {
+            if (!isRingNotificationDispatchAllowed(generation)) {
+                return;
+            }
             lastIncomingAtMs = arrivalMs;
             lastConnectionOrInputAtMs = arrivalMs;
         }
-        logLine("direct ring " + decoded.label + " " + decoded.detail + " raw=" + hex(data));
+        if (!isRingNotificationDispatchAllowed(generation)) {
+            return;
+        }
+        logDirectRingLine("direct ring " + decoded.label + " " + decoded.detail
+            + " raw=" + hex(data), generation);
         int frameId = FrameTimings.getInstance().startFrame("input:ring:" + decoded.label);
         FrameTimings.getInstance().log(frameId, "input event decoded from direct ring notification");
-        emitRingEvent(event.kind, event.containerName, event.eventType, event.eventSource, event.systemExitReasonCode, frameId);
+        emitDirectRingEvent(event.kind, event.containerName, event.eventType,
+            event.eventSource, event.systemExitReasonCode, frameId, generation);
         interruptibleSleep.interrupt();
+    }
+
+    private boolean isRingNotificationDispatchAllowed(int generation) {
+        return !stopping && running && generation == ringConnectionGeneration;
     }
 
     private void handleRenderNotification(String address, byte[] data) {
@@ -1971,7 +2010,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
      * health batch. Captured payload layout is
      * [module][cmd][subCmd][0][incoming serial u16 LE][0,0,0,0].
      */
-    private void queueRingPacketAck(byte[] frame) {
+    private void queueRingPacketAck(byte[] frame, int generation) {
         if (frame == null || frame.length < 17 || (frame[0] & 0xff) != 0x00) return;
         int innerLen = (frame[13] & 0xff) | ((frame[14] & 0xff) << 8);
         if (innerLen < 12 || frame.length != 5 + innerLen) return;
@@ -1987,9 +2026,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         payload[4] = frame[8];
         payload[5] = frame[9];
         synchronized (ringLock) {
-            if (stopping || !ringConnected || !ringNotificationsReady) return;
+            if (!isRingOperationAllowedLocked(generation)) return;
             if (ringPacketAckQueue.size() >= 16) ringPacketAckQueue.removeFirst();
-            ringPacketAckQueue.addLast(new RingPacketAckCursor(payload, ringConnectionGeneration));
+            ringPacketAckQueue.addLast(new RingPacketAckCursor(payload, generation));
         }
         ringInterruptibleSleep.interrupt();
     }
@@ -3655,6 +3694,36 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         });
     }
 
+    private void emitDirectRingEvent(
+            String kind,
+            String containerName,
+            int eventType,
+            int eventSource,
+            int systemExitReasonCode,
+            int frameId,
+            int generation
+    ) {
+        final FaceclawBleCommunicatorListener current = listener;
+        if (current == null) {
+            FrameTimings.getInstance().finishFrame(frameId, "discarded: no listener attached");
+            return;
+        }
+        final String containerNameSnapshot = containerName == null ? "" : containerName;
+        mainHandler.post(() -> {
+            if (!isRingNotificationDispatchAllowed(generation)) {
+                FrameTimings.getInstance().finishFrame(frameId, "discarded: stale direct ring notification");
+                return;
+            }
+            FrameTimings.getInstance().log(frameId, "dispatching input event on main thread");
+            try {
+                current.onRingEvent(kind, containerNameSnapshot, eventType, eventSource, systemExitReasonCode, frameId);
+            } catch (Throwable t) {
+                Log.w(TAG, "listener onRingEvent failed", t);
+                FrameTimings.getInstance().finishFrame(frameId, "discarded: listener onRingEvent failed");
+            }
+        });
+    }
+
     /** Finish a frame owned by the communicator and tell the TS side, which may be awaiting it. */
     private void finishFrame(int frameId, String outcome) {
         if (frameId <= 0) {
@@ -3752,12 +3821,15 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         });
     }
 
-    private void emitRingHealthFrame(String charUuid, String hexData) {
+    private void emitRingHealthFrame(String charUuid, String hexData, int generation) {
         final FaceclawBleCommunicatorListener current = listener;
         if (current == null) {
             return;
         }
         mainHandler.post(() -> {
+            if (!isRingNotificationDispatchAllowed(generation)) {
+                return;
+            }
             try {
                 current.onRingHealthFrame(charUuid, hexData);
             } catch (Throwable t) {
@@ -3912,6 +3984,27 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             return;
         }
         mainHandler.post(() -> {
+            try {
+                current.onLog(line);
+            } catch (Throwable t) {
+                Log.w(TAG, "listener onLog failed", t);
+            }
+        });
+    }
+
+    private void logDirectRingLine(String line, int generation) {
+        if (!isRingNotificationDispatchAllowed(generation)) {
+            return;
+        }
+        Log.i(TAG, line);
+        final FaceclawBleCommunicatorListener current = listener;
+        if (current == null) {
+            return;
+        }
+        mainHandler.post(() -> {
+            if (!isRingNotificationDispatchAllowed(generation)) {
+                return;
+            }
             try {
                 current.onLog(line);
             } catch (Throwable t) {
