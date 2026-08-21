@@ -148,7 +148,7 @@ public class MessageBuilder {
         );
     }
 
-    public OutboundMessage setGlassGridDistance(int distance) {
+    OutboundMessage setGlassGridDistance(int distance) {
         int magic = magicPool.allocate();
         return new OutboundMessage(
             "glass-grid-distance-control",
@@ -163,7 +163,7 @@ public class MessageBuilder {
         );
     }
 
-    public OutboundMessage setGlassGridHeight(int height) {
+    OutboundMessage setGlassGridHeight(int height) {
         int magic = magicPool.allocate();
         return new OutboundMessage(
             "glass-grid-height-control",
