@@ -1366,6 +1366,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 return;
             }
             if (!connected) {
+                // Retire direct-ring packetAck work before the reconnect loop can
+                // publish sessionReady again. This arm-loss path otherwise leaves
+                // the old generation queued across the readiness transition.
+                invalidateRingPacketAckStateLocked();
                 sessionReady = false;
                 fixedLayoutCreated = false;
                 warmedUp = false;

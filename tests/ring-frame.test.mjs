@@ -259,3 +259,24 @@ test("packetAck final side effect rejects poll-before-disconnect/reset interleav
   assert.ok(send.indexOf("!running") < send.indexOf('sendRingCommand("packetAck"'));
   assert.ok(send.indexOf("cursor.generation != ringConnectionGeneration") < send.indexOf('sendRingCommand("packetAck"'));
 });
+
+test("packetAck arm-loss invalidation prevents old work after reconnect readiness", () => {
+  const src = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  const stateChangeStart = src.indexOf("public void onConnectionStateChange(String address, boolean connected)");
+  const stateChangeEnd = src.indexOf("private void connectLoopOnce()", stateChangeStart);
+  const stateChange = src.slice(stateChangeStart, stateChangeEnd);
+  const armLoss = stateChange.slice(stateChange.indexOf("if (!connected) {"));
+  assert.ok(armLoss.indexOf("invalidateRingPacketAckStateLocked()") < armLoss.indexOf("sessionReady = false"));
+
+  const reconnectStart = src.indexOf("private void connectLoopOnce()");
+  const reconnectEnd = src.indexOf("private void", reconnectStart + 1);
+  const reconnect = src.slice(reconnectStart, reconnectEnd);
+  assert.ok(reconnect.indexOf("sessionReady = true") >= 0);
+  assert.ok(
+    stateChange.indexOf("invalidateRingPacketAckStateLocked()") < stateChange.indexOf("sessionReady = false"),
+    "arm loss must retire queued work before readiness is withdrawn",
+  );
+});
