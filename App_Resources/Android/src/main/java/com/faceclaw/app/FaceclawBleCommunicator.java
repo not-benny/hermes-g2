@@ -3351,9 +3351,13 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             faceclawWakeControlSentCount = 0;
             clearAllMessagesLocked("transport failure: " + reason);
             reconnectAfterMs = SystemClock.elapsedRealtime() + ConnectionOptions.RECONNECT_DELAY_MS;
+        }
+        // Complete communicator state retirement before entering the BLE
+        // manager callback boundary; callbacks may be waiting for this lock.
+        mainHandler.post(() -> {
             bleManager.disconnect(rightAddress);
             bleManager.disconnect(leftAddress);
-        }
+        });
         if (!userDisconnectRequested) {
             setStateDisplay("retrying", reason == null || reason.isEmpty() ? "Reconnecting..." : "Reconnecting after " + reason);
         }

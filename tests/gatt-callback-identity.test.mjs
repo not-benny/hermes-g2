@@ -51,13 +51,32 @@ test("connect owns one exact-GATT attempt and disconnect releases its waiters", 
   assert.match(manager, /if \(!ownsAttempt\) \{\s*return false;/s);
 });
 
-test("listener delivery carries exact GATT and occurs after the identity lock", () => {
+test("listener delivery carries exact GATT and is serialized against retirement", () => {
   assert.match(manager, /current\.onNotification\(gatt, address, characteristicUuid, copy\)/);
   assert.match(manager, /current\.onConnectionStateChange\(gatt, address, connected\)/);
   const dispatch = methodBody("private void dispatchNotification(BluetoothGatt gatt,");
   assert.match(dispatch, /callbackLock\.lock\(\)/);
   assert.match(dispatch, /callbackLock\.unlock\(\)/);
+  assert.ok(dispatch.indexOf("callbackLock.lock()") < dispatch.indexOf("current.onNotification"));
+  assert.ok(dispatch.indexOf("current.onNotification") < dispatch.indexOf("callbackLock.unlock()"));
+  const stateCallback = methodBody("public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState)");
+  assert.ok(stateCallback.indexOf("callbackLock.lock()") < stateCallback.indexOf("dispatchConnectionState"));
+  assert.ok(stateCallback.indexOf("dispatchConnectionState") < stateCallback.indexOf("callbackLock.unlock()"));
   assert.match(readFileSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleListener.java", import.meta.url), "utf8"), /default void onNotification\(BluetoothGatt gatt/);
+});
+
+test("communicator retires state before requesting manager teardown", () => {
+  const communicator = readFileSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url), "utf8");
+  const failure = methodBodyFrom(communicator, "private void hardTransportFailure(String reason)");
+  const stateClose = failure.indexOf("clearAllMessagesLocked");
+  const rightDisconnect = failure.indexOf("bleManager.disconnect(rightAddress)");
+  const lockClose = failure.indexOf("}\n        // Complete communicator state retirement");
+  const post = failure.indexOf("mainHandler.post(() -> {");
+  assert.ok(stateClose >= 0);
+  assert.ok(rightDisconnect > stateClose);
+  assert.ok(lockClose >= 0, "manager teardown must follow the communicator monitor");
+  assert.ok(lockClose < post);
+  assert.ok(post < rightDisconnect);
 });
 
 test("every production listener consumes the exact-GATT boundary", () => {
@@ -73,3 +92,15 @@ test("every production listener consumes the exact-GATT boundary", () => {
     assert.doesNotMatch(source, /bleManager\.isCurrentGatt\(gatt, address\)/);
   }
 });
+
+function methodBodyFrom(source, signature) {
+  const start = source.indexOf(signature);
+  assert.notEqual(start, -1, `missing ${signature}`);
+  const bodyStart = source.indexOf("{", start);
+  let depth = 0;
+  for (let i = bodyStart; i < source.length; i += 1) {
+    if (source[i] === "{") depth += 1;
+    if (source[i] === "}" && --depth === 0) return source.slice(bodyStart, i + 1);
+  }
+  assert.fail(`unterminated ${signature}`);
+}
