@@ -382,6 +382,11 @@ pull the log + the Even app's built-in health-data export zip, and validate.
 - Each patch contains exactly one append-only README entry and follows the
   live `contributing.md` format and one-PR-per-suggestion rule. The proposed
   entries remain held: the source repository is private, both canonical URLs
-  return unauthenticated 404, and no release/tag exists. Revalidate links,
-  duplicates, competing PRs, and `npx awesome-lint` after the public release;
-  do not submit or push these patches before then.
+  return unauthenticated 404, and no release/tag exists. The hunks intentionally
+  omit a trailing blank context line; apply each patch fail-closed on the exact
+  recorded base with `git apply --index --unidiff-zero --check < PATCH`, followed
+  only after success by `git apply --index --unidiff-zero < PATCH`, then run
+  `git diff --check --cached` and `npx awesome-lint`. A non-zero result aborts
+  preparation; plain `git apply` is not a fallback. Revalidate links, duplicates,
+  and competing PRs after the public release; do not submit or push these patches
+  before then.
