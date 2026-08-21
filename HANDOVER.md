@@ -67,6 +67,11 @@ working tree:
   repository run currently reports 143 passed and 2 pre-existing ring activity
   failures. These results are static/unit evidence only and do not close
   hardware, credential, generic-client, or release gates.
+- **MCP glasses-display threat model:** added `notes/mcp-glasses-display-threat-model-2026-08-21.md`
+  with the end-to-end asset/trust-boundary model, threat register, safe-failure contract, exact P0/P1/P2
+  backlog, and STATIC/SIMULATED/A32-ONLY/A32+REAL-G2 evidence ledger. Static review remains **FAIL for
+  publication** and operational authorization remains **NO-GO**; no render implementation, publication,
+  or hardware claim was added.
 
 Verification on the combined continuation checkout: all 133 tests passed,
 TypeScript typechecking passed, and a debug Android build completed with Android

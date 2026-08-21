@@ -109,6 +109,9 @@ session-open frame is hardcoded/universal (not per-device).
   for timed-out side effects. Tool-specific holds include proactive alert/timer mutation,
   over-broad Roam reads, and disconnected-success paths. Full report:
   `notes/mcp-skill-publish-audit-2026-08-20.md`. Do not publish a `hermes-g2-glasses` skill before these gates.
+  Dedicated threat model, safe-failure contract, publishability gates, backlog, and evidence ledger:
+  `notes/mcp-glasses-display-threat-model-2026-08-21.md`. Static review remains FAIL for publication and
+  operational authorization remains NO-GO; current fake-phone/OpenClaw evidence is simulated.
   First hardening pass is DONE: pre-auth/stale-socket rejection, connection generations, central schema
   validation, MCP initialization/errors, ownership-safe app tools, availability error boundaries, and
   preflight-before-quota all have behavioral tests. Follow-up binds MCP replies/lifecycle to one connection,
