@@ -122,6 +122,12 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     // Written under ringLock. Volatile lets post-lock callback dispatch reject a
     // retired ring session without acquiring ringLock while it takes display state.
     private volatile int ringConnectionGeneration = 0;
+
+    /** Retire queued work captured by the previous direct-ring lifecycle. ringLock required. */
+    private void invalidateRingPacketAckStateLocked() {
+        ringConnectionGeneration++;
+        ringPacketAckQueue.clear();
+    }
     // Re-poll the ring health GETs periodically: the ring auto-connects while
     // off-head (empty window), so a one-shot poll never sees worn data. Re-firing
     // every RING_HEALTH_POLL_INTERVAL_MS means data arrives on the next poll once
@@ -1581,6 +1587,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             finishDirectRingConnectionStateChange(connected, acceptedRingGeneration);
             return;
         }
+        boolean armDisconnected = !connected;
         synchronized (lock) {
             if (address.equalsIgnoreCase(rightAddress)) {
                 rightConnected = connected;
@@ -1600,6 +1607,11 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 clearAllMessagesLocked("connection lost");
                 displayedFingerprint = "";
                 reconnectAfterMs = SystemClock.elapsedRealtime() + ConnectionOptions.RECONNECT_DELAY_MS;
+            }
+        }
+        if (armDisconnected) {
+            synchronized (ringLock) {
+                invalidateRingPacketAckStateLocked();
             }
         }
         interruptibleSleep.interrupt();
@@ -1622,8 +1634,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             ringHealthProbeSent = false;
             lastRingHealthPollMs = 0;
             lastRingCurrentHrPollMs = 0;
-            ringConnectionGeneration++;
-            ringPacketAckQueue.clear();
+            invalidateRingPacketAckStateLocked();
             ringReconnectAfterMs = Math.max(ringReconnectAfterMs,
                 SystemClock.elapsedRealtime() + ConnectionOptions.RING_RECONNECT_DELAY_MS);
         }
@@ -1813,8 +1824,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             ringHealthProbeSent = false;
             lastRingHealthPollMs = 0;
             lastRingCurrentHrPollMs = 0;
-            ringConnectionGeneration++;
-            ringPacketAckQueue.clear();
+            invalidateRingPacketAckStateLocked();
             ringConsecutiveFailures++;
             attempt = ringConsecutiveFailures;
             backoffMs = attempt >= ConnectionOptions.RING_FAILURE_BREAKER_THRESHOLD
@@ -1871,9 +1881,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             if (stopping || !running || !sessionReady) {
                 throw new IllegalStateException("ring connect cancelled");
             }
-            ringConnectionGeneration++;
+            invalidateRingPacketAckStateLocked();
             generation = ringConnectionGeneration;
-            ringPacketAckQueue.clear();
             ringConnected = true;
             ringNotificationsReady = true;
             ringReconnectAfterMs = 0;
@@ -2111,7 +2120,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         while (true) {
             RingPacketAckCursor cursor;
             synchronized (ringLock) {
-                if (!ringConnected || !ringNotificationsReady) {
+                if (!running || !sessionReady || !ringConnected || !ringNotificationsReady) {
                     ringPacketAckQueue.clear();
                     return;
                 }
@@ -3684,9 +3693,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             faceclawWakeControlSentCount = 0;
             clearAllMessagesLocked("transport failure: " + reason);
             reconnectAfterMs = SystemClock.elapsedRealtime() + ConnectionOptions.RECONNECT_DELAY_MS;
-            bleManager.disconnect(rightAddress);
-            bleManager.disconnect(leftAddress);
         }
+        synchronized (ringLock) {
+            ringNotificationsReady = false;
+            invalidateRingPacketAckStateLocked();
+        }
+        // Avoid communicator-lock -> manager-lock inversion during callback dispatch.
+        bleManager.disconnect(rightAddress);
+        bleManager.disconnect(leftAddress);
         if (!userDisconnectRequested) {
             setStateDisplay("retrying", reason == null || reason.isEmpty() ? "Reconnecting..." : "Reconnecting after " + reason);
         }
@@ -3743,8 +3757,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         ringHealthProbeSent = false;
         lastRingHealthPollMs = 0;
         lastRingCurrentHrPollMs = 0;
-        ringConnectionGeneration++;
-        ringPacketAckQueue.clear();
+        invalidateRingPacketAckStateLocked();
         ringReconnectAfterMs = 0;
         ringConsecutiveFailures = 0;
     }
