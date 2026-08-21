@@ -48,11 +48,12 @@ working tree:
   offer Open Even settings + Retry R1; opening settings starts a bounded release
   poll that clears the warning and retries R1 once Even releases Bluetooth.
 - **MCP / skill publish audit:** the phone exposes 24 assistant tools, but public
-  MCP/skill publication is NO-GO. The bridge lacks authenticated peer/transport,
-  pre-auth and stale-socket rejection, turn-generation authorization, enforced
-  schemas, correct lifecycle/errors, safe multi-window ownership, and cancellable/
-  idempotent side effects. A bounded shell-owned `glasses.render_view` v1 is
-  designed but blocked on that hardening. See
+  MCP/skill publication is NO-GO. The complete matrix now classifies every tool,
+  the bridge/server, in-process surface, APK, render design, future skill, and
+  sibling adapter; no row is release-ready. The bridge still lacks
+  authenticated secure transport/server proof, per-turn generation
+  authorization, and cancellable/idempotent side effects. A bounded shell-owned
+  `glasses.render_view` v1 and `hermes-g2-glasses` skill remain blocked. See
   `notes/mcp-skill-publish-audit-2026-08-20.md`.
 - **Bridge/MCP hardening pass 1:** privileged frames now require current-generation
   authentication; stale socket callbacks are ignored; schemas are enforced;
@@ -61,8 +62,11 @@ working tree:
   proactive quota follows preflight. MCP lifecycle/replies are connection-bound;
   duplicate IDs and late replies are suppressed; unsupported schemas fail closed;
   array bounds/schema-valued extra properties are enforced; owner fallback,
-  top-level protocol-version/socket closure, and auth timeout are covered. Full
-  suite: 144 tests.
+  top-level protocol-version/socket closure, and auth timeout are covered.
+  Targeted MCP/bridge/registry/in-process validation passes 19/19; the full
+  repository run currently reports 143 passed and 2 pre-existing ring activity
+  failures. These results are static/unit evidence only and do not close
+  hardware, credential, generic-client, or release gates.
 
 Verification on the combined continuation checkout: all 133 tests passed,
 TypeScript typechecking passed, and a debug Android build completed with Android
