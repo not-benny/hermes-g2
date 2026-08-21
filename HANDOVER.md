@@ -1,5 +1,19 @@
 # Hermes G2 handover (2026-08-20)
 
+## Delivery state (2026-08-21)
+
+The GPT-5.6 Sol medium-effort review-approved direct-R1 worker isolation
+candidate is published unchanged at
+`work/t_535a9f1f-ring-worker-rework`, remote HEAD
+`1dc65327ef33284877d3d9658ebc354b77cbbc2a`. Pull request:
+https://github.com/not-benny/hermes-g2/pull/7 against `hermes-g2`.
+GitHub reports the PR open with a clean merge state; no CI checks were reported
+at delivery time. Local verification and safe Samsung A32 evidence remain as
+recorded below; no destructive BLE, pairing, ownership, firmware, reset, power,
+wipe, or private-evidence publication occurred. The delivery-state documentation
+commit is intentionally separate from the frozen reviewed implementation and
+must not be pushed without a fresh review of that documentation-only change.
+
 A snapshot of project state, what was accomplished, what is pending, and how to
 pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
 the private `DECODE-SPEC.md` (see "Out-of-repo data").
