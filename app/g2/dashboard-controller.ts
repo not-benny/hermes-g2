@@ -39,8 +39,9 @@ import { appViewportRect, type WindowHeightMode } from "../ui/shell/geometry";
 import { type LayerActions } from "../ui/layers";
 import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "../native/battery-optimization";
+import { shouldFinalizeCommunicatorClose, type DashboardConnectionPhase } from "./connection-state-lifecycle";
 
-type ConnectionPhase = "disconnected" | "connecting" | "connected" | "charging" | "disconnecting";
+type ConnectionPhase = DashboardConnectionPhase;
 
 export type DashboardSnapshot = {
   phase: ConnectionPhase;
@@ -1054,7 +1055,7 @@ class DashboardController {
           // stale pre-disconnect value in the meantime.
           this.glassesWorn = null;
         }
-        if (mappedPhase === "disconnected" && this.communicator === communicator) {
+        if (shouldFinalizeCommunicatorClose(this.phase, mappedPhase, this.communicator === communicator)) {
           this.completePendingCommunicatorClose(communicator);
         }
         this.setPhase(mappedPhase);
