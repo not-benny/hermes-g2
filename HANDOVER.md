@@ -13,7 +13,7 @@ CLEAN/mergeable, the intended 16-file diff and four-commit chain, exact base SHA
 formal review decision. Live connection recovery is documented and delivered in
 follow-up PR #13 (`https://github.com/not-benny/hermes-g2/pull/13`), head
 `fix/live-glasses-session`, base `wt/t_273bc0ae`; its implementation commit is
-`1c1e2716d5a204863373a212482f7cb2d5d63d75`.
+`1c1e271e9cc970a646c71bb29a5ffa5e714472c9`.
 
 ### Safe assistant/MCP glasses-display candidate
 
