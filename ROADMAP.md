@@ -81,12 +81,16 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   glasses HUD (re-wired this session). The frame envelope for this path is byte-verified (see CONFIRMED above),
   which closes the earlier "finish the frame-format decode" sub-item. A worker-thread HR-only GET now refreshes
   the current-hour value every 15s (NOT per-beat), while heavier full-health polling stays at 60s.
-- **IMPLEMENTED / HARDWARE VALIDATION PENDING** (2026-08-21) — Request-layer MTU + packetAck: direct-ring connect requests MTU 247 after
+- **IMPLEMENTED / PARTIALLY HARDWARE-VALIDATED** (2026-08-21) — Request-layer MTU + packetAck: direct-ring connect requests MTU 247 after
   service discovery and before notify subscription/probing, logging `ok` or safe `fallback`; the captured
   system/packetAck (0x7e) cursor loop uses CRC/shape validation, a bounded callback queue, generation tags,
   reset clearing across ring/arm/transport/replacement teardown, and worker-thread writes with a final
-  generation gate under `ringLock`. Integrated host regressions pass; final A32/G2/R1 reconnect evidence
-  is still required before operational PASS.
+  generation gate under `ringLock`. Integrated host regressions pass. The final
+  candidate installed on the A32 and, after one bounded status-133 retry session,
+  cold-reconnected both G2 arms and the R1 with MTU 247, notify subscriptions, and
+  CRC-valid device-info/health replies. No live packetAck cursor arrived during the
+  bounded capture, so packetAck lifecycle behavior remains hardware-pending rather
+  than operationally passed.
   The same worker runs an HR-only 15s current refresh without re-polling all metrics.
 
 ### Security
@@ -139,8 +143,12 @@ session-open frame is hardcoded/universal (not per-device).
   starts a bounded release poll; once Even releases Bluetooth, the warning clears and R1 retries automatically.
   Static review passed, but real contention/release could not be exercised because launching Even immediately
   requested glasses re-pairing; that prompt was refused and Even was re-disabled/revoked. Operational GO remains open.
-- **TODO** — S7 Voice-assistant bridge validate end-to-end ("Hey Even" → bridge → agent); bridge now works,
-  path was never hardware-tested.
+- **BLOCKED** — S7 Voice-assistant bridge validate end-to-end (wakeword → bridge →
+  agent). The configured private endpoint repeatedly attempted connection during
+  the final A32 run but never reached connected state; direct providers were not
+  configured and no isolated disposable g2mirror session was available. System/app
+  tools, calendar, wakeword, cancellation, follow-up, alerts, and network recovery
+  remain unrun pending that private test environment.
 - **DEFER** — S3 `foregroundServiceType` refinement (FaceclawForegroundService.java ~110) — current
   over-claim is SAFE; a wrong gate could UNDER-claim and break voice capture. Leave until exercisable on-device.
 
@@ -276,6 +284,11 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   filled with a readiness hero (score + verdict + confidence + filled bar), a large HR readout with pulse
   icon and resting/range context, a 24h HR range chart (reuses the phone's buildHrDayBars, fills as hourly
   data accumulates), and a bottom metric strip (ring % / SpO2 / HRV / steps).
+- **Health side-card worn UX check — BLOCKED** (2026-08-21): the final candidate
+  connected both G2 arms, but the glasses were charging and display communication
+  paused. Optical clipping/readability, navigation/focus, hide/unhide, dismissal,
+  and persistence therefore remain unverified; do not infer them from ADB transport
+  logs. Repeat off charger with a wearer and record the six-item checklist.
 - **Algorithmic calorie estimator — DONE** (a5fa8bc, 9ef956c): HR-based Keytel (2005) estimate summed over
   accumulated hourly HR, reporting **ACTIVE** calories (burn above the resting-HR baseline) — the earlier
   total-EE version over-read (~1324 kcal on a sedentary day). Persisted weight/age/sex profile (Settings >

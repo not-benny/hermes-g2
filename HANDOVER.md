@@ -16,11 +16,12 @@ direct-R1, teardown, packetAck, and release work once.
   `41514c508ada1053715c22786d39085874fed4b6`.
 - PR #2 (`wt/t_f56ee8c2`) was safely fast-forwarded to reviewed
   `5427dee70b3f4ea07fb1034355b6b8a25f97a2be`.
-- Canonical integration PR #11 is https://github.com/not-benny/hermes-g2/pull/11
-  at exact reviewed remote head `46cff6c87d47311140e2f678529561ce30b47009`,
-  base `hermes-g2`. GitHub readback reports OPEN, non-draft, MERGEABLE, with the
-  intended files/body/commits; `statusCheckRollup` is empty and there is no formal
-  review decision.
+- Canonical integration PR #11 is https://github.com/not-benny/hermes-g2/pull/11,
+  head branch `integration/t_30a956f8`, base `hermes-g2`. Its implementation was
+  independently approved at `46cff6c87d47311140e2f678529561ce30b47009`; later
+  commits are documentation-only delivery/hardware-state updates. GitHub readback
+  must remain OPEN, non-draft, and mergeable with the intended files/body/commits;
+  no required status-check rollup or formal review decision is currently present.
 - Old broad PR #5 was closed as superseded. Focused docs-only replacement PR #10
   is https://github.com/not-benny/hermes-g2/pull/10 at reviewed
   `84d5c17a72b6a9c3d5020d76a794221716dc9830`; it excludes stale wake-barrier code.
@@ -92,22 +93,39 @@ direct-R1, teardown, packetAck, and release work once.
   close. Focused 40/40, full 226/226, typecheck, and Android build pass afterward.
   Final exact-SHA adversarial review at `46cff6c8`: PASS, with no remaining
   file/line/interleaving blocker.
-- Hardware: the 335,803,763-byte debug APK installed successfully over USB on the
-  configured Samsung A32 and launched as PID 26465. Package-filtered logs showed
-  both G2 arms CONNECTED, prelude ACK, `session ready`, direct R1 CONNECTED,
-  `direct ring ready mtu247Request=ok`, CRC-valid device-info/health responses,
-  successful read-only health GET writes, and heartbeat ACKs. No communicator-loop
-  error or Android fatal exception appeared in the bounded capture. The R1 lacks
-  the optional standard battery characteristic, which remained a safe diagnostic.
-  The `c4609642` APK was reinstalled and relaunched: one transient
-  status-133 left-arm attempt retired and retried, followed by both arms ready,
-  direct R1 ready, health/device-info responses, and heartbeat ACKs with no fatal
-  or communicator-loop error. This proves startup/retry/connect/read-path behavior,
-  but not every stale-callback or concurrent teardown interleaving.
+- Hardware (latest bounded vertical run, 2026-08-21): exact source
+  `cdb0b3f9aa78f9912f51cfdca5094a9084bdfc9e` built a 335,799,843-byte debug
+  APK (`SHA-256 51b41885eb1f375d8d961fd4f9e49dc9ed8117b66811bf4edbf6199668292863`),
+  which installed successfully over the authorized USB Samsung A32 (Android 13,
+  API 33) as `com.faceclaw.app` 1.0.0. Two bounded cold app sessions connected
+  both G2 arms, received the prelude ACK, and published `session ready`. The first
+  session encountered bounded status-133 direct-R1 retries; after the controlled
+  app restart, the same candidate recovered to `direct ring ready
+  mtu247Request=ok phoneNotify=true dataNotify=true`, sent the session-open and
+  device-info/HR/SpO2/HRV/activity/sleep/device-status requests, and received only
+  `crc32=OK` command-channel replies, including repeated current-hour HR polls.
+  The missing optional standard battery characteristic remained a safe diagnostic.
+  No `FATAL EXCEPTION`, `AndroidRuntime`, communicator-loop error, ring-worker
+  error, `crc32=BAD`, refusal, or write failure appeared in either package-PID
+  capture.
+- This run does not close every vertical flow. The glasses reported charging and
+  intentionally paused display communication, so Health-card/HUD pixels,
+  notification/display behavior, optical clipping/readability, and wearer input
+  remain BLOCKED pending a worn, off-charger session. The configured private
+  assistant endpoint repeatedly attempted connection but never reached a connected
+  state; no direct provider was configured, and no isolated disposable g2mirror
+  session was available. Assistant bridge, system-tool, app-tool, wakeword,
+  calendar, and Terminal rows therefore remain BLOCKED rather than failed. No
+  synthetic notification was posted because this Android build exposes no exact
+  package-safe cancel command and temporary notification state had to be restored.
+  The app was left foregrounded on the Glasses tab; no permission, credential,
+  pairing, ownership, firmware, reset, wipe, or private-data state was changed.
 
 Static review: PASS — exact reviewed and remotely delivered head `46cff6c87d47311140e2f678529561ce30b47009`.
-Operational authorization: LIMITED GO for the observed non-destructive startup and
-read-only G2/R1 path; NO-GO for unexercised stale-callback/concurrent-teardown cases.
+Operational authorization: LIMITED GO for the observed non-destructive install,
+startup, reconnect, G2 session, and R1 request/response path; NO-GO for the blocked
+wearer/display/assistant cases and unexercised stale-callback/concurrent-teardown
+interleavings.
 Firmware/DFU authorization: NO-GO / DO NOT BUILD — no firmware, pairing ownership,
 provisioning, reset, wipe, or destructive operation is authorized by this queue work.
 
@@ -128,8 +146,9 @@ CI logs, or public artifacts.
 
 ## Next action
 
-Review and merge the independent open PRs in a conflict-free order: #1, #2, #10,
-then canonical #11 (or re-evaluate after each base advance). GitHub CI is still
-absent, so do not equate local evidence with required status checks. After landing,
-build the preview release and held awesome-list submissions without expanding the
-firmware or destructive-operation authorization boundary.
+Repeat the blocked vertical rows in one worn, off-charger session with the private
+assistant endpoint reachable and an isolated disposable g2mirror session available.
+Use synthetic calendar/Terminal/notification data only. Separately, review and
+merge the independent open PRs in conflict-free order, rechecking after each base
+advance. GitHub CI remains distinct from local evidence. Do not expand the firmware
+or destructive-operation authorization boundary.
