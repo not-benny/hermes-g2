@@ -42,6 +42,9 @@ Provider: configured provider/model (no secret); explicitly authorized calendar-
 g2mirror host and disposable session:
 Allowed g2mirror tools: list_sessions, send_input, read_screen only:
 Exact authorized Terminal command: printf '%s\n' 'HERMES_G2_QA_<TRACE>'
+Exact G4-authorized Terminal isolation/preparation actions and proof method
+(including removal/absence of every unrelated host/session and fresh-view
+preparation before read_screen):
 Allowed evidence: phone screenshot / through-lens photo / redacted logs / traces:
 Expiry (UTC):
 Explicit exclusions: no reset, wipe, firmware, DFU, pairing or ownership change,
@@ -392,10 +395,14 @@ The only permitted input is exactly
 - Checkpoint: G4 explicitly authorizes the no-active-view setup; G5.
 - Setup: authorized g2mirror has no active, last-active, or sole view; do not
   create one through an unapproved launch tool.
-- Exact action: call only `app.terminal.send_input` and
-  `app.terminal.read_screen`, with the exact harmless input for send.
-- Expected request/response: both fail closed with concise no-active-view errors;
-  no input is sent and no screen is fabricated.
+- Exact action: in order, call exactly
+  `app.terminal.send_input({"text":"printf '%s\n' 'HERMES_G2_QA_<TRACE>'"})`,
+  then exactly `app.terminal.read_screen({})`; before *each* call re-check that
+  there is no active, last-active, or sole Terminal view. Do not substitute a
+  different command or add a session argument.
+- Expected request/response: the send request fails with the implementation's
+  concise no-active-view error and sends no input; the read request then fails
+  with the same no-active-view error and fabricates no screen.
 - Expected phone/lens UI: canonical tool status followed by error; no crash,
   hang, or unexpected Terminal window.
 - Safe data: no-active-view state and harmless command text only.
