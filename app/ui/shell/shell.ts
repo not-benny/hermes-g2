@@ -36,6 +36,8 @@ import { ToolDebugMenuLayer } from "./tool-debug-layer";
 import { playEventBeep } from "../event-beeps";
 import { MusicCardLayer } from "./music-card";
 import { toolRegistry } from "../../assistant/tool-registry";
+import type { RenderViewState } from "../../assistant/render-view";
+import { ShellRemoteViewLayer } from "./render-view-layer";
 import {
   MIN_WINDOW_HEIGHT,
   minWindowTop,
@@ -254,6 +256,7 @@ class Shell {
   private assistantLayer: AssistantLayer | null = null;
   private alertLayer: ShellAlertLayer | null = null;
   private alertRevision = 0;
+  private remoteViewLayer: ShellRemoteViewLayer | null = null;
   private escapeMenuTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly actions: LayerActions = { ...noopActions };
   private config: ShellConfig = {
@@ -527,6 +530,9 @@ class Shell {
     if (!this.screenOn) return;
     this.cancelEscapeMenuTimer();
     this.closingActive = false;
+    // A remote MCP view is transient and must not survive a display-off
+    // transition in retained manager state or reappear after wake.
+    this.remoteViewLayer?.close();
     this.screenOn = false;
     this.stack.clearToBase();
     // clearToBase pops the card and fires its onRemoved (timers cleared); null
@@ -719,6 +725,14 @@ class Shell {
     // menu. The escape timer runs regardless of what the app does with it:
     // holding the press long enough opens the shell's own menu.
     if (event.type === "long-press") {
+      // Untrusted remote content must never trap shell input. A long press
+      // closes it before the normal escape countdown continues.
+      if (this.remoteViewLayer) {
+        const layer = this.remoteViewLayer;
+        layer.close();
+        this.startEscapeMenuTimer();
+        return { shell: true, window: false };
+      }
       // While reordering, swallow long-presses so the window menu can't open
       // over the grab; a tap (handled in the sidebar reorder branch) ends it.
       if (this.reorderingWindowId !== null) {
@@ -1295,6 +1309,55 @@ class Shell {
     } finally {
       signal?.removeEventListener("abort", onAbort);
     }
+  }
+
+  /** Replace the one shell-owned MCP view without waking or changing focus. */
+  async showRemoteView(
+    state: RenderViewState,
+    signal: AbortSignal | undefined,
+    isSideEffectAllowed: (() => boolean) | undefined,
+    onGesture: (type: "scroll-up" | "scroll-down" | "click", foreground: boolean) => boolean,
+    onClose: () => void,
+  ): Promise<void> {
+    if (!this.screenOn) throw new Error("The glasses display is off; no view was sent.");
+    if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
+      throw new Error("The glasses are disconnected; no view was sent.");
+    }
+    if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
+      throw new Error("The view operation is no longer current.");
+    }
+    const prior = this.remoteViewLayer;
+    const layer = new ShellRemoteViewLayer(state, onGesture, onClose);
+    if (prior) this.stack.remove(prior);
+    this.remoteViewLayer = layer;
+    this.stack.push(layer);
+    const isOwner = () =>
+      this.remoteViewLayer === layer &&
+      !signal?.aborted &&
+      (!isSideEffectAllowed || isSideEffectAllowed());
+    try {
+      const delivery = this.config.requestShellDelivery
+        ? this.config.requestShellDelivery(isOwner)
+        : Promise.resolve(this.config.requestShellRender());
+      await delivery;
+      if (!isOwner()) throw new Error("The view operation was superseded before delivery completed.");
+    } catch (error) {
+      this.stack.remove(layer);
+      if (this.remoteViewLayer === layer) {
+        this.remoteViewLayer = prior;
+        if (prior) this.stack.push(prior);
+      }
+      try { await this.config.requestShellRender(); } catch { /* preserve delivery error */ }
+      throw error;
+    }
+  }
+
+  clearRemoteView(identity: { viewId: string; revision: number }): void {
+    const layer = this.remoteViewLayer;
+    if (!layer || layer.state.viewId !== identity.viewId || layer.state.revision !== identity.revision) return;
+    this.stack.remove(layer);
+    this.remoteViewLayer = null;
+    this.config.requestShellRender();
   }
 
   private startEscapeMenuTimer(): void {

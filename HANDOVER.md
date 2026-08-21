@@ -2,34 +2,45 @@
 
 ## Current repository outcome
 
-The former PR #1-#9 queue is being consolidated without rewriting reviewed history.
-The canonical integration branch is `integration/t_30a956f8`; its final pre-review
-code commit is `329af655ae4848a6eabae14e598ffcc2788308ea` (the first integrated
-implementation freeze was `49c865e7eff398e4de0c76ccc25507b7b74a518f`). The branch is based on
-`origin/hermes-g2@ae89fd5e398a78ce9a7d00c66a47d92d02812319` and retains the reviewed
-commits by merge ancestry while resolving overlapping health, assistant-tool, GATT,
-direct-R1, teardown, packetAck, and release work once.
+The active outcome branch is `wt/t_273bc0ae`, fast-forwarded without rewriting
+history to the latest canonical integration base
+`b1150c90e8ce8e55a8a02b957e58eb6fe6380c5e`. Live GitHub readback at task start
+reported no open or closed pull requests despite older handover history referring
+to PR #11; that older queue prose is archival rather than current remote state.
 
-### Final live GitHub queue
+### Safe assistant/MCP glasses-display candidate
 
-- PR #1 (`test/activity-stale-day-gate`) was safely fast-forwarded to reviewed
-  `41514c508ada1053715c22786d39085874fed4b6`.
-- PR #2 (`wt/t_f56ee8c2`) was safely fast-forwarded to reviewed
-  `5427dee70b3f4ea07fb1034355b6b8a25f97a2be`.
-- Canonical integration PR #11 is https://github.com/not-benny/hermes-g2/pull/11,
-  head branch `integration/t_30a956f8`, base `hermes-g2`. Its implementation was
-  independently approved at `46cff6c87d47311140e2f678529561ce30b47009`; later
-  commits are documentation-only delivery/hardware-state updates. GitHub readback
-  must remain OPEN, non-draft, and mergeable with the intended files/body/commits;
-  no required status-check rollup or formal review decision is currently present.
-- Old broad PR #5 was closed as superseded. Focused docs-only replacement PR #10
-  is https://github.com/not-benny/hermes-g2/pull/10 at reviewed
-  `84d5c17a72b6a9c3d5020d76a794221716dc9830`; it excludes stale wake-barrier code.
-- PRs #3, #4, #6, #7, #8, and #9 are closed with factual #11 supersession
-  comments after remote ancestry/readback proved their reviewed heads are retained.
-  Their branches and exact SHAs were not deleted or rewritten.
-- The remaining open queue is #1, #2, #10, and #11. None currently has visible CI
-  check rollups; local verification below is evidence, not a claim of green GitHub CI.
+- `glasses.render_view` is a private-evaluation, conversation-only shell overlay.
+  Its imperative V1 policy allows only inert text/key-value/progress/divider
+  blocks and bounded action labels. It rejects controls, bidi overrides, URLs,
+  markup, unknown fields and all raw rendering primitives before shell mutation.
+- Create/update uses a caller operation ID, opaque Android UUID, exact owner,
+  revision CAS, one live view, 30-3600 second generation-bound TTL, two accepted
+  renders per rolling second, and a strict shell/compositor delivery receipt.
+  It never wakes or changes focus. Cancellation, local close, expiry and MCP
+  disconnect tombstone exact identities and cannot clear a replacement.
+- Scroll changes local selection. Click queues one bounded inert event for the
+  exact owner/revision; `glasses.read_view_events` drains it. No gesture invokes
+  another tool. Double-click closes the view; long-press closes remote content
+  before preserving the shell escape countdown.
+- External MCP calls no longer infer authority from whichever turn is current.
+  Their bridge envelope must claim the exact originating `turnId` or explicitly
+  mark a proactive call. Missing, delayed, stale-turn and stale-connection calls
+  fail closed. MCP close aborts connection-owned work and view state. Direct
+  provider turns now propagate their own generation and cancellation signal.
+- The inbound bridge frame is bounded before JSON parsing and WSS remains the
+  only configured scheme. This is not external-operation proof: no licensed
+  compatible bridge deployment, certificate/server identity trace, generic MCP
+  client, credential run, or real-G2 display evidence exists. Public MCP/skill
+  publication and operational authorization remain NO-GO; no `SKILL.md` was added.
+
+Verification on the current candidate: focused assistant/render lifecycle tests
+pass 47/47; full `npm run test` passes 243/243; `npm run typecheck` passes after a
+worktree-local `npm ci`; JDK 21 / Android SDK 35 `npm run build` passes and emits
+the ignored debug APK. The exact APK installed and launched on the authorized USB
+Samsung A32 with no observed fatal crash. Package-filtered logs
+reported no active glasses connection and discarded shell frames safely, so no
+`render_view`, G2 lens, TTL, no-wake or gesture hardware claim is made.
 
 ## R1 health and protocol completion candidate
 

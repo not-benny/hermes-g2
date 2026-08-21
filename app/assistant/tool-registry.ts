@@ -46,7 +46,18 @@ export type ToolResult = {
   error?: string;
 };
 
-export type ToolHandler = (args: any, signal?: AbortSignal, isSideEffectAllowed?: () => boolean) => Promise<ToolResult> | ToolResult;
+export type ToolExecutionContext = {
+  caller: "direct" | "mcp";
+  connectionGeneration?: string | number | null;
+  turnGeneration: string | null;
+};
+
+export type ToolHandler = (
+  args: any,
+  signal?: AbortSignal,
+  isSideEffectAllowed?: () => boolean,
+  context?: ToolExecutionContext,
+) => Promise<ToolResult> | ToolResult;
 
 export type ToolRegistration = {
   spec: ToolSpec;
@@ -74,6 +85,10 @@ export type CallToolOptions = {
   turnGeneration?: string | null;
   /** Revalidate the authorizing turn immediately before invocation. */
   isTurnGenerationActive?: () => boolean;
+  /** Abort owned work when its backend connection or turn closes. */
+  signal?: AbortSignal;
+  /** Caller identity carried to owner-sensitive handlers. */
+  executionContext?: ToolExecutionContext;
 };
 
 const DEFAULT_TOOL_TIMEOUT_MS = 10_000;
@@ -110,6 +125,7 @@ export type AppToolLease = {
 export class ToolRegistry {
   private readonly registrations = new Map<string, OwnedToolRegistration>();
   private readonly changeListeners = new Set<() => void>();
+  private readonly ownerCloseListeners = new Set<(owner: ToolExecutionContext) => void>();
   // windowId -> the canonical (prefixed) tool names it contributed, for bulk
   // removal when the window closes or re-declares.
   private readonly windowToolNames = new Map<string, string[]>();
@@ -259,7 +275,10 @@ export class ToolRegistry {
     const registration = this.registrations.get(name)!;
     const timeoutMs = registration.spec.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
     const controller = new AbortController();
+    const abortFromOwner = () => controller.abort();
     try {
+      options.signal?.addEventListener("abort", abortFromOwner, { once: true });
+      if (options.signal?.aborted) controller.abort();
       if (options.turnGeneration && options.isTurnGenerationActive && !options.isTurnGenerationActive()) {
         return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
       }
@@ -274,7 +293,12 @@ export class ToolRegistry {
         }
         pending.add(controller);
       }
-      const handlerResult = registration.handler(args, controller.signal, options.isTurnGenerationActive);
+      const handlerResult = registration.handler(
+        args,
+        controller.signal,
+        options.isTurnGenerationActive,
+        options.executionContext,
+      );
       // A handler can synchronously close its window during setup. The timeout
       // wrapper has not subscribed yet, so cancel before installing it.
       if (!this.isLive(registration)) controller.abort();
@@ -292,6 +316,8 @@ export class ToolRegistry {
     } catch (error) {
       if (registration.ownerLease) this.pendingCalls.get(registration.ownerLease)?.delete(controller);
       return { ok: false, error: `Tool ${name} failed: ${describeError(error)}` };
+    } finally {
+      options.signal?.removeEventListener("abort", abortFromOwner);
     }
   }
 
@@ -299,6 +325,21 @@ export class ToolRegistry {
   onToolsChanged(listener: () => void): () => void {
     this.changeListeners.add(listener);
     return () => this.changeListeners.delete(listener);
+  }
+
+  onExecutionOwnerClosed(listener: (owner: ToolExecutionContext) => void): () => void {
+    this.ownerCloseListeners.add(listener);
+    return () => this.ownerCloseListeners.delete(listener);
+  }
+
+  closeExecutionOwner(owner: ToolExecutionContext): void {
+    for (const listener of this.ownerCloseListeners) {
+      try {
+        listener(owner);
+      } catch {
+        // Owner cleanup must never break connection teardown.
+      }
+    }
   }
 
   /** App-tool phases call this after a foreground/window change re-gates tools. */

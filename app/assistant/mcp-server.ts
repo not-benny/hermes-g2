@@ -32,6 +32,10 @@ export type McpServerOptions = {
   registry?: ToolRegistry;
 };
 
+export type McpCallAuthorization =
+  | { turnGeneration: string; proactive?: false }
+  | { proactive: true; turnGeneration?: never };
+
 export class AssistantMcpServer {
   private readonly registry: ToolRegistry;
   private readonly proactiveCallTimes: number[] = [];
@@ -41,6 +45,7 @@ export class AssistantMcpServer {
   private readonly activeRequestIds = new Set<string>();
   private readonly completedRequestIds = new Set<string>();
   private readonly completedRequestOrder: string[] = [];
+  private readonly activeCallControllers = new Map<string, AbortController>();
 
   constructor(private readonly options: McpServerOptions) {
     this.registry = options.registry ?? toolRegistry;
@@ -52,7 +57,7 @@ export class AssistantMcpServer {
     this.options.send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
   }
 
-  handleMessage(msg: any): void {
+  handleMessage(msg: any, authorization?: McpCallAuthorization): void {
     if (this.closed) return;
     const id = msg?.id;
     const validId = typeof id === "string" || typeof id === "number";
@@ -106,7 +111,7 @@ export class AssistantMcpServer {
           return;
         }
         this.activeRequestIds.add(requestKey);
-        void this.handleToolCall(id, msg.params, requestKey);
+        void this.handleToolCall(id, msg.params, requestKey, authorization);
         return;
       default:
         if (!isNotification) {
@@ -120,8 +125,15 @@ export class AssistantMcpServer {
     }
   }
 
-  private async handleToolCall(id: unknown, params: any, requestKey: string): Promise<void> {
+  private async handleToolCall(
+    id: unknown,
+    params: any,
+    requestKey: string,
+    authorization?: McpCallAuthorization,
+  ): Promise<void> {
     const epoch = this.epoch;
+    const callController = new AbortController();
+    this.activeCallControllers.set(requestKey, callController);
     try {
       const name = typeof params?.name === "string" ? params.name : "";
       const args = params?.arguments ?? {};
@@ -130,8 +142,12 @@ export class AssistantMcpServer {
         this.replyToolError(id, healthDenied);
         return;
       }
-      const proactive = !this.options.isTurnActive();
-      const turnGeneration = proactive ? null : this.options.getTurnGeneration?.() ?? null;
+      const proactive = authorization?.proactive === true;
+      const turnGeneration = proactive ? null : authorization?.turnGeneration ?? null;
+      if (!proactive && (!turnGeneration || !this.options.isTurnActive() || this.options.getTurnGeneration?.() !== turnGeneration)) {
+        this.replyToolError(id, "The MCP request is not bound to the exact current assistant turn");
+        return;
+      }
       if (name === "health.get_ring_data" && !proactive && !turnGeneration) {
         this.replyToolError(id, "No current assistant turn authorizes this action");
         return;
@@ -156,10 +172,20 @@ export class AssistantMcpServer {
       const result = await this.registry.callTool(name, args, {
         proactive,
         turnGeneration,
-        isTurnGenerationActive: turnGeneration
-          ? () => this.options.isTurnActive() && this.options.getTurnGeneration?.() === turnGeneration
-          : undefined,
-        isCallAllowed: () => this.healthPolicyError(name, turnGeneration),
+        isTurnGenerationActive: () =>
+          !callController.signal.aborted &&
+          (this.options.isConnectionGenerationActive?.() ?? false) &&
+          (proactive || (this.options.isTurnActive() && this.options.getTurnGeneration?.() === turnGeneration)),
+        isCallAllowed: () => {
+          if (!(this.options.isConnectionGenerationActive?.() ?? false)) return "The owning MCP connection is no longer active";
+          return this.healthPolicyError(name, turnGeneration);
+        },
+        signal: callController.signal,
+        executionContext: {
+          caller: "mcp",
+          connectionGeneration: this.options.connectionGeneration,
+          turnGeneration,
+        },
       });
       if (this.closed || epoch !== this.epoch) return;
       this.reply(id, {
@@ -169,6 +195,7 @@ export class AssistantMcpServer {
     } catch (error) {
       if (!this.closed && epoch === this.epoch) this.replyError(id, -32603, String((error as Error)?.message ?? error));
     } finally {
+      this.activeCallControllers.delete(requestKey);
       this.activeRequestIds.delete(requestKey);
       if (!this.closed && epoch === this.epoch) this.rememberCompleted(requestKey);
     }
@@ -232,8 +259,18 @@ export class AssistantMcpServer {
   }
 
   close(): void {
+    if (this.closed) return;
     this.closed = true;
     this.epoch += 1;
+    for (const controller of this.activeCallControllers.values()) controller.abort();
+    this.activeCallControllers.clear();
+    if (this.options.connectionGeneration !== undefined) {
+      this.registry.closeExecutionOwner({
+        caller: "mcp",
+        connectionGeneration: this.options.connectionGeneration,
+        turnGeneration: null,
+      });
+    }
     this.activeRequestIds.clear();
     this.completedRequestIds.clear();
     this.completedRequestOrder.length = 0;
