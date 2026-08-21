@@ -22,10 +22,12 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 ### Direct-R1 worker isolation candidate (2026-08-21)
 
-- Local rework branch `work/t_535a9f1f-ring-worker-rework` now has candidate
-  commits `0accf5f`, `0475383`, `abd7787`, `680dbf1`, `aaef1af`, and callback
+- The approved rework branch `work/t_535a9f1f-ring-worker-rework` was pushed
+  unchanged at `1dc65327ef33284877d3d9658ebc354b77cbbc2a`; PR #7 is open at
+  https://github.com/not-benny/hermes-g2/pull/7. It contains candidate commits
+  `0accf5f`, `0475383`, `abd7787`, `680dbf1`, `aaef1af`, and callback
   identity/dispatch fixes `9671839`, `f0f4892`, `a46cb12`, `58bd941`, and
-  `8330e9b` (not pushed; no PR).
+  `8330e9b`.
   Every optional direct-R1 connect,
   discovery/MTU/subscription wait, battery read, health poll, packetAck drain,
   and ring write runs on the single `FaceclawRingLink` worker. The glasses
