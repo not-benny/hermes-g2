@@ -208,6 +208,14 @@ pull the log + the Even app's built-in health-data export zip, and validate.
   the four consent-documentation files changed by `110ca69ccf1def05a09a36f6043a29215d4c6bc8`:
   `HANDOVER.md`, `ROADMAP.md`, `notes/ring-firmware-consent-gate.md`, and
   `notes/ring-firmware-update-design.md`. No wake-barrier file or symbol belongs in this
-  candidate, and the final candidate SHA will be recorded here after local verification.
+  candidate. The four-file documentation candidate currently reaches local commit
+  `a45a6987846d8bf2dddb4c33b73277f3e6490122`; the final verification commit is recorded in
+  the task handoff.
+- Scope verification reports exactly those four paths, `git diff --check` passes, and the
+  removed `tests/wake-barrier.test.mjs` is intentionally absent. `npm test` currently reports
+  142/144 with the two known wall-clock-sensitive activity assertions at
+  `tests/ring-health-store.test.mjs:158,190`; `npm run typecheck` and the configured Android
+  build remain blocked by the same 35 inherited NativeScript Android/AndroidX/Java namespace
+  and `Array.create` diagnostics outside this documentation scope.
 - This is documentation-only scope. No APK, device, BLE, pairing, firmware, reset, wipe,
   or destructive operation was used; GitHub remains unchanged pending fresh review.
