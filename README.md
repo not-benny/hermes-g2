@@ -26,15 +26,16 @@ not a guarantee for every phone, firmware version, or hardware unit.
 ## Before you start
 
 Hermes currently works alongside the official Even Realities app rather than
-replacing it completely:
+replacing it completely. Complete first-time setup in Even before handing the
+devices over to Hermes:
 
 1. Use the official Even app to pair and provision the G2 glasses and R1 ring,
    and to apply required official firmware updates.
 2. In Even, open **Home**, select the glasses, open **Connection**, and press
    **Disconnect**. Even and Hermes cannot hold the glasses connection at the
    same time.
-3. Keep Even installed, but close it or revoke/disable its Bluetooth access
-   during Hermes use. The R1 permits only one active central connection, so Even
+3. Keep the Even app installed, but close it or disable its Bluetooth
+   permission during Hermes use. The R1 permits only one active central connection, so Even
    must release Bluetooth before Hermes can receive live ring data.
 4. Start Hermes and complete onboarding for Bluetooth, notification access,
    battery optimisation, and either custom-firmware or phone-preview mode.
@@ -154,5 +155,5 @@ Babcock and contributors. The firmware work builds on
 [g2flash](https://github.com/jimrandomh/g2flash) and broader community research.
 See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for credits.
 
-Hermes G2 is Free Software under the **GNU General Public License version 3**.
+Hermes G2 is Free Software under the **GNU General Public License, version 3**.
 See [LICENSE](LICENSE).
