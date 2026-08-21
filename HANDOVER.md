@@ -1,5 +1,20 @@
 # Hermes G2 handover (2026-08-20)
 
+## Deterministic ring activity fixtures (2026-08-21)
+
+On clean candidate branch `fix/ring-activity-deterministic`, based directly on
+PR #2 head `491db1c36951b02ac6534897bf7bbe2825f6ffe2`, the two activity
+aggregation tests inject a fixed clock matching their 2026-08-20 fixture day.
+Production current-day validation is unchanged; stale-day and future-day
+rejection assertions remain enabled. Verification is recorded on the exact
+final candidate commit after the focused edits: the focused suite passes 13/13
+under `TZ=UTC`, `Pacific/Kiritimati`, and `Pacific/Pago_Pago`; `npm test` passes
+144/144; and `git diff --check` passes. `npm run typecheck` remains blocked by
+the checkout's existing 35 NativeScript Android namespace/`Array.create`
+errors, and the JDK 21/SDK 35 Android build reaches webpack but fails on those
+same 35 errors. This is a tests/docs-only change, so hardware verification is
+not applicable; nothing was pushed and no GitHub write was performed.
+
 A snapshot of project state, what was accomplished, what is pending, and how to
 pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
 the private `DECODE-SPEC.md` (see "Out-of-repo data").
