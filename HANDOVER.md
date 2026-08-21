@@ -1,5 +1,28 @@
 # Hermes G2 handover (2026-08-21)
 
+## In-process call cancellation successor (2026-08-21)
+
+Focused successor branch `fix/t284b41e4-pr6-r2` preserves base
+`bf59c2b7f7ddfa36a93c5fd45e8eeeae6e37f77c`, implementation commit
+`57e8955c56c135f06913942509a241847a37fe74`, and prior reviewed candidate
+`2e2068fd917eb58fcda4567811fdedbf9aebf6d0`. The prior candidate was extended
+by `fed6a8e566d3089f0327dcd14757def378bf1f75` with listener cleanup and
+synchronous-close cancellation. The current review candidate is the local
+documentation-correction commit on this branch; its exact HEAD is recorded in
+the active Kanban handoff. Nothing was pushed and no PR was opened or updated.
+
+Current-candidate verification at the implementation HEAD `fed6a8e`: focused
+in-process/registry tests pass 13/13; full `npm run test` passes 166/166;
+changed-file standalone TypeScript check, `git diff --check`, base ancestry,
+and worktree cleanliness pass; the candidate branch is absent from `origin`.
+Repository `npm run typecheck` fails on exactly 35 inherited NativeScript
+Android/AndroidX/Java/`Array.create` diagnostics outside changed files. The
+configured Android build reaches webpack then fails with the same 35 inherited
+diagnostics (exit 127); no APK was produced or installed. No hardware
+verification was performed and no hardware/display/BLE behavior changed.
+Fresh independent review and no-premature-delivery checks remain pending for
+the documentation-correction HEAD.
+
 ## Generation-safe app-tool teardown (2026-08-21)
 
 The focused PR #6 successor deliberately propagates opaque, generation-specific

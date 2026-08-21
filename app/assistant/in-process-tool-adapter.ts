@@ -2,7 +2,7 @@ import { type ToolRegistry, type ToolResult, type ToolSpec } from "./tool-regist
 
 export type InProcessTools = {
   specs: ToolSpec[];
-  invoke: (toolName: string, args: unknown) => Promise<ToolResult> | ToolResult;
+  invoke: (toolName: string, args: unknown, signal: AbortSignal, isSideEffectAllowed: () => boolean) => Promise<ToolResult> | ToolResult;
 };
 
 /** Register the tools owned by one main-thread window and return its teardown. */
@@ -14,6 +14,45 @@ export function registerInProcessTools(
   isForeground: () => boolean,
 ): () => void {
   if (!tools) return () => {};
-  const lease = registry.setAppTools({ windowId, appId, specs: tools.specs, invoke: tools.invoke, isForeground });
-  return () => registry.removeAppTools(windowId, lease);
+  const generation = new AbortController();
+  let active = true;
+  const lease = registry.setAppTools({
+    windowId,
+    appId,
+    specs: tools.specs,
+    invoke: async (toolName, args, signal, isSideEffectAllowed) => {
+      const merged = mergeAbortSignals(signal, generation.signal);
+      try {
+        return await tools.invoke(toolName, args, merged.signal, isSideEffectAllowed);
+      } finally {
+        merged.dispose();
+      }
+    },
+    isForeground,
+    isGenerationActive: () => active,
+  });
+  return () => {
+    if (!active) return;
+    active = false;
+    generation.abort();
+    registry.removeAppTools(windowId, lease);
+  };
+}
+
+function mergeAbortSignals(first: AbortSignal, second: AbortSignal): { signal: AbortSignal; dispose: () => void } {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    first.removeEventListener("abort", abort);
+    second.removeEventListener("abort", abort);
+  };
+  if (first.aborted || second.aborted) controller.abort();
+  else {
+    first.addEventListener("abort", abort, { once: true });
+    second.addEventListener("abort", abort, { once: true });
+  }
+  return { signal: controller.signal, dispose };
 }
