@@ -4,7 +4,8 @@
 
 This focused continuation is based on clean `origin/hermes-g2`
 (`ae89fd5e398a78ce9a7d00c66a47d92d02812319`) on local branch
-`wt/t_2aa76f3a-clean`; it is committed locally and remains unpushed pending
+`wt/t_2aa76f3a-clean` at implementation commit
+`f01bff47f5d2afd9a93df27356c76d38f89805b1`; it remains unpushed pending
 independent review. Queue, drain, and final send now all require
 `running && sessionReady && ringConnected && ringNotificationsReady`, and hard
 transport failure retires ring readiness before invalidating the generation and
