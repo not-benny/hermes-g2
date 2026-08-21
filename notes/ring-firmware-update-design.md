@@ -91,21 +91,16 @@ the capture.
 
 ---
 
-## 4. SECURITY: close the sendRawRingFrame() bypass
+## 4. SECURITY: raw and built-frame gates are closed
 
-The blocklist (`isBlocklistedRingSubCmd()`, `FaceclawBleCommunicator.java` lines 1726-1736)
+The shared blocklist in `FaceclawBleCommunicator`
 refuses the six system mutators - otaStart `0x09`, advStart `0x0a`, setAlgoKey `0x0c`,
 nvRecover `0x11`, powerControl `0x12`, pairDelete `0x13` - by returning null from
 `buildRingFrame()`.
 
-**The blocklist is enforced only at frame-BUILD time.** The `sendRawRingFrame()` path
-(line 1650, used today only for the benign pairAuth golden frame) has **no** blocklist
-check and writes any bytes directly to `bae80012`. A raw captured otaStart frame could be
-replayed through it, bypassing `isBlocklistedRingSubCmd` entirely. This is a latent safety
-gap.
-
-**Action (safe, do now):** apply blocklist inspection to the raw path too, or otherwise
-ensure no captured otaStart/mutator frame can be replayed through `sendRawRingFrame()`.
+`sendRawRingFrame()` also validates the canonical envelope, exact inner length, transport
+CRC, and the same blocklist before the BLE write. A captured mutator cannot bypass the
+policy by using the raw path. Preserve both gates unchanged.
 
 ---
 
@@ -135,9 +130,9 @@ ensure no captured otaStart/mutator frame can be replayed through `sendRawRingFr
 
 ## 6. Safe near-term win
 
-- **Add a `deviceInfo(0x02)` version read.** It is not blocklisted, is read-only, and lets
-  Hermes display the ring firmware version (observed **2.2.8.0002**). Small, safe change.
-- **Close the `sendRawRingFrame()` blocklist gap** (see section 4).
+- **Retain the implemented `deviceInfo(0x02)` version read.** It is not blocklisted and is
+  non-mutating; do not extend it into firmware writes.
+- **Preserve the closed raw/built-frame blocklist gates** (see section 4).
 - **Redirect ring effort to the HEALTH read path,** not firmware writes.
 
 ---
@@ -152,8 +147,7 @@ independent recovery gates below remain separate prerequisites. The current cons
 **BLOCKED/UNSATISFIED** and the operational decision remains **NO-GO / DO NOT BUILD**.
 
 - **Phase 0 - Do not build (current recommendation).** Redirect ring effort to the safe
-  HEALTH read path. Optionally add the `deviceInfo(0x02)` version read. Close the
-  `sendRawRingFrame()` gap defensively.
+  HEALTH read path. Retain the version read and raw/built-frame security gates.
 - **Phase 1 - Intelligence only (no device writes).** With Bluetooth denied and the official
   app unable to reach update/DFU transitions, capture only the sanitized shape of the normal
   `check_firmware` request. Capturing an actual OTA/DFU sequence is destructive/runtime work

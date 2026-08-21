@@ -121,6 +121,20 @@ test("anchored hourly rows survive a phone timezone/date-line change", () => {
   assert.equal(doc.hourly[0].dateKey, "2026-08-21");
 });
 
+test("canonical hourly rows keep distinct anchored identities for repeated local hours", () => {
+  const utc = Math.floor(Date.UTC(2026, 7, 20, 10, 0, 0) / 1000);
+  const utcPlusOne = Math.floor(Date.UTC(2026, 7, 20, 9, 0, 0) / 1000);
+  const doc = canonicalizeHealthDocument({ hourly: [
+    { dateKey: "2026-08-20", hourIdx: 10, timestampSec: utc, timezoneOffsetMinutes: 0,
+      hr: { avg: 60, max: 70, min: 50 } },
+    { dateKey: "2026-08-20", hourIdx: 10, timestampSec: utcPlusOne, timezoneOffsetMinutes: 60,
+      spo2: { avg: 97, max: 99, min: 95 } },
+  ] }, utc * 1000);
+  assert.equal(doc.hourly.length, 2);
+  assert.ok(doc.hourly.some((point) => point.hr && !point.spo2));
+  assert.ok(doc.hourly.some((point) => point.spo2 && !point.hr));
+});
+
 test("activity is accepted only for the current local day and recomputes totals from slots", () => {
   const timezoneOffsetMinutes = -new Date(NOW).getTimezoneOffset();
   const nowSec = Math.floor(NOW / 1000);

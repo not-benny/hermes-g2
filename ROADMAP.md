@@ -15,14 +15,11 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   only one holds live data at a time). Standing rule: leave Even's BT disabled by default; re-enable on demand
   ONLY when a task needs the Even app (ring pairing, firmware updates, or syncing the Even DB for ground-truth
   validation of sleep/calorie decode), and re-revoke it immediately afterward. While disabled Even cannot sync,
-  so obtaining a FRESH ground-truth capture requires temporarily re-granting Even's BT (see the harness below);
+  so obtaining fresh ground truth requires a separate authorized containment plan;
   an initial capture already exists.
-- **Ground-truth validation harness (ring decoders).** Repeatable method: enable full btsnoop
-  (Samsung: `settings global bluetooth_hci_log 1` + `persist.bluetooth.btsnooplogmode full`, log at
-  `/data/log/bt/btsnoop_hci.log`), briefly re-enable the Even app to capture its ring traffic, and pull the
-  Even app's built-in health-data export (7 CSVs). Together these give ground truth for validating every ring
-  decoder (HR, sleep, calories, steps, temperature). The Even-BT re-enable MUST be reverted afterward per the
-  standing rule above.
+- **Ground-truth validation is separately authorized and private.** This repository does not ship a
+  traffic-capture procedure. Any future decoder evidence collection must use a separately reviewed,
+  fail-closed containment plan, retain raw data outside git, and restore the Even-app Bluetooth boundary.
 - **Private ground-truth data is repo-excluded.** The Even export CSVs and btsnoop captures live in the
   repo-excluded sibling private project directory, with the captured R1 ring firmware zip under
   `ground-truth-private/firmware/`, and the byte-verified decode spec at

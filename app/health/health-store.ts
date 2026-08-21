@@ -142,8 +142,18 @@ function canonicalHourlyRows(value: unknown, cutoff: string, today: string, nowM
       const timestampMs = point.timestampSec * 1000;
       if (timestampMs > nowMs || timestampMs < nowMs - HEALTH_RETENTION_DAYS * 86400000) continue;
     } else if (point.dateKey < cutoff || point.dateKey > today) continue;
-    const key = `${point.dateKey}#${point.hourIdx}`;
-    const previous = rows.get(key);
+    const localKey = `${point.dateKey}#${point.hourIdx}`;
+    let key = `${localKey}#${point.timestampSec === undefined ? "legacy" : point.timestampSec}`;
+    let previous = rows.get(key);
+    if (!previous && point.timestampSec !== undefined) {
+      const legacyKey = `${localKey}#legacy`;
+      previous = rows.get(legacyKey);
+      if (previous) rows.delete(legacyKey);
+    } else if (!previous && point.timestampSec === undefined) {
+      const anchored = Array.from(rows.entries()).filter(([, value]) =>
+        `${value.dateKey}#${value.hourIdx}` === localKey && value.timestampSec !== undefined);
+      if (anchored.length === 1) [key, previous] = anchored[0];
+    }
     rows.set(key, {
       dateKey: point.dateKey,
       hourIdx: point.hourIdx,

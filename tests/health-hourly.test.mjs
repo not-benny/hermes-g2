@@ -100,6 +100,21 @@ test("upsertHourly upgrades legacy points and never erases an anchored timestamp
   assert.equal(unanchored[0].timestampSec, timestampSec);
 });
 
+test("different anchored identities at the same local hour never mix metrics", () => {
+  const utc = Math.floor(Date.UTC(2026, 7, 20, 10, 0, 0) / 1000);
+  const utcPlusOne = Math.floor(Date.UTC(2026, 7, 20, 9, 0, 0) / 1000);
+  const points = buildHourlyPoints(
+    [{ hourIdx: 10, avg: 60, max: 70, min: 50, timestampSec: utc, timezoneOffsetMinutes: 0 }],
+    [{ hourIdx: 10, avg: 97, max: 99, min: 95, timestampSec: utcPlusOne, timezoneOffsetMinutes: 60 }],
+    [], NOW,
+  );
+  assert.equal(points.length, 2);
+  const merged = upsertHourly([], points, NOW);
+  assert.equal(merged.length, 2);
+  assert.ok(merged.some((point) => point.hr && !point.spo2));
+  assert.ok(merged.some((point) => point.spo2 && !point.hr));
+});
+
 test("upsertHourly drops points older than the retention window and sorts", () => {
   const oldPoint = { dateKey: "2026-01-01", hourIdx: 3, hr: { avg: 50, max: 55, min: 45 } };
   const store = upsertHourly([oldPoint], buildHourlyPoints([{ hourIdx: 6, avg: 60, max: 70, min: 55 }], [], [], NOW), NOW, 90);

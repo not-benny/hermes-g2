@@ -61,7 +61,7 @@ canonical PR #11 head `448b7221310ed696bbbeab4d3b73bfd06f409923`.
   signature, rights, or recovery proof. Firmware/DFU/OTA remains NO-GO / DO NOT BUILD.
 
 Verification: focused decoder/persistence/Java/wiring/ring-store coverage passes
-69/69; full `npm run test` passes 235/235;
+70/70; full `npm run test` passes 236/236;
 `npm run typecheck` passes after worktree-local `npm ci`; JDK 21 / SDK 35 Android
 `npm run build` passes with full Java/native compilation; `git diff --check` and the
 added-diff private-data/artifact scans pass.
@@ -78,9 +78,11 @@ pass, but end-to-end anchored persistence remains operationally pending. The fir
 review found missing vital envelope/CRC gates, partial-count acceptance, timestamp/date identity
 gaps across timezone changes, plus multiple fail-open capture-harness/privacy blockers. The
 candidate now rejects malformed vital envelopes and truncated counts, binds persisted timestamps
-to fixed-offset date/hour identity, and retains valid anchored rows across phone date-line changes;
+to fixed-offset date/hour identity, retains valid anchored rows across phone date-line changes,
+and keeps repeated local hours separate by absolute timestamp so metrics never mix identities;
 the unsafe capture harness was removed rather than
-published, and the firmware safety documentation was corrected. No pairing, permission,
+published, captured vital/activity fixtures were replaced with synthetic builders, and stale
+capture/raw-blocklist documentation was corrected. No pairing, permission,
 credential, NVM, firmware, recovery, reset, wipe, or private-data state was changed.
 
 Independent frozen-SHA review, GitHub delivery, and remote readback remain pending at this checkpoint.

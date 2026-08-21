@@ -87,7 +87,7 @@ export function buildHourlyPoints(
       : timezoneOffsetMinutes === undefined
         ? dateKeyOf(timestampSec * 1000)
         : dateKeyAtOffset(timestampSec, timezoneOffsetMinutes);
-    const key = `${dateKey}#${r.hourIdx}`;
+    const key = `${dateKey}#${r.hourIdx}#${timestampSec === undefined ? "legacy" : timestampSec}`;
     let p = byKey.get(key);
     if (!p) {
       p = {
@@ -108,8 +108,12 @@ export function buildHourlyPoints(
   return Array.from(byKey.values());
 }
 
-function keyOf(p: { dateKey: string; hourIdx: number }): string {
+function localKeyOf(p: { dateKey: string; hourIdx: number }): string {
   return `${p.dateKey}#${p.hourIdx}`;
+}
+
+function keyOf(p: { dateKey: string; hourIdx: number; timestampSec?: number }): string {
+  return `${localKeyOf(p)}#${p.timestampSec === undefined ? "legacy" : p.timestampSec}`;
 }
 
 /**
@@ -131,8 +135,18 @@ export function upsertHourly(
   }
   for (const p of incoming) {
     if (p.dateKey < cutoff) continue;
-    const existing = merged.get(keyOf(p));
-    merged.set(keyOf(p), {
+    let targetKey = keyOf(p);
+    let existing = merged.get(targetKey);
+    if (!existing && p.timestampSec !== undefined) {
+      const legacyKey = `${localKeyOf(p)}#legacy`;
+      existing = merged.get(legacyKey);
+      if (existing) merged.delete(legacyKey);
+    } else if (!existing && p.timestampSec === undefined) {
+      const anchored = Array.from(merged.entries()).filter(([, value]) =>
+        localKeyOf(value) === localKeyOf(p) && value.timestampSec !== undefined);
+      if (anchored.length === 1) [targetKey, existing] = anchored[0];
+    }
+    merged.set(targetKey, {
       dateKey: p.dateKey,
       hourIdx: p.hourIdx,
       timestampSec: p.timestampSec ?? existing?.timestampSec,

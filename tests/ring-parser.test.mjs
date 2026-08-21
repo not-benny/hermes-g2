@@ -155,43 +155,39 @@ test("parseInnerFrame unwraps module/cmd/subCmd/status and the data region", () 
 
 // --- daily-push decode -----------------------------------------------------
 
-// These vectors are REAL frames captured off the R1 on 2026-08-20 (exclusive
-// access) and cross-checked against the Even app's decoded health.sqlite. See
-// notes/ring-daily-layout-2026-08-20.md.
-
-test("decodeDailyData decodes a real heart-rate frame (4-byte records + live current)", () => {
-  const payload = hexToBytes("03000000000000da6200006a0449583b05697a570668715800000000");
+// Synthetic legacy/unanchored vectors preserve fallback behavior without
+// committing captured health readings.
+test("decodeDailyData decodes synthetic heart-rate records + live current", () => {
+  const payload = buildHealthPayload(0, 70, [[4, 60, 70, 50], [6, 62, 72, 52]]);
   const d = decodeDailyData(payload, "heartRate");
   assert.equal(d.metric, "heartRate");
-  assert.equal(d.count, 3);
-  assert.equal(d.current, 106); // frame header live reading (was misread as a record before)
-  assert.equal(d.records.length, 3);
+  assert.equal(d.count, 2);
+  assert.equal(d.current, 70);
+  assert.equal(d.records.length, 2);
   assert.equal(d.timezoneOffsetMinutes, 0);
   assert.equal(d.dayBaseSec, 0);
   assert.equal(d.currentTimestampSec, null);
-  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 73, max: 88, min: 59, timestampSec: null, timezoneOffsetMinutes: null });
-  assert.deepEqual(d.records[1], { hourIdx: 5, avg: 105, max: 122, min: 87, timestampSec: null, timezoneOffsetMinutes: null });
-  assert.deepEqual(d.records[2], { hourIdx: 6, avg: 104, max: 113, min: 88, timestampSec: null, timezoneOffsetMinutes: null });
+  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 60, max: 70, min: 50, timestampSec: null, timezoneOffsetMinutes: null });
+  assert.deepEqual(d.records[1], { hourIdx: 6, avg: 62, max: 72, min: 52, timestampSec: null, timezoneOffsetMinutes: null });
   for (const r of d.records) assert.ok(r.min <= r.avg && r.avg <= r.max); // internally consistent
 });
 
-test("decodeDailyData decodes a real SpO2 frame with sparse (non-contiguous) hours", () => {
-  const payload = hexToBytes("020000000000008a6200006204616161065f5f5f00000000");
+test("decodeDailyData decodes synthetic sparse SpO2 hours", () => {
+  const payload = buildHealthPayload(0, 98, [[4, 97, 98, 96], [6, 96, 98, 95]]);
   const d = decodeDailyData(payload, "spo2");
   assert.equal(d.count, 2);
   assert.equal(d.current, 98);
-  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 97, max: 97, min: 97, timestampSec: null, timezoneOffsetMinutes: null });
-  assert.deepEqual(d.records[1], { hourIdx: 6, avg: 95, max: 95, min: 95, timestampSec: null, timezoneOffsetMinutes: null }); // hour 5 absent
+  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 97, max: 98, min: 96, timestampSec: null, timezoneOffsetMinutes: null });
+  assert.deepEqual(d.records[1], { hourIdx: 6, avg: 96, max: 98, min: 95, timestampSec: null, timezoneOffsetMinutes: null });
 });
 
-test("decodeDailyData decodes a real HRV frame (u16 values + u16 current)", () => {
-  const payload = hexToBytes("03000000000000b3620000270004350035003500056200620062000641004100410000000000");
+test("decodeDailyData decodes synthetic HRV u16 records and current", () => {
+  const payload = buildHrvPayload(0, 40, [[4, 35, 45, 25], [6, 42, 52, 32]]);
   const d = decodeDailyData(payload, "hrv");
-  assert.equal(d.count, 3);
-  assert.equal(d.current, 39);
-  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 53, max: 53, min: 53, timestampSec: null, timezoneOffsetMinutes: null });
-  assert.deepEqual(d.records[1], { hourIdx: 5, avg: 98, max: 98, min: 98, timestampSec: null, timezoneOffsetMinutes: null });
-  assert.deepEqual(d.records[2], { hourIdx: 6, avg: 65, max: 65, min: 65, timestampSec: null, timezoneOffsetMinutes: null });
+  assert.equal(d.count, 2);
+  assert.equal(d.current, 40);
+  assert.deepEqual(d.records[0], { hourIdx: 4, avg: 35, max: 45, min: 25, timestampSec: null, timezoneOffsetMinutes: null });
+  assert.deepEqual(d.records[1], { hourIdx: 6, avg: 42, max: 52, min: 32, timestampSec: null, timezoneOffsetMinutes: null });
 });
 
 test("decodeDailyData stops at the record count and ignores trailing bytes", () => {
@@ -245,7 +241,7 @@ test("decodeDailyData rejects a count that declares a truncated final record", (
 });
 
 test("decodeDailyData decodes confirmed activity slots, steps, and native calories", () => {
-  const dayBaseSec = 1_787_180_400;
+  const dayBaseSec = Math.floor(Date.UTC(2030, 0, 1, 23, 0, 0) / 1000);
   const payload = buildActivityPayload(60, dayBaseSec, [
     [67, ...u16(5), ...u16(5), ...u16(23)],
     [68, ...u16(18), ...u16(5), ...u16(17)],
@@ -272,33 +268,17 @@ test("decodeDailyData decodes confirmed activity slots, steps, and native calori
   });
 });
 
-test("decodeDailyData matches the captured cmd=5 bucket and Even CSV ground truth", () => {
-  // Capture data: count=1, tz=+60, local midnight=2026-08-20, slot 71.
-  // Even export at 11:50: steps=0; calories=15 (resting=12, active=3).
-  const payload = hexToBytes("013c007035866a47000003000f0000000000");
-  const decoded = decodeDailyData(payload, "activity");
-  assert.equal(decoded.dayBaseSec, 1_787_180_400);
-  assert.equal(decoded.timezoneOffsetMinutes, 60);
-  assert.deepEqual(decoded.records, [{
-    slot: 71,
-    timestampSec: 1_787_223_000,
-    steps: 0,
-    activeCalories: 3,
-    totalCalories: 15,
-    restingCalories: 12,
-  }]);
-});
-
 test("decodeDailyData rejects malformed activity records instead of surfacing partial totals", () => {
+  const syntheticDayBaseSec = Math.floor(Date.UTC(2030, 0, 1, 23, 0, 0) / 1000);
   assert.throws(
-    () => decodeDailyData(buildActivityPayload(60, 1_787_180_400, [[144, ...u16(1), ...u16(1), ...u16(2)]]), "activity"),
+    () => decodeDailyData(buildActivityPayload(60, syntheticDayBaseSec, [[144, ...u16(1), ...u16(1), ...u16(2)]]), "activity"),
     /slot out of range/,
   );
   assert.throws(
-    () => decodeDailyData(buildActivityPayload(60, 1_787_180_400, [[71, ...u16(1), ...u16(16), ...u16(15)]]), "activity"),
+    () => decodeDailyData(buildActivityPayload(60, syntheticDayBaseSec, [[71, ...u16(1), ...u16(16), ...u16(15)]]), "activity"),
     /calories invalid/,
   );
-  const truncated = buildActivityPayload(60, 1_787_180_400, [[71, ...u16(1), ...u16(3), ...u16(15)]]).subarray(0, 12);
+  const truncated = buildActivityPayload(60, syntheticDayBaseSec, [[71, ...u16(1), ...u16(3), ...u16(15)]]).subarray(0, 12);
   assert.throws(() => decodeDailyData(truncated, "activity"), /truncated/);
 });
 
