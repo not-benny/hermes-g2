@@ -1,6 +1,6 @@
 # Hermes G2 — ROADMAP
 
-Living planning doc (Now / Next / Later). Canonical for planning as of 2026-08-21.
+Living planning doc (Now / Next / Later). Canonical for planning as of 2026-08-20.
 Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
 
 **Status key:** DONE · IN-PROGRESS · BLOCKED · TODO · RESEARCH
@@ -15,13 +15,16 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   only one holds live data at a time). Standing rule: leave Even's BT disabled by default; re-enable on demand
   ONLY when a task needs the Even app (ring pairing, firmware updates, or syncing the Even DB for ground-truth
   validation of sleep/calorie decode), and re-revoke it immediately afterward. While disabled Even cannot sync,
-  so obtaining fresh ground truth requires a separate authorized containment plan;
+  so obtaining a FRESH ground-truth capture requires temporarily re-granting Even's BT (see the harness below);
   an initial capture already exists.
-- **Ground-truth validation is separately authorized and private.** This repository does not ship a
-  traffic-capture procedure. Any future decoder evidence collection must use a separately reviewed,
-  fail-closed containment plan, retain raw data outside git, and restore the Even-app Bluetooth boundary.
-- **Private ground-truth data is repo-excluded.** The Even export CSVs and btsnoop captures live in the
-  repo-excluded sibling private project directory, with the captured R1 ring firmware zip under
+- **Ground-truth validation harness (ring decoders).** Repeatable method: enable full btsnoop
+  (Samsung: `settings global bluetooth_hci_log 1` + `persist.bluetooth.btsnooplogmode full`, log at
+  `/data/log/bt/btsnoop_hci.log`), briefly re-enable the Even app to capture its ring traffic, and pull the
+  Even app's built-in health-data export (7 CSVs). Together these give ground truth for validating every ring
+  decoder (HR, sleep, calories, steps, temperature). The Even-BT re-enable MUST be reverted afterward per the
+  standing rule above.
+- **Private ground-truth data is repo-excluded.** The Even export CSVs and btsnoop captures live at
+  `/home/benny/Documents/hermes-g2/ground-truth-private/`, the captured R1 ring firmware zip under
   `ground-truth-private/firmware/`, and the byte-verified decode spec at
   `ground-truth-private/firmware/re/DECODE-SPEC.md`. None of it may EVER be committed to the public repo
   (personal health data and the proprietary firmware binary).
@@ -29,20 +32,6 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
 ---
 
 ## NOW — active / next to land
-
-### Repository queue consolidation
-- **IN-PROGRESS** (2026-08-21) — Canonical successor `integration/t_30a956f8`
-  preserves the reviewed PR #3/#4/#6/#7/#8/#9 histories while integrating their
-  overlapping health, app-tool, GATT, direct-R1, teardown, packetAck, and release
-  work once. Host tests, typecheck, JDK21/SDK35 Android build, and safe USB A32
-  G2/R1 startup/read-path checks pass; the first independent review's four BLE
-  blockers and two re-review races were fixed through code commit `329af655`.
-  Exact-SHA re-review passed and canonical PR #11 was remotely verified at
-  `46cff6c8`; overlapping PRs #3/#4/#6/#7/#8/#9 are closed as preserved
-  superseded branches. PR #1 and #2 were fast-forwarded to reviewed
-  heads. Broad PR #5 is closed; focused docs-only replacement PR #10 excludes the
-  rejected asynchronous wake-barrier implementation. The remaining open PRs are
-  #1, #2, #10, and #11; re-check conflicts after every base-branch merge.
 
 ### Health (ring) — session largely CLOSED
 - **CONFIRMED (firmware RE, 2026-08-20)** — Ring protocol byte-verified against the captured firmware and real
@@ -53,22 +42,20 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   correct, it is NOT an open root cause). Command table confirmed: module system=1 / health=2 / sport=3;
   health cmd HR=1 / SpO2=2 / temp=3 / HRV=4 / activity=5 / sleep=6, subCmd daily=1; battery = deviceStatus
   data[0]. HR/SpO2 hourly record = [hourIdx u8][avg u8][max u8][min u8]; HRV record = [hourIdx u8][avg u16 LE]
-  [max u16 LE][min u16 LE]. The vital header is count@0, signed timezone@1, local-midnight day base@3,
-  current-value timestamp@7, and live current@11. Hermes now derives nullable absolute hourly timestamps from
-  `dayBaseSec + hourIdx*3600`, persists/exports them additively, and preserves the legacy today/yesterday fallback
-  for invalid or zero anchors. A best-effort captured `systemTime(0x05)` SET runs once per new health session,
-  after health enable and before daily GETs; it is nonfatal and does not alter polling cadence. A bounded A32/R1
-  run observed exactly that order, no repeated clock write during HR-only polls, and four aligned daily frames;
-  an anchored persisted row was not observed because the one-shot cache handover preceded Health-page listener
-  activation, so end-to-end persistence remains hardware-pending. Exact implementation SHA `014736de` passed
-  independent static and privacy/safety review; operational authorization remains NO-GO for the unobserved
-  persistence row and all destructive/provisioning operations. Full spec lives
+  [max u16 LE][min u16 LE]; header count@0, opaque word@7, live current@11. Matches Hermes' current decoder
+  and is regression-tested, so HR / HRV / SpO2 decode is CONFIRMED-by-RE. Full byte-verified spec lives
   privately at `ground-truth-private/firmware/re/DECODE-SPEC.md` (repo-excluded).
-- **TODO** (unblocked, awaiting capture) — Sleep (cmd=6) decode. Schema and stage map fully known: 0=Wake,
-  1=REM, 2=Light, 3=Deep at 30s epochs; total/wake/rem/light/deep seconds; body_temp_delta. Remaining work: a
-  real overnight worn-ring capture correlated to a ring1Notify DB session (Ben will signal when he has sleep
-  data), then map cmd=6 frame bytes onto the schema. `decodeSleep` stays a throwing stub until then; do NOT
-  guess-and-ship the layout. See `notes/ring-sleep-frames-2026-08-20.md`.
+- **RESEARCH** — Sleep (cmd=6) type-2 relative intervals are confirmed from
+  three CRC-valid frames, three one-to-one `ring1Notify` span matches, and the
+  firmware storage/serializer chain. The frames are separate interval-only
+  sessions: u32 start/end at data offsets 12/16, in seconds. Their absolute
+  reference is not in the payload and is neither activity's confirmed
+  local-midnight epoch base nor the opaque non-activity daily word at offset 7.
+  Full decode remains blocked on a matching CRC-valid type-1 frame for the
+  existing non-empty-stage DB row and proof of the absolute-base handoff.
+  `decodeSleep` stays a throwing stub, cmd=6 stays unmapped/ignored, and a later
+  reviewed implementation card is required. See
+  `notes/ring-sleep-frames-2026-08-20.md`.
 - **NOTE** — Skin temperature is a daily, sparse metric (frequently absent or zero), consistent with the
   earlier nightly/reserved read. Low priority; there is no per-epoch temperature stream beyond the sleep
   record's body_temp_delta field.
@@ -86,16 +73,10 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
   glasses HUD (re-wired this session). The frame envelope for this path is byte-verified (see CONFIRMED above),
   which closes the earlier "finish the frame-format decode" sub-item. A worker-thread HR-only GET now refreshes
   the current-hour value every 15s (NOT per-beat), while heavier full-health polling stays at 60s.
-- **IMPLEMENTED / PARTIALLY HARDWARE-VALIDATED** (2026-08-21) — Request-layer MTU + packetAck: direct-ring connect requests MTU 247 after
+- **DONE** (2026-08-20) — Request-layer MTU + packetAck: direct-ring connect requests MTU 247 after
   service discovery and before notify subscription/probing, logging `ok` or safe `fallback`; the captured
   system/packetAck (0x7e) cursor loop uses CRC/shape validation, a bounded callback queue, generation tags,
-  reset clearing across ring/arm/transport/replacement teardown, and worker-thread writes with a final
-  generation gate under `ringLock`. Integrated host regressions pass. The final
-  candidate installed on the A32 and, after one bounded status-133 retry session,
-  cold-reconnected both G2 arms and the R1 with MTU 247, notify subscriptions, and
-  CRC-valid device-info/health replies. No live packetAck cursor arrived during the
-  bounded capture, so packetAck lifecycle behavior remains hardware-pending rather
-  than operationally passed.
+  comprehensive reset clearing, and worker-thread writes.
   The same worker runs an HR-only 15s current refresh without re-polling all metrics.
 
 ### Security
@@ -117,12 +98,9 @@ Full session history lives in `HERMES-G2-MASTER-PLAN.md` (archive).
 Even is currently a HARD dependency (first-time ring pairing/provisioning, glasses onboarding routes through
 Even's disconnect step, ring firmware). Guidance to users: **disable, don't uninstall.** The pairAuth
 session-open frame is hardcoded/universal (not per-device).
-- **STATIC RE PARTIAL / OPERATIONAL NO-GO** — **T2 Ring pairing independence.** The reviewed official-app
-  call trace documents current `advStart` GET/0x00 12-byte right+left identity serialization,
-  bare `getAlgoKeyStatus` GET/0x00, and conditional `setAlgoKey` SET/0x01 after an authenticated lookup.
-  Legacy six-byte versus current 12-byte behavior, fresh-bond order, durable NVM activation, rollback,
-  and recovery remain unproven. Hermes still requires Even for first-time provisioning; 0x0a/0x0c remain
-  blocklisted and no pairing UI is authorized. See `notes/r1-provisioning-static-analysis-2026-08-21.md`.
+- **TODO** — **T2 Ring pairing independence** — reverse advStart (0x0a host-MAC bind) + setAlgoKey (0x0c
+  provisioning) so Hermes can do first-time ring pairing/provisioning itself (currently blocklisted,
+  FaceclawBleCommunicator.java ~1700–1746). Prerequisite to T1 and independently valuable. RE work.
 - **TODO** — **T3 Non-Even glasses onboarding** — a glasses pair/flash path that doesn't route through
   Even's disconnect step.
 - **DONE** (2026-08-20, on-device verified) — Ring firmware **version display**: Hermes sends the safe,
@@ -131,12 +109,9 @@ session-open frame is hardcoded/universal (not per-device).
   the captured response was CRC-valid and no firmware-write behavior was added.
 
 ### Platform / vision groundwork
-- **PRIVATE IMPLEMENTATION / PUBLICATION BLOCKED** (2026-08-21) — **MCP / skill review** inventoried the
-  phone-served tools and now includes a bounded shell-owned `glasses.render_view` v1 plus inert gesture-event polling.
-  Create/update is operation-idempotent, revision/owner/TTL/rate bounded, never wakes or focuses, and external MCP
-  calls require an exact claimed turn plus live connection revalidation. Disconnect aborts owned calls and closes views.
-  Publication remains NO-GO until an external bridge has authenticated transport/peer proof and compatible exact-turn envelopes,
-  and all other mutators have cancellation/idempotency
+- **AUDIT DONE / PUBLICATION BLOCKED** (2026-08-20) — **MCP / skill review** inventoried 24 phone-served
+  tools and designed a bounded shell-owned `glasses.render_view` v1. Publication is NO-GO until the external
+  bridge has authenticated transport/peer proof, per-turn generation authorization, and cancellation/idempotency
   for timed-out side effects. Tool-specific holds include proactive alert/timer mutation,
   over-broad Roam reads, and disconnected-success paths. Full report:
   `notes/mcp-skill-publish-audit-2026-08-20.md`. Do not publish a `hermes-g2-glasses` skill before these gates.
@@ -144,32 +119,24 @@ session-open frame is hardcoded/universal (not per-device).
   validation, MCP initialization/errors, ownership-safe app tools, availability error boundaries, and
   preflight-before-quota all have behavioral tests. Follow-up binds MCP replies/lifecycle to one connection,
   suppresses late/duplicate requests, restores prior owners, rejects unsupported schemas, closes mismatched
-  sockets, bounds inbound frames, and times out unauthenticated handshakes. Remaining global blockers: authenticated secure
-  server deployment/proof, compatible licensed adapter and generic-client evidence, tool-specific mutation/privacy gates,
-  and real-G2 create/update/TTL/no-wake/gesture verification.
+  sockets, and times out unauthenticated handshakes. Remaining global blockers: authenticated secure transport/
+  server proof, per-turn generation authorization, and cancellation/idempotency for timed-out side effects.
 
 ### Smaller backlog (do not lose)
-- **BLOCKED** — S5 Ring pair/unpair + direct phone-to-ring link management UI remains gated on fresh-device
-  lifecycle/recovery evidence and separate hardware authorization; shipping blocklists stay intact.
+- **TODO** — S5 Ring pair/unpair + direct phone-to-ring link management UI (ties to T2).
 - **IMPLEMENTED / HARDWARE VALIDATION BLOCKED** (2026-08-20) — S6 Ring-health contention UX: direct R1 failures and glasses write failures surface
   an Even-app warning on Main, Controls, and Health with Open settings + Retry R1 actions. Opening settings
   starts a bounded release poll; once Even releases Bluetooth, the warning clears and R1 retries automatically.
   Static review passed, but real contention/release could not be exercised because launching Even immediately
   requested glasses re-pairing; that prompt was refused and Even was re-disabled/revoked. Operational GO remains open.
-- **BLOCKED** — S7 Voice-assistant bridge validate end-to-end (wakeword → bridge →
-  agent). The configured private endpoint repeatedly attempted connection during
-  the final A32 run but never reached connected state; direct providers were not
-  configured and no isolated disposable g2mirror session was available. System/app
-  tools, calendar, wakeword, cancellation, follow-up, alerts, and network recovery
-  remain unrun pending that private test environment.
+- **TODO** — S7 Voice-assistant bridge validate end-to-end ("Hey Even" → bridge → agent); bridge now works,
+  path was never hardware-tested.
 - **DEFER** — S3 `foregroundServiceType` refinement (FaceclawForegroundService.java ~110) — current
   over-claim is SAFE; a wrong gate could UNDER-claim and break voice capture. Leave until exercisable on-device.
 
 ### Release / repo
-- **IN-PROGRESS** — Q: the 1.0.0 `CHANGELOG.md` is drafted. Land and remotely
-  verify the canonical queue integration before producing the debug preview APK,
-  GitHub Release, and held awesome-list PRs. Do not overstate unverified BLE
-  hardware behavior in release copy.
+- **TODO** — Q: Debug preview APK (from the excised staging tree) + GitHub Release + CHANGELOG; then the held
+  awesome-list PRs. Keep the public repo evolving (currently at 6f8556b).
 
 ---
 
@@ -179,11 +146,8 @@ session-open frame is hardcoded/universal (not per-device).
 - **BLOCKED** — Ring uses **Nordic Secure DFU** (service 0000fe59, buttonless char 8ec90003) enforcing
   ECDSA-P256 signature verification. Custom/patched images are impossible without Even's private key; the
   most achievable action is re-pushing Even's OWN signed image (zero custom value, unrecoverable-brick risk).
-  A private candidate exists but is not provenance-, compatibility-, signature-, rights-, or recovery-approved;
-  the genuine-image gate therefore remains BLOCKED/UNKNOWN. The auth-walled Even `check_firmware` request remains
-  uncaptured; an earlier draft harness was omitted after adversarial safety/privacy review failed it.
-  No DFU flow is authorized. **DO NOT build standalone ring firmware update.** The recovery gate remains
-  BLOCKED/UNKNOWN in `notes/ring-sacrificial-recovery-gate-2026-08-21.md`.
+  No image source (auth-walled Even cloud check_firmware) and no captured DFU flow. **DO NOT build standalone
+  ring firmware update.** Feasibility design doc: `notes/ring-firmware-update-design.md` (commit 00f9940).
   Two actionable follow-ups it surfaced live as their own items: firmware-version display (NEXT) and the
   `sendRawRingFrame` blocklist-bypass fix (NOW / Security).
 
@@ -217,9 +181,9 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   `/sdcard/Android/data/com.even.sg/files/evenTemp/` (pull it before flashing). The backend is gin-vue-admin
   (JWT `iss=qmPlus`, `aud=GVA`); auth is an `x-token: <jwt>` header. Endpoints
   `https://api.evenrealities.com/v2/g/check_firmware` and `/v2/g/list_devices` accept the JWT but return
-  403 "Your device went wrong" without the app's extra device-identifying params/headers. Official-app
-  interception remains blocked by TLS trust/instrumentation and the lack of an enforceable Bluetooth/proxy
-  containment design; no capture harness or headless watcher/downloader is shipped.
+  403 "Your device went wrong" without the app's extra device-identifying params/headers. Concrete next step:
+  a one-time TLS intercept (mitmproxy or frida) of the app's real check_firmware request to capture those
+  params before a headless cron can poll for new firmware.
 - **RESEARCH** (high value) — **Reverse-engineer the R1 ring firmware (Ghidra).** Captured the Even OTA
   artifact today (2026-08-20): a Nordic nRF DFU zip (application.bin + application.dat + manifest.json),
   nRF52 ARM Cortex-M, build Aug 14 2026, version banner 603MV1.9.3. Confirmed it is the R1 RING firmware
@@ -229,24 +193,14 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   crack the remaining decoders (sleep cmd=6, calories, activity/steps, HR/HRV/SpO2 record layouts) rather than
   inferring from ground truth. Recommended path to close out the NOW / Health decode items. Binary stored
   privately outside the repo (see Operational notes); never commit it.
-- **VERIFIED LOCALLY; REVIEW/DELIVERY PENDING** — Ring health now uses one
-  app-private `health.store.v1` document with verified legacy migration and exact
-  90-local-date retention. The consent-gated, conversation-only
-  `health.get_ring_data` tool serves bounded on-demand reads (7-day default,
-  31-day max; hourly opt-in; activity totals only), and the former immediate/
-  3-hour HTTP push is removed. Automated and A32 evidence are tracked in
-  `HANDOVER.md`; public MCP/skill publication remains NO-GO.
+- **TODO** — Consolidate health data into a **persistent MCP store** (not per-push sessions).
 - **BLOCKED** — WhatsApp in-app client. Engine, pairing UI, and plumbing all DONE (nodejs-mobile + Baileys 7
   embedded, verified in-app), but pairing is blocked by an upstream **April-2026 WhatsApp/Baileys protocol
   regression** (`link_code_companion_reg` → 400 bad-request; Baileys #2488, closed "not planned", no fix).
   Batches 3–6 (need a live link) on hold. Options: shelve until upstream adapts / route via the existing
   agent-bridge QR link (reintroduces the laptop bridge) / monitor Baileys for a fix.
-- **DONE** — R: direct R1 link moved off the display worker onto the dedicated
-  `FaceclawRingLink` worker, with per-address GATT operation locks and an
-  initiation-only process-wide Bluetooth API lock (2026-08-21; local candidate
-  pending mandatory independent review/delivery).
-- **DEFER** — R: remaining latency work — non-blocking wake barrier and shorter
-  `waitForFrameFinished`. (Quick wins and ring-worker isolation already landed locally.)
+- **DEFER** — R: Latency deeper — move ring link off the display worker thread; non-blocking wake barrier;
+  shorter waitForFrameFinished. (Quick wins already landed.)
 
 ---
 
@@ -274,8 +228,7 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   when null) on every ring-store change. No hourly-average fallback, since that is not a live reading.
 - Health: R1 ring HR/HRV/SpO2 daily-record DECODER fixed (ae9a4e0); hourly persistence/accumulation
   `app/health/health-hourly.ts` (cb5d5f2); rich Health tab — readiness hero ring, 24h HR + trend charts,
-  real-file JSON export via FileProvider (003ee43, ac28d5e). Golden-vector tests. The former consent-gated
-  3-hour Hermes sync is superseded and removed by the pull-only implementation at lines 190–196.
+  consent-gated 3h Hermes sync, real-file JSON export via FileProvider (003ee43, ac28d5e). Golden-vector tests.
 - 4-tab shell (e6f1b04), Even Health dashboard (147fa0d).
 - **Onboarding wizard — DONE** (52f6d16): 5 steps (welcome · disclaimer · honest "How Hermes works" Even
   hand-off · permissions [BLE / notification-access / battery, live Granted ticks] · firmware choice) with
@@ -300,11 +253,6 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
   filled with a readiness hero (score + verdict + confidence + filled bar), a large HR readout with pulse
   icon and resting/range context, a 24h HR range chart (reuses the phone's buildHrDayBars, fills as hourly
   data accumulates), and a bottom metric strip (ring % / SpO2 / HRV / steps).
-- **Health side-card worn UX check — BLOCKED** (2026-08-21): the final candidate
-  connected both G2 arms, but the glasses were charging and display communication
-  paused. Optical clipping/readability, navigation/focus, hide/unhide, dismissal,
-  and persistence therefore remain unverified; do not infer them from ADB transport
-  logs. Repeat off charger with a wearer and record the six-item checklist.
 - **Algorithmic calorie estimator — DONE** (a5fa8bc, 9ef956c): HR-based Keytel (2005) estimate summed over
   accumulated hourly HR, reporting **ACTIVE** calories (burn above the resting-HR baseline) — the earlier
   total-EE version over-read (~1324 kcal on a sedentary day). Persisted weight/age/sex profile (Settings >
