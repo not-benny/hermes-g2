@@ -1,5 +1,17 @@
 # Hermes G2 handover (2026-08-21)
 
+## BLE callback identity gate (2026-08-21)
+
+FaceclawBleManager now carries the source BluetoothGatt through both
+characteristic-change callback overloads and rejects callbacks whose object is
+not the current address entry. Connection callbacks use the same identity gate:
+stale CONNECTED callbacks cannot publish or release latches, while stale
+DISCONNECTED callbacks only close their own GATT. Focused source-contract tests
+pass 3/3 and the full Node suite passes 160/160. Typecheck and Android build
+remain blocked by the existing NativeScript Android/JavaScript namespace errors
+(`android`, `androidx`, `java`, and `Array.create`); no hardware install or BLE
+interleaving was attempted in this implementation-only run.
+
 ## WhatsApp pairing options evaluation (2026-08-21)
 
 Added `notes/whatsapp-pairing-options-2026-08.md`. The safe recommendation is to
