@@ -1,5 +1,22 @@
 # Hermes G2 handover (2026-08-20)
 
+## Ring activity test clock determinism (2026-08-21)
+
+Updated `tests/ring-health-store.test.mjs` on the PR #1 lineage so the two
+positive activity tests and the ACK-rejection fixture inject the fixed
+`1_787_224_000_000` millisecond clock. This keeps the 2026-08-20 activity
+fixture current independent of host date/timezone and ensures the ACK test
+reaches its status=3 rejection path.
+
+Verification on amended head `4007ef1e` plus the local commit: `node --test
+`tests/ring-health-store.test.mjs` passes 13/13; `npm test` passes 133/133;
+UTC, `Pacific/Kiritimati`, and `Pacific/Pago_Pago` targeted runs each pass
+13/13; and `git diff --check origin/hermes-g2...HEAD` passes. `npm run
+typecheck` was run and remains blocked by the repository's existing
+NativeScript Android global/type errors (`android`, `androidx`, `java`, and
+`Array.create`) in unrelated files. No production code or hardware state was
+changed.
+
 A snapshot of project state, what was accomplished, what is pending, and how to
 pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
 the private `DECODE-SPEC.md` (see "Out-of-repo data").
