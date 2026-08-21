@@ -1,5 +1,15 @@
 # Hermes G2 handover (2026-08-21)
 
+## WhatsApp link-code regression investigation (2026-08-21)
+
+Added `notes/whatsapp-link-code-regression-2026-08.md` and reconciled the WhatsApp blocker in `ROADMAP.md`.
+The embedded rc13 client deterministically emits `Chrome (Hermes G2)`, which matches upstream's documented
+April `400 bad-request` failure for non-canonical pairing displays; rc13 also returns a code before awaiting
+the IQ error. Upstream PR #2559 is an actionable but unreleased fix. Issue #2488's original missing-success
+report was retracted after the required 515 reconnect was added, while later #2737 documents an unresolved
+`companion_reg_refresh` change affecting current pairing. No live-link batches were started; batches 3–6 stay
+gated. No confirmed upstream release/timeline restores the full pairing path yet.
+
 ## G2 protobuf transport primitives (2026-08-21)
 
 Added descriptor-accurate, non-negative-validated G2Setting X distance/Y height encoders and package-internal ACK-tracked `MessageBuilder` wrappers. Added an internal-only DeviceSettings quick-restart encoder; it is not queued or exposed through the communicator/UI. Provenance and exact vectors are recorded in `notes/g2-proto-transport.md`, and `ROADMAP.md` now separates implemented transport from unresolved coordinate-range and reboot authorization gates.

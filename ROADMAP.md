@@ -195,11 +195,13 @@ Semantics and selected wire bytes are now documented. Transport primitives are i
   inferring from ground truth. Recommended path to close out the NOW / Health decode items. Binary stored
   privately outside the repo (see Operational notes); never commit it.
 - **TODO** — Consolidate health data into a **persistent MCP store** (not per-push sessions).
-- **BLOCKED** — WhatsApp in-app client. Engine, pairing UI, and plumbing all DONE (nodejs-mobile + Baileys 7
-  embedded, verified in-app), but pairing is blocked by an upstream **April-2026 WhatsApp/Baileys protocol
-  regression** (`link_code_companion_reg` → 400 bad-request; Baileys #2488, closed "not planned", no fix).
-  Batches 3–6 (need a live link) on hold. Options: shelve until upstream adapts / route via the existing
-  agent-bridge QR link (reintroduces the laptop bridge) / monitor Baileys for a fix.
+- **BLOCKED / RESEARCH COMPLETE** — WhatsApp in-app client. Engine, pairing UI, and plumbing are DONE
+  (nodejs-mobile + Baileys 7 embedded, verified in-app), but Hermes's custom `Chrome (Hermes G2)` pairing
+  display is rejected by WhatsApp's April-2026 `companion_hello` validator (`400 bad-request`). Upstream
+  PR #2559 identifies the canonical-platform + awaited-IQ fix, but is not released; later issue #2737 also
+  reports an unresolved `companion_reg_refresh` pairing change in rc13/rc14/master. Full diagnosis and links:
+  `notes/whatsapp-link-code-regression-2026-08.md`. Batches 3–6 (need a live link) remain on hold; do not
+  start live-link batches until the canonical-label fix is available and the later refresh flow is resolved.
 - **DEFER** — R: Latency deeper — move ring link off the display worker thread; non-blocking wake barrier;
   shorter waitForFrameFinished. (Quick wins already landed.)
 
