@@ -96,7 +96,6 @@ launched on USB Samsung A32 `RFCR707RQGV`; package-filtered startup logs show
 normal NativeScript startup plus standard platform warnings. Real G2 lens
 transport and secure bridge verification remain unavailable/not performed;
 A32-only app launch evidence must not be read as glasses-display evidence.
->>>>>>> 5a1c0fe (fix: release replaced worker tool leases)
 
 A snapshot of project state, what was accomplished, what is pending, and how to
 pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
