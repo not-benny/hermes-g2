@@ -94,6 +94,47 @@ test("buildRingFrame reproduces the captured healthSettingsStatus GET byte-for-b
   assert.equal(toHex(frame), CAPTURES.healthSettingsGet);
 });
 
+test("an arm loss after prelude cannot resurrect readiness or start the ring", () => {
+  const src = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  // The production gate binds readiness and the initial ring side effect to
+  // the same attempt identity. These contracts fail on the old PR head.
+  assert.match(src, /glassesConnectionGeneration/);
+  assert.match(src, /attemptGeneration = \+\+glassesConnectionGeneration/);
+  assert.match(
+    src,
+    /attemptGeneration == glassesConnectionGeneration[\s\S]*running[\s\S]*!userDisconnectRequested[\s\S]*rightConnected[\s\S]*leftConnected/,
+  );
+  assert.match(src, /tryConnectRing\("initial", attemptGeneration\)/);
+  assert.match(src, /!rightConnected \|\| !leftConnected[\s\S]*attemptGeneration >= 0/);
+
+  // Exercise the lifecycle boundary deterministically: arm loss after the
+  // prelude invalidates the attempt, so it cannot publish readiness or write
+  // an ACK-producing ring command before a fresh complete pair succeeds.
+  const lifecycle = { generation: 0, running: true, userDisconnect: false, right: false, left: false, ready: false, ringWrites: 0 };
+  const beginAttempt = () => ++lifecycle.generation;
+  const publish = (token) => {
+    lifecycle.ready = token === lifecycle.generation && lifecycle.running
+      && !lifecycle.userDisconnect && lifecycle.right && lifecycle.left;
+    if (lifecycle.ready) lifecycle.ringWrites++;
+    return lifecycle.ready;
+  };
+  const staleAttempt = beginAttempt();
+  lifecycle.right = true;
+  lifecycle.left = true;
+  ++lifecycle.generation; // arm loss after prelude, before publication
+  lifecycle.left = false;
+  assert.equal(publish(staleAttempt), false);
+  assert.equal(lifecycle.ready, false);
+  assert.equal(lifecycle.ringWrites, 0);
+  const freshAttempt = beginAttempt();
+  lifecycle.left = true;
+  assert.equal(publish(freshAttempt), true);
+  assert.equal(lifecycle.ringWrites, 1);
+});
+
 test("the Java encoder is the corrected one (CRC-32 over the inner frame, no random checksum)", () => {
   const src = readFileSync(
     new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),

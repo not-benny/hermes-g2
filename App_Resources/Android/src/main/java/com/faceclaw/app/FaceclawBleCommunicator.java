@@ -128,6 +128,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         ringConnectionGeneration++;
         ringPacketAckQueue.clear();
     }
+    // Identity of the current two-arm connection attempt. Arm callbacks and
+    // teardown invalidate an in-flight attempt before it can resurrect a ready
+    // session or start the ring side effect.
+    private long glassesConnectionGeneration = 0;
     // Re-poll the ring health GETs periodically: the ring auto-connects while
     // off-head (empty window), so a one-shot poll never sees worn data. Re-firing
     // every RING_HEALTH_POLL_INTERVAL_MS means data arrives on the next poll once
@@ -308,6 +312,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 if (!stopping) stopping = true;
                 userDisconnectRequested = true;
                 running = false;
+                glassesConnectionGeneration++;
                 audioCaptureActive = false;
                 audioPacketListener = null;
             }
@@ -1597,6 +1602,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 return;
             }
             if (!connected) {
+                glassesConnectionGeneration++;
                 sessionReady = false;
                 fixedLayoutCreated = false;
                 warmedUp = false;
@@ -1656,6 +1662,11 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     private void connectLoopOnce() throws InterruptedException {
         setStateDisplay("connecting", "Connecting to the glasses...");
+        final long attemptGeneration;
+        synchronized (lock) {
+            attemptGeneration = ++glassesConnectionGeneration;
+            sessionReady = false;
+        }
         try {
             connectArm(rightAddress, true);
             connectArm(leftAddress, true);
@@ -1664,8 +1675,24 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             }
             sendPrelude();
 
+            boolean readyForPublication;
             synchronized (lock) {
-                sessionReady = true;
+                readyForPublication = attemptGeneration == glassesConnectionGeneration
+                    && running
+                    && !userDisconnectRequested
+                    && rightConnected
+                    && leftConnected;
+                if (!readyForPublication) {
+                    sessionReady = false;
+                } else {
+                    sessionReady = true;
+                }
+            }
+            if (!readyForPublication) {
+                handleTransportFailure("connection attempt invalidated");
+                return;
+            }
+            synchronized (lock) {
                 // A fresh transport prelude always starts an active EvenHub
                 // lifecycle, even if the previous connection dropped while
                 // its page was intentionally suspended.
@@ -1718,6 +1745,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     logLine("queue settings query for firmware info");
                 }
             }
+            tryConnectRing("initial", attemptGeneration);
         } catch (Throwable t) {
             logLine("connect failed: " + safeMessage(t));
             handleTransportFailure("connect failed");
@@ -1783,8 +1811,19 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private void tryConnectRing(String reason) {
-        if (!hasRingAddress() || stopping || !running || !sessionReady) {
+        tryConnectRing(reason, -1);
+    }
+
+    private void tryConnectRing(String reason, long attemptGeneration) {
+        if (!hasRingAddress()) {
             return;
+        }
+        synchronized (lock) {
+            if (!running || userDisconnectRequested || !sessionReady
+                    || !rightConnected || !leftConnected
+                    || (attemptGeneration >= 0 && attemptGeneration != glassesConnectionGeneration)) {
+                return;
+            }
         }
         try {
             int generation = connectRing();
@@ -3679,6 +3718,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         synchronized (lock) {
             maybeEmitEvenAppConflictLocked(reason);
             sessionReady = false;
+            glassesConnectionGeneration++;
             fixedLayoutCreated = false;
             warmedUp = false;
             startupProbePending = false;
@@ -3717,6 +3757,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private void resetSessionStateLocked() {
+        glassesConnectionGeneration++;
         sessionReady = false;
         shutdownRequested = false;
         fixedLayoutCreated = false;
