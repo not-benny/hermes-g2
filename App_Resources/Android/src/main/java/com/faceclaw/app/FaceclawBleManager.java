@@ -336,13 +336,13 @@ public class FaceclawBleManager {
     }
 
     public void disconnect(String address) {
-        Object operationLock = gattLock(address);
-        synchronized (operationLock) {
-            BluetoothGatt gatt = callbackRegistry.current(address);
-            if (gatt == null) {
-                return;
-            }
-            callbackRegistry.retire(address, gatt, null);
+        // Retire without taking the operation lock: retirement must wake a waiter
+        // that is currently holding that lock, and close only this exact GATT.
+        BluetoothGatt gatt = callbackRegistry.current(address);
+        if (gatt == null) {
+            return;
+        }
+        if (callbackRegistry.retire(address, gatt, null)) {
             closeGatt(gatt);
         }
     }

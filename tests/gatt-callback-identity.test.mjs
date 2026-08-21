@@ -41,6 +41,16 @@ test("connect owns one exact-GATT attempt and disconnect releases its waiters", 
   assert.match(connect, /awaitOperation\(operation, timeoutMs\)/);
   const disconnect = methodBody("public void disconnect(String address)");
   assert.match(disconnect, /callbackRegistry\.retire\(/);
+  assert.doesNotMatch(disconnect, /synchronized \(operationLock\)/);
+});
+
+test("registry does not invoke listener code while holding its monitor", () => {
+  const registry = readFileSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/GattCallbackRegistry.java", import.meta.url), "utf8");
+  assert.match(registry, /boolean dispatchIfCurrent\(/);
+  assert.match(registry, /synchronized \(this\) \{ if \(!isCurrent/);
+  assert.match(registry, /\}\n        dispatch\.run\(\);/);
+  assert.match(registry, /private final long generation/);
+  assert.match(registry, /operation\.generation != currentGeneration\(address\)/);
 });
 
 test("listener delivery carries exact GATT and is serialized against retirement", () => {

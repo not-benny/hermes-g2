@@ -63,6 +63,29 @@ public final class GattCallbackRegistryHarness {
         require(registry.completeOperation(address, "read", gattB, 0, new byte[] {2}), "B value callback accepted");
         require(readB.await(1), "B read latch");
         require(readB.status() == 0 && readB.value()[0] == 2, "B receives only B result");
+
+        GattCallbackRegistry.Operation<Object> writeB = registry.beginOperation(address, "write", gattB);
+        CountDownLatch listenerEntered = new CountDownLatch(1);
+        CountDownLatch releaseListener = new CountDownLatch(1);
+        Thread listener = new Thread(() -> {
+            require(registry.dispatchIfCurrent(address, gattB, () -> {
+                listenerEntered.countDown();
+                await(releaseListener);
+            }), "current listener dispatch");
+        });
+        listener.start();
+        require(listenerEntered.await(1, java.util.concurrent.TimeUnit.SECONDS), "listener entered");
+        require(registry.completeOperation(address, "write", gattB, 0, null),
+            "operation completion is not blocked by listener code");
+        require(writeB.await(1), "write completion latch");
+        releaseListener.countDown();
+        listener.join(1_000);
+        require(!listener.isAlive(), "listener joined");
+
+        require(registry.retire(address, gattB, null), "retire B for generation advance");
+        GattCallbackRegistry.Operation<Object> connectC = registry.beginConnect(address);
+        require(connectC.generation() > connectB.generation(), "generation monotonically advances");
+        require(!registry.completeConnect(address, gattB, true, null), "B generation cannot claim C");
     }
 
     private static void await(CountDownLatch latch) {
