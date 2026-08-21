@@ -2,12 +2,6 @@ diff --git a/README.md b/README.md
 index 6c36942..f3b3ec3 100644
 --- a/README.md
 +++ b/README.md
-@@ -85,6 +85,7 @@ The [Even Realities G2](https://www.evenrealities.com) are everyday display smar
- - [men-g2-ble-gateway](https://github.com/gpsnmeajp/men-g2-ble-gateway) - Python gateway exposing the G2 over HTTP, WebSocket, and MCP, with a local browser UI.
- - [g2_helloworld](https://github.com/gpsnmeajp/g2_helloworld) - Minimal sideload app and WebSocket demo for the G2, useful as a bare-metal starting point.
- - [men-g2-atoms3-hello](https://github.com/gpsnmeajp/men-g2-atoms3-hello) - Arduino sketch for the M5AtomS3 that connects to the G2 over BLE, authenticates, and boots an Even Hub page.
+@@ -88,1 +88,2 @@ The [Even Realities G2](https://www.evenrealities.com) are everyday display smar
  - [Even-G2-RE](https://github.com/lonelyobserver0/Even-G2-RE) - Reverse-engineering effort covering the Even G2 app and its BLE system.
 +- [Hermes G2 Ring Health](https://github.com/not-benny/hermes-g2/tree/main/docs/ring-health) - Reverse-engineered R1 ring-health BLE protocol documentation with capture methods and a self-testing frame decoder.
- 
- ## Apps - Productivity and Utilities
- 
