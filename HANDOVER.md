@@ -9,8 +9,12 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 ### Health persistence fail-closed remediation (local, review pending)
 
 Branch `wt/t_c7e739-fix` is based directly on preserved PR #3 head
-`81d55c65e5cb13600811b503729fb17fc0525922`. The remediation commit
-`4ad7291263bfc950fb211326982266fb8409338f` strictly validates real calendar dates,
+`81d55c65e5cb13600811b503729fb17fc0525922`. The reviewed candidate final HEAD is
+`9ba82eb34c75c60e73060653abafb54a4b36cfdd`, with focused range
+`38354d5082b7e08e58782ba869dfda5fd4c5e140..9ba82eb34c75c60e73060653abafb54a4b36cfdd`
+(remediation `4ad7291263bfc950fb211326982266fb8409338f` followed by the
+handover-only commit `9ba82eb34c75c60e73060653abafb54a4b36cfdd`). The remediation
+strictly validates real calendar dates,
 complete hourly metrics, and activity slot/totals schemas before normalizing; preserves
 invalid canonical bytes; removes unverifiable first-migration candidates safely; and
 retains retryable legacy fragments. Preview seeding sets its flag only after verified
