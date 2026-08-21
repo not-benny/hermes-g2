@@ -312,19 +312,30 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 
 ### 4.3 Terminal and g2mirror (background target)
 
-For all positive Terminal rows, G4 must authorize exactly the three tools below.
-The Terminal must remain backgrounded during the assistant call. Establish the
-authorized disposable target by foregrounding its view once, then foregrounding
-a benign non-Terminal window. Do not claim `list_sessions` selects a target or
-exposes a session ID. The only permitted input is:
-`printf '%s\n' 'HERMES_G2_QA_<TRACE>'` unless the GO records another harmless command.
+For all positive Terminal rows, G4 must authorize exactly the three tools below,
+and must explicitly authorize the isolation/preparation steps. Because
+`list_sessions` enumerates every connected control and session, the setup is
+fail-closed: before *any* provider/tool call, establish and record that only
+the named disposable host/session is connected and visible. Disconnect or
+otherwise remove every unrelated Terminal host/session using only actions named
+in G4; do not query first to discover what is present. If isolation cannot be
+established and recorded without an unapproved query/action, mark TM-01,
+TM-02, and TM-03 `BLOCKED` and make no tool call. The Terminal must remain
+backgrounded during the assistant call. Establish the authorized disposable
+target by foregrounding its view once, then foregrounding a benign non-Terminal
+window. Do not claim `list_sessions` selects a target or exposes a session ID.
+The only permitted input is exactly
+`printf '%s\n' 'HERMES_G2_QA_<TRACE>'`.
 
 #### TM-01 — background `list_sessions`
 
 - Checkpoint: G4 before g2mirror connection/query and G5 for evidence.
-- Setup: authorized disposable g2mirror host/session connected; terminal target
-  established, then Terminal backgrounded behind a benign window.
-- Exact action: direct assistant calls `app.terminal.list_sessions`.
+- Setup: G4 authorizes isolation/preparation; record that the named disposable
+  host/session is the only connected/visible Terminal host/session; establish
+  the target, then background Terminal behind a benign window. If that proof is
+  unavailable, BLOCKED before the call.
+- Exact action: direct assistant requests exactly
+  `app.terminal.list_sessions({})`.
 - Expected request/response: list succeeds within 15 seconds and returns only
   authorized session metadata; no caller-supplied session ID is used.
 - Expected phone/lens UI: canonical `→ app.terminal.list_sessions`, concise result,
@@ -336,31 +347,42 @@ exposes a session ID. The only permitted input is:
 
 #### TM-02 — background `send_input`
 
-- Checkpoint: G4 explicitly authorizes the exact printf command; G5.
-- Setup: same background target procedure as TM-01; target is active-view,
-  last-active-view, or sole-view resolution, not a supplied ID.
-- Exact action: call `app.terminal.send_input` with the exact authorized printf.
+- Checkpoint: G4 explicitly authorizes isolation/preparation and exactly the
+  printf command; G5.
+- Setup: same proven single-host/single-session isolation and background target
+  procedure as TM-01; target is active-view, last-active-view, or sole-view
+  resolution, not a supplied ID. If isolation or target proof is unavailable,
+  BLOCKED before the call.
+- Exact action: call exactly
+  `app.terminal.send_input({"text":"printf '%s\\n' 'HERMES_G2_QA_<TRACE>'"})`.
 - Expected request/response: command is delivered once and returns within 15
   seconds; no other tool/session/command is touched.
 - Expected phone/lens UI: canonical `→ app.terminal.send_input`, concise result,
   Terminal remains backgrounded.
 - Safe data: `HERMES_G2_QA_<TRACE>` only.
 - Evidence: redacted tool trace, screen/output evidence limited to the fixture,
-  and foreground proof.
+  and foreground proof. The request must use the exact shape above; no other
+  command or session argument is permitted.
 - Verdict: PASS/FAIL; timeout at 15 seconds is FAIL except authorized negative
   timeout coverage.
 
 #### TM-03 — background `read_screen`
 
-- Checkpoint: G4 and G5.
-- Setup: same background disposable target after TM-02, with only fixture output
-  visible where practical.
-- Exact action: call `app.terminal.read_screen`.
+- Checkpoint: G4 explicitly authorizes isolation/preparation and G5.
+- Setup: same proven single-host/single-session isolation and background target
+  after TM-02. Before the call, create a fresh disposable view and prove that
+  its complete visible screen contains only authorized benign/synthetic content
+  (the `HERMES_G2_QA_<TRACE>` fixture and no unrelated prompt, scrollback, or
+  session text). If that proof cannot be made, BLOCKED before the call because
+  `read_screen` returns the complete visible terminal rows.
+- Exact action: call exactly `app.terminal.read_screen({})`.
 - Expected request/response: visible screen is returned within 15 seconds and
   contains only authorized fixture output; no session ID is exposed or supplied.
 - Expected phone/lens UI: canonical `→ app.terminal.read_screen`, concise safe
   rendering, Terminal remains backgrounded.
-- Safe data: fixture output only; redact unrelated scrollback.
+- Safe data: synthetic fixture output only; unrelated scrollback must not exist
+  on the visible screen. Do not rely on later redaction to make an unsafe call
+  acceptable.
 - Evidence: redacted response, background proof, phone/lens evidence.
 - Verdict: PASS/FAIL; timeout at 15 seconds is FAIL except authorized negative
   timeout coverage.
