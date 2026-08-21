@@ -429,7 +429,7 @@ public class FaceclawBleManager {
                     address,
                     gatt,
                     true,
-                    () -> dispatchConnectionState(address, true)
+                    () -> dispatchConnectionState(gatt, address, true)
                 );
                 return;
             }
@@ -439,13 +439,13 @@ public class FaceclawBleManager {
                     address,
                     gatt,
                     false,
-                    () -> dispatchConnectionState(address, false)
+                    () -> dispatchConnectionState(gatt, address, false)
                 );
                 if (!accepted) {
                     accepted = callbackRegistry.disconnectIfCurrent(
                         address,
                         gatt,
-                        () -> dispatchConnectionState(address, false)
+                        () -> dispatchConnectionState(gatt, address, false)
                     );
                 }
                 if (accepted) {
@@ -504,7 +504,7 @@ public class FaceclawBleManager {
             callbackRegistry.dispatchIfCurrent(
                 address,
                 gatt,
-                () -> dispatchNotification(address, characteristic.getUuid().toString(), value)
+                () -> dispatchNotification(gatt, characteristic.getUuid().toString(), value)
             );
         }
 
@@ -515,21 +515,22 @@ public class FaceclawBleManager {
             callbackRegistry.dispatchIfCurrent(
                 address,
                 gatt,
-                () -> dispatchNotification(address, characteristic.getUuid().toString(), characteristic.getValue())
+                () -> dispatchNotification(gatt, characteristic.getUuid().toString(), characteristic.getValue())
             );
         }
     };
 
-    private void dispatchConnectionState(String address, boolean connected) {
+    private void dispatchConnectionState(BluetoothGatt gatt, String address, boolean connected) {
         FaceclawBleListener current = listener;
         if (current == null) return;
-        current.onConnectionStateChange(address, connected);
+        current.onConnectionStateChange(gatt, address, connected);
     }
 
-    private void dispatchNotification(String address, String characteristicUuid, byte[] data) {
+    private void dispatchNotification(BluetoothGatt gatt, String characteristicUuid, byte[] data) {
+        String address = gatt.getDevice().getAddress();
         FaceclawBleListener current = listener;
         if (current == null) return;
         byte[] copy = data != null ? data.clone() : new byte[0];
-        current.onNotification(address, characteristicUuid, copy);
+        current.onNotification(gatt, address, characteristicUuid, copy);
     }
 }

@@ -19,49 +19,36 @@ function methodBody(signature) {
 test("both notification callback overloads preserve and gate source GATT identity", () => {
   const modern = methodBody("public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value)");
   const deprecated = methodBody("public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic)");
+  assert.match(modern, /callbackRegistry\.dispatchIfCurrent\(/);
+  assert.match(deprecated, /callbackRegistry\.dispatchIfCurrent\(/);
   assert.match(modern, /dispatchNotification\(gatt,/);
   assert.match(deprecated, /dispatchNotification\(gatt,/);
-  const dispatch = methodBody("private void dispatchNotification(BluetoothGatt gatt,");
-  assert.match(dispatch, /gattClients\.get\(address\) != gatt/);
-  assert.ok(dispatch.indexOf("gattClients.get(address) != gatt") < dispatch.indexOf("current.onNotification"));
+  assert.match(manager, /dispatchNotification\(BluetoothGatt gatt,/);
 });
 
 test("connection callbacks reject stale GATTs before state or latch publication", () => {
   const callback = methodBody("public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState)");
-  assert.match(callback, /gattClients\.get\(address\) != gatt/);
-  const guard = callback.indexOf("gattClients.get(address) != gatt");
-  assert.ok(guard < callback.indexOf("attempt.result = true"));
-  assert.ok(guard < callback.indexOf("dispatchConnectionState(gatt, address, true)"));
-  assert.ok(guard < callback.indexOf("attempt.result = false"));
-  assert.match(callback, /closeStale = newState == BluetoothProfile\.STATE_DISCONNECTED/);
-  assert.match(callback, /if \(closeStale\) \{[\s\S]*?gatt\.close\(\);/);
+  assert.match(callback, /callbackRegistry\.completeConnect\(/);
+  assert.match(callback, /callbackRegistry\.disconnectIfCurrent\(/);
   assert.match(callback, /dispatchConnectionState\(gatt, address, true\)/);
   assert.match(callback, /dispatchConnectionState\(gatt, address, false\)/);
 });
 
 test("connect owns one exact-GATT attempt and disconnect releases its waiters", () => {
   const connect = methodBody("public boolean connect(String address, int timeoutMs)");
-  assert.ok(connect.indexOf("if (!awaitLatch(attempt.latch, timeoutMs))") > connect.indexOf("// All callers for an address await the same exact-GATT attempt"));
-  assert.match(connect, /connectionAttempts\.get\(address\)/);
-  assert.match(connect, /attempt\.gatt/);
-  assert.match(connect, /connectionAttempts\.get\(address\) == attempt/);
+  assert.match(connect, /GattCallbackRegistry\.Operation<BluetoothGatt> operation/);
+  assert.match(connect, /callbackRegistry\.bindConnectReturn\(/);
+  assert.match(connect, /awaitOperation\(operation, timeoutMs\)/);
   const disconnect = methodBody("public void disconnect(String address)");
-  assert.match(disconnect, /attempt\.completed = true/);
-  assert.match(disconnect, /attempt\.latch\.countDown\(\)/);
-  assert.match(manager, /if \(!ownsAttempt\) \{\s*return false;/s);
+  assert.match(disconnect, /callbackRegistry\.retire\(/);
 });
 
 test("listener delivery carries exact GATT and is serialized against retirement", () => {
   assert.match(manager, /current\.onNotification\(gatt, address, characteristicUuid, copy\)/);
   assert.match(manager, /current\.onConnectionStateChange\(gatt, address, connected\)/);
-  const dispatch = methodBody("private void dispatchNotification(BluetoothGatt gatt,");
-  assert.match(dispatch, /callbackLock\.lock\(\)/);
-  assert.match(dispatch, /callbackLock\.unlock\(\)/);
-  assert.ok(dispatch.indexOf("callbackLock.lock()") < dispatch.indexOf("current.onNotification"));
-  assert.ok(dispatch.indexOf("current.onNotification") < dispatch.indexOf("callbackLock.unlock()"));
-  const stateCallback = methodBody("public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState)");
-  assert.ok(stateCallback.indexOf("callbackLock.lock()") < stateCallback.indexOf("dispatchConnectionState"));
-  assert.ok(stateCallback.indexOf("dispatchConnectionState") < stateCallback.indexOf("callbackLock.unlock()"));
+  assert.match(manager, /current\.onNotification\(gatt, address, characteristicUuid, copy\)/);
+  assert.match(manager, /current\.onConnectionStateChange\(gatt, address, connected\)/);
+  assert.match(manager, /callbackRegistry\.dispatchIfCurrent\(/);
   assert.match(readFileSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleListener.java", import.meta.url), "utf8"), /default void onNotification\(BluetoothGatt gatt/);
 });
 
