@@ -17,20 +17,31 @@ test("registry enforces advertised schemas before handlers", async () => {
   assert.equal((await registry.callTool("test.write", { text: "ok" })).ok, true);
 });
 
-test("older same-app windows cannot delete newer registrations", async () => {
+test("stale same-window generation cannot delete its replacement", async () => {
   const registry = new ToolRegistry();
+  let changes = 0;
+  registry.onToolsChanged(() => { changes++; });
   const provider = (windowId, value) => ({ windowId, appId: "same",
     specs: [{ name: "do", description: "do", inputSchema: { type: "object", properties: {}, additionalProperties: false }, availability: "open" }],
     invoke: () => ({ ok: true, content: value }), isForeground: () => true });
-  registry.setAppTools(provider("old", "old")); registry.setAppTools(provider("new", "new"));
+  const oldLease = registry.setAppTools(provider("reused", "old"));
+  const newLease = registry.setAppTools(provider("reused", "new"));
   assert.equal((await registry.callTool("app.same.do", {})).content, "new");
-  registry.removeAppTools("old");
+  registry.removeAppTools("reused", oldLease);
   assert.equal((await registry.callTool("app.same.do", {})).content, "new");
+  assert.equal(changes, 2);
+  registry.removeAppTools("reused", newLease);
+  assert.match((await registry.callTool("app.same.do", {})).error, /Unknown tool/);
+  assert.equal(changes, 3);
+  registry.removeAppTools("reused", newLease);
+  assert.equal(changes, 3);
 
   const fallback = new ToolRegistry();
-  fallback.setAppTools(provider("old", "old")); fallback.setAppTools(provider("new", "new"));
-  fallback.removeAppTools("new");
+  const oldWindowLease = fallback.setAppTools(provider("old", "old"));
+  const newWindowLease = fallback.setAppTools(provider("new", "new"));
+  fallback.removeAppTools("new", newWindowLease);
   assert.equal((await fallback.callTool("app.same.do", {})).content, "old");
+  fallback.removeAppTools("old", oldWindowLease);
 });
 
 test("unsupported JSON Schema keywords fail closed", async () => {
@@ -62,4 +73,38 @@ test("availability failures fail closed without throwing", async () => {
   try { assert.deepEqual(registry.listTools(), []); } finally { console.warn = warn; }
   const result = await registry.callTool("test.flaky", {});
   assert.equal(result.ok, false); assert.match(result.error, /availability check failed/);
+});
+
+test("timeouts abort in-flight handlers and hide dependency details", async () => {
+  const registry = new ToolRegistry(); let signal;
+  registry.registerSystemTool({ name: "test.timeout", description: "test", timeoutMs: 5,
+    inputSchema: { type: "object", properties: {}, additionalProperties: false } }, (_args, received) => {
+    signal = received;
+    return new Promise(() => {});
+  });
+  const result = await registry.callTool("test.timeout", {});
+  assert.equal(result.ok, false);
+  assert.match(result.error, /timed out/);
+  assert.equal(signal.aborted, true);
+});
+
+test("side-effect handlers receive the live-turn guard at invocation", async () => {
+  const registry = new ToolRegistry();
+  let allowed = true;
+  let guardSeen = false;
+  registry.registerSystemTool({ name: "test.guarded", description: "test", inputSchema: { type: "object", properties: {} } },
+    (_args, _signal, guard) => {
+      guardSeen = guard?.() === true;
+      return guardSeen ? { ok: true, content: "sent" } : { ok: false, error: "stale" };
+    });
+  const result = await registry.callTool("test.guarded", {}, {
+    turnGeneration: "turn-1", isTurnGenerationActive: () => allowed,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(guardSeen, true);
+  allowed = false;
+  const stale = await registry.callTool("test.guarded", {}, {
+    turnGeneration: "turn-1", isTurnGenerationActive: () => allowed,
+  });
+  assert.equal(stale.ok, false);
 });

@@ -46,7 +46,7 @@ export type ToolResult = {
   error?: string;
 };
 
-export type ToolHandler = (args: any) => Promise<ToolResult> | ToolResult;
+export type ToolHandler = (args: any, signal?: AbortSignal, isSideEffectAllowed?: () => boolean) => Promise<ToolResult> | ToolResult;
 
 export type ToolRegistration = {
   spec: ToolSpec;
@@ -99,6 +99,12 @@ export type AppToolProvider = {
   isForeground: () => boolean;
 };
 
+/** Opaque identity for one installed generation of an app window's tools. */
+export type AppToolLease = {
+  readonly windowId: string;
+  readonly generation: symbol;
+};
+
 export class ToolRegistry {
   private readonly registrations = new Map<string, OwnedToolRegistration>();
   private readonly changeListeners = new Set<() => void>();
@@ -106,6 +112,7 @@ export class ToolRegistry {
   // removal when the window closes or re-declares.
   private readonly windowToolNames = new Map<string, string[]>();
   private readonly windowRegistrations = new Map<string, Map<string, OwnedToolRegistration>>();
+  private readonly windowLeases = new Map<string, AppToolLease>();
 
   /** Register (or replace) a tool. Names are unique across all tiers. */
   register(registration: ToolRegistration): void {
@@ -133,8 +140,10 @@ export class ToolRegistry {
    * each other. `open` tools stay live while the window exists; `foreground`
    * tools are gated on `isForeground()` at both list and call time.
    */
-  setAppTools(provider: AppToolProvider): void {
+  setAppTools(provider: AppToolProvider): AppToolLease {
     this.clearWindowTools(provider.windowId, false);
+    const lease: AppToolLease = { windowId: provider.windowId, generation: Symbol(provider.windowId) };
+    this.windowLeases.set(provider.windowId, lease);
     const names: string[] = [];
     const owned = new Map<string, OwnedToolRegistration>();
     for (const spec of provider.specs) {
@@ -155,10 +164,12 @@ export class ToolRegistry {
     this.windowToolNames.set(provider.windowId, names);
     this.windowRegistrations.set(provider.windowId, owned);
     this.fireToolsChanged();
+    return lease;
   }
 
-  /** Remove all tools contributed by a window (its worker closed or the window did). */
-  removeAppTools(windowId: string): void {
+  /** Remove one installed generation; stale or repeated releases are no-ops. */
+  removeAppTools(windowId: string, lease: AppToolLease): void {
+    if (this.windowLeases.get(windowId) !== lease) return;
     this.clearWindowTools(windowId, true);
   }
 
@@ -166,6 +177,7 @@ export class ToolRegistry {
     const names = this.windowToolNames.get(windowId);
     if (!names) return;
     this.windowRegistrations.delete(windowId);
+    this.windowLeases.delete(windowId);
     for (const name of names) {
       if (this.registrations.get(name)?.ownerWindowId !== windowId) continue;
       this.registrations.delete(name);
@@ -240,7 +252,13 @@ export class ToolRegistry {
       }
       const callDenied = options.isCallAllowed?.();
       if (callDenied) return { ok: false, error: callDenied };
-      return await this.withTimeout(registration.handler(args), timeoutMs, name);
+      const controller = new AbortController();
+      return await this.withTimeout(
+        registration.handler(args, controller.signal, options.isTurnGenerationActive),
+        timeoutMs,
+        name,
+        controller,
+      );
     } catch (error) {
       return { ok: false, error: `Tool ${name} failed: ${describeError(error)}` };
     }
@@ -271,6 +289,7 @@ export class ToolRegistry {
     result: Promise<ToolResult> | ToolResult,
     timeoutMs: number,
     name: string,
+    controller?: AbortController,
   ): Promise<ToolResult> {
     if (!(result instanceof Promise)) return Promise.resolve(result);
     return new Promise<ToolResult>((resolve) => {
@@ -278,6 +297,7 @@ export class ToolRegistry {
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
+        controller?.abort();
         resolve({ ok: false, error: `Tool ${name} timed out after ${timeoutMs}ms` });
       }, timeoutMs);
       result.then(
@@ -360,7 +380,7 @@ function validateJsonSchema(schemaValue: object, value: unknown, path = "$"): st
 }
 
 function describeError(error: unknown): string {
-  return String((error as Error)?.message ?? error);
+  return "The tool could not complete safely.";
 }
 
 /** The process-wide registry; system tools register into it at startup. */

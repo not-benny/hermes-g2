@@ -2,6 +2,8 @@ import { readUpcomingEvents, type CalendarEvent } from "../native/calendar";
 import { mediaControllerBridge } from "../native/media-controller";
 import { dismissNotification, readActiveNotifications } from "../native/notification-icons";
 import { shell } from "../ui/shell/shell";
+import { MAX_ALERT_TEXT_LENGTH } from "./display-policy";
+import { createShowAlertHandler } from "./display-alert-handler";
 import { toolRegistry, type ToolRegistry, type ToolResult } from "./tool-registry";
 
 /**
@@ -13,11 +15,11 @@ import { toolRegistry, type ToolRegistry, type ToolResult } from "./tool-registr
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-let registered = false;
+const registeredRegistries = new WeakSet<ToolRegistry>();
 
 export function registerSystemTools(registry: ToolRegistry = toolRegistry): void {
-  if (registered) return;
-  registered = true;
+  if (registeredRegistries.has(registry)) return;
+  registeredRegistries.add(registry);
 
   // Keep a media listener warm so "what's playing" works without opening Music.
   void mediaControllerBridge.start();
@@ -40,18 +42,19 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
         "Show a short text popup on the glasses display. Use for a brief notice the user should see; keep it to a sentence or two.",
       inputSchema: {
         type: "object",
-        properties: { text: { type: "string", description: "The message to display." } },
+        properties: { text: { type: "string", maxLength: MAX_ALERT_TEXT_LENGTH, description: "Plain-text message to display." } },
         required: ["text"],
         additionalProperties: false,
       },
       proactive: true,
     },
-    (args) => {
-      const text = String(args?.text ?? "").trim();
-      if (!text) return err("show_alert requires non-empty text");
-      shell.showAlert(text);
-      return ok("Displayed.");
-    },
+    createShowAlertHandler({
+      isScreenOn: () => shell.isScreenOn(),
+      // Preserve the registry-owned cancellation boundary all the way to the
+      // shell. Dropping the signal here would let a timed-out MCP call send a
+      // queued frame after its tool result had already failed.
+      showAlert: (text, signal) => shell.showAlert(text, signal),
+    }),
   );
 
   registry.registerSystemTool(

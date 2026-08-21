@@ -146,6 +146,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private int faceclawFramebufferControlGeneration;
     private int faceclawFramebufferControlSentCount;
     private int faceclawWakePendingNonce = -1;
+    private long nextWakeBarrierToken = 0;
+    private long wakeBarrierToken = 0;
+    private long wakeBarrierDeadlineMs = 0;
+    private int wakeBarrierGeneration = 0;
+    private boolean wakeBarrierAwaitingReady;
+    private boolean wakeBarrierReadyDeliveryPending;
+    private boolean resumePending;
+    private long resumeBarrierToken;
 
     private long reconnectAfterMs;
     private long ringReconnectAfterMs;
@@ -415,14 +423,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
      * the fail-open firmware policy is installed before relying on wakeword
      * interception or suspending EvenHub.
      */
-    public boolean setFaceclawWakeLeaseEnabled(boolean enabled) {
-        int generation;
+    public long setFaceclawWakeLeaseEnabled(boolean enabled) {
+        interruptibleSleep.interrupt();
         synchronized (lock) {
             faceclawWakeLeaseEnabled = enabled;
             if (!running || !sessionReady) {
-                return !enabled;
+                return 0;
             }
-            generation = enqueueFaceclawWakeControlLocked(
+            int generation = enqueueFaceclawWakeControlLocked(
                 enabled ? BleProtocol.FACECLAW_WAKE_OP_ACQUIRE : BleProtocol.FACECLAW_WAKE_OP_RELEASE,
                 0,
                 true
@@ -430,9 +438,16 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             if (!enabled) {
                 faceclawWakePendingNonce = -1;
             }
+            if (wakeBarrierToken > 0) {
+                emitWakeBarrierCompletion(wakeBarrierToken, false);
+            }
+            wakeBarrierToken = ++nextWakeBarrierToken;
+            wakeBarrierDeadlineMs = SystemClock.elapsedRealtime() + FACECLAW_WAKE_CONTROL_WAIT_MS;
+            wakeBarrierGeneration = generation;
+            wakeBarrierAwaitingReady = false;
+            return wakeBarrierToken;
         }
-        interruptibleSleep.interrupt();
-        return waitForFaceclawWakeControlDelivery(generation, FACECLAW_WAKE_CONTROL_WAIT_MS);
+
     }
 
     /**
@@ -440,49 +455,21 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
      * have all landed. If this wake came from CFW's deferred double tap, READY
      * is then sent to both arms to cancel their stock-dashboard fallback.
      */
-    public boolean awaitEvenHubSessionReady(int timeoutMs) {
-        long deadline = SystemClock.elapsedRealtime() + Math.max(0, timeoutMs);
-        int readyGeneration = 0;
+    public long awaitEvenHubSessionReady(int timeoutMs) {
+        interruptibleSleep.interrupt();
         synchronized (lock) {
-            while (running && sessionReady) {
-                boolean frameReady = false;
-                synchronized (desiredTilesLock) {
-                    frameReady = !desiredFingerprint.isEmpty()
-                        && desiredFingerprint.equals(displayedFingerprint);
-                }
-                if (!shutdownRequested && fixedLayoutCreated && warmedUp && frameReady) {
-                    if (faceclawWakePendingNonce >= 0) {
-                        readyGeneration = enqueueFaceclawWakeControlLocked(
-                            BleProtocol.FACECLAW_WAKE_OP_READY,
-                            faceclawWakePendingNonce,
-                            true
-                        );
-                        faceclawWakePendingNonce = -1;
-                    }
-                    break;
-                }
-                long remaining = deadline - SystemClock.elapsedRealtime();
-                if (remaining <= 0) {
-                    return false;
-                }
-                try {
-                    lock.wait(Math.min(remaining, 100));
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return false;
-                }
-            }
             if (!running || !sessionReady) {
-                return false;
+                return 0;
             }
-        }
-        if (readyGeneration != 0) {
-            interruptibleSleep.interrupt();
-            if (!waitForFaceclawWakeControlDelivery(readyGeneration, FACECLAW_WAKE_CONTROL_WAIT_MS)) {
-                logLine("wake READY delivery not confirmed before fallback deadline");
+            if (wakeBarrierToken > 0) {
+                emitWakeBarrierCompletion(wakeBarrierToken, false);
             }
+            wakeBarrierToken = ++nextWakeBarrierToken;
+            wakeBarrierDeadlineMs = SystemClock.elapsedRealtime() + Math.max(0, timeoutMs);
+            wakeBarrierGeneration = faceclawWakeControlGeneration;
+            wakeBarrierAwaitingReady = true;
+            return wakeBarrierToken;
         }
-        return true;
     }
 
     /**
@@ -863,62 +850,27 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
      * the session driver create the layout, warm up the image path, and send
      * the desired frame.
      */
-    public boolean resumeEvenHubSession() {
-        int claimGeneration = 0;
+    public long resumeEvenHubSession() {
+        interruptibleSleep.interrupt();
         synchronized (lock) {
             if (!running || !sessionReady || chargingMode) {
                 logLine("skip EvenHub resume; transport not ready");
-                return false;
+                return 0;
             }
             if (!shutdownRequested) {
-                return true;
+                return 0;
             }
-            if (faceclawWakePendingNonce >= 0
-                    && hasPendingOrInflightKindLocked("wake-lease-control")) {
-                claimGeneration = faceclawWakeControlGeneration;
+            if (wakeBarrierToken > 0) {
+                emitWakeBarrierCompletion(wakeBarrierToken, false);
             }
-            logLine("replaying session prelude for EvenHub resume");
+            resumePending = true;
+            resumeBarrierToken = ++nextWakeBarrierToken;
+            wakeBarrierToken = resumeBarrierToken;
+            wakeBarrierDeadlineMs = SystemClock.elapsedRealtime() + FACECLAW_WAKE_CONTROL_WAIT_MS;
+            wakeBarrierGeneration = faceclawWakeControlGeneration;
+            wakeBarrierAwaitingReady = false;
+            return resumeBarrierToken;
         }
-
-        // A custom double-tap wake has only a short unclaimed fail-open
-        // deadline. Let the worker put CLAIM on both arms before the direct
-        // prelude write begins.
-        if (claimGeneration != 0) {
-            waitForFaceclawWakeControlDelivery(claimGeneration, 500);
-        }
-
-        try {
-            // Empty-name Cmd=9 tears down the whole plugin task, not just its
-            // image container. Re-run the launch prelude before Cmd=0 CREATE.
-            sendPrelude(true);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            hardTransportFailure("EvenHub resume prelude interrupted");
-            return false;
-        } catch (Throwable t) {
-            logLine("EvenHub resume prelude failed: " + safeMessage(t));
-            hardTransportFailure("EvenHub resume prelude failed");
-            return false;
-        }
-
-        synchronized (lock) {
-            if (!running || !sessionReady || chargingMode) {
-                return false;
-            }
-            shutdownRequested = false;
-            fixedLayoutCreated = false;
-            warmedUp = false;
-            startupProbePending = false;
-            audioCaptureActive = false;
-            clearAllMessagesPreservingWakeLeaseLocked("EvenHub resume");
-            displayedFingerprint = "";
-            imageRetryAfterMs = 0;
-            lastHeartbeatSentAtMs = 0;
-            lastHeartbeatAckedAtMs = 0;
-            logLine("EvenHub session resume requested");
-        }
-        interruptibleSleep.interrupt();
-        return true;
     }
 
     private boolean sendShutdownInternal(int exitMode, boolean reconnectOnTimeout) {
@@ -1070,6 +1022,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             }
         }
         logLine("communicator stop");
+    }
+
+    @Override public void onNotification(BluetoothGatt gatt, String address, String characteristicUuid, byte[] data) {
+        onNotification(address, characteristicUuid, data);
     }
 
     @Override public void onNotification(String address, String characteristicUuid, byte[] data) {
@@ -1328,6 +1284,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         } catch (Throwable t) {
             logLine("G2 mic packet listener failed: " + safeMessage(t));
         }
+    }
+
+    @Override public void onConnectionStateChange(BluetoothGatt gatt, String address, boolean connected) {
+        onConnectionStateChange(address, connected);
     }
 
     @Override public void onConnectionStateChange(String address, boolean connected) {
@@ -2068,10 +2028,23 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             OutboundMessage messageToWrite = null;
             OutboundMessage messageToPrewrite = null;
             long now = SystemClock.elapsedRealtime();
+            boolean runResume = false;
+            long resumeToken = 0;
 
             maybeFinishNoChangeDesiredFrame();
 
             synchronized (lock) {
+                progressWakeBarrierLocked(now);
+                if (resumePending
+                        && (wakeBarrierGeneration == 0
+                            || faceclawWakeControlSentCount >= 2
+                            || now >= wakeBarrierDeadlineMs)) {
+                    runResume = true;
+                    resumeToken = resumeBarrierToken;
+                    resumePending = false;
+                    wakeBarrierToken = 0;
+                }
+                if (!runResume) {
                 if (sessionReady
                         && now - lastFaceclawFramebufferLeaseQueuedAtMs >= FACECLAW_WAKE_LEASE_RENEW_MS
                         && !hasPendingOrInflightKindLocked("framebuffer-lease-control")) {
@@ -2205,6 +2178,42 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                         return 250;
                     }
                 }
+                }
+            }
+
+            if (runResume) {
+                try {
+                    // The worker owns this continuation so the serialized Java
+                    // call queue is never held during the CLAIM deadline.
+                    sendPrelude(true);
+                    synchronized (lock) {
+                        if (!running || !sessionReady || chargingMode) {
+                            emitWakeBarrierCompletion(resumeToken, false);
+                            return 0;
+                        }
+                        shutdownRequested = false;
+                        fixedLayoutCreated = false;
+                        warmedUp = false;
+                        startupProbePending = false;
+                        audioCaptureActive = false;
+                        clearAllMessagesPreservingWakeLeaseLocked("EvenHub resume");
+                        displayedFingerprint = "";
+                        imageRetryAfterMs = 0;
+                        lastHeartbeatSentAtMs = 0;
+                        lastHeartbeatAckedAtMs = 0;
+                        logLine("EvenHub session resume requested");
+                    }
+                    emitWakeBarrierCompletion(resumeToken, true);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    emitWakeBarrierCompletion(resumeToken, false);
+                    hardTransportFailure("EvenHub resume prelude interrupted");
+                } catch (Throwable t) {
+                    logLine("EvenHub resume prelude failed: " + safeMessage(t));
+                    emitWakeBarrierCompletion(resumeToken, false);
+                    hardTransportFailure("EvenHub resume prelude failed");
+                }
+                return 0;
             }
 
             if (messageToPrewrite != null) {
@@ -3010,27 +3019,64 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         return generation;
     }
 
-    private boolean waitForFaceclawWakeControlDelivery(int generation, long timeoutMs) {
-        long deadline = SystemClock.elapsedRealtime() + Math.max(0, timeoutMs);
-        synchronized (lock) {
-            while (running
-                    && sessionReady
-                    && faceclawWakeControlGeneration == generation
-                    && faceclawWakeControlSentCount < 2) {
-                long remaining = deadline - SystemClock.elapsedRealtime();
-                if (remaining <= 0) {
-                    break;
-                }
-                try {
-                    lock.wait(Math.min(remaining, 100));
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
+    /** Advance the worker-owned wake barrier without ever waiting on the caller. */
+    private void progressWakeBarrierLocked(long now) {
+        if (wakeBarrierToken == 0 || resumePending) {
+            return;
+        }
+        if (!running || !sessionReady || now >= wakeBarrierDeadlineMs
+                || faceclawWakeControlGeneration != wakeBarrierGeneration) {
+            long token = wakeBarrierToken;
+            wakeBarrierToken = 0;
+            wakeBarrierAwaitingReady = false;
+            wakeBarrierReadyDeliveryPending = false;
+            emitWakeBarrierCompletion(token, false);
+            return;
+        }
+        if (wakeBarrierAwaitingReady && !wakeBarrierReadyDeliveryPending) {
+            boolean frameReady;
+            synchronized (desiredTilesLock) {
+                frameReady = !desiredFingerprint.isEmpty()
+                    && desiredFingerprint.equals(displayedFingerprint);
+            }
+            if (!shutdownRequested && fixedLayoutCreated && warmedUp && frameReady) {
+                if (faceclawWakePendingNonce >= 0) {
+                    wakeBarrierGeneration = enqueueFaceclawWakeControlLocked(
+                        BleProtocol.FACECLAW_WAKE_OP_READY,
+                        faceclawWakePendingNonce,
+                        true
+                    );
+                    faceclawWakePendingNonce = -1;
+                    wakeBarrierReadyDeliveryPending = true;
+                } else {
+                    long token = wakeBarrierToken;
+                    wakeBarrierToken = 0;
+                    emitWakeBarrierCompletion(token, true);
                 }
             }
-            return faceclawWakeControlGeneration == generation
-                && faceclawWakeControlSentCount >= 2;
+            return;
         }
+        if (faceclawWakeControlGeneration == wakeBarrierGeneration
+                && faceclawWakeControlSentCount >= 2) {
+            long token = wakeBarrierToken;
+            wakeBarrierToken = 0;
+            wakeBarrierAwaitingReady = false;
+            wakeBarrierReadyDeliveryPending = false;
+            emitWakeBarrierCompletion(token, true);
+        }
+    }
+
+    private void emitWakeBarrierCompletion(long requestToken, boolean success) {
+        if (requestToken <= 0) return;
+        final FaceclawBleCommunicatorListener current = listener;
+        if (current == null) return;
+        mainHandler.post(() -> {
+            try {
+                current.onWakeBarrierComplete(requestToken, success);
+            } catch (Throwable t) {
+                Log.w(TAG, "listener onWakeBarrierComplete failed", t);
+            }
+        });
     }
 
     /**
@@ -3305,9 +3351,13 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             faceclawWakeControlSentCount = 0;
             clearAllMessagesLocked("transport failure: " + reason);
             reconnectAfterMs = SystemClock.elapsedRealtime() + ConnectionOptions.RECONNECT_DELAY_MS;
-            bleManager.disconnect(rightAddress);
-            bleManager.disconnect(leftAddress);
         }
+        // Complete communicator state retirement before entering the BLE manager
+        // callback boundary; callbacks may be waiting for this lock. Keep teardown
+        // synchronous so this failure cannot later close a replacement GATT by
+        // address after a reconnect has published it.
+        bleManager.disconnect(rightAddress);
+        bleManager.disconnect(leftAddress);
         if (!userDisconnectRequested) {
             setStateDisplay("retrying", reason == null || reason.isEmpty() ? "Reconnecting..." : "Reconnecting after " + reason);
         }
@@ -3349,6 +3399,13 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         faceclawWakePendingNonce = -1;
         lastFaceclawWakeLeaseQueuedAtMs = 0;
         faceclawWakeControlSentCount = 0;
+        if (wakeBarrierToken > 0) {
+            long orphanedWakeToken = wakeBarrierToken;
+            wakeBarrierToken = 0;
+            resumePending = false;
+            emitWakeBarrierCompletion(orphanedWakeToken, false);
+        }
+        wakeBarrierReadyDeliveryPending = false;
         wearState = -1;
         displayedFingerprint = "";
         // Deliberately not clearing silentMode: it is a property of the glasses,

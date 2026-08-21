@@ -165,7 +165,7 @@ export class AssistantBridgeClient {
     if (this.stopped || this.ws || !this.options) return;
     const generation = this.connectionGuard.beginConnection();
     const { host, port } = this.options;
-    const url = `ws://${host}:${port}`;
+    const url = `wss://${host}:${port}`;
     this.setState("connecting", `Connecting to ${host}:${port}...`);
     let socket: any = null;
     this.listenerProxy = new com.faceclaw.app.FaceclawWebSocketListener({

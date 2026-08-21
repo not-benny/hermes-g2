@@ -222,6 +222,7 @@ class DashboardController {
   private lastSys = "none yet";
   private shellRenderInProgress = false;
   private shellRenderQueued = false;
+  private shellRenderPromise: Promise<void> | null = null;
   private nextShellRenderWantsFreshData = false;
   // One shared worker per app hosts all its windows; spawned on first launch.
   private readonly appHosts = new Map<string, WorkerAppHost>();
@@ -275,6 +276,8 @@ class DashboardController {
       },
       getScreenTimeoutMs: () => screenTimeoutSettingToMs(screenTimeoutSetting.get()),
       requestShellRender: () => this.requestShellRender(),
+      requestShellDelivery: (isAllowed) => this.requestShellDelivery(isAllowed),
+      isDisplayAvailable: () => this.isDisplayAvailable(),
       onWindowsChanged: () => this.persistOpenApps(),
       onHealthHiddenChanged: (hidden) => saveHealthTabHidden(hidden),
       onScreenStateChanged: (on) => {
@@ -314,6 +317,11 @@ class DashboardController {
     // connection stays up (with re-dial) so proactive tool calls work
     // outside voice turns.
     this.syncAssistantBridge();
+  }
+
+  /** A local shell flag is not device availability; require the live session. */
+  isDisplayAvailable(): boolean {
+    return this.phase === "connected" && this.communicator !== null;
   }
 
   // Bridge settings changes re-dial the connection; unrelated setting changes
@@ -1784,27 +1792,42 @@ class DashboardController {
    * overlays). Coalesces like requestRender: one render in flight, at most
    * one queued.
    */
-  requestShellRender(): void {
+  requestShellRender(): Promise<void> {
+    return this.requestShellDelivery().catch(() => undefined);
+  }
+
+  /** Strict shell delivery used only by user-visible alert operations. */
+  private requestShellDelivery(isAllowed?: () => boolean): Promise<void> {
+    if (isAllowed && !isAllowed()) return Promise.reject(new Error("The shell operation is no longer current."));
     if (this.shellRenderInProgress) {
-      this.shellRenderQueued = true;
-      return;
+      // Strict alert owners cannot share the ordinary coalesced receipt: a
+      // replacement must receive its own frame completion and must not inherit
+      // the predecessor's success or failure.
+      const prior = this.shellRenderPromise ?? Promise.resolve();
+      return prior.catch(() => undefined).then(() => {
+        if (isAllowed && !isAllowed()) throw new Error("The shell operation is no longer current.");
+        return this.requestShellDelivery(isAllowed);
+      });
     }
     this.shellRenderInProgress = true;
-    void (async () => {
+    this.shellRenderPromise = (async () => {
       try {
         do {
           this.shellRenderQueued = false;
-          await this.renderShell();
+          await this.renderShell(isAllowed);
         } while (this.shellRenderQueued);
       } catch (error) {
         this.appendLog(`shell render failed: ${this.formatError(error)}`);
+        throw error;
       } finally {
         this.shellRenderInProgress = false;
+        this.shellRenderPromise = null;
       }
     })();
+    return this.shellRenderPromise;
   }
 
-  private async renderShell(): Promise<void> {
+  private async renderShell(isAllowed?: () => boolean): Promise<void> {
     const frameId = frameTimings.startFrame("render:shell");
     const wantFreshData = this.nextShellRenderWantsFreshData;
     this.nextShellRenderWantsFreshData = false;
@@ -1821,13 +1844,18 @@ class DashboardController {
       this.nextShellRenderWantsFreshData = true;
       this.requestShellRender();
     }
-    if (!this.communicator || this.phase === "charging") {
+    const communicator = this.communicator;
+    if (!communicator || this.phase !== "connected") {
       frameTimings.finishFrame(frameId, "discarded: shell render with no active connection");
-      return;
+      throw new Error("The glasses session became unavailable before the alert was sent.");
+    }
+    if (isAllowed && !isAllowed()) {
+      frameTimings.finishFrame(frameId, "discarded: shell operation cancelled");
+      throw new Error("The shell operation is no longer current.");
     }
     const fingerprint = frameTimings.span(frameId, "fingerprint", () => image.fingerprint());
     const buffer = frameTimings.span(frameId, "to8bpp", () => image.to8bppBuffer());
-    await this.communicator.submitSurfaceFrame(
+    await communicator.submitSurfaceFrame(
       SHELL_SURFACE_ID,
       buffer,
       { x: 0, y: 0, width: image.width, height: image.height },
@@ -1835,7 +1863,16 @@ class DashboardController {
       paintMs,
       frameId,
     );
-    await this.communicator.waitForFrameFinished(frameId, FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS);
+    if (isAllowed && !isAllowed()) {
+      throw new Error("The shell operation was cancelled before frame completion.");
+    }
+    if (this.communicator !== communicator || this.phase !== "connected") {
+      throw new Error("The glasses session changed while sending the alert frame.");
+    }
+    await communicator.waitForFrameFinished(frameId, FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS);
+    if (this.communicator !== communicator || this.phase !== "connected") {
+      throw new Error("The glasses session changed before the alert frame completed.");
+    }
     this.updateCompositePreview();
   }
 
