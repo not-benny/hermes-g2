@@ -32,7 +32,8 @@ test("ring lifecycle rejects work after stopping and keeps callbacks outside loc
   assert.match(communicator, /private volatile boolean stopping/);
   assert.match(methodBody(communicator, "public boolean requestRingReconnect()"), /stopping/);
   assert.match(methodBody(communicator, "private void runRingLoop()"), /!stopping/);
-  assert.match(communicator, /Object callbackLock = ringCallback \? ringLock : lock/);
+  assert.match(communicator, /GattCallbackRegistry\.DispatchLease<BluetoothGatt> lease/);
+  assert.match(communicator, /if \(isConfiguredRingAddress\(address\)\)[\s\S]*synchronized \(ringLock\)/);
   assert.match(communicator, /finishDirectRingConnectionStateChange/);
 });
 

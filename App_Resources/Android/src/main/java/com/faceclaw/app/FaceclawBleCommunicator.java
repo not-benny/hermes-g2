@@ -1182,7 +1182,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         // The worker owns the deferred cleanup after a bounded close() could
         // not join it. This path is idempotent and is the only path that can
         // release BLE resources after a non-cooperative worker eventually exits.
-        completeCleanupIfQuiescent();
+        scheduleDeferredCleanup();
     }
 
     private void runRingLoop() {
@@ -1228,43 +1228,22 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
     }
 
-    @Override public void onNotification(
-            String address,
-            String characteristicUuid,
-            byte[] data,
-            FaceclawBleListener.DispatchToken dispatchToken
-    ) {
-        if (address == null || dispatchToken == null) {
-            return;
-        }
-        boolean ringCallback = isConfiguredRingAddress(address);
-        Object callbackLock = ringCallback ? ringLock : lock;
-        int acceptedRingGeneration = -1;
-        byte[] acceptedRingData = null;
-        synchronized (callbackLock) {
-            if (ringCallback && (stopping || !running)) {
-                return;
-            }
-            if (!dispatchToken.claim()) {
-                return;
-            }
-            if (ringCallback) {
-                acceptedRingGeneration = ringConnectionGeneration;
-                acceptedRingData = data == null ? null : Arrays.copyOf(data, data.length);
-            } else {
-                onNotification(address, characteristicUuid, data);
-                return;
-            }
-        }
-        // Never enter display state or downstream listeners while holding ringLock.
-        handleDirectRingNotification(characteristicUuid, acceptedRingData, acceptedRingGeneration);
-    }
-
     @Override public void onNotification(BluetoothGatt gatt, String address, String characteristicUuid, byte[] data,
                                          GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
         lease.dispatchIfCurrent(ignored -> {
-            synchronized (lock) {
-                onNotification(address, characteristicUuid, data);
+            if (isConfiguredRingAddress(address)) {
+                int generation;
+                byte[] copy;
+                synchronized (ringLock) {
+                    if (stopping || !running) return;
+                    generation = ringConnectionGeneration;
+                    copy = data == null ? null : Arrays.copyOf(data, data.length);
+                }
+                handleDirectRingNotification(characteristicUuid, copy, generation);
+            } else {
+                synchronized (lock) {
+                    onNotification(address, characteristicUuid, data);
+                }
             }
         });
     }
@@ -1554,39 +1533,17 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
     }
 
-    @Override public void onConnectionStateChange(
-            String address,
-            boolean connected,
-            FaceclawBleListener.DispatchToken dispatchToken
-    ) {
-        if (address == null || dispatchToken == null) {
-            return;
-        }
-        boolean ringCallback = isConfiguredRingAddress(address);
-        Object callbackLock = ringCallback ? ringLock : lock;
-        int acceptedRingGeneration = -1;
-        synchronized (callbackLock) {
-            if (ringCallback && (stopping || !running)) {
-                return;
-            }
-            if (!dispatchToken.claim()) {
-                return;
-            }
-            if (ringCallback) {
-                acceptedRingGeneration = updateDirectRingConnectionStateLocked(connected);
-            } else {
-                onConnectionStateChange(address, connected);
-                return;
-            }
-        }
-        // Never enter display state or downstream listeners while holding ringLock.
-        finishDirectRingConnectionStateChange(connected, acceptedRingGeneration);
-    }
-
     @Override public void onConnectionStateChange(BluetoothGatt gatt, String address, boolean connected,
                                                    GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
         lease.dispatchIfCurrent(ignored -> {
-            synchronized (lock) {
+            if (isConfiguredRingAddress(address)) {
+                int generation;
+                synchronized (ringLock) {
+                    if (stopping || (connected && !running)) return;
+                    generation = updateDirectRingConnectionStateLocked(connected);
+                }
+                finishDirectRingConnectionStateChange(connected, generation);
+            } else {
                 onConnectionStateChange(address, connected);
             }
         });
