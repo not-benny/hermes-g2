@@ -203,3 +203,23 @@ pull the log + the Even app's built-in health-data export zip, and validate.
   BLE, firmware, pairing, reset, wipe, or other destructive operation was
   used; nothing was pushed and no PR is open pending independent
   `g2-reviewer` approval.
+
+## 9. Non-blocking wake barrier (2026-08-21)
+
+- Implemented a worker-owned, generation/token-tagged wake barrier in
+  `FaceclawBleCommunicator.java`. Wake lease, readiness, and resume APIs now
+  register and return promptly; CLAIM/prelude/READY progression stays on the
+  communicator worker, with two-arm delivery counting, stale-generation
+  rejection, bounded deadlines, and disconnect/reset failure completion.
+- Added `onWakeBarrierComplete` through the Java listener and NativeScript bridge,
+  including bounded completion retention and timeout cleanup so a completion that
+  races waiter registration cannot settle a newer request.
+- Focused source-contract coverage is in `tests/wake-barrier.test.mjs` (2/2).
+  `npm run typecheck` passes and the JDK 21 / Android SDK debug build passes.
+  The full `npm test` baseline remains 143 passed / 2 existing date-gated ring
+  activity failures in `tests/ring-health-store.test.mjs`; no new failures were
+  observed. A32 USB serial `RFCR707RQGV` was used for a non-destructive debug APK
+  install and launch (`com.faceclaw.app`); bounded package-filtered logcat showed
+  normal NativeScript/node startup and no `AndroidRuntime`/`FATAL EXCEPTION`.
+- No firmware bytes, BLE framing, pairing, reset, wipe, or destructive device
+  operation was changed or used. Nothing has been pushed and no PR is open.
