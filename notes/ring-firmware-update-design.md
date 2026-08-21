@@ -26,8 +26,9 @@ custom-firmware value while carrying an unrecoverable-brick downside.
 
 Three unsolved prerequisites sit in front of even that limited outcome:
 
-1. **No image source.** No ring firmware URL exists anywhere in the repo or captures.
-   It is auth-walled behind Even's cloud (`api.evenrealities.com/v2/g/check_firmware`),
+1. **No approved image source.** The private archive contains only an unverified ring-firmware
+   candidate; no provenance-verified, compatible, vendor-signed, usable image is approved.
+   The image path remains auth-walled behind Even's cloud (`api.evenrealities.com/v2/g/check_firmware`),
    whose auth Hermes has only partially reversed and never gotten working.
 2. **No bond ownership.** Hermes piggybacks on the Even app's existing ring bond and
    never creates one. Ring pairing/provisioning is unreversed and hard-blocklisted.
@@ -119,8 +120,9 @@ ensure no captured otaStart/mutator frame can be replayed through `sendRawRingFr
    Far worse than the glasses (dual-lens, powered, reflashable).
 2. **Signature wall.** Nordic Secure DFU enforces ECDSA-P256 against a key in the immutable
    bootloader; without Even's private key Hermes cannot build/patch/forge any accepted image.
-3. **No image source** (auth-walled cloud; `app/native/even-api.ts` is flagged
-   EXPERIMENTAL/UNVALIDATED and has never worked; signing constants lost off-disk).
+3. **No approved image source** (the private archive's candidate is unverified; the auth-walled cloud
+   and `app/native/even-api.ts` are flagged EXPERIMENTAL/UNVALIDATED and have never produced an approved
+   image; signing constants remain unavailable).
 4. **Pairing dependency (hard prerequisite).** The trigger rides the encrypted app-mode link,
    which needs the bond Hermes does not own. Ring update cannot precede ring pairing.
 5. **Entire DFU wire flow is unobserved.** The otaStart payload, buttonless trigger bytes,
@@ -140,6 +142,13 @@ ensure no captured otaStart/mutator frame can be replayed through `sendRawRingFr
 ---
 
 ## 7. If ever pursued: phased, gated plan (STOP if any gate fails)
+
+Before any future phase is reconsidered, complete `notes/ring-firmware-consent-gate.md`. It defines two
+separate records: a phase approval and a per-run GO/NO-GO record. Both are scope-, time-, device-,
+artifact-, operator-, and procedure-bound; missing, ambiguous, stale, expanded, or revoked approval fails
+closed. Consent is necessary but never sufficient: the protocol, authentic-image, pairing/authority, and
+independent recovery gates below remain separate prerequisites. The current consent status is
+**BLOCKED/UNSATISFIED** and the operational decision remains **NO-GO / DO NOT BUILD**.
 
 - **Phase 0 - Do not build (current recommendation).** Redirect ring effort to the safe
   HEALTH read path. Optionally add the `deviceInfo(0x02)` version read. Close the
@@ -163,9 +172,12 @@ ensure no captured otaStart/mutator frame can be replayed through `sendRawRingFr
 
 **Non-negotiable gates if pursued:** keep the six mutators blocklisted; never write
 `8ec90003` (nor otaStart) unless a genuine, signature-valid, hash-pinned image is verified
-on-device first; prove bootloader recovery on a sacrificial ring before any write; require
-explicit "this can permanently kill your ring and only the Even app can recover it" consent;
-solve ring pairing (own the bond) before ring update.
+on-device first; prove bootloader recovery on a sacrificial ring before any write; require the
+completed, separately signed consent records in `notes/ring-firmware-consent-gate.md`, including
+the owner, operator, Benny as safety approver, and independent recovery lead/witness for destructive
+work; solve ring pairing (own the bond) before ring update. No consent record can authorize signature
+forgery, key extraction, validation disabling, bootloader patching, downgrade/exploit paths, or any
+other secure-update bypass. Any failed gate is a STOP result.
 
 ---
 

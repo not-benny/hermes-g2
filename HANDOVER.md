@@ -94,10 +94,11 @@ HUD, voice, notifications, navigation, and more.
 The git repo is `hermes-faceclaw` (pushed to the private `not-benny/hermes-g2`).
 Two important things live OUTSIDE the repo and do NOT travel via git clone:
 
-- `../ground-truth-private/` — Even health-export CSVs, btsnoop captures, the R1
-  ring firmware (zip + extracted `application.bin`), the RE harness `fwre.py`, and
-  the full `DECODE-SPEC.md`. Personal health data + proprietary firmware. Copy by
-  hand when moving machines.
+- `../ground-truth-private/` — Even health-export CSVs, btsnoop captures, an
+  **unverified** R1 ring-firmware candidate (zip + extracted `application.bin`),
+  the RE harness `fwre.py`, and the full `DECODE-SPEC.md`. Personal health data +
+  proprietary firmware. Copy by hand when moving machines; the candidate is not
+  an approved image and must not be treated as one.
 - `secrets.local.md` — dev identifiers (device IP, BLE MACs, git identity, Even
   API token location). Gitignored; recreate on the new machine.
 
@@ -151,6 +152,25 @@ In-repo, the ring-health work is:
 - Even firmware auto-track cron: the check_firmware API accepts the account JWT
   (`x-token`) but returns 403 without the app's device-identifying params; finishing
   it needs a one-time TLS intercept (mitmproxy/frida) of the app's real request.
+
+### 4a. Ring firmware consent gate (current NO-GO)
+
+- `notes/ring-firmware-consent-gate.md` is the reusable documentation-only informed-consent
+  gate for any future R1 firmware investigation or sacrificial-device test. It requires a
+  scope-limited phase approval plus a separately recorded per-run GO/NO-GO, with distinct
+  owner/custodian, hands-on operator, Benny as Hermes G2 safety approver, and (for destructive
+  work) an independent recovery lead/witness. Missing, stale, expanded, or revoked approval
+  fails closed; any signatory may stop and the owner may revoke future consent.
+- Operational authorization remains **NO-GO / BLOCKED / DO NOT BUILD**. The gate does not
+  establish protocol intelligence, a genuine vendor-signed hash-pinned image, Hermes-owned
+  pairing authority, or independent recovery. It never authorizes Secure DFU bypass, key
+  extraction, validation weakening, bootloader patching, downgrade/exploit paths, or device
+  modification. Private approvals, exact identifiers, captures, and raw logs belong under
+  `../ground-truth-private/firmware/approvals/<approval-id>/`; public records retain only
+  redacted aliases, approval IDs, statuses, hashes, and dates.
+- Next review trigger: only reassess after every independent gate is evidenced and a fresh
+  completed phase approval and per-run record are available for the specifically named scope,
+  device, artifact, procedure revision, and UTC window. No approval transfers to another run.
 
 ## 5. Resuming the firmware RE on a new machine
 
