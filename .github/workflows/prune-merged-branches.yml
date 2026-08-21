@@ -11,8 +11,8 @@ permissions:
 
 jobs:
   prune:
-    if: startsWith(github.event.head_commit.message, 'chore: prune merged branches')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Delete only fully merged, unprotected, unused branches
