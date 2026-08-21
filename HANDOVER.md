@@ -4,9 +4,13 @@
 
 The active outcome branch is `wt/t_273bc0ae`, fast-forwarded without rewriting
 history to the latest canonical integration base
-`b1150c90e8ce8e55a8a02b957e58eb6fe6380c5e`. Live GitHub readback at task start
-reported no open or closed pull requests despite older handover history referring
-to PR #11; that older queue prose is archival rather than current remote state.
+`b1150c90e8ce8e55a8a02b957e58eb6fe6380c5e`. The delivered outcome is
+PR #12 (`https://github.com/not-benny/hermes-g2/pull/12`), head
+`wt/t_273bc0ae`, base `integration/t_30a956f8`. Initial remote readback at
+`e252592a8eb002c2ac778ca31f5943fa88411be5` confirmed OPEN, non-draft,
+CLEAN/mergeable, the intended 16-file diff and four-commit chain, exact base SHA
+`b1150c90e8ce8e55a8a02b957e58eb6fe6380c5e`, no status-check rollup, and no
+formal review decision.
 
 ### Safe assistant/MCP glasses-display candidate
 
