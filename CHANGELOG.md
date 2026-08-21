@@ -2,7 +2,7 @@
 
 This changelog records user-visible work in the Hermes G2 1.0.0 development-preview line. Experimental, hardware-limited, and deliberately unavailable capabilities are called out explicitly.
 
-## [1.0.0] - Unreleased
+## [1.0.0-preview.1] - 2026-08-21
 
 ### Highlights
 
@@ -36,7 +36,8 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
 
 ### Verification evidence
 
-- The final reviewed application integration lineage reported 248/248 host tests, a passing TypeScript typecheck, and a passing Android build using JDK 21 and Android SDK 35.
+- Exact source `24274cfa5a076618afdb2306b880623aa4a94abe` passed a clean `npm ci`, all 247 host tests, TypeScript typechecking, and a JDK 21 / Android SDK 35 debug build. The released APK passed ZIP-integrity and prohibited-private-path checks before publication.
+- The final reviewed application integration lineage previously reported 248/248 host tests, a passing TypeScript typecheck, and a passing Android build using JDK 21 and Android SDK 35.
 - The startup connection fix was installed over the authorised Samsung A32 package with data retained; both G2 arms reached session ready, frame delivery was acknowledged, the phone displayed Connected, and real glasses input reached the shell.
 - These results apply to the tested source revision and hardware session. They are not a compatibility, recovery, or production-support guarantee.
 
