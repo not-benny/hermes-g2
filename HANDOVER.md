@@ -10,7 +10,7 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 - Local rework branch `work/t_535a9f1f-ring-worker-rework` now has candidate
   commits `0accf5f`, `0475383`, `abd7787`, `680dbf1`, `aaef1af`, and callback
-  identity fix `9671839` (not pushed; no PR).
+  identity/dispatch fixes `9671839` and `f0f4892` (not pushed; no PR).
   Every optional direct-R1 connect,
   discovery/MTU/subscription wait, battery read, health poll, packetAck drain,
   and ring write runs on the single `FaceclawRingLink` worker. The glasses
@@ -50,11 +50,23 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
   never be mistaken for a later operation on the same object. Weak identity
   tombstones preserve callback-before-wait handling without retaining closed
   GATT objects indefinitely.
-- Rework verification on `9671839`: callback concurrency plus focused ring
+- A fourth independent review reproduced a registry-monitor ↔ `ringLock`
+  inversion because accepted callbacks invoked external listeners while still
+  holding the callback registry monitor. `f0f4892` now completes callback state
+  atomically and returns a one-shot exact-generation dispatch token without
+  invoking external code. Each BLE listener acquires its own state lock first
+  and claims that token before any listener state mutation. A replacement
+  generation invalidates blocked connected, disconnected, and notification
+  tokens; a current disconnect remains dispatchable. The registry monitor is
+  therefore never held while a callback waits for `ringLock`, and callback token
+  claim follows the same state-lock → registry-lock order as ring manager
+  operations.
+- Rework verification on `f0f4892`: callback concurrency plus focused ring
   contracts 20/20 and full suite 151/151 passed; `npm run typecheck` passed after
   linking the existing ignored dependency tree into the isolated worktree; and
   the JDK 21 / Android SDK 35 debug build passed. APK:
-  `platforms/android/app/build/outputs/apk/debug/app-debug.apk` (336,310,223 bytes).
+  `platforms/android/app/build/outputs/apk/debug/app-debug.apk` (336,310,280 bytes,
+  SHA-256 `580929486b4eb6f89c9e8f8169e83a097daeaac25e80b7725b98303a8140540f`).
   `git diff --check` passed and the added-line hardcoded-secret, shell-injection,
   eval/exec, and unsafe-deserialization scan found zero matches.
 - Rework install/launch passed on the USB A32 (`SM_A326B`, serial recorded only in
@@ -82,16 +94,25 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
   exceptions and zero incomplete-teardown logs. The untracked raw log is
   `/tmp/t_535a9f1f-callback-registry-logcat.txt`; it may contain private
   MAC/health material and must not be committed or published.
+- The final dispatch-token code was installed and relaunched on the USB A32.
+  A bounded 45-second final-artifact capture kept the process alive with exactly
+  one `FaceclawBleComm` and one `FaceclawRingLin` thread. Direct R1 reached ready
+  with MTU 247; 12 CRC-valid/read-only notifications, one full health poll, and
+  14 glasses frame-timing lines were observed, with zero fatal exceptions and
+  zero incomplete-teardown logs. The earlier natural 2.557-second failure
+  interleaving remains the stronger timeout evidence. Raw final logs remain
+  untracked at `/tmp/t_535a9f1f-dispatch-token-final-logcat.txt` and must not be
+  committed or published.
 - No timeout was fabricated and no pairing/ownership, permission, MAC,
   firmware/DFU, reset, power, or destructive operation was attempted; Even
   Bluetooth remained revoked. The MAC/raw-health log remains untracked under
   `/tmp` and must not be committed.
-- Review state: three GPT-5.6 Sol medium-effort reviews requested lifecycle,
-  atomic ring-side-effect, and stale-GATT callback rework. `680dbf1`, `aaef1af`,
-  and `9671839` address those findings respectively; the new frozen candidate is
-  pending mandatory re-review. Only a reviewer-created delivery card may
-  authorize push/PR. Remaining latency siblings are the non-blocking wake
-  barrier and shorter `waitForFrameFinished`.
+- Review state: four GPT-5.6 Sol medium-effort reviews requested lifecycle,
+  atomic ring-side-effect, stale-GATT callback, and cross-lock dispatch rework.
+  `680dbf1`, `aaef1af`, `9671839`, and `f0f4892` address those findings
+  respectively; the new frozen candidate is pending mandatory re-review. Only a
+  reviewer-created delivery card may authorize push/PR. Remaining latency
+  siblings are the non-blocking wake barrier and shorter `waitForFrameFinished`.
 
 Seven self-contained items were completed on the `hermes-g2` branch/current
 working tree:
