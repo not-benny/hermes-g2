@@ -8,14 +8,14 @@ positive activity tests and the ACK-rejection fixture inject the fixed
 fixture current independent of host date/timezone and ensures the ACK test
 reaches its status=3 rejection path.
 
-Verification on amended head `4007ef1e` plus the local commit: `node --test
-`tests/ring-health-store.test.mjs` passes 13/13; `npm test` passes 133/133;
+Verification on amended head `4007ef1e` plus the local commits: `node --test
+tests/ring-health-store.test.mjs` passes 13/13; `npm test` passes 133/133;
 UTC, `Pacific/Kiritimati`, and `Pacific/Pago_Pago` targeted runs each pass
-13/13; and `git diff --check origin/hermes-g2...HEAD` passes. `npm run
-typecheck` was run and remains blocked by the repository's existing
-NativeScript Android global/type errors (`android`, `androidx`, `java`, and
-`Array.create`) in unrelated files. No production code or hardware state was
-changed.
+13/13; `npm run typecheck` passes with the declared dependencies installed;
+`git diff --check origin/hermes-g2...HEAD` passes; and `npm run build` was
+attempted but cannot run in this environment because `ANDROID_HOME` and a
+compatible Android SDK/build-tools installation are unavailable. No production
+code or hardware state was changed.
 
 A snapshot of project state, what was accomplished, what is pending, and how to
 pick the work back up on a new machine. Pairs with the in-repo `ROADMAP.md` and
