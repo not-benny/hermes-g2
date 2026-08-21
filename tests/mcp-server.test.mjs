@@ -16,8 +16,14 @@ function setup() {
     type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false,
   } }, (args) => { calls++; return { ok: true, content: args.text }; });
   const server = new AssistantMcpServer({ send: (msg) => sent.push(msg), isTurnActive: () => true,
-    allowProactive: () => false, registry });
+    getTurnGeneration: () => "turn-1", connectionGeneration: "connection-1",
+    isConnectionGenerationActive: () => true, allowProactive: () => false, registry });
   return { server, sent, calls: () => calls };
+}
+
+function initialize(server) {
+  server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
 }
 
 test("MCP requires initialization and negotiates its supported version", () => {
@@ -34,9 +40,7 @@ test("MCP requires initialization and negotiates its supported version", () => {
 });
 
 test("MCP rejects malformed calls and never executes tools/call notifications", async () => {
-  const { server, sent, calls } = setup();
-  server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
-  server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+  const { server, sent, calls } = setup(); initialize(server);
   server.handleMessage({ jsonrpc: "2.0", method: "tools/call", params: { name: "test.echo", arguments: { text: "silent" } } });
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(calls(), 0);
@@ -51,11 +55,11 @@ test("duplicate tool request IDs execute once and closed sessions suppress late 
   registry.registerSystemTool({ name: "test.slow", description: "slow", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
     () => { calls++; return new Promise((resolve) => { finish = resolve; }); });
   const server = new AssistantMcpServer({ send: (msg) => sent.push(msg), isTurnActive: () => true,
+    getTurnGeneration: () => "turn-1", connectionGeneration: "connection-1", isConnectionGenerationActive: () => true,
     allowProactive: () => false, registry });
-  server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
-  server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
+  initialize(server);
   const call = { jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "test.slow", arguments: {} } };
-  server.handleMessage(call); server.handleMessage(call);
+  server.handleMessage(call, { turnGeneration: "turn-1" }); server.handleMessage(call, { turnGeneration: "turn-1" });
   assert.equal(calls, 1); assert.equal(sent.at(-1).error.code, -32600);
   const beforeClose = sent.length;
   server.close(); finish({ ok: true, content: "late" });
@@ -63,17 +67,39 @@ test("duplicate tool request IDs execute once and closed sessions suppress late 
   assert.equal(sent.length, beforeClose);
 });
 
-test("MCP binds a side effect to the exact active turn generation", async () => {
+test("MCP rejects a delayed side effect whose claimed turn is no longer active", async () => {
   const sent = []; const registry = new ToolRegistry(); let calls = 0; let generation = "turn-1";
   registry.registerSystemTool({ name: "test.write", description: "write", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
     () => { calls++; return { ok: true, content: "written" }; });
   const server = new AssistantMcpServer({ send: (msg) => sent.push(msg), isTurnActive: () => true,
-    getTurnGeneration: () => generation, allowProactive: () => false, registry });
-  server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
-  server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
-  generation = "turn-2";
-  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "test.write", arguments: {} } });
+    getTurnGeneration: () => generation, connectionGeneration: "connection-1", isConnectionGenerationActive: () => true,
+    allowProactive: () => false, registry });
+  initialize(server); generation = "turn-2";
+  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "test.write", arguments: {} } },
+    { turnGeneration: "turn-1" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(calls, 0);
+  assert.equal(sent.at(-1).result.isError, true);
+});
+
+test("MCP rejects missing authorization and close aborts connection-owned calls", async () => {
+  const sent = []; const registry = new ToolRegistry(); let calls = 0; let aborted = false;
+  registry.registerSystemTool({ name: "test.slow", description: "slow", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
+    (_args, signal) => { calls++; return new Promise((resolve) => signal.addEventListener("abort", () => {
+      aborted = true; resolve({ ok: false, error: "aborted" });
+    }, { once: true })); });
+  const server = new AssistantMcpServer({ send: (msg) => sent.push(msg), isTurnActive: () => true,
+    getTurnGeneration: () => "turn-1", connectionGeneration: "connection-1", isConnectionGenerationActive: () => true,
+    allowProactive: () => false, registry });
+  initialize(server);
+  const call = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "test.slow", arguments: {} } };
+  server.handleMessage(call);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(calls, 0);
+  server.handleMessage({ ...call, id: 3 }, { turnGeneration: "turn-1" });
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(calls, 1);
-  assert.equal(sent.at(-1).result.isError, false);
+  server.close();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(aborted, true);
 });

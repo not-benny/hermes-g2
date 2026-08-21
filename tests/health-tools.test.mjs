@@ -159,7 +159,7 @@ test("health tool works through initialized MCP tools/list and tools/call", asyn
   server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
   server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
   assert.equal(sent.at(-1).result.tools.some((tool) => tool.name === TOOL_NAME), true);
-  server.handleMessage({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+  server.handleMessage({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } }, { turnGeneration: "turn-1" });
   await new Promise((resolve) => setTimeout(resolve, 0));
   const reply = sent.find((message) => message.id === 3);
   assert.equal(reply.result.isError, false);
@@ -177,7 +177,7 @@ test("consented health is hidden and rejected for an unverified external session
   server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
   server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
   assert.equal(sent.at(-1).result.tools.some((tool) => tool.name === TOOL_NAME), false);
-  server.handleMessage({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+  server.handleMessage({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } }, { turnGeneration: "turn-1" });
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(sent.at(-1).result.isError, true);
   assert.match(sent.at(-1).result.content[0].text, /unverified external/);
@@ -194,7 +194,7 @@ test("health call is denied when its live turn generation is replaced", async ()
   server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
   server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
 
-  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } }, { turnGeneration: "turn-1" });
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(sent.at(-1).result.isError, true);
   assert.match(sent.at(-1).result.content[0].text, /authorizing assistant turn/);
@@ -210,10 +210,10 @@ test("health call is denied after its connection generation becomes stale", asyn
     isConnectionGenerationActive: () => ++connectionChecks < 2, allowProactive: () => false, registry });
   server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
   server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
-  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } }, { turnGeneration: "turn-1" });
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(sent.at(-1).result.isError, true);
-  assert.match(sent.at(-1).result.content[0].text, /current live connection/);
+  assert.match(sent.at(-1).result.content[0].text, /current live connection|owning MCP connection|authorizing assistant turn/);
   assert.equal(connectionChecks, 2);
   assert.equal(native.getLoadCount(), 0);
 });
@@ -229,7 +229,7 @@ test("health call is denied when the live turn finishes at the final policy chec
     isConnectionGenerationActive: () => true, allowProactive: () => false, registry });
   server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
   server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
-  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+  server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } }, { turnGeneration: "turn-1" });
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(sent.at(-1).result.isError, true);
   assert.match(sent.at(-1).result.content[0].text, /authorizing assistant turn is no longer active/);
@@ -251,7 +251,7 @@ test("trusted health is hidden and rejected when either live identity validator 
     server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
     server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
     assert.equal(sent.at(-1).result.tools.some((tool) => tool.name === TOOL_NAME), false, missing);
-    server.handleMessage({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+    server.handleMessage({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } }, { turnGeneration: "turn-1" });
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(sent.at(-1).result.isError, true, missing);
     assert.equal(native.getLoadCount(), 0, missing);
@@ -270,7 +270,7 @@ test("trusted health rejects an empty turn or connection generation without load
     const server = new AssistantMcpServer(options);
     server.handleMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
     server.handleMessage({ jsonrpc: "2.0", method: "notifications/initialized" });
-    server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+    server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } }, { turnGeneration: "turn-1" });
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(sent.at(-1).result.isError, true, variant);
     assert.equal(native.getLoadCount(), 0, variant);
@@ -289,7 +289,7 @@ test("consent revoke after listing rejects the call without loading health data"
   server.handleMessage({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
   assert.equal(sent.at(-1).result.tools.some((tool) => tool.name === TOOL_NAME), true);
   native.setTestConsent(false);
-  server.handleMessage({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } });
+  server.handleMessage({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: TOOL_NAME, arguments: {} } }, { turnGeneration: "turn-1" });
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(sent.at(-1).result.isError, true);
   assert.match(sent.at(-1).result.content[0].text, /unavailable to an unverified external caller|access is off|not currently available/);

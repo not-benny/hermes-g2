@@ -2,34 +2,88 @@
 
 ## Current repository outcome
 
-The former PR #1-#9 queue is being consolidated without rewriting reviewed history.
-The canonical integration branch is `integration/t_30a956f8`; its final pre-review
-code commit is `329af655ae4848a6eabae14e598ffcc2788308ea` (the first integrated
-implementation freeze was `49c865e7eff398e4de0c76ccc25507b7b74a518f`). The branch is based on
-`origin/hermes-g2@ae89fd5e398a78ce9a7d00c66a47d92d02812319` and retains the reviewed
-commits by merge ancestry while resolving overlapping health, assistant-tool, GATT,
-direct-R1, teardown, packetAck, and release work once.
+The active outcome branch is `wt/t_273bc0ae`, fast-forwarded without rewriting
+history to the latest canonical integration base
+`b1150c90e8ce8e55a8a02b957e58eb6fe6380c5e`. The delivered outcome is
+PR #12 (`https://github.com/not-benny/hermes-g2/pull/12`), head
+`wt/t_273bc0ae`, base `integration/t_30a956f8`. Initial remote readback at
+`e252592a8eb002c2ac778ca31f5943fa88411be5` confirmed OPEN, non-draft,
+CLEAN/mergeable, the intended 16-file diff and four-commit chain, exact base SHA
+`b1150c90e8ce8e55a8a02b957e58eb6fe6380c5e`, no status-check rollup, and no
+formal review decision. Live connection recovery is documented and delivered in
+follow-up PR #13 (`https://github.com/not-benny/hermes-g2/pull/13`), head
+`fix/live-glasses-session`, base `wt/t_273bc0ae`; its implementation commit is
+`1c1e271e9cc970a646c71bb29a5ffa5e714472c9`.
 
-### Final live GitHub queue
+### Safe assistant/MCP glasses-display candidate
 
-- PR #1 (`test/activity-stale-day-gate`) was safely fast-forwarded to reviewed
-  `41514c508ada1053715c22786d39085874fed4b6`.
-- PR #2 (`wt/t_f56ee8c2`) was safely fast-forwarded to reviewed
-  `5427dee70b3f4ea07fb1034355b6b8a25f97a2be`.
-- Canonical integration PR #11 is https://github.com/not-benny/hermes-g2/pull/11,
-  head branch `integration/t_30a956f8`, base `hermes-g2`. Its implementation was
-  independently approved at `46cff6c87d47311140e2f678529561ce30b47009`; later
-  commits are documentation-only delivery/hardware-state updates. GitHub readback
-  must remain OPEN, non-draft, and mergeable with the intended files/body/commits;
-  no required status-check rollup or formal review decision is currently present.
-- Old broad PR #5 was closed as superseded. Focused docs-only replacement PR #10
-  is https://github.com/not-benny/hermes-g2/pull/10 at reviewed
-  `84d5c17a72b6a9c3d5020d76a794221716dc9830`; it excludes stale wake-barrier code.
-- PRs #3, #4, #6, #7, #8, and #9 are closed with factual #11 supersession
-  comments after remote ancestry/readback proved their reviewed heads are retained.
-  Their branches and exact SHAs were not deleted or rewritten.
-- The remaining open queue is #1, #2, #10, and #11. None currently has visible CI
-  check rollups; local verification below is evidence, not a claim of green GitHub CI.
+- `glasses.render_view` is a private-evaluation, conversation-only shell overlay.
+  Its imperative V1 policy allows only inert text/key-value/progress/divider
+  blocks and bounded action labels. It rejects controls, bidi overrides, URLs,
+  markup, unknown fields and all raw rendering primitives before shell mutation.
+- Create/update uses a caller operation ID, opaque Android UUID, exact owner,
+  revision CAS, one live view, 30-3600 second generation-bound TTL, two accepted
+  renders per rolling second, and a strict shell/compositor delivery receipt.
+  It never wakes or changes focus. Cancellation, local close, expiry and MCP
+  disconnect tombstone exact identities and cannot clear a replacement.
+- Scroll changes local selection. Click queues one bounded inert event for the
+  exact owner/revision; `glasses.read_view_events` drains it. No gesture invokes
+  another tool. Double-click closes the view; long-press closes remote content
+  before preserving the shell escape countdown.
+- External MCP calls no longer infer authority from whichever turn is current.
+  Their bridge envelope must claim the exact originating `turnId` or explicitly
+  mark a proactive call. Missing, delayed, stale-turn and stale-connection calls
+  fail closed. MCP close aborts connection-owned work and view state. Direct
+  provider turns now propagate their own generation and cancellation signal.
+- The inbound bridge frame is bounded before JSON parsing and WSS remains the
+  only configured scheme. This is not external-operation proof: no licensed
+  compatible bridge deployment, certificate/server identity trace, generic MCP
+  client, credential run, or real-G2 display evidence exists. Public MCP/skill
+  publication and operational authorization remain NO-GO; no `SKILL.md` was added.
+
+Verification on the original PR #12 candidate: final focused render/MCP lifecycle tests
+passed 14/14; full `npm run test` passed 246/246; `npm run typecheck` and the
+JDK 21 / Android SDK 35 build passed. That candidate was installed on the authorized
+A32 but did not retain the controller's live communicator: the Java BLE worker reached
+`session ready` while the phone UI remained `Disconnected.` and shell frames were
+discarded. It therefore did not provide valid real-G2 display evidence.
+
+### Live glasses connection recovery
+
+Follow-up commit `1c1e271` fixes the startup state race which caused the failed
+hardware outcome. `FaceclawBleCommunicator.setListener()` posts its constructor-time
+`disconnected` snapshot asynchronously. If that stale snapshot arrived after a fresh
+connect began, `DashboardController` treated it as completed teardown, detached the
+communicator, and then missed the subsequent native `connected` publication while the
+BLE worker continued running. Communicator ownership is now finalized only when an
+owned controller is already in `disconnecting` and receives terminal `disconnected`;
+a delayed initial snapshot cannot cancel a live connect attempt.
+
+Focused regression coverage first failed because the lifecycle helper was absent, then
+passed 5/5 with the existing teardown tests. Full `npm run test` passes 248/248,
+`npm run typecheck` passes, and JDK 21 / Android SDK 35 `npm run build` passes. The
+exact commit's APK was installed over the existing package on the authorized A32 with
+app data retained. After two transient Android GATT-133 retries, both arms connected,
+the native worker published `session ready`, framebuffer leases and `create-layout`
+were ACKed, the phone UI reported `Connected.`, shell frame 15 completed as `sent`,
+and a real glasses input event was consumed by the shell with a chrome render queued.
+No pairing, provisioning, firmware, reset, wipe, permission, credential, or ownership
+state was changed. This is verified two-arm connection, display delivery, and input
+responsiveness evidence; it is not authorization to publish the MCP/skill surface.
+
+Independent adversarial review first reproduced three lifecycle blockers across
+the frozen candidates: local close during initial delivery could publish a ghost,
+update churn could evict the create-operation tombstone, and disconnect during an
+in-flight replacement could restore an orphaned prior shell layer. Focused red/green
+regressions now keep pending identities tombstoned, retain create idempotency apart
+from bounded update history, and cancel both committed and pending owner revisions.
+Final exact-SHA review passed at
+`1ca3709ac23408620c7477056fb51f09fe874065`: **Static review: PASS** with no
+remaining file/line/interleaving blocker. **Operational authorization: NO-GO**
+for public MCP/skill publication and external `render_view` operation pending the
+external bridge, licensing, generic-client, credential, and tool-specific hardware
+evidence listed above. The later connection recovery proves normal shell transport
+and input only; it does not supersede those publication and remote-view gates.
 
 ## R1 health and protocol completion candidate
 

@@ -4,7 +4,10 @@ import { dismissNotification, readActiveNotifications } from "../native/notifica
 import { shell } from "../ui/shell/shell";
 import { MAX_ALERT_TEXT_LENGTH } from "./display-policy";
 import { createShowAlertHandler } from "./display-alert-handler";
+import { RenderViewManager } from "./render-view";
 import { toolRegistry, type ToolRegistry, type ToolResult } from "./tool-registry";
+
+declare const java: any;
 
 /**
  * Registers the always-available system tools into the registry. Called once at
@@ -55,6 +58,87 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
       // queued frame after its tool result had already failed.
       showAlert: (text, signal, isSideEffectAllowed) => shell.showAlert(text, signal, isSideEffectAllowed),
     }),
+  );
+
+  let renderViewManager: RenderViewManager;
+  renderViewManager = new RenderViewManager({
+    isDisplayAvailable: () => shell.isScreenOn(),
+    createId: () => String(java.util.UUID.randomUUID()).replace(/-/g, ""),
+    render: (state, signal, isAllowed) => shell.showRemoteView(
+      state,
+      signal,
+      isAllowed,
+      (gesture, foreground) => renderViewManager.handleGesture(gesture, foreground),
+      () => renderViewManager.closeView(state.viewId, state.revision),
+    ),
+    clear: (identity) => shell.clearRemoteView(identity),
+  });
+  registry.onExecutionOwnerClosed((owner) => renderViewManager.closeOwner(owner));
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.render_view",
+      description: "Create or revision-replace one bounded, temporary shell-owned glasses view. Never wakes or focuses the display.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          operation_id: { type: "string", minLength: 1, maxLength: 64 },
+          spec: {
+            type: "object",
+            properties: {
+              version: { type: "integer", minimum: 1, maximum: 1 },
+              view_id: { type: "string", minLength: 16, maxLength: 128 },
+              expected_revision: { type: "integer", minimum: 1 },
+              title: { type: "string", minLength: 1, maxLength: 80 },
+              blocks: {
+                type: "array", maxItems: 32, items: {
+                  type: "object",
+                  properties: {
+                    type: { type: "string", enum: ["text", "key_value", "progress", "divider"] },
+                    text: { type: "string", maxLength: 1024 },
+                    emphasis: { type: "string", enum: ["normal", "strong"] },
+                    label: { type: "string", maxLength: 80 },
+                    value: {},
+                  },
+                  required: ["type"], additionalProperties: false,
+                },
+              },
+              actions: {
+                type: "array", maxItems: 8, items: {
+                  type: "object",
+                  properties: { id: { type: "string", minLength: 1, maxLength: 64 }, label: { type: "string", minLength: 1, maxLength: 40 } },
+                  required: ["id", "label"], additionalProperties: false,
+                },
+              },
+              ttl_seconds: { type: "integer", minimum: 30, maximum: 3600 },
+            },
+            required: ["version", "title", "blocks", "ttl_seconds"],
+            additionalProperties: false,
+          },
+        },
+        required: ["operation_id", "spec"],
+        additionalProperties: false,
+      },
+      timeoutMs: 15_000,
+    },
+    renderViewManager.handler,
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.read_view_events",
+      description: "Drain bounded user action events from the exact owned render_view revision.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          view_id: { type: "string", minLength: 16, maxLength: 128 },
+          revision: { type: "integer", minimum: 1 },
+        },
+        required: ["view_id", "revision"],
+        additionalProperties: false,
+      },
+    },
+    (args, _signal, _isAllowed, context) => renderViewManager.readEvents(context, String(args.view_id), Number(args.revision)),
   );
 
   registry.registerSystemTool(

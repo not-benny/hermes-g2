@@ -131,9 +131,12 @@ session-open frame is hardcoded/universal (not per-device).
   the captured response was CRC-valid and no firmware-write behavior was added.
 
 ### Platform / vision groundwork
-- **AUDIT DONE / PUBLICATION BLOCKED** (2026-08-20) — **MCP / skill review** inventoried 24 phone-served
-  tools and designed a bounded shell-owned `glasses.render_view` v1. Publication is NO-GO until the external
-  bridge has authenticated transport/peer proof, per-turn generation authorization, and cancellation/idempotency
+- **PRIVATE IMPLEMENTATION / PUBLICATION BLOCKED** (2026-08-21) — **MCP / skill review** inventoried the
+  phone-served tools and now includes a bounded shell-owned `glasses.render_view` v1 plus inert gesture-event polling.
+  Create/update is operation-idempotent, revision/owner/TTL/rate bounded, never wakes or focuses, and external MCP
+  calls require an exact claimed turn plus live connection revalidation. Disconnect aborts owned calls and closes views.
+  Publication remains NO-GO until an external bridge has authenticated transport/peer proof and compatible exact-turn envelopes,
+  and all other mutators have cancellation/idempotency
   for timed-out side effects. Tool-specific holds include proactive alert/timer mutation,
   over-broad Roam reads, and disconnected-success paths. Full report:
   `notes/mcp-skill-publish-audit-2026-08-20.md`. Do not publish a `hermes-g2-glasses` skill before these gates.
@@ -141,8 +144,9 @@ session-open frame is hardcoded/universal (not per-device).
   validation, MCP initialization/errors, ownership-safe app tools, availability error boundaries, and
   preflight-before-quota all have behavioral tests. Follow-up binds MCP replies/lifecycle to one connection,
   suppresses late/duplicate requests, restores prior owners, rejects unsupported schemas, closes mismatched
-  sockets, and times out unauthenticated handshakes. Remaining global blockers: authenticated secure transport/
-  server proof, per-turn generation authorization, and cancellation/idempotency for timed-out side effects.
+  sockets, bounds inbound frames, and times out unauthenticated handshakes. Remaining global blockers: authenticated secure
+  server deployment/proof, compatible licensed adapter and generic-client evidence, tool-specific mutation/privacy gates,
+  and real-G2 create/update/TTL/no-wake/gesture verification.
 
 ### Smaller backlog (do not lose)
 - **BLOCKED** — S5 Ring pair/unpair + direct phone-to-ring link management UI remains gated on fresh-device

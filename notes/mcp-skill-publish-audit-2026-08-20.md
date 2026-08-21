@@ -4,7 +4,7 @@
 
 **Audit complete; public MCP/skill publication is NO-GO.**
 
-The phone already serves 24 assistant tools through a minimal MCP surface over
+The phone now serves 26 assistant tools through a minimal MCP surface over
 the external assistant WebSocket bridge, and the shell/compositor can host a
 generic remote view. The current bridge is not yet an authenticated, replay-safe,
 schema-enforced general MCP endpoint, however. Do not advertise it as one or
@@ -37,10 +37,11 @@ inbound bridge frame must carry the documented top-level protocol version.
 
 ## Current surface
 
-The process-wide registry exposes 24 tools:
+The process-wide registry exposes 26 tools:
 
-- System (8): `glasses.get_state`, `glasses.show_alert`,
-  `calendar.list_events`, `media.now_playing`, `media.play_pause`, `media.next`,
+- System (10): `glasses.get_state`, `glasses.show_alert`,
+  `glasses.render_view`, `glasses.read_view_events`, `calendar.list_events`,
+  `media.now_playing`, `media.play_pause`, `media.next`,
   `notifications.list`, `notifications.dismiss`.
 - Navigate (3): `nav.start_navigation`, `nav.stop_navigation`,
   `nav.route_status`.
@@ -103,17 +104,18 @@ bodies, media metadata, window titles, and Roam content are sensitive exports.
 Do not expose direct compositor surfaces, z-order, coordinates, raw pixels,
 overlays, URLs, images, scripts, HTML, Markdown, arbitrary fonts, or colours.
 
-V1 should be a shell-owned, in-process singleton window managed by
-`DashboardController` and `createInProcessWindow`:
+V1 is implemented for private evaluation as one shell-owned overlay using the
+strict shell-delivery receipt. This deliberately avoids exposing compositor
+surface identities or changing the user's foreground window:
 
 ```json
 {
+  "operation_id": "living-room-42",
   "spec": {
     "version": 1,
     "view_id": "opaque-id-on-update",
     "expected_revision": 3,
     "title": "Living room",
-    "height": "standard",
     "blocks": [
       {"type": "text", "text": "Two lights are on", "emphasis": "normal"},
       {"type": "key_value", "label": "Temperature", "value": "21.5 C"},
@@ -138,8 +140,10 @@ Rules:
 - V1 is conversation-only and must not wake or focus the display proactively.
 - Scroll changes local selection; click may emit a versioned event; double-click,
   long-press, and extended-hold remain owned by the shell.
-- Until gesture event delivery is generation-bound and tested across reconnect,
-  publish only a static/local-navigation view, not an interactive agent surface.
+- Click produces only a bounded inert event for the exact owner/revision; the
+  owner drains it via `glasses.read_view_events`. It never invokes another tool.
+  Disconnect closes the owned view and event queue. This static evidence does
+  not authorize an interactive public agent surface.
 
 ## Required verification before publication
 
@@ -175,7 +179,7 @@ Useful source material for that future skill:
 This matrix is the release decision record, not a claim that static source
 inspection substitutes for operational proof. `Release-ready` means that the
 repository contains the required publication artifact and evidence; a passing
-unit test alone is insufficient. The 24 process-wide phone tools are listed
+unit test alone is insufficient. The 26 process-wide phone tools are listed
 individually below. Line references identify the registration or protocol
 entry point; the worker references identify the underlying app implementation
 where a wrapper forwards a call.
@@ -208,7 +212,8 @@ where a wrapper forwards a call.
 | `apps.remove_from_folder` | `window-tools.ts:197-221` | Ungroup app; always available | Persistent organization mutation; retry behavior unverified | No per-tool persistence/retry/device test | APK workflow only | Local launcher state; no hardware proof | **remediable** — add persistence/idempotency and device evidence |
 | `apps.disband_folder` | `window-tools.ts:223-251` | Delete folder and move all apps to top level; always available | Destructive bulk organization mutation; no confirmation or operation ID | No per-tool destructive/idempotency/device test | APK workflow only | Local launcher state; no hardware proof | **blocked** — add explicit confirmation, bounded bulk semantics, retry safety and hardware evidence |
 | In-process app-tool surface | `in-process-tool-adapter.ts:1-18`; `tool-registry.ts:124-174`; `worker-window.ts:248-252` | Window-owned `app.<appId>.*` tools, gated `open`/`foreground`; local/private registry only | Data and side effects depend on app; terminal can send commands; ownership/focus is security-relevant | `tests/in-process-surface.test.mjs`, `tests/tool-registry.test.mjs`; no independent publication contract or generic-client test | No separate manifest/package/public mechanism; not a release unit | App workers, shell lifecycle, and connected hosts for terminal; no public server proof | **out of scope** for public release — retain local/private; define a separately versioned API, permissions, and publication artifact before reconsidering |
-| Flagship `glasses.render_view` design | Audit design `:101-142`; no implementation or registration | Proposed bounded shell-owned singleton view; conversation-only, not proactive | Would render agent-controlled content and actions; generation, revision, TTL, size and gesture safety are unresolved | No implementation, fuzz, golden image, race, gesture, or real-glasses tests | No tool/schema/package exists; no publication mechanism | Real G2 display/gestures and reconnect behavior required | **blocked** — implement only after global bridge gates, then complete all listed render verification; do not add artifact in this audit |
+| Flagship `glasses.render_view` private implementation | `app/assistant/render-view.ts`; `system-tools.ts`; `app/ui/shell/render-view-layer.ts` | Bounded shell-owned singleton overlay; conversation-only, not proactive | Agent text is inert and byte bounded; operation ID, owner, revision, TTL, rate, cancellation and event queue fail closed | Behavioral contract/lifecycle/event tests in `tests/render-view.test.mjs`; no fuzz corpus, golden image or real-glasses proof | Phone tool only; no public endpoint/package/skill | Real G2 display/gestures, licensed compatible bridge and generic-client evidence required | **blocked for publication** — private static implementation exists, but operational/server/licensing/hardware gates remain open |
+| `glasses.read_view_events` | `app/assistant/render-view.ts`; `system-tools.ts` | Drains at most 16 inert click events for the exact owned view/revision; conversation-only | Action IDs are bounded; no label/content export and no direct tool invocation | Owner/revision/drain behavior covered in `tests/render-view.test.mjs`; no external client or hardware gesture proof | Phone tool only; no public endpoint/package/skill | Requires the same bridge/client and real-G2 gesture evidence as `render_view` | **blocked for publication** — safe private polling contract exists, but operational/server/licensing/hardware gates remain open |
 | Future `hermes-g2-glasses` skill | Audit `:157-171`; no `SKILL.md` | Future usage/documentation skill for bridge, schema, lifecycle and monochrome UX | Could misrepresent unsafe capabilities or disclose operational prerequisites | No artifact, manifest, or skill tests | No skill manifest or registry publication path exists | Requires proven MCP endpoint, render behavior, and safe examples | **blocked** — create only after MCP/render gates and establish versioned skill publication mechanism |
 | Phone package / debug APK | `package.json:1-13`; `ROADMAP.md:131-133` | Android companion; package version `1.0.0`, `private:false`; debug preview build | Bundles all local tools and bridge client; package metadata is not an MCP/skill manifest | Full app tests/typecheck/build are repository checks; no reproducible APK identity or release automation | Established workflow is package/package-lock version identity, `npm run build`, GitHub Release + CHANGELOG; no npm publish config | Android SDK/JDK, A32/G2, Even provisioning and bridge credentials; build is debug/non-reproducible | **out of scope** for public MCP/skill release — may be a future app preview after separate release gates; do not change metadata here |
 | Sibling `faceclaw-agent-bridge` / adapter | `notes/voice-assistant-design.md:314-448`; README bridge docs | Separate bridge/server compatibility reference; not shipped by this repository | Shared token, remote agent access and tool forwarding risks; private use is not public evidence | Design/TODO notes only; no repository integration, server proof, generic-client or hardware evidence | No sibling package or release artifact in this repository | Separate bridge checkout/configuration and credentials; no WSS/operational proof | **out of scope / blocked** — audit separately and prove secure transport, adapter compatibility and hardware path before any public claim |
@@ -216,7 +221,7 @@ where a wrapper forwards a call.
 ### Recommended release scope
 
 **Decision: no public MCP or skill release now.** The proposed release set is
-empty: no matrix row is release-ready. The 24 phone tools are code-level
+empty: no matrix row is release-ready. The 26 phone tools are code-level
 registrations with conservative `remediable` or `blocked` dispositions, not a
 safe public product. In particular, `glasses.render_view`,
 `hermes-g2-glasses`, the bridge/server, and the sibling adapter remain blocked;
@@ -225,10 +230,10 @@ not an MCP or skill publication.
 
 The minimum future scope is a separately versioned, authenticated MCP endpoint
 with server proof, unique live-turn authorization, cancellation or operation
-IDs/idempotency for timed-out mutations, per-tool permission/privacy and
+IDs/idempotency for every remaining mutation, per-tool permission/privacy and
 destructive-action evidence, generic-client interoperability, and real A32/G2
-verification. Only after those gates may a bounded `render_view` implementation
-and then a truthful skill be considered. Static tests must not be promoted to
+verification. The bounded private `render_view` implementation does not close
+those gates; only after they pass may a truthful skill be considered. Static tests must not be promoted to
 hardware, credential, WSS, or operational proof.
 
 ## Source traceability and evidence ledger
@@ -246,14 +251,14 @@ Inspected protocol/auth/registry sources: `app/assistant/mcp-server.ts:1-198`,
 `bridge-client.ts:1-426`, `bridge-connection-guard.ts`,
 `tool-registry.ts:1-356`, `in-process-tool-adapter.ts:1-18`, and
 `app/ui/shell/worker-window.ts:240-270`. Inspected registrations:
-`system-tools.ts:18-156` (8), `navigate-tools.ts:15-85` (3),
+`system-tools.ts` (10), `navigate-tools.ts:15-85` (3),
 `roam-tools.ts:13-49` (2), `timer-tools.ts:19-76` (3), and
-`window-tools.ts:30-251` (8): **24 total**, reconciled with the earlier list.
+`window-tools.ts:30-251` (8): **26 total**, reconciled with the current list.
 Worker-only/local app tools were separately identified in
 `app/apps/navigate/navigate-app.worker.ts`, `roam/roam-app.worker.ts`,
 `timer/timer-app.worker.ts`, and `terminal/terminal-app.worker.ts`; they are
 not additional phone-served rows because only the first three are wrapped by
-the 24 process-wide tools, while terminal remains in-process/private.
+the process-wide tools, while terminal remains in-process/private.
 
 Inspected tests: `tests/mcp-server.test.mjs` (MCP lifecycle, malformed calls,
 duplicate IDs and late replies), `tests/tool-registry.test.mjs` (schema,
