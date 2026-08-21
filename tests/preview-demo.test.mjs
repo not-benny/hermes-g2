@@ -18,7 +18,44 @@ test("preview mode seeds anonymous demo health on boot, only in preview", () => 
   // Seeds the canonical store the real app reads (so charts/tiles/HUD light up).
   assert.match(demo, /ringHealthStore\.seedMock/);
   assert.match(demo, /replaceHealthDocument\(\{ history: demoHistory\(nowMs\), hourly: demoHourly\(nowMs\), activity: null \}\)/);
+  assert.match(demo, /if \(result\.ok\) ApplicationSettings\.setBoolean\(DEMO_FLAG, true\)/);
   assert.doesNotMatch(demo, /ApplicationSettings\.setString/);
+});
+
+test("preview seeding retries after an unverifiable replacement", async () => {
+  const settingsUrl = dataUrl(`
+    export const values = new Map();
+    export const ApplicationSettings = {
+      getBoolean(key, fallback = false) { return values.has(key) ? values.get(key) : fallback; },
+      setBoolean(key, value) { values.set(key, value); },
+    };
+  `);
+  const ringStoreUrl = dataUrl(`export const ringHealthStore = { seedMock() {}, reset() {} };\n`);
+  const onboardingUrl = dataUrl(`export const isPreviewOnlyMode = () => true;\n`);
+  const historyUrl = dataUrl(`export const dateKeyOf = () => '2026-08-20';\n`);
+  const hourlyUrl = dataUrl(`export {};\n`);
+  const healthStoreUrl = dataUrl(`
+    let attempts = 0;
+    export function replaceHealthDocument() {
+      attempts += 1;
+      return attempts === 1 ? { ok: false } : { ok: true };
+    }
+    export function clearHealthData() {}
+  `);
+  let demoJs = transpile(read("app/native/preview-demo.ts"));
+  demoJs = replaceImport(demoJs, "@nativescript/core", settingsUrl);
+  demoJs = replaceImport(demoJs, "../health/ring-health-store", ringStoreUrl);
+  demoJs = replaceImport(demoJs, "../health/health-history", historyUrl);
+  demoJs = replaceImport(demoJs, "../health/health-hourly", hourlyUrl);
+  demoJs = replaceImport(demoJs, "../phone-ui/onboarding-state", onboardingUrl);
+  demoJs = replaceImport(demoJs, "./health-store", healthStoreUrl);
+  const [{ seedPreviewDemo }, { values }] = await Promise.all([
+    import(dataUrl(demoJs)), import(settingsUrl),
+  ]);
+  seedPreviewDemo(1);
+  assert.equal(values.has("preview.demoSeeded"), false);
+  seedPreviewDemo(1);
+  assert.equal(values.get("preview.demoSeeded"), true);
 });
 
 test("exiting preview after migration clears canonical, legacy, flag, and live ring state", async () => {

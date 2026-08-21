@@ -96,8 +96,8 @@ function demoSnapshot(nowMs: number): RingHealthSnapshot {
 export function seedPreviewDemo(nowMs: number = Date.now()): void {
   if (!isPreviewOnlyMode()) return;
   if (!ApplicationSettings.getBoolean(DEMO_FLAG, false)) {
-    replaceHealthDocument({ history: demoHistory(nowMs), hourly: demoHourly(nowMs), activity: null });
-    ApplicationSettings.setBoolean(DEMO_FLAG, true);
+    const result = replaceHealthDocument({ history: demoHistory(nowMs), hourly: demoHourly(nowMs), activity: null });
+    if (result.ok) ApplicationSettings.setBoolean(DEMO_FLAG, true);
   }
   ringHealthStore.seedMock(demoSnapshot(nowMs));
 }
