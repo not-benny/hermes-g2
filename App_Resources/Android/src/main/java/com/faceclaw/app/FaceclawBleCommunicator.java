@@ -1178,8 +1178,12 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (address == null || dispatchToken == null) {
             return;
         }
-        Object callbackLock = isConfiguredRingAddress(address) ? ringLock : lock;
+        boolean ringCallback = isConfiguredRingAddress(address);
+        Object callbackLock = ringCallback ? ringLock : lock;
         synchronized (callbackLock) {
+            if (ringCallback && (stopping || !running)) {
+                return;
+            }
             if (!dispatchToken.claim()) {
                 return;
             }

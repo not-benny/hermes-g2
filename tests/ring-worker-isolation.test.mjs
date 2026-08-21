@@ -151,6 +151,30 @@ test("stopping is a durable gate for every direct-ring entry and side effect", (
   }
 });
 
+test("a queued direct-R1 notification is rejected after teardown wins ringLock", () => {
+  const body = methodBody(
+    communicator,
+    "public void onNotification(\n            String address,\n            String characteristicUuid,\n            byte[] data,\n            FaceclawBleListener.DispatchToken dispatchToken",
+  );
+  const ringIdentity = body.indexOf("boolean ringCallback = isConfiguredRingAddress(address)");
+  const callbackLock = body.indexOf("synchronized (callbackLock)");
+  const stoppingGate = body.indexOf("if (ringCallback && (stopping || !running))");
+  const tokenClaim = body.indexOf("dispatchToken.claim()");
+  const dispatch = body.indexOf("onNotification(address, characteristicUuid, data)");
+
+  assert.ok(ringIdentity >= 0, "the callback records direct-R1 identity before selecting its state lock");
+  assert.ok(callbackLock > ringIdentity, "direct-R1 notification dispatch waits for ringLock");
+  assert.ok(
+    stoppingGate > callbackLock && tokenClaim > stoppingGate && dispatch > tokenClaim,
+    "teardown state is revalidated under ringLock before token claim or legacy dispatch",
+  );
+  assert.match(
+    body,
+    /Object callbackLock = ringCallback \? ringLock : lock/,
+    "glasses callbacks retain their display lock and framebuffer-release notification path",
+  );
+});
+
 test("BLE waits serialize per address while the process-wide API lock is initiation-only", () => {
   assert.match(manager, /ConcurrentHashMap<String, Object> operationLocks/);
   assert.match(manager, /GattCallbackRegistry<BluetoothGatt> callbackRegistry/);
