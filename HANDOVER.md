@@ -3,8 +3,9 @@
 ## Current repository outcome
 
 The former PR #1-#9 queue is being consolidated without rewriting reviewed history.
-The canonical integration branch is `integration/t_30a956f8`; its frozen implementation
-commit is `49c865e7eff398e4de0c76ccc25507b7b74a518f`. The branch is based on
+The canonical integration branch is `integration/t_30a956f8`; its final pre-review
+code commit is `666065e6cedd02a083a5cf5dcca33722122f9f16` (the first integrated
+implementation freeze was `49c865e7eff398e4de0c76ccc25507b7b74a518f`). The branch is based on
 `origin/hermes-g2@ae89fd5e398a78ce9a7d00c66a47d92d02812319` and retains the reviewed
 commits by merge ancestry while resolving overlapping health, assistant-tool, GATT,
 direct-R1, teardown, packetAck, and release work once.
@@ -77,7 +78,7 @@ direct-R1, teardown, packetAck, and release work once.
 - Cancellation reaches worker terminal input, timer mutations, Roam writes,
   navigation/timer launch wrappers, and the final delayed alert delivery predicate.
 
-## Verification on the integrated implementation commit
+## Verification on the integrated code commit
 
 - Focused BLE/lifecycle suite: 39/39 passed:
   `node --test tests/gatt-callback-registry.test.mjs tests/gatt-callback-identity.test.mjs tests/gatt-callback-dispatch.test.mjs tests/ring-worker-isolation.test.mjs tests/ring-worker-lifecycle.test.mjs tests/communicator-teardown.test.mjs tests/ring-frame.test.mjs tests/ring-packetack-lifecycle.test.mjs`.
@@ -85,14 +86,22 @@ direct-R1, teardown, packetAck, and release work once.
 - TypeScript: `npm run typecheck` passed after resolving four integration-only
   launch-wrapper signature errors.
 - `git diff --check`: passed before the documentation commit.
-- Android JDK 21 / SDK 35 build: pending final documentation commit; record the
-  exact outcome here before delivery.
+- Android JDK 21 / SDK 35 build: passed after full Java compilation; debug APK at
+  `platforms/android/app/build/outputs/apk/debug/app-debug.apk`.
 - Independent adversarial review: required on the final frozen SHA before push.
-- Hardware: the integrated APK has not yet been installed or exercised. Static
-  review and host tests do not authorize BLE runtime claims.
+- Hardware: the 335,803,763-byte debug APK installed successfully over USB on the
+  configured Samsung A32 and launched as PID 26465. Package-filtered logs showed
+  both G2 arms CONNECTED, prelude ACK, `session ready`, direct R1 CONNECTED,
+  `direct ring ready mtu247Request=ok`, CRC-valid device-info/health responses,
+  successful read-only health GET writes, and heartbeat ACKs. No communicator-loop
+  error or Android fatal exception appeared in the bounded capture. The R1 lacks
+  the optional standard battery characteristic, which remained a safe diagnostic.
+  This proves startup/connect/read-path operation, not every stale-callback or
+  concurrent teardown interleaving.
 
 Static review: PENDING — final frozen SHA has not yet completed independent review.
-Operational authorization: NO-GO — final A32/G2/R1 runtime lifecycle checks are not yet complete.
+Operational authorization: LIMITED GO for the observed non-destructive startup and
+read-only G2/R1 path; NO-GO for unexercised stale-callback/concurrent-teardown cases.
 Firmware/DFU authorization: NO-GO / DO NOT BUILD — no firmware, pairing ownership,
 provisioning, reset, wipe, or destructive operation is authorized by this queue work.
 
