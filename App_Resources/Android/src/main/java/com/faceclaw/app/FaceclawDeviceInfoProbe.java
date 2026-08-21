@@ -167,6 +167,12 @@ public class FaceclawDeviceInfoProbe implements FaceclawBleListener {
     }
 
     @Override
+    public void onNotification(BluetoothGatt gatt, String address, String characteristicUuid, byte[] data) {
+        if (!bleManager.isCurrentGatt(gatt, address)) return;
+        onNotification(address, characteristicUuid, data);
+    }
+
+    @Override
     public void onNotification(String address, String characteristicUuid, byte[] data) {
         if (!BleProtocol.NOTIFY_CHAR_UUID.equalsIgnoreCase(characteristicUuid)) {
             return;
@@ -184,6 +190,12 @@ public class FaceclawDeviceInfoProbe implements FaceclawBleListener {
                 awaitLatch.countDown();
             }
         }
+    }
+
+    @Override
+    public void onConnectionStateChange(BluetoothGatt gatt, String address, boolean connected) {
+        if (!bleManager.isCurrentGatt(gatt, address)) return;
+        onConnectionStateChange(address, connected);
     }
 
     @Override

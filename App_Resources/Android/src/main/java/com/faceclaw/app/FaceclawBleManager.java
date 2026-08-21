@@ -415,6 +415,14 @@ public class FaceclawBleManager {
         return gatt;
     }
 
+    /** Validate the exact GATT identity at the listener boundary. */
+    public boolean isCurrentGatt(BluetoothGatt gatt, String address) {
+        if (gatt == null || address == null) return false;
+        synchronized (gattLock(address)) {
+            return gattClients.get(address) == gatt;
+        }
+    }
+
     private BluetoothGattCharacteristic requireCharacteristic(BluetoothGatt gatt, String characteristicUuid) {
         UUID target = UUID.fromString(characteristicUuid);
         for (BluetoothGattService service : gatt.getServices()) {
