@@ -1,7 +1,7 @@
 import { GrayImage } from "../../graphics/image";
 import { windowIcon } from "./chrome-layer";
 import { type IconName } from "../../graphics/icons";
-import { toolRegistry, type ToolResult, type ToolSpec } from "../../assistant/tool-registry";
+import { toolRegistry, type AppToolLease, type ToolResult, type ToolSpec } from "../../assistant/tool-registry";
 import { appViewportSize, windowDefaultHeightMode, type WindowHeightMode } from "./geometry";
 import { shell, type ShellWindow } from "./shell";
 
@@ -161,7 +161,7 @@ type PendingToolCall = {
 const TOOL_CALL_HOST_TIMEOUT_MS = 15_000;
 
 export class WorkerAppHost {
-  private readonly openWindows = new Set<string>();
+  private readonly openWindows = new Map<string, { lease?: AppToolLease }>();
   private readonly pendingToolCalls = new Map<string, PendingToolCall>();
   private nextCallSerial = 1;
 
@@ -247,13 +247,14 @@ export class WorkerAppHost {
         case "set-tools":
           // Only a window we actually have open may contribute tools.
           if (this.openWindows.has(message.windowId)) {
-            toolRegistry.setAppTools({
+            const lease = toolRegistry.setAppTools({
               windowId: message.windowId,
               appId: this.options.appId,
               specs: message.tools,
               invoke: (toolName, args) => this.callWindowTool(message.windowId, toolName, args),
               isForeground: () => shell.foregroundWindow()?.windowId === message.windowId,
             });
+            this.openWindows.get(message.windowId)!.lease = lease;
           }
           break;
         case "tool-result": {
@@ -280,7 +281,8 @@ export class WorkerAppHost {
   openWindow(spec: WorkerWindowSpec): ShellWindow {
     const surfaceId = `window:${spec.windowId}`;
     const heightMode = spec.heightMode ?? windowDefaultHeightMode();
-    this.openWindows.add(spec.windowId);
+    const windowState = { lease: undefined as AppToolLease | undefined };
+    this.openWindows.set(spec.windowId, windowState);
     this.post({
       type: "open-window",
       windowId: spec.windowId,
@@ -295,9 +297,10 @@ export class WorkerAppHost {
       closeable: true,
       heightMode,
       close: () => {
+        if (this.openWindows.get(spec.windowId) !== windowState) return;
         this.openWindows.delete(spec.windowId);
         // Withdraw this window's tools and fail any in-flight calls to it.
-        toolRegistry.removeAppTools(spec.windowId);
+        if (windowState.lease) toolRegistry.removeAppTools(spec.windowId, windowState.lease);
         this.failPendingToolCallsFor(spec.windowId);
         this.post({ type: "close-window", windowId: spec.windowId });
         this.options.removeSurface(surfaceId);

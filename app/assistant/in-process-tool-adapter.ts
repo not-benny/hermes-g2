@@ -14,6 +14,6 @@ export function registerInProcessTools(
   isForeground: () => boolean,
 ): () => void {
   if (!tools) return () => {};
-  registry.setAppTools({ windowId, appId, specs: tools.specs, invoke: tools.invoke, isForeground });
-  return () => registry.removeAppTools(windowId);
+  const lease = registry.setAppTools({ windowId, appId, specs: tools.specs, invoke: tools.invoke, isForeground });
+  return () => registry.removeAppTools(windowId, lease);
 }

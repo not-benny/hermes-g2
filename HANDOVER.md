@@ -1,5 +1,14 @@
 # Hermes G2 handover (2026-08-21)
 
+## Generation-safe app-tool teardown (2026-08-21)
+
+The focused PR #6 successor deliberately propagates opaque, generation-specific
+app-tool leases through the registry, in-process adapter, and worker windows.
+Stale or repeated teardown cannot remove a same-windowId replacement; current
+teardown restores fallback tools and emits one change. Focused registry/
+in-process tests pass on this frozen stack. Full typecheck remains blocked by
+inherited NativeScript ambient errors; no APK or hardware verification applies.
+
 ## BLE callback identity gate (2026-08-21)
 
 Delivered branch: `wt/t_5e85b756`; implementation commit is
