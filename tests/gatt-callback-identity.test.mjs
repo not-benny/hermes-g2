@@ -41,9 +41,16 @@ test("connect owns one exact-GATT attempt and disconnect releases its waiters", 
   assert.match(connect, /callbackRegistry\.bindConnectReturn\(/);
   assert.match(connect, /callbackRegistry\.retireStale\(gatt\)/);
   assert.match(connect, /awaitOperation\(operation, timeoutMs\)/);
+  assert.match(connect, /!cancelled && Integer\.valueOf\(1\)\.equals\(operation\.status\(\)\)/);
   const disconnect = methodBody("public void disconnect(String address)");
   assert.match(disconnect, /callbackRegistry\.retire\(/);
   assert.doesNotMatch(disconnect, /synchronized \(operationLock\)/);
+});
+
+test("timeout cleanup closes only after exact retirement ownership is acquired", () => {
+  const invalidation = methodBody("private void invalidateGatt(String address, BluetoothGatt gatt)");
+  assert.match(invalidation, /if \(callbackRegistry\.retire\(address, gatt, null\)\)/);
+  assert.ok(invalidation.indexOf("callbackRegistry.retire") < invalidation.indexOf("closeGatt(gatt)"));
 });
 
 test("registry does not invoke listener code while holding its monitor", () => {

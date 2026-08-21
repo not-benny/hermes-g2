@@ -102,10 +102,10 @@ test("an arm loss after prelude cannot resurrect readiness or start the ring", (
   // The production gate binds readiness and the initial ring side effect to
   // the same attempt identity. These contracts fail on the old PR head.
   assert.match(src, /glassesConnectionGeneration/);
-  assert.match(src, /attemptGeneration = \+\+glassesConnectionGeneration/);
+  assert.match(src, /attemptGeneration = advanceGlassesConnectionGeneration\(\)/);
   assert.match(
     src,
-    /attemptGeneration == glassesConnectionGeneration[\s\S]*running[\s\S]*!userDisconnectRequested[\s\S]*rightConnected[\s\S]*leftConnected/,
+    /attemptGeneration == currentGlassesConnectionGeneration\(\)[\s\S]*running[\s\S]*!userDisconnectRequested[\s\S]*rightConnected[\s\S]*leftConnected/,
   );
   assert.match(src, /tryConnectRing\("initial", attemptGeneration\)/);
   assert.match(src, /!rightConnected \|\| !leftConnected[\s\S]*attemptGeneration >= 0/);
@@ -313,5 +313,5 @@ test("packetAck arm-loss invalidation prevents old work after reconnect readines
   const reconnectEnd = src.indexOf("private void", reconnectStart + 1);
   const reconnect = src.slice(reconnectStart, reconnectEnd);
   assert.ok(reconnect.indexOf("sessionReady = true") >= 0);
-  assert.match(reconnect, /attemptGeneration == glassesConnectionGeneration/);
+  assert.match(reconnect, /attemptGeneration == currentGlassesConnectionGeneration\(\)/);
 });

@@ -101,7 +101,9 @@ public class FaceclawBleManager {
             }
 
             if (!awaitOperation(operation, timeoutMs)) {
-                callbackRegistry.cancel(address, GattCallbackRegistry.CONNECT, operation);
+                boolean cancelled = callbackRegistry.cancel(address, GattCallbackRegistry.CONNECT, operation);
+                if (!cancelled && Integer.valueOf(1).equals(operation.status())
+                        && callbackRegistry.isCurrent(address, gatt)) return true;
                 invalidateGatt(address, gatt);
                 return false;
             }
@@ -132,7 +134,8 @@ public class FaceclawBleManager {
                 return false;
             }
             if (!awaitOperation(operation, timeoutMs)) {
-                callbackRegistry.cancel(address, OP_MTU, operation);
+                boolean cancelled = callbackRegistry.cancel(address, OP_MTU, operation);
+                if (!cancelled && isGattSuccess(operation)) return true;
                 invalidateGatt(address, gatt);
                 return false;
             }
@@ -154,7 +157,8 @@ public class FaceclawBleManager {
                 return false;
             }
             if (!awaitOperation(operation, timeoutMs)) {
-                callbackRegistry.cancel(address, OP_SERVICES, operation);
+                boolean cancelled = callbackRegistry.cancel(address, OP_SERVICES, operation);
+                if (!cancelled && isGattSuccess(operation)) return true;
                 invalidateGatt(address, gatt);
                 return false;
             }
@@ -178,7 +182,8 @@ public class FaceclawBleManager {
                 return null;
             }
             if (!awaitOperation(operation, timeoutMs)) {
-                callbackRegistry.cancel(address, OP_READ, operation);
+                boolean cancelled = callbackRegistry.cancel(address, OP_READ, operation);
+                if (!cancelled && isGattSuccess(operation)) return operation.value();
                 invalidateGatt(address, gatt);
                 return null;
             }
@@ -242,7 +247,8 @@ public class FaceclawBleManager {
                 return false;
             }
             if (!awaitOperation(operation, timeoutMs)) {
-                callbackRegistry.cancel(address, OP_DESCRIPTOR, operation);
+                boolean cancelled = callbackRegistry.cancel(address, OP_DESCRIPTOR, operation);
+                if (!cancelled && isGattSuccess(operation)) return true;
                 invalidateGatt(address, gatt);
                 return false;
             }
@@ -315,7 +321,8 @@ public class FaceclawBleManager {
                     continue;
                 }
                 if (!awaitOperation(operation, timeoutMs)) {
-                    callbackRegistry.cancel(address, OP_WRITE, operation);
+                    boolean cancelled = callbackRegistry.cancel(address, OP_WRITE, operation);
+                    if (!cancelled && isGattSuccess(operation)) return true;
                     invalidateGatt(address, gatt);
                     return false;
                 }
@@ -413,8 +420,9 @@ public class FaceclawBleManager {
     }
 
     private void invalidateGatt(String address, BluetoothGatt gatt) {
-        callbackRegistry.retire(address, gatt, null);
-        closeGatt(gatt);
+        if (callbackRegistry.retire(address, gatt, null)) {
+            closeGatt(gatt);
+        }
     }
 
     private void closeGatt(BluetoothGatt gatt) {
