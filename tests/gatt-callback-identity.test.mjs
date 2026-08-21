@@ -30,14 +30,31 @@ test("connection callbacks reject stale GATTs before state or latch publication"
   const callback = methodBody("public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState)");
   assert.match(callback, /gattClients\.get\(address\) != gatt/);
   const guard = callback.indexOf("gattClients.get(address) != gatt");
-  assert.ok(guard < callback.indexOf("connectResults.put(address, true)"));
-  assert.ok(guard < callback.indexOf("dispatchConnectionState(address, true)"));
-  assert.ok(guard < callback.indexOf("connectResults.put(address, false)"));
-  assert.match(callback, /if \(newState == BluetoothProfile\.STATE_DISCONNECTED\) \{\s*gatt\.close\(\);/s);
+  assert.ok(guard < callback.indexOf("attempt.result = true"));
+  assert.ok(guard < callback.indexOf("dispatchConnectionState(gatt, address, true)"));
+  assert.ok(guard < callback.indexOf("attempt.result = false"));
+  assert.match(callback, /closeStale = newState == BluetoothProfile\.STATE_DISCONNECTED/);
+  assert.match(callback, /if \(closeStale\) \{[\s\S]*?gatt\.close\(\);/);
+  assert.match(callback, /dispatchConnectionState\(gatt, address, true\)/);
+  assert.match(callback, /dispatchConnectionState\(gatt, address, false\)/);
 });
 
-test("connect waits outside the callback identity lock", () => {
+test("connect owns one exact-GATT attempt and disconnect releases its waiters", () => {
   const connect = methodBody("public boolean connect(String address, int timeoutMs)");
-  assert.ok(connect.indexOf("if (!awaitLatch(latch, timeoutMs))") > connect.indexOf("// Do not hold the identity/API lock"));
-  assert.match(connect, /gattClients\.get\(address\) == gatt/);
+  assert.ok(connect.indexOf("if (!awaitLatch(attempt.latch, timeoutMs))") > connect.indexOf("// All callers for an address await the same exact-GATT attempt"));
+  assert.match(connect, /connectionAttempts\.get\(address\)/);
+  assert.match(connect, /attempt\.gatt/);
+  assert.match(connect, /connectionAttempts\.get\(address\) == attempt/);
+  const disconnect = methodBody("public void disconnect(String address)");
+  assert.match(disconnect, /attempt\.completed = true/);
+  assert.match(disconnect, /attempt\.latch\.countDown\(\)/);
+  assert.match(manager, /if \(!ownsAttempt\) \{\s*return false;/s);
+});
+
+test("listener delivery carries exact GATT and occurs after the identity lock", () => {
+  assert.match(manager, /current\.onNotification\(gatt, address, characteristicUuid, copy\)/);
+  assert.match(manager, /current\.onConnectionStateChange\(gatt, address, connected\)/);
+  const dispatch = methodBody("private void dispatchNotification(BluetoothGatt gatt,");
+  assert.ok(dispatch.indexOf("}") < dispatch.indexOf("current.onNotification"));
+  assert.match(readFileSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleListener.java", import.meta.url), "utf8"), /default void onNotification\(BluetoothGatt gatt/);
 });

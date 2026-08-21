@@ -34,8 +34,18 @@ public class FaceclawBleManager {
     private final ConcurrentHashMap<String, BluetoothGatt> gattClients = new ConcurrentHashMap<>();
     private final Object bluetoothApiLock = new Object();
 
-    private final ConcurrentHashMap<String, CountDownLatch> connectLatches = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Boolean> connectResults = new ConcurrentHashMap<>();
+    private static final class ConnectionAttempt {
+        final BluetoothGatt gatt;
+        final CountDownLatch latch = new CountDownLatch(1);
+        volatile boolean result;
+        volatile boolean completed;
+
+        ConnectionAttempt(BluetoothGatt gatt) {
+            this.gatt = gatt;
+        }
+    }
+
+    private final ConcurrentHashMap<String, ConnectionAttempt> connectionAttempts = new ConcurrentHashMap<>();
 
     private final ConcurrentHashMap<String, CountDownLatch> servicesLatches = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Integer> servicesStatuses = new ConcurrentHashMap<>();
@@ -72,60 +82,62 @@ public class FaceclawBleManager {
         if (address == null || address.trim().isEmpty()) {
             throw new IllegalArgumentException("address is required");
         }
-        CountDownLatch latch = new CountDownLatch(1);
         Object gattLock = gattLock(address);
-        BluetoothGatt gatt;
+        ConnectionAttempt attempt;
+        boolean ownsAttempt = false;
         synchronized (gattLock) {
-            BluetoothGatt existing = gattClients.get(address);
-            if (existing != null) {
-                return true;
-            } else {
-                connectLatches.put(address, latch);
-                connectResults.remove(address);
-
+            attempt = connectionAttempts.get(address);
+            if (attempt == null) {
                 final BluetoothDevice device = bluetoothAdapter.getRemoteDevice(address);
                 if (device == null) {
-                    connectLatches.remove(address, latch);
                     throw new IllegalArgumentException("remote device not found: " + address);
                 }
-
-                gatt = device.connectGatt(
+                BluetoothGatt gatt = device.connectGatt(
                     context,
                     false,
                     gattCallback,
                     BluetoothDevice.TRANSPORT_LE,
                     BluetoothDevice.PHY_LE_2M|BluetoothDevice.PHY_LE_1M
                 );
-                if (gatt != null) {
-                    gattClients.put(address, gatt);
-                }
-
                 if (gatt == null) {
-                    connectLatches.remove(address, latch);
                     return false;
                 }
+                attempt = new ConnectionAttempt(gatt);
+                connectionAttempts.put(address, attempt);
+                gattClients.put(address, gatt);
+                ownsAttempt = true;
             }
         }
 
-        // Do not hold the identity/API lock while waiting: Android delivers the
-        // state callback on another thread, which must be able to acquire it.
-        if (!awaitLatch(latch, timeoutMs)) {
+        // All callers for an address await the same exact-GATT attempt. Do not
+        // hold the identity/API lock while waiting for Android's callback.
+        if (!awaitLatch(attempt.latch, timeoutMs)) {
+            boolean closeGatt = false;
             synchronized (gattLock) {
-                connectLatches.remove(address, latch);
-                connectResults.remove(address);
-                gattClients.remove(address, gatt);
+                if (!ownsAttempt) {
+                    return false;
+                }
+                if (connectionAttempts.remove(address, attempt)) {
+                    gattClients.remove(address, attempt.gatt);
+                    attempt.result = false;
+                    attempt.completed = true;
+                    attempt.latch.countDown();
+                    closeGatt = true;
+                }
             }
-            synchronized (bluetoothApiLock) {
-                gatt.disconnect();
-                gatt.close();
+            if (closeGatt) {
+                synchronized (bluetoothApiLock) {
+                    attempt.gatt.disconnect();
+                    attempt.gatt.close();
+                }
             }
             return false;
         }
 
         synchronized (gattLock) {
-            Boolean connected = connectResults.remove(address);
-            connectLatches.remove(address, latch);
-            return Boolean.TRUE.equals(connected) && gattClients.get(address) == gatt;
+            return attempt.completed && attempt.result
+                && connectionAttempts.get(address) == attempt
+                && gattClients.get(address) == attempt.gatt;
         }
     }
 
@@ -370,11 +382,20 @@ public class FaceclawBleManager {
 
     public void disconnect(String address) {
         Object gattLock = gattLock(address);
+        BluetoothGatt gatt;
         synchronized (gattLock) {
-            BluetoothGatt gatt = gattClients.remove(address);
+            ConnectionAttempt attempt = connectionAttempts.remove(address);
+            gatt = gattClients.remove(address);
             if (gatt == null) {
                 return;
             }
+            if (attempt != null) {
+                attempt.result = false;
+                attempt.completed = true;
+                attempt.latch.countDown();
+            }
+        }
+        synchronized (bluetoothApiLock) {
             gatt.disconnect();
             gatt.close();
         }
@@ -427,36 +448,44 @@ public class FaceclawBleManager {
             String address = gatt.getDevice().getAddress();
             Object gattLock = gattLock(address);
 
+            boolean connected = false;
+            boolean disconnected = false;
+            boolean closeStale = false;
             synchronized (gattLock) {
-                if (gattClients.get(address) != gatt) {
-                    // A delayed callback from a retired transport must not complete or
-                    // publish the replacement attempt. It may only close itself.
-                    if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                        gatt.close();
+                ConnectionAttempt attempt = connectionAttempts.get(address);
+                if (gattClients.get(address) != gatt || (attempt != null && attempt.gatt != gatt)) {
+                    closeStale = newState == BluetoothProfile.STATE_DISCONNECTED;
+                } else if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
+                    if (attempt != null) {
+                        attempt.result = true;
+                        attempt.completed = true;
+                        attempt.latch.countDown();
                     }
-                    return;
-                }
-
-                if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
-                    connectResults.put(address, true);
-                    CountDownLatch latch = connectLatches.remove(address);
-                    if (latch != null) {
-                        latch.countDown();
+                    connected = true;
+                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    if (attempt != null) {
+                        attempt.result = false;
+                        attempt.completed = true;
+                        attempt.latch.countDown();
                     }
-                    dispatchConnectionState(address, true);
-                    return;
-                }
-
-                if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                    connectResults.put(address, false);
-                    CountDownLatch latch = connectLatches.remove(address);
-                    if (latch != null) {
-                        latch.countDown();
+                    if (attempt != null) {
+                        connectionAttempts.remove(address, attempt);
                     }
                     gattClients.remove(address, gatt);
-                    gatt.close();
-                    dispatchConnectionState(address, false);
+                    disconnected = true;
                 }
+            }
+            if (closeStale) {
+                synchronized (bluetoothApiLock) {
+                    gatt.close();
+                }
+            } else if (connected) {
+                dispatchConnectionState(gatt, address, true);
+            } else if (disconnected) {
+                synchronized (bluetoothApiLock) {
+                    gatt.close();
+                }
+                dispatchConnectionState(gatt, address, false);
             }
         }
 
@@ -539,22 +568,20 @@ public class FaceclawBleManager {
         }
     }
 
-    private void dispatchConnectionState(String address, boolean connected) {
+    private void dispatchConnectionState(BluetoothGatt gatt, String address, boolean connected) {
         FaceclawBleListener current = listener;
         if (current == null) return;
-        current.onConnectionStateChange(address, connected);
+        current.onConnectionStateChange(gatt, address, connected);
     }
 
     private void dispatchNotification(BluetoothGatt gatt, String characteristicUuid, byte[] data) {
         String address = gatt.getDevice().getAddress();
         synchronized (gattLock(address)) {
-            if (gattClients.get(address) != gatt) {
-                return;
-            }
-            FaceclawBleListener current = listener;
-            if (current == null) return;
-            byte[] copy = data != null ? data.clone() : new byte[0];
-            current.onNotification(address, characteristicUuid, copy);
+            if (gattClients.get(address) != gatt) return;
         }
+        FaceclawBleListener current = listener;
+        if (current == null) return;
+        byte[] copy = data != null ? data.clone() : new byte[0];
+        current.onNotification(gatt, address, characteristicUuid, copy);
     }
 }
