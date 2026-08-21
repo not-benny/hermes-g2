@@ -41,7 +41,7 @@ export function registerNavigateTools(
       // tool's own 14 s budget.
       timeoutMs: 25_000,
     },
-    async (args) => {
+    async (args, signal, isSideEffectAllowed) => {
       const destination = String(args?.destination ?? "").trim();
       if (!destination) return err("nav.start_navigation requires a destination");
       // Fire the permission prompt early; the phone shows it while we work.
@@ -49,7 +49,7 @@ export function registerNavigateTools(
       const forwarded = await callAppToolWithLaunch(registry, launchApp, "navigate", "start_route", {
         query: destination,
         profile: args?.profile,
-      });
+      }, signal, isSideEffectAllowed);
       return forwarded;
     },
   );
@@ -60,11 +60,14 @@ export function registerNavigateTools(
       description: "Stop the current glasses navigation session, if one is active.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
     },
-    async () => {
+    async (_args, signal, isSideEffectAllowed) => {
       if (!registry.listTools().some((tool) => tool.name === `${APP_TOOL_PREFIX}stop_route`)) {
         return ok("Navigation is not active.");
       }
-      return registry.callTool(`${APP_TOOL_PREFIX}stop_route`, {});
+      return registry.callTool(`${APP_TOOL_PREFIX}stop_route`, {}, {
+        turnGeneration: "forwarded",
+        isTurnGenerationActive: () => !signal?.aborted && (!isSideEffectAllowed || isSideEffectAllowed()),
+      });
     },
   );
 

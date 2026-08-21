@@ -1254,9 +1254,9 @@ class Shell {
   }
 
   /** Show a brief text popup on the lenses (assistant show_alert / notices). */
-  async showAlert(text: string, signal?: AbortSignal): Promise<void> {
+  async showAlert(text: string, signal?: AbortSignal, isSideEffectAllowed?: () => boolean): Promise<void> {
     if (!this.screenOn) throw new Error("The glasses display is off; no alert was sent.");
-    if (signal?.aborted) throw new Error("The alert operation was cancelled; no alert was sent.");
+    if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) throw new Error("The alert operation was cancelled; no alert was sent.");
     if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
       throw new Error("The glasses are disconnected; no alert was sent.");
     }
@@ -1279,12 +1279,12 @@ class Shell {
     try {
       signal?.addEventListener("abort", onAbort, { once: true });
       if (signal?.aborted) onAbort();
-      if (signal?.aborted) throw new Error("The alert operation was cancelled; no alert was sent.");
+      if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) throw new Error("The alert operation was cancelled; no alert was sent.");
       const delivery = this.config.requestShellDelivery
-        ? this.config.requestShellDelivery(isOwner)
+        ? this.config.requestShellDelivery(() => isOwner() && !signal?.aborted && (!isSideEffectAllowed || isSideEffectAllowed()))
         : Promise.resolve(this.config.requestShellRender());
       await (abortPromise ? Promise.race([delivery, abortPromise]) : delivery);
-      if (!isOwner() || signal?.aborted) {
+      if (!isOwner() || signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
         throw new Error("The alert operation was superseded or cancelled; no alert was sent.");
       }
     } catch (error) {

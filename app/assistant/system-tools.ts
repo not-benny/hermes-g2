@@ -53,7 +53,7 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
       // Preserve the registry-owned cancellation boundary all the way to the
       // shell. Dropping the signal here would let a timed-out MCP call send a
       // queued frame after its tool result had already failed.
-      showAlert: (text, signal) => shell.showAlert(text, signal),
+      showAlert: (text, signal, isSideEffectAllowed) => shell.showAlert(text, signal, isSideEffectAllowed),
     }),
   );
 

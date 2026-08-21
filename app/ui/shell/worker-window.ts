@@ -20,7 +20,8 @@ export type WorkerAppMessage =
   | { type: "foreground"; windowId: string; foreground: boolean; focused: boolean }
   | { type: "screen"; on: boolean }
   /** Assistant tool invocation aimed at a window; reply with tool-result. */
-  | { type: "tool-call"; callId: string; windowId: string; name: string; args: unknown };
+  | { type: "tool-call"; callId: string; windowId: string; name: string; args: unknown; authorizationId: string }
+  | { type: "cancel-tool-call"; callId: string; authorizationId: string };
 
 export type WorkerAppReply =
   | { type: "yield-focus"; windowId: string }
@@ -149,6 +150,8 @@ export type WorkerAppHostOptions = {
 /** A tool-call awaiting its worker reply; also its own leak-safety timeout. */
 type PendingToolCall = {
   windowId: string;
+  authorizationId: string;
+  cancel: () => void;
   resolve: (result: ToolResult) => void;
   timer: ReturnType<typeof setTimeout>;
 };
@@ -371,12 +374,28 @@ export class WorkerAppHost {
   private callWindowTool(windowId: string, toolName: string, args: unknown): Promise<ToolResult> {
     return new Promise<ToolResult>((resolve) => {
       const callId = `${this.options.appId}:${this.nextCallSerial++}`;
+      const authorizationId = `${callId}:authorization`;
+      const cancel = () => this.post({ type: "cancel-tool-call", callId, authorizationId });
+      const onAbort = () => cancel();
+      signal?.addEventListener("abort", onAbort, { once: true });
       const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        cancel();
         this.pendingToolCalls.delete(callId);
         resolve({ ok: false, error: `App ${this.options.appId} did not respond to ${toolName}` });
       }, TOOL_CALL_HOST_TIMEOUT_MS);
-      this.pendingToolCalls.set(callId, { windowId, resolve, timer });
-      this.post({ type: "tool-call", callId, windowId, name: toolName, args });
+      this.pendingToolCalls.set(callId, { windowId, authorizationId, cancel, resolve: (result) => resolve(allowed() ? result : {
+        ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent.",
+      }), timer });
+      if (!allowed()) {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        cancel();
+        this.pendingToolCalls.delete(callId);
+        resolve({ ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." });
+        return;
+      }
+      this.post({ type: "tool-call", callId, windowId, name: toolName, args, authorizationId });
     });
   }
 
@@ -384,6 +403,7 @@ export class WorkerAppHost {
     for (const [callId, pending] of this.pendingToolCalls) {
       if (pending.windowId !== windowId) continue;
       clearTimeout(pending.timer);
+      pending.cancel();
       this.pendingToolCalls.delete(callId);
       pending.resolve({ ok: false, error: "The target window was closed" });
     }

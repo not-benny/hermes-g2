@@ -45,6 +45,7 @@ import {
   plainBlockText,
   setTodoMarker,
 } from "./roam-doc";
+import { beginToolAuthorization, cancelToolAuthorization, isToolAuthorizationActive } from "../tool-authorization";
 
 declare const global: any;
 declare const com: any;
@@ -202,17 +203,21 @@ global.onmessage = (event: { data: WorkerAppMessage }) => {
       break;
     case "tool-call": {
       const callId = message.callId;
-      Promise.resolve(handleRoamTool(message.name, message.args))
-        .then((result) => post({ type: "tool-result", callId, result }))
+      beginToolAuthorization(message.authorizationId);
+      Promise.resolve(handleRoamTool(message.name, message.args, () => isToolAuthorizationActive(message.authorizationId)))
+        .then((result) => { cancelToolAuthorization(message.authorizationId); post({ type: "tool-result", callId, result }); })
         .catch((error) =>
-          post({
+          (cancelToolAuthorization(message.authorizationId), post({
             type: "tool-result",
             callId,
             result: { ok: false, error: String((error as Error)?.message ?? error) },
-          }),
+          })),
         );
       break;
     }
+    case "cancel-tool-call":
+      cancelToolAuthorization(message.authorizationId);
+      break;
   }
 };
 
@@ -451,7 +456,8 @@ async function addTodoFromText(text: string): Promise<void> {
 // ---------------------------------------------------------------------------
 // Tools
 
-async function handleRoamTool(name: string, args: any): Promise<ToolResult> {
+async function handleRoamTool(name: string, args: any, isAllowed: () => boolean): Promise<ToolResult> {
+  if (!isAllowed()) return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
   if (!isRoamConfigured()) {
     return { ok: false, error: "Roam is not configured; set the graph name and API token in Settings > Roam." };
   }
@@ -469,11 +475,13 @@ async function handleRoamTool(name: string, args: any): Promise<ToolResult> {
       const today = todayRef();
       let page = currentPage && currentPage.uid === today.uid ? currentPage : await fetchPageByUid(today.uid!);
       if (!page) {
+        if (!isAllowed()) return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
         await createPage(today.title, today.uid!);
         page = { uid: today.uid!, title: today.title, children: [] };
       } else if (page === currentPage) {
         await ensureCurrentPageExists();
       }
+      if (!isAllowed()) return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
       await addTodoToPage(page, text);
       if (currentRef?.uid === today.uid) await reloadCurrentPage();
       return { ok: true, content: `Added todo: ${text}` };
@@ -485,6 +493,7 @@ async function handleRoamTool(name: string, args: any): Promise<ToolResult> {
       const done = args?.done !== false;
       const block = findBlockMatching(currentPage, match, (candidate) => isTodoBlock(candidate.string));
       if (!block) return { ok: false, error: `No todo matching "${match}" on ${currentPage.title}.` };
+      if (!isAllowed()) return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
       await updateBlockString(block.uid, setTodoMarker(block.string, done));
       await reloadCurrentPage();
       return {
@@ -501,6 +510,7 @@ async function handleRoamTool(name: string, args: any): Promise<ToolResult> {
       if (!block) return { ok: false, error: `No block matching "${match}" on ${currentPage.title}.` };
       const marker = /^\s*\{\{(?:\[\[)?DONE/.test(block.string) ? true : isTodoBlock(block.string) ? false : null;
       const replacement = marker === null || isTodoBlock(newText) ? newText : setTodoMarker(newText, marker);
+      if (!isAllowed()) return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
       await updateBlockString(block.uid, replacement);
       await reloadCurrentPage();
       return { ok: true, content: `Rewrote block to: ${plainBlockText(replacement).trim()}` };
