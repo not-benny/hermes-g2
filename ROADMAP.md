@@ -13,11 +13,13 @@ Current as of 21 August 2026. `main` is the canonical branch.
   are joined on `main`. The final tree keeps the newer reviewed application
   implementation and restores the maintained public ring-health documentation,
   firmware-research archive, and development guide from the original line.
-- **TODO — fresh-checkout release validation.** Run `npm ci`, the full host test
-  suite, TypeScript typechecking, and the JDK 21 / Android SDK 35 build from a
-  clean checkout of consolidated `main`. The application snapshot itself is the
-  previously reviewed and hardware-tested integration tree; consolidation adds
-  documentation, preserved research, and Git ancestry.
+- **DONE — fresh-checkout release validation (21 August 2026).** Exact `main`
+  commit `24274cfa5a076618afdb2306b880623aa4a94abe` passed `npm ci`, all
+  247 host tests, TypeScript typechecking, and the JDK 21 / Android SDK 35 debug
+  build in a clean GitHub-hosted environment. The resulting 335,831,435-byte APK
+  passed ZIP-integrity and private-path checks and has SHA-256
+  `03143d502175e0f0cfce5b0022ee3263aa85bc8d48bc4cdc710133de621908f2`.
+  See `docs/clean-checkout-validation-2026-08-21.md`.
 - **TODO — development-preview release.** Produce a debug preview only after the
   clean-checkout gate passes. Do not publish private captures, firmware binaries,
   identifiers, credentials, or generated settings.
