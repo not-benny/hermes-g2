@@ -8,10 +8,10 @@ Stale or repeated teardown cannot remove a same-windowId replacement; replacing
 an open worker window releases its still-current lease before installing the new
 lifecycle state, including when the replacement closes before declaring tools.
 Focused registry/in-process tests pass on this frozen stack. `npm run typecheck`
-passes, and configured `npm run build` passes with
-`platforms/android/app/build/outputs/apk/debug/app-debug.apk` produced. No APK
-was installed and no hardware verification was needed for this registry
-lifecycle change.
+and configured `npm run build` currently fail on the repository's 35 inherited
+NativeScript Android/AndroidX/Java and `Array.create` diagnostics; no changed-file
+diagnostic was reported and no APK was produced or installed. No hardware
+verification was needed for this registry lifecycle change.
 
 ## BLE callback identity gate (2026-08-21)
 
