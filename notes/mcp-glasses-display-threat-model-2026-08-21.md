@@ -118,15 +118,15 @@ malicious users.
 | Component | Current observed limit/control | Gap that remains |
 |---|---|---|
 | Bridge transport | Phone dials plaintext `ws://`; bearer token is in `hello`; `hello-ack` is accepted without server proof. | Use authenticated secure transport/server proof; never treat a tailnet as peer authentication. |
-| Bridge lifecycle | Connection generations, 15 s auth timeout, 45 s liveness timeout, and 3 min turn timeout. | Bind MCP calls to a unique live turn generation and prove replay/late rejection. |
+| Bridge lifecycle | Connection generations, 15 s auth timeout, 20 s keepalive check, 45 s liveness timeout, 3 min turn timeout, and reconnect backoff of 1–60 s plus up to 50% jitter. | Bind MCP calls to a unique live turn generation and prove replay/late rejection; keepalive and reconnect are availability controls, not peer authentication. |
 | MCP lifecycle | Initialization/version handling, duplicate-ID tombstones, 128 completed-ID retention, and connection epoch suppression. | Bind authorization to the originating turn and make cancellation/late side effects safe. |
 | Proactive MCP | Boolean “some turn active” test and a sliding quota of 6 calls/minute after preflight. | Explicit turn-bound intent; proactive opt-in must default off. |
-| Registry | Schema preflight; 10 s default caller timeout (tool-specific values may differ); timeout does not cancel the handler. | Cancellation or operation IDs/idempotency; result must identify real completion. |
+| Registry | Schema preflight; 10 s default caller timeout; live 25 s overrides include `navigate-tools.ts:42` and `roam-tools.ts:31`; all are caller-side deadlines and do not cancel the handler. | Cancellation or operation IDs/idempotency; result must identify real completion and late handlers must not create side effects. |
 | Display today | Unbounded `glasses.show_alert`; shell popup is 6 s and proactive. | Bounds, interruption policy, live transport/turn gate, and device result evidence. |
 | Streamed reply today | `AssistantLayer` retains the full stream; only the visible tail is clipped by HUD geometry. | Visual clipping is not input bounding; cap bytes/chars before retention and transport. |
 | Proposed view | Audit design specifies singleton, 16 KiB encoded spec, 32 blocks, 8 actions, 8 KiB total text, 1 KiB/text block, title 80, label 40, ID 64 ASCII, TTL 30–3600 s, 2 updates/s. | No implementation or race/fuzz/golden/hardware evidence exists. Adopt, do not redesign, these limits. |
 | Android | Manifest allows cleartext, backup, broad storage/package/location/audio/calendar/Bluetooth and related permissions. | Least-privilege review, scoped storage/backup decision, and user-visible permission/privacy behavior. |
-| Sibling bridge | Shared token/plaintext WebSocket; may bind non-loopback; persistent OpenClaw session; caller-only timeouts. | Secure/replay-safe implementation, license authority, and generic-client/adapter evidence. |
+| Sibling bridge | Shared token/plaintext WebSocket that may bind non-loopback; 10 s hello timeout, 120 s turn timeout, and 20 s MCP caller timeout; persistent OpenClaw session; caller-only deadlines do not cancel handlers. | Secure/replay-safe implementation, license authority, and generic-client/adapter evidence. |
 
 In particular, a clipped tail in the HUD is only a presentation limit. Current
 alert and streamed-reply inputs are not bounded before they are retained,
