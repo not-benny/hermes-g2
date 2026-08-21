@@ -1,0 +1,4 @@
+--- a/README.md
++++ b/README.md
+@@ -88,0 +89 @@
++- [Hermes G2 Ring Health](https://github.com/not-benny/hermes-g2/tree/main/docs/ring-health) - Reverse-engineered R1 ring-health BLE protocol documentation with capture methods and a self-testing frame decoder.

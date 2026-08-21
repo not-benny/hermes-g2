@@ -6,10 +6,12 @@ Added `notes/whatsapp-pairing-options-2026-08.md`. The safe recommendation is to
 shelve live WhatsApp pairing and keep batches 3–6 paused while monitoring the
 embedded link-code repair path; the existing Hermes Agent bridge is not a
 WhatsApp bridge and cannot be reused as a QR shortcut. A host-side QR bridge is
-technically feasible only as a new, separately authorized service with its own
-session custody, authenticated encrypted transport, QR/status relay, and
-validation gates. No production pairing, live-link batch, credential migration,
-or bridge enablement was performed.
+technically feasible only as a new, separately authorized service with an
+explicit disabled/embedded/bridge mode selected before Node startup, exactly one
+session owner, host-local QR scanning ceremony, authenticated encrypted
+transport, separate stop/logout/credential-deletion operations, and a complete
+send/receive/ack relay contract. No production pairing, live-link batch,
+credential migration, or bridge enablement was performed.
 
 ## WhatsApp link-code regression investigation (2026-08-21)
 
@@ -370,3 +372,18 @@ pull the log + the Even app's built-in health-data export zip, and validate.
   collaborator), so push access to `pangoleen/awesome-even-realities-g2` is
   unconfirmed. A PR from the owned fork may be possible after the release gate,
   but must be handled as reviewed delivery and not inferred from this inventory.
+
+## 12. Held awesome-list preparation (2026-08-21)
+
+- Exact one-entry patches and ready-to-use PR drafts are held under
+  `notes/awesome-list-prep/pangoleen-awesome-even-realities-g2/`, based on
+  target `main` at `9c7ae1b93fe5b201b9aa4087bb7d9e510dbb0e03`:
+  `ring-health.patch` / `ring-health-pr.md` for Protocol and Reverse
+  Engineering, and `hermes-g2.patch` / `hermes-g2-pr.md` for AI and Agent
+  Integrations. `BASE.md` records the read-only preparation snapshot.
+- Each patch contains exactly one append-only README entry and follows the
+  live `contributing.md` format and one-PR-per-suggestion rule. The proposed
+  entries remain held: the source repository is private, both canonical URLs
+  return unauthenticated 404, and no release/tag exists. Revalidate links,
+  duplicates, competing PRs, and `npx awesome-lint` after the public release;
+  do not submit or push these patches before then.

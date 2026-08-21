@@ -24,14 +24,18 @@ A bridge QR path is technically feasible only as a new host-side service or an e
 
 ## Minimal bridge design if later authorized
 
-Keep WhatsApp ownership in one host process and never share the app's auth directory between embedded and bridge modes. Define a versioned, authenticated API with these interfaces:
+This is a design gate, not an implementation authorization. Keep WhatsApp ownership in exactly one process and never share or copy the app's auth directory into bridge storage. The app needs an explicit persisted mode, for example `whatsapp.mode = disabled | embedded | bridge`, plus separate `whatsapp.bridge.endpoint` and `whatsapp.bridge.authRef` references. The default is `disabled`; `embedded` starts `FaceclawNodeRuntime`, while `bridge` starts only the authenticated remote adapter. Mode is read and validated before `startWhatsAppNode()`/Node startup; invalid, missing, or unreachable bridge configuration fails closed with a visible error and never falls back to embedded mode or copies credentials. A mode change requires stopping the current owner and an app restart (the current `FaceclawNodeRuntime` has no stop/switch API), so it cannot leave embedded and host sockets active together.
 
-1. `POST /v1/pair/qr` → `{attemptId, qrPayload, expiresAt}`; single active attempt, bounded expiry, redacted logs, explicit user confirmation.
-2. `GET /v1/pair/:attemptId/events` (SSE or authenticated WebSocket) → `connecting | qr | connected | failed | logged_out`; no credential material in status events.
-3. `GET /v1/status` → bounded state/user identity only; `POST /v1/session/stop` → stop/revoke relay without deleting credentials by default.
-4. A phone-side adapter replacing only the current WhatsApp transport contract, plus a UI that displays a bounded QR bitmap/payload and clear host/session ownership. The existing `ctl/chat/mcp` Agent bridge protocol should not be overloaded with WhatsApp frames.
+The QR ceremony must render the QR on a host-local display that the primary WhatsApp phone can scan; the same phone cannot normally scan a QR rendered on its own screen. The Hermes phone should receive only bounded status (`waiting_for_scan`, `connected`, `expired`, `failed`) and should not receive the pairing secret. If a relay is unavoidable, a second trusted display/device must show the QR, the payload must be encrypted in transit, memory-only, single-use, expiry-bounded, excluded from logs/analytics, and explicitly acknowledged as an additional secret exposure.
 
-The host service would use the same Baileys connection/update and `creds.update` lifecycle as the embedded engine, but would require a confirmed current QR-compatible Baileys version, an explicit session-directory policy, and a relay for the eventual WhatsApp message/status API. A QR-only pairing proof is not sufficient to claim the full live-link batch contract works.
+Define a versioned, authenticated, certificate-validated WSS (or equivalently authenticated tunnel) API, separate from the `ctl/chat/mcp` Agent bridge protocol:
+
+1. `POST /v1/pair/qr` → `{attemptId, expiresAt}`; creates one active attempt and causes host-local QR rendering. No QR payload in the phone response or logs.
+2. `GET /v1/pair/:attemptId/events` (SSE or authenticated WebSocket) → `connecting | waiting_for_scan | connected | expired | failed | logged_out`; no credential material.
+3. `GET /v1/status` → bounded state and redacted user identity; `POST /v1/session/stop` → disconnects the host socket and retains host credentials for restart. WhatsApp unlink/logout/revocation is a separate privileged `POST /v1/session/logout` operation; credential deletion is a separately confirmed `DELETE /v1/session/credentials`, never an implicit consequence of stop or failed pairing.
+4. For batches 3–6, the minimum relay is `POST /v1/messages/send` with a client idempotency key and bounded/redacted message schema, `GET /v1/messages/events?cursor=...` (or equivalent stream) with a reconnect cursor and server event IDs, and `POST /v1/messages/:id/ack` (or delivery status). The host must deduplicate send keys and inbound event IDs, enforce bounded queues/backpressure, expire cursors predictably, and expose `connected | queued | sent | delivered | failed` status without logging message bodies or tokens. A pairing-only bridge is therefore incompatible with batches 3–6 until this relay contract is implemented and tested.
+
+The host service would use the same Baileys connection/update and `creds.update` lifecycle as the embedded engine, but requires a confirmed current QR-compatible Baileys version, isolated session-directory policy, explicit owner locking, and the complete relay above. A QR-only pairing proof is not sufficient to claim live-link compatibility.
 
 ## Preconditions and validation gates
 
