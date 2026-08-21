@@ -10,7 +10,7 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 - Local rework branch `work/t_535a9f1f-ring-worker-rework` now has candidate
   commits `0accf5f`, `0475383`, `abd7787`, `680dbf1`, `aaef1af`, and callback
-  identity/dispatch fixes `9671839` and `f0f4892` (not pushed; no PR).
+  identity/dispatch fixes `9671839`, `f0f4892`, and `a46cb12` (not pushed; no PR).
   Every optional direct-R1 connect,
   discovery/MTU/subscription wait, battery read, health poll, packetAck drain,
   and ring write runs on the single `FaceclawRingLink` worker. The glasses
@@ -61,12 +61,20 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
   therefore never held while a callback waits for `ringLock`, and callback token
   claim follows the same state-lock → registry-lock order as ring manager
   operations.
-- Rework verification on `f0f4892`: callback concurrency plus focused ring
-  contracts 20/20 and full suite 151/151 passed; `npm run typecheck` passed after
+- A fifth independent review found that a current direct-R1 notification token
+  queued behind `ringLock` could still be claimed after teardown published
+  `stopping`. `a46cb12` records ring callback identity before selecting the
+  callback lock and, once it acquires `ringLock`, rejects stopped/not-running
+  communicator state before token claim or legacy notification dispatch. The
+  glasses callback path retains `lock`, so framebuffer-release notifications
+  needed during teardown remain available. A precise regression pins the
+  callback-waits-behind-`ringLock` ordering and fail-closed gate.
+- Rework verification on `a46cb12`: callback concurrency plus focused ring
+  contracts 21/21 and full suite 152/152 passed; `npm run typecheck` passed after
   linking the existing ignored dependency tree into the isolated worktree; and
   the JDK 21 / Android SDK 35 debug build passed. APK:
   `platforms/android/app/build/outputs/apk/debug/app-debug.apk` (336,310,280 bytes,
-  SHA-256 `580929486b4eb6f89c9e8f8169e83a097daeaac25e80b7725b98303a8140540f`).
+  SHA-256 `f1d9ac0a7b62df93462af0a397ff8164fce1e146366bb2c86828c7240253f21d`).
   `git diff --check` passed and the added-line hardcoded-secret, shell-injection,
   eval/exec, and unsafe-deserialization scan found zero matches.
 - Rework install/launch passed on the USB A32 (`SM_A326B`, serial recorded only in
@@ -103,14 +111,26 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
   interleaving remains the stronger timeout evidence. Raw final logs remain
   untracked at `/tmp/t_535a9f1f-dispatch-token-final-logcat.txt` and must not be
   committed or published.
+- The `a46cb12` APK was installed and relaunched on the USB A32 for a bounded
+  final smoke. The app process remained alive with exactly one display worker
+  (`FaceclawBleComm`, TID 14864) and one ring worker (`FaceclawRingLin`, TID
+  14865). Two natural, non-induced direct-R1 failures lasted 2.741 s and 2.685 s;
+  one glasses frame completed on a separate display TID inside the first failure
+  interval. The subsequent safe force-stop/relaunch reconnect reached direct-R1
+  ready with MTU 247, three CRC-valid/read-only health notifications, one full
+  health poll, and 23 frame-timing lines. The phone UI showed Hermes and
+  `Connected`; no fatal exception or incomplete teardown was logged. Raw logs
+  remain untracked at `/tmp/t_535a9f1f-fifth-review-logcat.txt` and must not be
+  committed or published.
 - No timeout was fabricated and no pairing/ownership, permission, MAC,
   firmware/DFU, reset, power, or destructive operation was attempted; Even
   Bluetooth remained revoked. The MAC/raw-health log remains untracked under
   `/tmp` and must not be committed.
-- Review state: four GPT-5.6 Sol medium-effort reviews requested lifecycle,
-  atomic ring-side-effect, stale-GATT callback, and cross-lock dispatch rework.
-  `680dbf1`, `aaef1af`, `9671839`, and `f0f4892` address those findings
-  respectively; the new frozen candidate is pending mandatory re-review. Only a
+- Review state: five GPT-5.6 Sol medium-effort reviews requested lifecycle,
+  atomic ring-side-effect, stale-GATT callback, cross-lock dispatch, and queued
+  teardown-notification rework. `680dbf1`, `aaef1af`, `9671839`, `f0f4892`, and
+  `a46cb12` address those findings respectively; the new frozen candidate is
+  pending mandatory re-review. Only a
   reviewer-created delivery card may authorize push/PR. Remaining latency
   siblings are the non-blocking wake barrier and shorter `waitForFrameFinished`.
 
