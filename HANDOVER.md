@@ -198,13 +198,14 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
   Bluetooth remained revoked. The MAC/raw-health log remains untracked under
   `/tmp` and must not be committed.
 - Review state: seven GPT-5.6 Sol medium-effort reviews requested lifecycle,
-  atomic ring-side-effect, stale-GATT callback, cross-lock dispatch, and queued
-  teardown-notification plus notification/connection transitive-lock rework.
+  atomic ring-side-effect, stale-GATT callback, cross-lock dispatch, and
+  queued teardown-notification plus notification/connection transitive-lock rework.
   `680dbf1`, `aaef1af`, `9671839`, `f0f4892`, `a46cb12`, `58bd941`, and
-  `8330e9b` address those findings respectively; the new frozen candidate is
-  pending mandatory re-review. Only a
-  reviewer-created delivery card may authorize push/PR. Remaining latency
-  siblings are the non-blocking wake barrier and shorter `waitForFrameFinished`.
+  `8330e9b` address those findings respectively. The resulting frozen candidate
+  was approved by GPT-5.6 Sol medium-effort review and published unchanged at
+  `1dc65327ef33284877d3d9658ebc354b77cbbc2a` on PR #7 against `hermes-g2`.
+  Remaining latency siblings are the non-blocking wake barrier and shorter
+  `waitForFrameFinished`.
 
 Seven self-contained items were completed on the `hermes-g2` branch/current
 working tree:
