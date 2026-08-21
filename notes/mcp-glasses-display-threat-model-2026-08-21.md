@@ -120,9 +120,9 @@ malicious users.
 | Bridge transport | Phone dials plaintext `ws://`; bearer token is in `hello`; `hello-ack` is accepted without server proof. | Use authenticated secure transport/server proof; never treat a tailnet as peer authentication. |
 | Bridge lifecycle | Connection generations, 15 s auth timeout, 20 s keepalive check, 45 s liveness timeout, 3 min turn timeout, and reconnect backoff of 1–60 s plus up to 50% jitter. | Bind MCP calls to a unique live turn generation and prove replay/late rejection; keepalive and reconnect are availability controls, not peer authentication. |
 | MCP lifecycle | Initialization/version handling, duplicate-ID tombstones, 128 completed-ID retention, and connection epoch suppression. | Bind authorization to the originating turn and make cancellation/late side effects safe. |
-| Proactive MCP | Boolean “some turn active” test and a sliding quota of 6 calls/minute after preflight. | Explicit turn-bound intent; proactive opt-in must default off. |
+| Proactive MCP | Boolean “some turn active” test, default-off setting, and a sliding quota of 6 calls/minute after preflight. | Explicit turn-bound intent and per-session policy evidence remain required. |
 | Registry | Schema preflight; 10 s default caller timeout; live 25 s overrides include `navigate-tools.ts:42` and `roam-tools.ts:31`; all are caller-side deadlines and do not cancel the handler. | Cancellation or operation IDs/idempotency; result must identify real completion and late handlers must not create side effects. |
-| Display today | Unbounded `glasses.show_alert`; shell popup is 6 s and proactive. | Bounds, interruption policy, live transport/turn gate, and device result evidence. |
+| Display today | `glasses.show_alert` is capped at 160 plain-text characters, rejects control/markup/URL content, and fails closed when the display is off/unavailable. | Bounded singleton render schema, interruption policy, live transport/turn gate, and device result evidence. |
 | Streamed reply today | `AssistantLayer` retains the full stream; only the visible tail is clipped by HUD geometry. | Visual clipping is not input bounding; cap bytes/chars before retention and transport. |
 | Proposed view | Audit design specifies singleton, 16 KiB encoded spec, 32 blocks, 8 actions, 8 KiB total text, 1 KiB/text block, title 80, label 40, ID 64 ASCII, TTL 30–3600 s, 2 updates/s. | No implementation or race/fuzz/golden/hardware evidence exists. Adopt, do not redesign, these limits. |
 | Android | Manifest allows cleartext, backup, broad storage/package/location/audio/calendar/Bluetooth and related permissions. | Least-privilege review, scoped storage/backup decision, and user-visible permission/privacy behavior. |
@@ -186,8 +186,8 @@ Every proposed display operation must:
 |---|---|---|
 | Least privilege | FAIL | Manifest/config review removes unnecessary access or documents a separately approved feature; denial paths pass. |
 | Explicit turn-bound intent | FAIL | Unique live turn generation is carried and revalidated immediately before side effects. |
-| Proactive opt-in default-off | FAIL (`assistant.allowProactive` defaults true) | Default false, explicit setting/consent, bounded per-session policy tests. |
-| Untrusted-content handling | FAIL | Plain-text allowlist and rejection tests for injection/URLs/scripts/markup/images. |
+| Proactive opt-in default-off | PARTIAL (default false; unit policy evidence only) | Explicit setting/consent and bounded per-session policy tests. |
+| Untrusted-content handling | PARTIAL (`glasses.show_alert` plain-text policy covered by unit tests) | Full render schema allowlist and rejection tests for injection/URLs/scripts/markup/images. |
 | Secret-safe storage/logs/errors | FAIL | Secure storage or documented containment, no token/PII in logs/errors/backup/ADB evidence. |
 | Data minimization/retention | FAIL | Field-level export policy, bounded transcript/session retention, deletion/disable behavior. |
 | Bounded HUD schema/output/update rate/TTL | FAIL | Static v1 schema with exact audit limits, fuzz tests, 2 updates/s and TTL tests. |

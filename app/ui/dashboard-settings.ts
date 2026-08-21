@@ -698,9 +698,9 @@ export const assistantAllowProactiveSetting = new ConfigSettingBoolean({
   id: "assistant-allow-proactive",
   label: "Allow proactive Hermes actions",
   storageKey: "assistant.allowProactive",
-  defaultValue: true,
+  defaultValue: false,
   description:
-    "Let Hermes Agent use glasses tools outside a conversation, for example to show an alert when a long-running job finishes. Rate-limited; only tools marked proactive-safe are allowed.",
+    "Allow Hermes Agent to use explicitly proactive tools outside a conversation. Disabled by default; enable only when you accept the privacy and interruption trade-offs. Calls remain rate-limited and cannot wake an unavailable display.",
 });
 
 export const deepgramApiKeySetting = new ConfigSettingString({

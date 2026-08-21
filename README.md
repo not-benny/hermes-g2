@@ -38,8 +38,10 @@ permission if needed, and reopen Even.
 **Hermes Agent bridge is the preferred and default backend.** The phone dials
 out to a Hermes Agent bridge over a websocket, streams assistant turns, and
 serves the glasses' dynamic tools over MCP. This lets Hermes Agent answer voice
-queries, operate glasses tools during a turn, and—when the user setting allows
-it—perform rate-limited proactive actions such as showing an alert.
+queries, operate glasses tools during a turn, and—when the user explicitly
+enables the disabled-by-default setting—perform rate-limited proactive actions
+such as showing a bounded plain-text alert. See `docs/mcp-glasses-display.md`;
+the current bridge remains a private evaluation and is not a public MCP release.
 
 Configure the connection under **Settings > Assistant**:
 

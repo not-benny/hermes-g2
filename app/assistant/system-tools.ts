@@ -2,6 +2,7 @@ import { readUpcomingEvents, type CalendarEvent } from "../native/calendar";
 import { mediaControllerBridge } from "../native/media-controller";
 import { dismissNotification, readActiveNotifications } from "../native/notification-icons";
 import { shell } from "../ui/shell/shell";
+import { MAX_ALERT_TEXT_LENGTH, validateDisplayText } from "./display-policy";
 import { toolRegistry, type ToolRegistry, type ToolResult } from "./tool-registry";
 
 /**
@@ -40,15 +41,16 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
         "Show a short text popup on the glasses display. Use for a brief notice the user should see; keep it to a sentence or two.",
       inputSchema: {
         type: "object",
-        properties: { text: { type: "string", description: "The message to display." } },
+        properties: { text: { type: "string", maxLength: MAX_ALERT_TEXT_LENGTH, description: "Plain-text message to display." } },
         required: ["text"],
         additionalProperties: false,
       },
       proactive: true,
     },
     (args) => {
-      const text = String(args?.text ?? "").trim();
-      if (!text) return err("show_alert requires non-empty text");
+      const text = validateDisplayText(args?.text);
+      if (!text) return err("show_alert requires bounded plain text (no markup, URLs, or control characters)");
+      if (!shell.isScreenOn()) return err("The glasses display is unavailable; no alert was sent.");
       shell.showAlert(text);
       return ok("Displayed.");
     },
