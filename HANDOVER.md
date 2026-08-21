@@ -1,5 +1,22 @@
 # Hermes G2 handover (2026-08-21)
 
+## In-process call cancellation successor (2026-08-21)
+
+Focused successor branch `fix/t284b41e4-pr6` is based exactly on the preserved
+PR #6 successor head `91ac94465a4796704d3131b365b6b9838b49e211` (base
+`bf59c2b7f7ddfa36a93c5fd45e8eeeae6e37f77c`). It adds lease-scoped pending-call
+abort, generation liveness/side-effect revalidation, and deferred-call plus
+same-ID replacement regressions in `app/assistant/tool-registry.ts`,
+`app/assistant/in-process-tool-adapter.ts`, and
+`tests/in-process-surface.test.mjs`. The candidate is local only: nothing was
+pushed and no PR was opened or updated.
+
+Verification so far: focused in-process/registry tests pass 12/12 and the
+changed-file standalone TypeScript check passes. Full suite, repository
+`typecheck`, configured Android build, final review, and no-premature-delivery
+checks remain pending. No APK was produced or installed and no hardware
+verification was performed.
+
 ## Generation-safe app-tool teardown (2026-08-21)
 
 The focused PR #6 successor deliberately propagates opaque, generation-specific
