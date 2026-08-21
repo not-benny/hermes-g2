@@ -1,0 +1,148 @@
+name: Visible development-preview publication gate
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-hermes-g2-development-preview-1
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  SOURCE_SHA: 24274cfa5a076618afdb2306b880623aa4a94abe
+  VALIDATION_RUN_ID: "32527230737"
+  VALIDATION_ARTIFACT: fresh-checkout-release-gate-24274cfa5a076618afdb2306b880623aa4a94abe
+  EXPECTED_APK_SHA256: 03143d502175e0f0cfce5b0022ee3263aa85bc8d48bc4cdc710133de621908f2
+  EXPECTED_APK_SIZE: "335831435"
+  RELEASE_TAG: v1.0.0-preview.1
+  RELEASE_ASSET: Hermes-G2-v1.0.0-preview.1-debug.apk
+
+jobs:
+  publish-or-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out exact validated source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+
+      - name: Download validation artefact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-work/artifact
+          gh run download "$VALIDATION_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$VALIDATION_ARTIFACT" \
+            --dir release-work/artifact
+          grep -F "$SOURCE_SHA" release-work/artifact/validation/target.txt
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t apks < <(find release-work/artifact -type f -name 'app-debug.apk' -print)
+          test "${#apks[@]}" -eq 1
+          actual_sha="$(sha256sum "${apks[0]}" | awk '{print $1}')"
+          actual_size="$(stat -c '%s' "${apks[0]}")"
+          test "$actual_sha" = "$EXPECTED_APK_SHA256"
+          test "$actual_size" = "$EXPECTED_APK_SIZE"
+          zip -T "${apks[0]}"
+          cp -- "${apks[0]}" "release-work/$RELEASE_ASSET"
+          printf '%s  %s\n' "$EXPECTED_APK_SHA256" "$RELEASE_ASSET" \
+            > "release-work/$RELEASE_ASSET.sha256"
+
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-work/notes.md <<'EOF'
+          # Hermes G2 1.0.0 — Development Preview 1
+
+          **This is a debug-signed development preview, not a production or Play Store release.** Hermes G2 is unofficial and is not created, endorsed, or supported by Even Realities.
+
+          ## Verified build
+
+          - Source: `main@24274cfa5a076618afdb2306b880623aa4a94abe`
+          - Clean install: passed
+          - Host tests: 247/247 passed
+          - TypeScript typecheck: passed
+          - JDK 21 / Android SDK 35 build: passed
+          - APK integrity/private-path checks: passed
+          - APK SHA-256: `03143d502175e0f0cfce5b0022ee3263aa85bc8d48bc4cdc710133de621908f2`
+          - APK size: 335,831,435 bytes
+
+          Validation: https://github.com/not-benny/hermes-g2/actions/runs/32527230737
+
+          ## Setup
+
+          Use the official Even app for initial G2/R1 pairing, provisioning, and official firmware maintenance. Explicitly disconnect the glasses in Even, then close Even or revoke its Bluetooth access before starting Hermes. Install with Android debugging, for example: `adb install -r Hermes-G2-v1.0.0-preview.1-debug.apk`.
+
+          ## Included
+
+          Multitasking glasses UI, notifications and voice replies, media, navigation, terminal mirroring, timers and utilities; Hermes Agent/private MCP support; direct R1 battery, firmware version, current/hourly HR, hourly SpO2/HRV, history/export, and confirmed activity/calorie buckets; hardened GATT and lifecycle ownership.
+
+          ## Limits and warnings
+
+          The official Even app remains required for provisioning and maintenance. Sleep decoding remains fail-closed. Public MCP/skill publication, R1 ownership/provisioning, destructive ring commands, and standalone R1 DFU/OTA are unavailable. The full 640×480 interface requires custom G2 firmware; flashing may void the warranty or brick the glasses, and recovery/broad compatibility are not established. No private captures, firmware binaries, credentials, identifiers, pulled settings, or health exports are included.
+          EOF
+
+      - name: Create or verify prerelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags origin
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$SOURCE_SHA"
+          fi
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            rm -rf release-work/existing
+            mkdir -p release-work/existing
+            gh release download "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern "$RELEASE_ASSET" \
+              --dir release-work/existing
+            test "$(sha256sum "release-work/existing/$RELEASE_ASSET" | awk '{print $1}')" = "$EXPECTED_APK_SHA256"
+          else
+            if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+              gh release create "$RELEASE_TAG" \
+                "release-work/$RELEASE_ASSET#Hermes G2 development-preview debug APK" \
+                "release-work/$RELEASE_ASSET.sha256#SHA-256 checksum" \
+                --repo "$GITHUB_REPOSITORY" \
+                --title "Hermes G2 1.0.0 — Development Preview 1" \
+                --notes-file release-work/notes.md \
+                --prerelease \
+                --latest=false \
+                --verify-tag
+            else
+              gh release create "$RELEASE_TAG" \
+                "release-work/$RELEASE_ASSET#Hermes G2 development-preview debug APK" \
+                "release-work/$RELEASE_ASSET.sha256#SHA-256 checksum" \
+                --repo "$GITHUB_REPOSITORY" \
+                --title "Hermes G2 1.0.0 — Development Preview 1" \
+                --notes-file release-work/notes.md \
+                --prerelease \
+                --latest=false \
+                --target "$SOURCE_SHA"
+            fi
+          fi
+
+          url="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url -q .url)"
+          echo "Release: $url" | tee release-work/result.txt
+          {
+            echo '# Development-preview publication'
+            echo
+            echo "- Release: $url"
+            echo "- Tag target: \`$SOURCE_SHA\`"
+            echo "- APK SHA-256: \`$EXPECTED_APK_SHA256\`"
+          } >> "$GITHUB_STEP_SUMMARY"
