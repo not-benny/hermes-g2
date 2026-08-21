@@ -196,7 +196,7 @@ Semantics known, wire bytes not. Everything else ships without new BLE bytes; th
 - **DONE** — R: direct R1 link moved off the display worker onto the dedicated
   `FaceclawRingLink` worker, with per-address GATT operation locks and an
   initiation-only process-wide Bluetooth API lock (2026-08-21; local candidate
-  `0475383`, pending independent review/delivery).
+  pending mandatory independent review/delivery).
 - **DEFER** — R: remaining latency work — non-blocking wake barrier and shorter
   `waitForFrameFinished`. (Quick wins and ring-worker isolation already landed locally.)
 

@@ -10,7 +10,8 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 
 - Local rework branch `work/t_535a9f1f-ring-worker-rework` now has candidate
   commits `0accf5f`, `0475383`, `abd7787`, `680dbf1`, `aaef1af`, and callback
-  identity/dispatch fixes `9671839`, `f0f4892`, and `a46cb12` (not pushed; no PR).
+  identity/dispatch fixes `9671839`, `f0f4892`, `a46cb12`, and `58bd941` (not
+  pushed; no PR).
   Every optional direct-R1 connect,
   discovery/MTU/subscription wait, battery read, health poll, packetAck drain,
   and ring write runs on the single `FaceclawRingLink` worker. The glasses
@@ -69,12 +70,23 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
   glasses callback path retains `lock`, so framebuffer-release notifications
   needed during teardown remain available. A precise regression pins the
   callback-waits-behind-`ringLock` ordering and fail-closed gate.
-- Rework verification on `a46cb12`: callback concurrency plus focused ring
+- A sixth independent review found that the accepted direct-R1 callback still
+  called its legacy handler while holding `ringLock`; that handler acquired the
+  display `lock` and forwarded health/gesture state, creating a hidden
+  `ringLock` -> `lock` edge. `58bd941` now claims the exact-GATT token and copies
+  notification bytes plus the volatile ring generation under `ringLock`, then
+  releases it before decoding or touching display state. Display mutations,
+  packetAck enqueue, log forwarding, health forwarding, and gesture forwarding
+  revalidate stopping/running/generation state; main-thread health, gesture, and
+  log callbacks also drop retired generations. PacketAck cursors retain the
+  accepted generation instead of adopting a replacement session. The source
+  contract now rejects transitive lock nesting and stale downstream dispatch.
+- Final rework verification on `58bd941`: callback concurrency plus focused ring
   contracts 21/21 and full suite 152/152 passed; `npm run typecheck` passed after
   linking the existing ignored dependency tree into the isolated worktree; and
   the JDK 21 / Android SDK 35 debug build passed. APK:
   `platforms/android/app/build/outputs/apk/debug/app-debug.apk` (336,310,280 bytes,
-  SHA-256 `f1d9ac0a7b62df93462af0a397ff8164fce1e146366bb2c86828c7240253f21d`).
+  SHA-256 `da78a81b867fd51ce7c324ab39be09c4e33f723af3993f2e8766edd46a147e29`).
   `git diff --check` passed and the added-line hardcoded-secret, shell-injection,
   eval/exec, and unsafe-deserialization scan found zero matches.
 - Rework install/launch passed on the USB A32 (`SM_A326B`, serial recorded only in
@@ -122,15 +134,25 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
   `Connected`; no fatal exception or incomplete teardown was logged. Raw logs
   remain untracked at `/tmp/t_535a9f1f-fifth-review-logcat.txt` and must not be
   committed or published.
+- The final `58bd941` APK was installed with `adb install --no-streaming -r` and relaunched
+  on the USB A32 for 45 seconds. Exactly one display worker (TID 9987) and one
+  ring worker (TID 9988) remained alive. A natural, non-induced direct-R1 failure
+  lasted 2.570 seconds while one glasses frame completed on the separate display
+  TID; automatic retry reached ready over 3.515 seconds with another frame inside
+  that connection interval. Four CRC-valid read-only notifications and 13 frame
+  timing lines followed, with zero fatal exceptions and zero incomplete-teardown
+  logs. Raw output is untracked at
+  `/tmp/t_535a9f1f-sixth-review-final-logcat.txt`; it may contain MAC/health data
+  and must not be committed or published.
 - No timeout was fabricated and no pairing/ownership, permission, MAC,
   firmware/DFU, reset, power, or destructive operation was attempted; Even
   Bluetooth remained revoked. The MAC/raw-health log remains untracked under
   `/tmp` and must not be committed.
-- Review state: five GPT-5.6 Sol medium-effort reviews requested lifecycle,
+- Review state: six GPT-5.6 Sol medium-effort reviews requested lifecycle,
   atomic ring-side-effect, stale-GATT callback, cross-lock dispatch, and queued
-  teardown-notification rework. `680dbf1`, `aaef1af`, `9671839`, `f0f4892`, and
-  `a46cb12` address those findings respectively; the new frozen candidate is
-  pending mandatory re-review. Only a
+  teardown-notification plus transitive-lock rework. `680dbf1`, `aaef1af`,
+  `9671839`, `f0f4892`, `a46cb12`, and `58bd941` address those findings
+  respectively; the new frozen candidate is pending mandatory re-review. Only a
   reviewer-created delivery card may authorize push/PR. Remaining latency
   siblings are the non-blocking wake barrier and shorter `waitForFrameFinished`.
 
