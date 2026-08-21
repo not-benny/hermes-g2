@@ -34,13 +34,25 @@ to PR #11; that older queue prose is archival rather than current remote state.
   client, credential run, or real-G2 display evidence exists. Public MCP/skill
   publication and operational authorization remain NO-GO; no `SKILL.md` was added.
 
-Verification on the current candidate: focused assistant/render lifecycle tests
-pass 47/47; full `npm run test` passes 243/243; `npm run typecheck` passes after a
+Verification on the current candidate: final focused render/MCP lifecycle tests
+pass 14/14; full `npm run test` passes 246/246; `npm run typecheck` passes after a
 worktree-local `npm ci`; JDK 21 / Android SDK 35 `npm run build` passes and emits
 the ignored debug APK. The exact APK installed and launched on the authorized USB
 Samsung A32 with no observed fatal crash. Package-filtered logs
 reported no active glasses connection and discarded shell frames safely, so no
 `render_view`, G2 lens, TTL, no-wake or gesture hardware claim is made.
+
+Independent adversarial review first reproduced three lifecycle blockers across
+the frozen candidates: local close during initial delivery could publish a ghost,
+update churn could evict the create-operation tombstone, and disconnect during an
+in-flight replacement could restore an orphaned prior shell layer. Focused red/green
+regressions now keep pending identities tombstoned, retain create idempotency apart
+from bounded update history, and cancel both committed and pending owner revisions.
+Final exact-SHA review passed at
+`1ca3709ac23408620c7477056fb51f09fe874065`: **Static review: PASS** with no
+remaining file/line/interleaving blocker. **Operational authorization: NO-GO**
+for public MCP/skill publication and real-G2 use pending the external, licensing,
+generic-client, credential, and hardware evidence listed above.
 
 ## R1 health and protocol completion candidate
 
