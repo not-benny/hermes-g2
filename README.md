@@ -34,7 +34,7 @@ devices over to Hermes:
 2. In Even, open **Home**, select the glasses, open **Connection**, and press
    **Disconnect**. Even and Hermes cannot hold the glasses connection at the
    same time.
-3. Keep Even installed, but close it or revoke/disable its Bluetooth access
+3. Keep the Even app installed, but close it or revoke/disable its Bluetooth access
    during Hermes use. The R1 permits only one active central connection, so Even
    must release Bluetooth before Hermes can receive live ring data.
 4. Start Hermes and complete onboarding for Bluetooth, notification access,
