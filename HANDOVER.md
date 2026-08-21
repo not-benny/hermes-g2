@@ -9,20 +9,22 @@ the private `DECODE-SPEC.md` (see "Out-of-repo data").
 ### Health persistence fail-closed remediation (local, review pending)
 
 Branch `wt/t_c7e739-fix` is based directly on preserved PR #3 head
-`81d55c65e5cb13600811b503729fb17fc0525922`. The remediation preserves malformed,
-structurally invalid, and unsupported canonical bytes; refuses ordinary mutations
-when loading fails; verifies replacement writes; and retries legacy cleanup without
-ever deleting a verified canonical document. Preview seeding now sets its flag only
-after verified replacement and retries after failure.
+`81d55c65e5cb13600811b503729fb17fc0525922`. The remediation commit
+`4ad7291263bfc950fb211326982266fb8409338f` strictly validates real calendar dates,
+complete hourly metrics, and activity slot/totals schemas before normalizing; preserves
+invalid canonical bytes; removes unverifiable first-migration candidates safely; and
+retains retryable legacy fragments. Preview seeding sets its flag only after verified
+replacement and retries after failure.
 
 Focused `node --test tests/health-persistence.test.mjs tests/preview-demo.test.mjs`
-passes 16/16 and full `npm run test` passes 170/170. `git diff --check` passes.
-`npm run typecheck` remains blocked by inherited NativeScript Android ambient
-namespace and `ArrayConstructor.create` diagnostics outside this remediation.
-`npm run build` is blocked because this environment has no configured Android SDK
-or build-tools. No hardware was required or used. The remediation is local only,
-nothing was pushed, and independent `g2-reviewer` review is required before delivery.
-The remediation commit is `38354d5082b7e08e58782ba869dfda5fd4c5e140`.
+passes 18/18 and full `npm run test` passes 172/172. `git diff --check` passes.
+`npm run typecheck` fails on 35 inherited NativeScript Android ambient namespace and
+`ArrayConstructor.create` diagnostics outside the five changed-file remediation.
+With `JAVA_HOME=/usr/lib/jvm/java-21-openjdk`, `ANDROID_HOME=/home/benny/Android/Sdk`,
+and `ANDROID_SDK_ROOT=/home/benny/Android/Sdk`, `npm run build` reaches webpack and
+fails on the same 35 inherited diagnostics. No hardware was required or used. The
+candidate is local only, nothing was pushed, and independent `g2-reviewer` review is
+required before delivery.
 
 Seven self-contained items were completed on the `hermes-g2` branch/current
 working tree:
