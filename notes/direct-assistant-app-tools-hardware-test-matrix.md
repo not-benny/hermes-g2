@@ -396,13 +396,13 @@ The only permitted input is exactly
 - Setup: authorized g2mirror has no active, last-active, or sole view; do not
   create one through an unapproved launch tool.
 - Exact action: in order, call exactly
-  `app.terminal.send_input({"text":"printf '%s\n' 'HERMES_G2_QA_<TRACE>'"})`,
+  `app.terminal.send_input({"text":"printf '%s\\n' 'HERMES_G2_QA_<TRACE>'"})`,
   then exactly `app.terminal.read_screen({})`; before *each* call re-check that
   there is no active, last-active, or sole Terminal view. Do not substitute a
   different command or add a session argument.
-- Expected request/response: the send request fails with the implementation's
-  concise no-active-view error and sends no input; the read request then fails
-  with the same no-active-view error and fabricates no screen.
+- Expected request/response: the send request fails with exactly `No terminal
+  session is open to send input to.` and sends no input; the read request then
+  fails with exactly `No terminal session is open.` and fabricates no screen.
 - Expected phone/lens UI: canonical tool status followed by error; no crash,
   hang, or unexpected Terminal window.
 - Safe data: no-active-view state and harmless command text only.
