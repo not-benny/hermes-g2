@@ -95,8 +95,8 @@ when no later human/automation revision intervened. See
 
 The ring-battery fix passes all 289 host tests, TypeScript typechecking,
 `git diff --check`, and the JDK 21 / Android SDK 35 build. The resulting
-195,410,396-byte debug APK has SHA-256
-`44806e41268f2421a1880f8243a0a4e506548161e17a5446fab5b92ac119b12a`.
+195,410,467-byte debug APK has SHA-256
+`2a0ea0df7cba02657c161962a9911c0a009926223c81e77de1eefe41acf2b3f3`.
 That exact APK upgrade-installed and launched on the authorised Samsung A32 over
 USB. Both G2 arms and the direct R1 connected; PID-filtered logs showed
 `deviceStatus GET (battery)` complete before `heartRate/daily GET`; packetAck
