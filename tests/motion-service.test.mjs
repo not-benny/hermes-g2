@@ -31,7 +31,7 @@ function backend() {
 
 function store(initial = null) {
   let value = initial;
-  return { load: () => value, save: (next) => { value = next; }, value: () => value };
+  return { load: () => value, save: (next) => { value = next; return true; }, value: () => value };
 }
 
 test("heading helpers handle wraparound deterministically", () => {
@@ -145,6 +145,39 @@ test("heading filtering crosses north, rejects outliers and reports interference
   assert.equal(service.snapshot().compassQuality, "interference");
 });
 
+test("a sustained legitimate turn reacquires instead of staying interference-locked", () => {
+  let now = 1_000;
+  const io = backend();
+  const service = new MotionService({ now: () => now, persistence: store() });
+  service.bind(io.source, { deviceId: "G2-A", sessionGeneration: 1 });
+  service.setScreenOn(true);
+  service.acquire({ compass: true }, () => {});
+  for (const headingDegrees of [0, 90, 100, 110]) {
+    now += 200;
+    io.compass({ command: 15, headingDegrees });
+  }
+  assert.ok(service.snapshot().headingDegrees > 90);
+  assert.notEqual(service.snapshot().compassQuality, "interference");
+});
+
+test("calibration completion without a matching start fails closed", () => {
+  let now = 10_000;
+  const persisted = store();
+  const io = backend();
+  const service = new MotionService({ now: () => now, persistence: persisted });
+  service.bind(io.source, { deviceId: "G2-A", sessionGeneration: 1 });
+  service.setScreenOn(true);
+  service.acquire({ imuRate: "low", compass: true }, () => {});
+  for (let i = 0; i < 12; i++) {
+    now += 100;
+    io.imu({ x: 0, y: 0, z: 1, source: 1 });
+    io.compass({ command: 15, headingDegrees: 42 + (i % 2) });
+  }
+  io.compass({ command: 17, headingDegrees: -1 });
+  assert.equal(service.snapshot().calibrationQuality, "uncalibrated");
+  assert.equal(persisted.value(), null);
+});
+
 test("calibration persistence is versioned, device-bound and stores no raw history", () => {
   let now = 10_000;
   const persisted = store();
@@ -153,6 +186,7 @@ test("calibration persistence is versioned, device-bound and stores no raw histo
   first.bind(io.source, { deviceId: "G2-A", sessionGeneration: 1 });
   first.setScreenOn(true);
   first.acquire({ imuRate: "low", compass: true }, () => {});
+  io.compass({ command: 16, headingDegrees: -1 });
   for (let i = 0; i < 12; i++) {
     now += 100;
     io.imu({ x: 0, y: 0, z: 1, source: 1 });
@@ -170,6 +204,49 @@ test("calibration persistence is versioned, device-bound and stores no raw histo
   const otherDevice = new MotionService({ now: () => now, persistence: persisted });
   otherDevice.bind(backend().source, { deviceId: "G2-B", sessionGeneration: 1 });
   assert.equal(otherDevice.snapshot().calibrationQuality, "uncalibrated");
+});
+
+test("restart rejects future, negative, expired, and impossible calibration metadata", () => {
+  const now = 200 * 24 * 60 * 60 * 1_000;
+  const base = {
+    schemaVersion: 1,
+    algorithmVersion: "motion-v1",
+    deviceId: "G2-A",
+    quality: "fair",
+    calibratedAtMs: now,
+    neutralVector: { x: 0, y: 0, z: 1 },
+    headingOffsetDegrees: 0,
+  };
+  for (const invalid of [
+    { ...base, calibratedAtMs: -1 },
+    { ...base, calibratedAtMs: now + 60_001 },
+    { ...base, calibratedAtMs: 1 },
+    { ...base, headingOffsetDegrees: 181 },
+  ]) {
+    const service = new MotionService({ now: () => now, persistence: store(invalid) });
+    service.bind(backend().source, { deviceId: "G2-A", sessionGeneration: 1 });
+    assert.equal(service.snapshot().calibrationQuality, "uncalibrated");
+  }
+});
+
+test("persistence failure never publishes a durable calibration quality", () => {
+  let now = 10_000;
+  const io = backend();
+  const service = new MotionService({
+    now: () => now,
+    persistence: { load: () => null, save: () => { throw new Error("write failed"); } },
+  });
+  service.bind(io.source, { deviceId: "G2-A", sessionGeneration: 1 });
+  service.setScreenOn(true);
+  service.acquire({ imuRate: "low", compass: true }, () => {});
+  io.compass({ command: 16, headingDegrees: -1 });
+  for (let i = 0; i < 12; i++) {
+    now += 100;
+    io.imu({ x: 0, y: 0, z: 1, source: 1 });
+    io.compass({ command: 15, headingDegrees: 42 + (i % 2) });
+  }
+  io.compass({ command: 17, headingDegrees: -1 });
+  assert.equal(service.snapshot().calibrationQuality, "poor");
 });
 
 test("stale samples are never presented as exact", () => {

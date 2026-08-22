@@ -46,7 +46,7 @@ export type MotionSource = {
 
 export type MotionPersistence = {
   load(): unknown;
-  save(record: MotionCalibrationRecordV1): void;
+  save(record: MotionCalibrationRecordV1): boolean;
 };
 
 export type MotionCalibrationRecordV1 = {
@@ -73,6 +73,9 @@ const SAMPLE_FRESH_MS = 3_000;
 const MIN_VECTOR_MAGNITUDE = 0.2;
 const MAX_VECTOR_MAGNITUDE = 4;
 const INTERFERENCE_DELTA_DEGREES = 85;
+const REACQUIRE_TOLERANCE_DEGREES = 25;
+const CALIBRATION_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1_000;
+const CALIBRATION_FUTURE_TOLERANCE_MS = 60_000;
 const RATE_PACE: Record<MotionRate, number> = { low: 500, interactive: 200 };
 
 export function normalizeHeading(value: number): number {
@@ -101,7 +104,7 @@ export function deriveOrientation(vector: { x: number; y: number; z: number }, n
   };
 }
 
-function validCalibration(value: unknown, deviceId: string): MotionCalibrationRecordV1 | null {
+function validCalibration(value: unknown, deviceId: string, nowMs: number): MotionCalibrationRecordV1 | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<MotionCalibrationRecordV1>;
   const neutral = candidate.neutralVector;
@@ -112,6 +115,10 @@ function validCalibration(value: unknown, deviceId: string): MotionCalibrationRe
     !["poor", "fair", "good"].includes(String(candidate.quality)) ||
     !Number.isFinite(candidate.calibratedAtMs) ||
     !Number.isFinite(candidate.headingOffsetDegrees) ||
+    candidate.calibratedAtMs! <= 0 ||
+    candidate.calibratedAtMs! > nowMs + CALIBRATION_FUTURE_TOLERANCE_MS ||
+    nowMs - candidate.calibratedAtMs! > CALIBRATION_MAX_AGE_MS ||
+    Math.abs(candidate.headingOffsetDegrees!) > 180 ||
     !neutral ||
     ![neutral.x, neutral.y, neutral.z].every(Number.isFinite) ||
     !deriveOrientation(neutral)
@@ -139,6 +146,10 @@ export class MotionService {
   private calibration: MotionCalibrationRecordV1 | null = null;
   private stableHeadingCount = 0;
   private headingDiscontinuities = 0;
+  private outlierCandidate: number | null = null;
+  private outlierCandidateCount = 0;
+  private calibrationActive = false;
+  private calibrationHeadingCount = 0;
   private neutralSum = { x: 0, y: 0, z: 0 };
   private neutralCount = 0;
   private acceptedSamples = 0;
@@ -153,7 +164,7 @@ export class MotionService {
     this.source = source;
     this.identity = { ...identity };
     this.clearLiveSamples();
-    this.calibration = validCalibration(this.options.persistence.load(), identity.deviceId);
+    this.calibration = validCalibration(this.options.persistence.load(), identity.deviceId, this.options.now());
     this.calibrationQuality = this.calibration?.quality ?? "uncalibrated";
     const epoch = this.sourceEpoch;
     this.offImu = source.onImu((sample) => {
@@ -338,7 +349,12 @@ export class MotionService {
     this.orientationAtMs = now;
     this.lastSampleAtMs = now;
     this.acceptedSamples++;
-    if (this.neutralCount < 20 && Math.abs(raw.pitchDegrees) <= 10 && Math.abs(raw.rollDegrees) <= 10) {
+    if (
+      this.calibrationActive &&
+      this.neutralCount < 20 &&
+      Math.abs(raw.pitchDegrees) <= 10 &&
+      Math.abs(raw.rollDegrees) <= 10
+    ) {
       this.neutralSum.x += sample.x;
       this.neutralSum.y += sample.y;
       this.neutralSum.z += sample.z;
@@ -353,11 +369,20 @@ export class MotionService {
       return;
     }
     if (sample.command === COMPASS_CALIBRATION_STARTED) {
+      this.calibrationActive = true;
+      this.calibrationHeadingCount = 0;
+      this.neutralSum = { x: 0, y: 0, z: 0 };
+      this.neutralCount = 0;
       this.compassQuality = "calibrating";
       this.dispatch();
       return;
     }
     if (sample.command === COMPASS_CALIBRATION_COMPLETE) {
+      if (!this.calibrationActive) {
+        this.rejectedSamples++;
+        return;
+      }
+      this.calibrationActive = false;
       this.persistCalibration();
       this.dispatch();
       return;
@@ -371,13 +396,32 @@ export class MotionService {
     if (this.heading !== null) {
       const delta = circularDelta(this.heading, candidate);
       if (Math.abs(delta) > INTERFERENCE_DELTA_DEGREES) {
-        this.headingDiscontinuities++;
+        const nearCandidate = this.outlierCandidate !== null &&
+          Math.abs(circularDelta(this.outlierCandidate, candidate)) <= REACQUIRE_TOLERANCE_DEGREES;
+        this.outlierCandidate = candidate;
+        this.outlierCandidateCount = nearCandidate ? this.outlierCandidateCount + 1 : 1;
+        if (!nearCandidate) this.headingDiscontinuities++;
         this.stableHeadingCount = 0;
         this.rejectedSamples++;
-        if (this.headingDiscontinuities >= 3) this.compassQuality = "interference";
+        if (this.outlierCandidateCount >= 3) {
+          this.heading = candidate;
+          this.headingAtMs = now;
+          this.lastSampleAtMs = now;
+          this.acceptedSamples++;
+          this.stableHeadingCount = 1;
+          if (this.calibrationActive) this.calibrationHeadingCount++;
+          this.outlierCandidate = null;
+          this.outlierCandidateCount = 0;
+          this.headingDiscontinuities = 0;
+          this.compassQuality = "poor";
+        } else if (this.headingDiscontinuities >= 3) {
+          this.compassQuality = "interference";
+        }
         this.dispatch();
         return;
       }
+      this.outlierCandidate = null;
+      this.outlierCandidateCount = 0;
       const alpha = 0.3;
       this.heading = normalizeHeading(this.heading + delta * alpha);
     } else {
@@ -387,6 +431,7 @@ export class MotionService {
     this.lastSampleAtMs = now;
     this.acceptedSamples++;
     this.stableHeadingCount++;
+    if (this.calibrationActive) this.calibrationHeadingCount++;
     if (this.stableHeadingCount >= 10) {
       this.headingDiscontinuities = 0;
       this.compassQuality = this.calibrationQuality === "good" ? "good" : "fair";
@@ -403,13 +448,14 @@ export class MotionService {
   }
 
   private persistCalibration(): void {
-    if (!this.identity || this.stableHeadingCount < 8 || this.neutralCount < 8) {
+    if (!this.identity || this.calibrationHeadingCount < 8 || this.neutralCount < 8) {
       this.calibrationQuality = "poor";
       this.compassQuality = "poor";
       return;
     }
-    const quality: Exclude<CalibrationQuality, "uncalibrated"> =
-      this.stableHeadingCount >= 10 && this.neutralCount >= 10 ? "good" : "fair";
+    // Firmware completion plus stable samples proves sensor/neutral quality,
+    // not wearer boresight alignment. Keep the maximum truthful grade at fair.
+    const quality: Exclude<CalibrationQuality, "uncalibrated"> = "fair";
     const record: MotionCalibrationRecordV1 = {
       schemaVersion: 1,
       algorithmVersion: "motion-v1",
@@ -423,10 +469,16 @@ export class MotionService {
       },
       headingOffsetDegrees: 0,
     };
-    this.calibration = record;
-    this.calibrationQuality = quality;
-    this.compassQuality = quality;
-    this.options.persistence.save(record);
+    try {
+      if (!this.options.persistence.save(record)) throw new Error("calibration save was not verified");
+      this.calibration = record;
+      this.calibrationQuality = quality;
+      this.compassQuality = quality;
+    } catch {
+      this.calibration = null;
+      this.calibrationQuality = "poor";
+      this.compassQuality = "poor";
+    }
   }
 
   private clearLiveSamples(): void {
@@ -439,6 +491,10 @@ export class MotionService {
     this.compassQuality = "unavailable";
     this.stableHeadingCount = 0;
     this.headingDiscontinuities = 0;
+    this.outlierCandidate = null;
+    this.outlierCandidateCount = 0;
+    this.calibrationActive = false;
+    this.calibrationHeadingCount = 0;
     this.neutralSum = { x: 0, y: 0, z: 0 };
     this.neutralCount = 0;
   }

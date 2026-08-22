@@ -51,9 +51,9 @@ Current as of 22 August 2026. `main` is the canonical branch.
 - **PARTIAL — shared IMU/compass calibration service (22 August 2026).** One
   generation-bound owner now arbitrates multi-app sensor demand/rate, stops on
   screen-off/final release, rejects stale/outlier/interference-like samples,
-  derives bounded level/posture state, and persists only versioned device-bound
-  calibration quality/neutral metadata. Compass and accelerometer UI expire
-  stale values and label uncertain results. All 297 tests, typecheck and Android
+  derives bounded level/posture state, and persists only versioned
+  opaque-device-bound calibration quality/neutral metadata. Compass and accelerometer UI expire
+  stale values and label uncertain results. All 302 tests, typecheck and Android
   build pass. USB A32/G2 evidence proves warmed-session IMU/compass enable ACKs,
   eight accepted motion samples, prompt dual disable ACKs, and no continuing
   repaint stream after stop. The resting/off-head G2 emitted no heading or

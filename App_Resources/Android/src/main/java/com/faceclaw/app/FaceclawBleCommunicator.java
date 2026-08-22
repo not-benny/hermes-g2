@@ -165,6 +165,12 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     // overlay state is re-asserted on every reconnect and whenever the value changes.
     private volatile boolean firmwareDebugFlagsEnabled;
     private int firmwareDebugFlagsLastSent = -1;
+    // Desired IMU state and last ACKed/enqueued state survive page lifecycles.
+    // imuMaybeOn is cleared only by a disable ACK or dead transport.
+    private boolean imuEnabled;
+    private int imuReportFrequency = 200;
+    private int imuControlLastSent = -1;
+    private boolean imuMaybeOn;
     // Desired CFW mode-10 compass state. It survives reconnects; lastSent is
     // reset with each session so an open Compass window is re-asserted.
     private boolean compassEnabled;
@@ -623,15 +629,15 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
      */
     public void setImuReportEnabled(boolean enable, int reportFrq) {
         synchronized (lock) {
-            if (!running || !sessionReady) {
-                logLine("skip IMU " + (enable ? "enable" : "disable") + "; session not ready");
-                return;
-            }
+            imuEnabled = enable;
+            if (enable) imuReportFrequency = reportFrq;
+            imuControlLastSent = -1;
             clearMessagesOfKindLocked("imu-control");
-            OutboundMessage message = messageBuilder.enableOrDisableImu(enable, reportFrq);
-            message.onTimeout = () -> logLine("IMU control ack timeout");
-            pendingMessages.addFirst(message);
-            logLine("queue IMU " + (enable ? "enable freq=" + reportFrq : "disable"));
+            if (running && sessionReady && !shutdownRequested) {
+                enqueueImuControlLocked(true, enable, imuReportFrequency);
+            } else {
+                logLine("defer IMU " + (enable ? "enable" : "disable") + "; session not ready");
+            }
         }
         interruptibleSleep.interrupt();
     }
@@ -1092,6 +1098,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             // Compass window never got a chance to release it.
             if (compassMaybeOn && fixedLayoutCreated && warmedUp) {
                 enqueueCompassControlLocked(true, false);
+            }
+            if (imuMaybeOn && sessionReady) {
+                enqueueImuControlLocked(true, false, imuReportFrequency);
             }
         }
         interruptibleSleep.interrupt();
@@ -2611,6 +2620,13 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     }
 
                     if (messageToPrewrite == null && !shutdownRequested && fixedLayoutCreated && warmedUp
+                            && (imuEnabled ? imuReportFrequency : 0) != imuControlLastSent
+                            && pendingMessages.isEmpty() && inFlightMessages.isEmpty()) {
+                        Log.i(TAG, "enqueueing IMU " + (imuEnabled ? "enable" : "disable"));
+                        enqueueImuControlLocked(false, imuEnabled, imuReportFrequency);
+                    }
+
+                    if (messageToPrewrite == null && !shutdownRequested && fixedLayoutCreated && warmedUp
                             && (compassEnabled ? 1 : 0) != compassControlLastSent
                             && pendingMessages.isEmpty() && inFlightMessages.isEmpty()) {
                         Log.i(TAG, "enqueueing compass " + (compassEnabled ? "enable" : "disable"));
@@ -3105,6 +3121,26 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         pendingMessages.addLast(message);
         firmwareDebugFlagsLastSent = sub;
         logLine("queue firmware debug flags " + (show ? "show" : "hide"));
+    }
+
+    /** Queue the stock EvenHub IMU control with retained desired/ACK state. */
+    private void enqueueImuControlLocked(boolean priority, boolean enable, int reportFrequency) {
+        int sentState = enable ? reportFrequency : 0;
+        OutboundMessage message = messageBuilder.enableOrDisableImu(enable, reportFrequency);
+        message.onTimeout = () -> {
+            imuControlLastSent = -1;
+            logLine("IMU control ack timeout");
+            if (!enable) hardTransportFailure("IMU disable ack timeout");
+        };
+        if (enable) {
+            imuMaybeOn = true;
+        } else {
+            message.onAck = () -> imuMaybeOn = false;
+        }
+        if (priority) pendingMessages.addFirst(message);
+        else pendingMessages.addLast(message);
+        imuControlLastSent = sentState;
+        logLine("queue IMU " + (enable ? "enable freq=" + reportFrequency : "disable"));
     }
 
     /** Send CFW image-handler mode 10: [10][1] start, [10][0] stop. */
@@ -3808,6 +3844,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         lastAudioControlAckMagic = 0;
         audioCaptureActive = false;
         audioPacketListener = null;
+        imuControlLastSent = -1;
+        // A dead transport orphans any glasses-side IMU stream. A fresh session
+        // reasserts imuEnabled from retained desired state.
+        imuMaybeOn = false;
         compassControlLastSent = -1;
         // A dead transport orphans any glasses-side compass state; the fresh
         // session re-asserts the desired state after warmup (lastSent = -1).
@@ -3908,7 +3948,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
         final FaceclawImuListener[] currentListeners =
             imuListeners.toArray(new FaceclawImuListener[0]);
+        final long deliveryGeneration = currentGlassesConnectionGeneration();
         mainHandler.post(() -> {
+            synchronized (lock) {
+                if (deliveryGeneration != currentGlassesConnectionGeneration()
+                        || !sessionReady || shutdownRequested || !fixedLayoutCreated || !warmedUp) {
+                    return;
+                }
+            }
             for (FaceclawImuListener imuListener : currentListeners) {
                 try {
                     imuListener.onImuData(x, y, z, eventSource);
@@ -3925,7 +3972,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
         final FaceclawCompassListener[] currentListeners =
             compassListeners.toArray(new FaceclawCompassListener[0]);
+        final long deliveryGeneration = currentGlassesConnectionGeneration();
         mainHandler.post(() -> {
+            synchronized (lock) {
+                if (deliveryGeneration != currentGlassesConnectionGeneration()
+                        || !sessionReady || shutdownRequested || !fixedLayoutCreated || !warmedUp) {
+                    return;
+                }
+            }
             for (FaceclawCompassListener compassListener : currentListeners) {
                 try {
                     compassListener.onCompassEvent(command, headingDegrees);

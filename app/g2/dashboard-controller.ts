@@ -1255,6 +1255,10 @@ class DashboardController {
       }, SCREEN_TIMEOUT_CHECK_MS);
     } catch (error) {
       const message = this.formatError(error);
+      // A connected callback may have bound motion before later setup failed.
+      // Retire its generation before listeners or the communicator are closed.
+      retireGlassesMotionSession();
+      this.motionSessionNeedsWarmReassert = false;
       this.offState?.();
       this.offState = null;
       this.offLog?.();

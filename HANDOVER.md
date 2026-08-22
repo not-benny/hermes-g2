@@ -54,15 +54,24 @@ expire after three seconds; unchanged freshness polls no longer repaint.
 
 Pure calibration/filter state handles circular wraparound, discontinuity-based
 possible-interference detection, bounded gravity orientation, level/posture
-derivation, and versioned device-bound persistence. Persistence contains only a
-neutral vector, zero boresight offset, schema/algorithm versions, timestamp and
+derivation, and versioned opaque-device-bound persistence. A secret
+install-local salt pseudonymises the arm identity before ordinary persistence.
+Persistence contains only a neutral vector, zero boresight offset,
+schema/algorithm versions, timestamp and
 quality; it stores no raw motion history. Uncalibrated posture remains
 `unknown`, and the compass labels non-good values approximate rather than exact.
 The supplied upstream hash `6e4ece5` is album-art work, not compass work; the
 relevant ancestor `12bb76b` was reviewed for ideas but its unversioned scalar
 offset, stale-reading and false-completion behavior was not copied.
 
-Final local verification passes 297/297 host tests, TypeScript typechecking,
+Independent review of the first frozen candidate found and the final source fixes
+IMU shutdown/retry, exact native-generation delivery, connect-failure retirement,
+calibration-start provenance, sustained-turn reacquisition, timestamp/offset
+validation, verified-save ordering, raw-address persistence, and misleading
+wearer-alignment labels. Firmware completion can now establish at most `fair`
+sensor/neutral quality; without wearer alignment the UI remains approximate.
+
+Final local verification passes 302/302 host tests, TypeScript typechecking,
 `git diff --check`, and the JDK 21 / Android SDK 35 debug build. On USB Samsung
 A32 with both G2 arms live on firmware 2.2.8.4, a cold process restart first
 logged the expected pre-ready IMU skip, then the warmed-session reassertion
@@ -70,9 +79,13 @@ queued IMU pace 500 plus compass enable and both controls ACKed. The phone/G2
 UI accepted eight motion samples in the bounded capture and truthfully rendered
 `Cal: uncalibrated ... samples: 8`; the stock compass emitted no heading or
 calibration-complete event while the glasses were off-head/resting, so no
-heading, posture-calibration, or exact-level hardware claim is made. Screen-off
-queued IMU and compass disable at 05:53:50 local, both ACKed within 93 ms, and
-the final UI transition settled without the previous 400 ms repaint stream.
+heading, posture-calibration, or exact-level hardware claim is made. The final
+review-fixed APK cold-started with both controls deferred before readiness,
+reasserted/ACKed both after warmup, then screen-off queued IMU and compass disable
+at 06:10:10 local and both ACKed within 185 ms. Native shutdown now also forces
+an IMU disable ahead of queue flush and fails the transport closed on disable
+timeout. The final UI transition settled without the previous 400 ms repaint
+stream.
 Across the USB-powered bounded run the phone stayed at 100% with charge counter
 2,946,000 µAh, so short-run battery delta was below device reporting resolution;
 this is traffic/lifecycle evidence, not a battery-life estimate. Screenshot

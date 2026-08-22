@@ -32,6 +32,9 @@ test("native bridge coalesces stale controls and captures exact communicator lis
   assert.match(bridge, /this\.communicator\.removeCompassListener\(this\.compassProxy\)/);
   assert.match(java, /imuListeners\.toArray\(new FaceclawImuListener\[0\]\)/);
   assert.match(java, /compassListeners\.toArray\(new FaceclawCompassListener\[0\]\)/);
+  assert.match(java, /imuMaybeOn/);
+  assert.match(java, /enqueueImuControlLocked\(true, false/);
+  assert.match(java, /deliveryGeneration != currentGlassesConnectionGeneration/);
 });
 
 test("persistence is a compact calibration summary and UI labels uncertainty", () => {
@@ -47,4 +50,11 @@ test("freshness polling repaints only when the truthful snapshot changes", () =>
   assert.match(compass, /if \(key === this\.lastSnapshotKey\) return/);
   assert.match(accelerometer, /lastSnapshotKey/);
   assert.match(accelerometer, /if \(key === this\.lastSnapshotKey\) return/);
+});
+
+test("connect failure retires motion before closing its exact communicator", () => {
+  const catchStart = controller.indexOf("} catch (error) {", controller.indexOf("async connect"));
+  const close = controller.indexOf("communicator.close()", catchStart);
+  const retire = controller.indexOf("retireGlassesMotionSession();", catchStart);
+  assert.ok(retire > catchStart && retire < close);
 });

@@ -2,7 +2,10 @@ import { MotionService, type MotionCalibrationRecordV1 } from "../motion/motion-
 import { getStringSetting, setStringSetting } from "./settings-store";
 import type { FaceclawCommunicatorBridge } from "./faceclaw-communicator";
 
+declare const java: any;
+
 const CALIBRATION_KEY = "motion.calibration.v1";
+const DEVICE_SALT_KEY = "motion.deviceBindingSalt";
 
 function loadCalibration(): unknown {
   const raw = getStringSetting(CALIBRATION_KEY, "");
@@ -14,9 +17,27 @@ function loadCalibration(): unknown {
   }
 }
 
-function saveCalibration(record: MotionCalibrationRecordV1): void {
+function saveCalibration(record: MotionCalibrationRecordV1): boolean {
   // This compact summary intentionally contains no raw motion sample history.
-  setStringSetting(CALIBRATION_KEY, JSON.stringify(record));
+  const serialized = JSON.stringify(record);
+  setStringSetting(CALIBRATION_KEY, serialized);
+  return getStringSetting(CALIBRATION_KEY, "") === serialized;
+}
+
+function opaqueDeviceId(address: string): string {
+  let salt = getStringSetting(DEVICE_SALT_KEY, "");
+  if (!salt) {
+    salt = String(java.util.UUID.randomUUID().toString());
+    setStringSetting(DEVICE_SALT_KEY, salt);
+  }
+  // Install-local salted identity: stable for restart/device mismatch checks,
+  // but the ordinary calibration record never contains the raw BLE address.
+  let hash = 0x811c9dc5;
+  for (const char of `${salt}\u0000${address}`) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `g2-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 export const glassesMotionService = new MotionService({
@@ -31,7 +52,10 @@ export function bindGlassesMotionService(
   deviceId: string,
 ): number {
   sessionGeneration++;
-  glassesMotionService.bind(communicator, { deviceId, sessionGeneration });
+  glassesMotionService.bind(communicator, {
+    deviceId: opaqueDeviceId(deviceId),
+    sessionGeneration,
+  });
   return sessionGeneration;
 }
 

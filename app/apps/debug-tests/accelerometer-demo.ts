@@ -29,6 +29,7 @@ export class AccelerometerDemoLayer implements Layer {
   private peak = 0;
   private orientation: Orientation | null = null;
   private motionState = "inactive";
+  private calibrationQuality = "uncalibrated";
   private enabled = false;
   private removed = false;
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
@@ -80,12 +81,14 @@ export class AccelerometerDemoLayer implements Layer {
       snapshot.state,
       snapshot.imuReading,
       snapshot.orientation,
+      snapshot.calibrationQuality,
       snapshot.acceptedSamples,
       snapshot.rejectedSamples,
     ]);
     if (key === this.lastSnapshotKey) return;
     this.lastSnapshotKey = key;
     this.motionState = snapshot.state;
+    this.calibrationQuality = snapshot.calibrationQuality;
     this.orientation = snapshot.orientation;
     if (!snapshot.imuReading) {
       this.reading = null;
@@ -139,7 +142,9 @@ export class AccelerometerDemoLayer implements Layer {
           small,
           22,
           y + 22,
-          `level: ${this.orientation.level ? "yes" : "no"}   posture: ${this.orientation.posture}`,
+          this.calibrationQuality === "uncalibrated"
+            ? "level/posture: uncalibrated"
+            : `level: ${this.orientation.level ? "yes" : "no"}   posture: ${this.orientation.posture}`,
           130,
         );
       }

@@ -82,7 +82,7 @@ class CompassLayer implements Layer {
         ? "Calibrating — move the glasses"
         : snapshot.headingDegrees === null
           ? snapshot.state === "stale" ? "Heading stale" : "Waiting for compass data…"
-          : snapshot.compassQuality === "good" ? "Magnetic heading (good)" : "Approximate magnetic heading";
+          : "Approximate magnetic heading";
     this.requestRender();
   }
 
