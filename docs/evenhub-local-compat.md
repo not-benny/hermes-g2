@@ -84,6 +84,8 @@ Run:
 - `JAVA_HOME=/usr/lib/jvm/java-21-openjdk ANDROID_HOME=/home/benny/Android/Sdk npm run build`
 - `git diff --check`
 
-Real G2 evidence must include the sample rendering on the lens and a wearer
-scroll/click changing the counter. A build or A32 launch alone is not G2 input
-evidence.
+Real G2 evidence must show the complete sample inside the centred 576x288 optical
+raster and available shell viewport: title, bounded content, count/status, every
+action and its selection/navigation cues must remain unclipped while scrolling.
+It must also include a wearer scroll/click changing the counter. A partial or
+overflowing render, build, or A32 launch is not G2 input evidence.

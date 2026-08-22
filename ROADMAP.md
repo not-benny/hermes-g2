@@ -15,6 +15,10 @@ Current as of 22 August 2026. `main` is the canonical branch.
   bounded and exact-generation owned. Malformed, replayed, stale, background and
   screen-off calls fail closed. The sample has no WebView, network, arbitrary URL,
   raw filesystem, dynamic code, API key, sensor, assistant-tool or BLE capability.
+  Live testing found the original shared render-view layout overflowed the real
+  G2 viewport. The renderer now clips to the centred 576x288 optical/shell bounds
+  and paginates actions with position/scroll cues, but a successful real-G2 fit
+  and wearer-input rerun is still required; the overflowing run is not a pass.
   Store/EHPK installation, background apps, sensors and firmware extensions remain
   **NO-GO**. See `docs/evenhub-local-compat.md`.
 

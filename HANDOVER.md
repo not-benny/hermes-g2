@@ -30,10 +30,19 @@ passes. The 195,443,439-byte debug APK has SHA-256
 
 The final candidate installed and launched non-destructively on the attached
 Samsung A32. PID-filtered startup evidence contained normal NativeScript startup
-and no fatal exception, but repeatedly reported no active glasses session. The
-Local Counter therefore has **no real-G2 render or wearer-input evidence** from
-this run; that acceptance gate remains blocked on an available connected G2 and
-must not be inferred from the host controller test or A32 launch. The first
+and no fatal exception, but repeatedly reported no active glasses session. A
+later authorised live test of that exact APK did reach the G2 and exposed a
+blocking failure: the Local Counter layout overflowed the real display. That is
+failed hardware evidence, not a pass. This follow-up clips the shared render-view
+surface to the intersection of the centred 576px optical raster and the shell
+content viewport (536x260 after sidebar/top-bar chrome), keeps title, bounded
+content, count/status, three action rows and footer inside it, truncates long
+key/value values, and adds visible action position/scroll cues. Focused render
+and compatibility tests pass 30/30, the full host suite passes 304/304,
+TypeScript typecheck passes, and the JDK 21 / Android SDK 35 build passes with
+`TMPDIR` under `/home/benny/.cache`. Successful real-G2 fit and wearer-input
+revalidation is still required; this task did not install to or operate the A32
+or G2. The first
 frozen-SHA adversarial review found hostile-object containment, unchecked
 SharedPreferences persistence, teardown exception safety, initial screen state,
 finite request-budget, timer-status, and package-identity blockers. Those were

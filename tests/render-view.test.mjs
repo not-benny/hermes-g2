@@ -12,6 +12,54 @@ const { RenderViewManager, validateRenderViewSpec } = await import(
   "data:text/javascript;base64," + Buffer.from(js).toString("base64")
 );
 
+async function loadRenderLayer() {
+  const layerSource = readFileSync(new URL("../app/ui/shell/render-view-layer.ts", import.meta.url), "utf8")
+    .replace(/^import .*;\n/gm, "");
+  const harness = `
+    const G2_LENS_WIDTH = 640;
+    const MIN_WINDOW_HEIGHT = 288;
+    const GESTURE_DOUBLE_CLICK = "double-click";
+    const minWindowTop = () => 0;
+    const visibleAppViewportRect = () => ({ x: 72, y: 28, width: 536, height: 260 });
+    const font = { lineHeight: 12, measureText: (text) => text.length * 6 };
+    const getDefaultSmallFont = () => font;
+    const truncateText = (_font, text) => text;
+    const wrapText = (_font, text) => [text];
+    const drawSelectionHighlight = (image, x, y, width, height) => image.commands.push({ type: "selection", x, y, width, height });
+    class GrayImage {}
+  `;
+  const layerJs = ts.transpileModule(`${harness}\n${layerSource}`, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  return import("data:text/javascript;base64," + Buffer.from(layerJs).toString("base64"));
+}
+
+function paintRenderLayer(ShellRemoteViewLayer, selectedAction, actions) {
+  const commands = [];
+  const image = {
+    commands,
+    fillRoundedRect: (x, y, width, height) => commands.push({ type: "panel", x, y, width, height }),
+    drawRoundedRect: (x, y, width, height) => commands.push({ type: "border", x, y, width, height }),
+    drawText: (_font, x, y, text) => commands.push({ type: "text", x, y, text }),
+    drawLine: (x, y, x2, y2) => commands.push({ type: "line", x, y, width: x2 - x + 1, height: y2 - y + 1 }),
+    drawRect: (x, y, width, height) => commands.push({ type: "rect", x, y, width, height }),
+    fillRect: (x, y, width, height) => commands.push({ type: "fill", x, y, width, height }),
+  };
+  const layer = new ShellRemoteViewLayer({
+    viewId: "layout-test", revision: 1, ownerKey: "test", title: "Local Counter",
+    blocks: [
+      { type: "text", text: "Bundled compatibility sample", emphasis: "normal" },
+      { type: "key_value", label: "Count", value: "9999" },
+      { type: "key_value", label: "Status", value: "Timer cancelled while screen was off" },
+    ],
+    actions,
+    selectedAction,
+    expiresAtMs: Number.MAX_SAFE_INTEGER,
+  }, () => true, () => {});
+  layer.paint({}, () => image);
+  return commands;
+}
+
 const owner = { caller: "mcp", connectionGeneration: "connection-1", turnGeneration: "turn-1" };
 const baseSpec = {
   version: 1,
@@ -134,6 +182,52 @@ test("shell integration keeps remote views transient and reserves escape gesture
   assert.match(shellSource, /if \(this\.remoteViewLayer\) \{[\s\S]*layer\.close\(\);[\s\S]*this\.startEscapeMenuTimer\(\)/);
   assert.match(toolsSource, /name: "glasses\.render_view"/);
   assert.match(toolsSource, /name: "glasses\.read_view_events"/);
+});
+
+test("shell geometry clips the min app viewport to the centered 576x288 G2 raster", async () => {
+  const geometrySource = readFileSync(new URL("../app/ui/shell/geometry.ts", import.meta.url), "utf8")
+    .replace(/^import .*;\n/gm, "");
+  const harness = `
+    const G2_LENS_WIDTH = 640;
+    const G2_LENS_HEIGHT = 480;
+    const dashboardSizeSetting = { get: () => "standard" };
+    const verticalPositionSetting = { get: () => "top" };
+  `;
+  const geometryJs = ts.transpileModule(`${harness}\n${geometrySource}`, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  const geometry = await import("data:text/javascript;base64," + Buffer.from(geometryJs).toString("base64"));
+  assert.equal(geometry.G2_VISIBLE_WIDTH, 576);
+  assert.deepEqual(geometry.visibleAppViewportRect("min"), { x: 72, y: 28, width: 536, height: 260 });
+});
+
+test("render-view layout stays inside the real 576x288 optical and shell viewport", async () => {
+  const { ShellRemoteViewLayer } = await loadRenderLayer();
+  const actions = ["Increment", "Reset", "Start timer"].map((label, index) => ({ id: `a${index}`, label }));
+  const commands = paintRenderLayer(ShellRemoteViewLayer, 0, actions);
+  const safeViewport = { left: 72, top: 28, right: 608, bottom: 288 };
+  for (const command of commands) {
+    assert.ok(command.x >= safeViewport.left, `${command.type} starts before shell/optical viewport: ${JSON.stringify(command)}`);
+    assert.ok(command.y >= safeViewport.top, `${command.type} starts above shell viewport: ${JSON.stringify(command)}`);
+    if (command.width !== undefined) assert.ok(command.x + command.width <= safeViewport.right, `${command.type} exceeds optical viewport: ${JSON.stringify(command)}`);
+    if (command.height !== undefined) assert.ok(command.y + command.height <= safeViewport.bottom, `${command.type} exceeds 288px band: ${JSON.stringify(command)}`);
+  }
+  const text = commands.filter((command) => command.type === "text").map((command) => command.text);
+  for (const required of ["Local Counter", "Count", "9999", "Status", "Increment", "Reset", "Start timer"])
+    assert.ok(text.includes(required), `missing ${required}: ${JSON.stringify(text)}`);
+});
+
+test("render-view actions paginate around selection and expose position and scroll cues", async () => {
+  const { ShellRemoteViewLayer } = await loadRenderLayer();
+  const actions = Array.from({ length: 8 }, (_, index) => ({ id: `a${index}`, label: `Action ${index + 1}` }));
+  for (const [selected, expected] of [[0, [1, 2, 3]], [3, [3, 4, 5]], [7, [6, 7, 8]]]) {
+    const commands = paintRenderLayer(ShellRemoteViewLayer, selected, actions);
+    const text = commands.filter((command) => command.type === "text").map((command) => command.text);
+    const visible = text.filter((label) => /^Action /.test(label)).map((label) => Number(label.slice(7)));
+    assert.deepEqual(visible, expected);
+    assert.ok(text.some((label) => label.includes(`${selected + 1}/8`) && /scroll/i.test(label)), `missing navigation cue for ${selected + 1}/8`);
+    assert.equal(commands.filter((command) => command.type === "selection").length, 1);
+  }
 });
 
 test("local close racing initial delivery tombstones the pending identity", async () => {
