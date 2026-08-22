@@ -64,5 +64,5 @@ test("overlapping connects cannot publish or retire another motion owner", () =>
   assert.match(controller, /isCurrentConnectAttempt\(connectAttempt\)/);
   assert.match(controller, /if \(this\.communicator !== communicator\) return/);
   const adapter = read("app/native/glasses-motion-service.ts");
-  assert.match(adapter, /boundCommunicator !== expected/);
+  assert.match(adapter, /if \(boundCommunicator !== expected\) return false/);
 });

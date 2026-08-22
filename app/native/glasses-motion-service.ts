@@ -61,8 +61,8 @@ export function bindGlassesMotionService(
   return sessionGeneration;
 }
 
-export function retireGlassesMotionSession(expected?: FaceclawCommunicatorBridge | null): boolean {
-  if (expected && boundCommunicator !== expected) return false;
+export function retireGlassesMotionSession(expected: FaceclawCommunicatorBridge | null): boolean {
+  if (boundCommunicator !== expected) return false;
   sessionGeneration++;
   glassesMotionService.unbind();
   boundCommunicator = null;
