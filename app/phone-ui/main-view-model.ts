@@ -25,10 +25,11 @@ export class MainViewModel extends Observable {
   private _batteryOptimizationWarningVisible = false;
   private _showLog = false;
   private _phase: "disconnected" | "connecting" | "connected" | "charging" | "disconnecting" = "disconnected";
+  private _unsubscribeDashboard: (() => void) | null = null;
 
   constructor() {
     super();
-    dashboardController.subscribe((snapshot) => {
+    this._unsubscribeDashboard = dashboardController.subscribe((snapshot) => {
       this.status = snapshot.status;
       this.log = snapshot.log;
       this.displayPreview = snapshot.displayPreview;
@@ -44,6 +45,11 @@ export class MainViewModel extends Observable {
       this.screenRecordingActive = snapshot.screenRecordingActive;
       this.batteryOptimizationWarningVisible = snapshot.batteryOptimizationWarningVisible;
     });
+  }
+
+  dispose(): void {
+    this._unsubscribeDashboard?.();
+    this._unsubscribeDashboard = null;
   }
 
   get status(): string {
@@ -135,12 +141,11 @@ export class MainViewModel extends Observable {
     return this._layoutOrientation === "landscape" ? "visible" : "collapse";
   }
 
-  refreshLayoutMetrics(width?: number, height?: number): void {
-    if (width !== undefined && height !== undefined && width > 0 && height > 0) {
-      const layout = classifyPhoneWindow(width, height);
-      this._windowWidth = layout.width;
-      this._windowHeight = layout.height;
-    }
+  refreshLayoutMetrics(width: number, height: number): void {
+    const layout = classifyPhoneWindow(width, height);
+    if (this._windowWidth === layout.width && this._windowHeight === layout.height) return;
+    this._windowWidth = layout.width;
+    this._windowHeight = layout.height;
     const nextOrientation: WindowOrientation = this._windowWidth > this._windowHeight ? "landscape" : "portrait";
     if (this._layoutOrientation !== nextOrientation) {
       this._layoutOrientation = nextOrientation;

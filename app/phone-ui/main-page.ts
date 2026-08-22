@@ -13,6 +13,8 @@ export function navigatingTo(args: EventData) {
 type MainPageState = {
   model: MainViewModel
   isPinnedToBottom: boolean
+  disposed: boolean
+  layoutTimer: ReturnType<typeof setTimeout> | null
   scrollViews: ScrollView[]
   scrollHandler: (args: EventData) => void
   propertyChangeHandler: (args: EventData & { propertyName?: string }) => void
@@ -36,7 +38,13 @@ function cleanupPage(page: Page): void {
   for (const scrollView of state.scrollViews) {
     scrollView.off(ScrollView.scrollEvent, state.scrollHandler)
   }
+  state.disposed = true
+  if (state.layoutTimer !== null) {
+    clearTimeout(state.layoutTimer)
+    state.layoutTimer = null
+  }
   state.model.off(Observable.propertyChangeEvent, state.propertyChangeHandler)
+  state.model.dispose()
   page.off(Page.layoutChangedEvent, state.layoutHandler)
   setPageState(page, undefined)
 }
@@ -116,12 +124,19 @@ export function loaded(args: EventData) {
   const state: MainPageState = {
     model,
     isPinnedToBottom: true,
+    disposed: false,
+    layoutTimer: null,
     scrollViews,
     scrollHandler: (scrollArgs) => {
       state.isPinnedToBottom = isAtBottom(scrollArgs.object as ScrollView)
     },
     layoutHandler: () => {
-      setTimeout(() => {
+      if (state.layoutTimer !== null) {
+        clearTimeout(state.layoutTimer)
+      }
+      state.layoutTimer = setTimeout(() => {
+        state.layoutTimer = null
+        if (state.disposed) return
         const size = page.getActualSize()
         model.refreshLayoutMetrics(size.width, size.height)
         if (state.isPinnedToBottom) {

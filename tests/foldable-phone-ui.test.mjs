@@ -50,6 +50,23 @@ test("main phone UI observes live layout bounds instead of physical screen globa
   assert.doesNotMatch(model, /Screen\.mainScreen/);
 });
 
+test("live resize work is coalesced, cancelled on unload, and ignores unchanged bounds", () => {
+  const page = read("app/phone-ui/main-page.ts");
+  const model = read("app/phone-ui/main-view-model.ts");
+  assert.match(page, /layoutTimer/);
+  assert.match(page, /clearTimeout\(state\.layoutTimer\)/);
+  assert.match(page, /state\.disposed/);
+  assert.match(model, /if \(this\._windowWidth === layout\.width && this\._windowHeight === layout\.height\) return/);
+});
+
+test("main page releases its dashboard subscription when its view model unloads", () => {
+  const page = read("app/phone-ui/main-page.ts");
+  const model = read("app/phone-ui/main-view-model.ts");
+  assert.match(model, /this\._unsubscribeDashboard = dashboardController\.subscribe/);
+  assert.match(model, /dispose\(\): void/);
+  assert.match(page, /state\.model\.dispose\(\)/);
+});
+
 test("phone UI has bounded readable content and accessible touch targets", () => {
   const css = read("app/app.css");
   assert.match(css, /\.phone-content,[\s\S]*max-width:\s*840/);
