@@ -11,7 +11,7 @@ Baseline: `f37168cf007450cb2a58513b1f2624aee0b6d6af` on canonical `main`.
 - Foreground-service type claims are driven by explicit active-operation flags. `connectedDevice`, phone `microphone`, and `location` are claimed only for active work, with runtime permission checks for microphone/location; null/empty restarts stop and the service is non-sticky.
 - Terminal non-loopback transport is TLS-only. Delayed terminal launch calls revalidate authorization before remote launch and before local window/focus handoff.
 - The R1 raw boundary now requires an exact positive allowlist for the known health-session commands and payload shapes in addition to canonical envelope, CRC, lifecycle/generation, and destructive-command denial.
-- Permanent CI, CodeQL, Dependabot, SBOM/provenance, hash-verified native inputs, pinned NDK/CMake/NativeScript, monotonic Android metadata, ZIP/private-path checks, and native-alignment checks protect PRs and `main`.
+- Permanent CI, CodeQL, Dependabot, SBOM/provenance, hash-verified native inputs, pinned NDK/CMake/NativeScript, monotonic Android metadata, ZIP/private-path checks, and native-alignment checks protect PRs and `main`. PR validation receives no signing secrets and cannot publish an APK; protected signing occurs only after a secret-free `main` build in a separate job that executes no repository source.
 
 ## Corrected stale findings
 
