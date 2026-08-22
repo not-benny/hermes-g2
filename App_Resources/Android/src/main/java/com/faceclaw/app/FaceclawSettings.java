@@ -97,6 +97,11 @@ public final class FaceclawSettings {
         notifyChanged(key);
     }
 
+    public void removeString(String key) {
+        prefs.edit().remove(key).apply();
+        notifyChanged(key);
+    }
+
     /**
      * Read a Keystore-encrypted setting. A legacy plaintext value is migrated
      * only after the encrypted write commits and decrypts to the same value.

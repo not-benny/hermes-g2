@@ -1,5 +1,33 @@
 # Hermes G2 handover — 21 August 2026
 
+## Local-only EvenHub compatibility candidate (22 August 2026)
+
+Branch `feat/evenhub-local-compat` is based directly on canonical
+`f02d8f88bb44e147dad213e36a2ab16ad304aebe`, not the unrelated held
+awesome-list branch that initially occupied the assigned workspace. It adds a
+new declarative compatibility runtime and bundled GPL-3.0-only Local Counter,
+informed by a security/lifecycle/provenance audit of Faceclaw `6e4ece5` without
+copying its unsafe WebView/store/EHPK/sensor/credential surfaces.
+
+The V1 boundary allowlists inert display, input, namespaced storage and bounded
+one-shot timers. Exact monotonically increasing generations own request replay
+tombstones, events and timers; malformed, duplicate, stale, background,
+screen-off and post-close work fails closed. Package identity, SHA-256,
+provenance and fixed per-app grants are checked before launch. Local data is
+limited to one 16 KiB package/hash namespace and can be cleared from the window
+menu. No Android permissions or BLE commands were added.
+
+Focused verification currently passes 10/10 in
+`tests/evenhub-compat.test.mjs`, including package hash/provenance, malformed and
+sensor requests, replay/stale generations, background/screen lifecycle, timer
+teardown, storage grant/quota/clear, wearer-input controller behavior, registry
+integration, and privacy/license gates. Final full-suite/typecheck/build,
+A32/G2 runtime evidence, frozen-SHA adversarial review, PR/CI and remote readback
+remain pending and must replace this paragraph with exact results before delivery.
+Store-backed installation, EHPK parsing/extraction, arbitrary packages, WebView,
+network, API keys, sensors, background apps, assistant tools and firmware
+extensions remain **NO-GO**.
+
 ## Repository state
 
 `main` is the canonical development branch. The original release lineage and the

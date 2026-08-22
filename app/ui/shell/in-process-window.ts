@@ -41,6 +41,9 @@ export type InProcessWindowOptions = {
   setSurfaceVisible: (visible: boolean) => void;
   removeSurface?: () => void;
   onClosed?: () => void;
+  /** App lifecycle hooks; compatibility runtimes use these to quiesce resources. */
+  onForegroundChanged?: (foreground: boolean) => void;
+  onScreenChanged?: (on: boolean) => void;
   /** Optional tools contributed while this in-process window is open. */
   tools?: InProcessTools;
 };
@@ -208,9 +211,13 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
     markSurfaceReady,
     setForeground: (foreground) => {
       options.setSurfaceVisible(foreground);
+      options.onForegroundChanged?.(foreground);
       // Foreground availability is dynamic; notify assistant clients whenever
       // the shell changes this window's focus so their tool list is refreshed.
       toolRegistry.fireToolsChanged();
+    },
+    setScreenOn: (on) => {
+      options.onScreenChanged?.(on);
     },
   };
   return { window, stack, requestRender, markSurfaceReady };

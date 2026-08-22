@@ -60,6 +60,11 @@ export function setStringSetting(key: string, value: string): void {
   }
 }
 
+export function removeStringSetting(key: string): void {
+  if (SECRET_SETTING_KEYS.has(key)) throw new Error("secret settings require secure removal");
+  getJava().removeString(key);
+}
+
 export function removeSecretSetting(key: string): void {
   if (!SECRET_SETTING_KEYS.has(key)) throw new Error("setting is not classified as secret");
   if (!getJava().removeSecret(key)) throw new Error("secure setting removal failed");

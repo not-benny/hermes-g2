@@ -6,6 +6,18 @@ Current as of 21 August 2026. `main` is the canonical branch.
 
 ## Now
 
+### Local EvenHub compatibility foundation
+
+- **IMPLEMENTED / HARDWARE VERIFICATION PENDING** — Hermes now has one bundled,
+  GPL-3.0-only Local Counter package behind a strict declarative V1 boundary.
+  Package ID/hash/provenance and exact per-app grants are compile-time allowlisted;
+  bridge messages, storage, display, timers, input, lifecycle and cleanup are
+  bounded and exact-generation owned. Malformed, replayed, stale, background and
+  screen-off calls fail closed. The sample has no WebView, network, arbitrary URL,
+  raw filesystem, dynamic code, API key, sensor, assistant-tool or BLE capability.
+  Store/EHPK installation, background apps, sensors and firmware extensions remain
+  **NO-GO**. See `docs/evenhub-local-compat.md`.
+
 ### Repository and release
 
 - **IN PROGRESS — full audit remediation and protected release path (21 August
