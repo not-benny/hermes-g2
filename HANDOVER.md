@@ -89,6 +89,11 @@ scope, outcome-unknown replay, restoration causality, and cross-owner replay.
 Operational authorization remains NO-GO for the missing external/runtime evidence
 listed below; static approval is not permission to publish or operate HA control.
 
+PR [#41](https://github.com/not-benny/hermes-g2/pull/41) passed the permanent
+`release-gate`, `codeql-javascript`, `codeql-java`, and aggregate `codeql`
+checks, then squash-merged to canonical `main` as
+`544a5d60176f64ea6cdda8271894a95a32a00c7b`.
+
 This is not Home Assistant or dynamic-view lens evidence: the environment had
 no HA URL/token, and the configured bridge peer is not the authenticated Hermes
 WSS/generic MCP peer required to invoke the new tools. Therefore no living-room
