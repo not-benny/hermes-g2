@@ -9,7 +9,7 @@ import { AssistantLayer } from "./assistant";
 import { AssistantSession, type AssistantBackendConfig } from "../../assistant/session";
 import { resolveAssistantModel } from "../../assistant/models";
 import type { AssistantContext } from "../../assistant/types";
-import { SingleNotificationLayer } from "../notifications";
+import { NotificationDigestLayer, SingleNotificationLayer } from "../notifications";
 import { assistantBridge, type AssistantBridgePhase } from "../../assistant/bridge-client";
 import {
   anthropicApiKeySetting,
@@ -579,8 +579,8 @@ class Shell {
    * notification woke the screen, closing the modal goes back to sleep
    * (matching the old sleep-popup behavior).
    */
-  openNotificationModal(notificationKey: string, wokeScreen: boolean): void {
-    if (!this.screenOn) return;
+  async openNotificationModal(notificationKey: string, revision: string, wokeScreen: boolean): Promise<boolean> {
+    if (!this.screenOn || !this.config.requestShellDelivery) return false;
     // A notification preempts an active music card. Evict the card first (it is
     // always top when active) and inherit its wake ownership, so closing the
     // notification still re-sleeps if the card is what woke the screen. Without
@@ -596,12 +596,50 @@ class Shell {
     const modal: ShellModalLayer = new ShellModalLayer(
       new SingleNotificationLayer(notificationKey, {
         origin: "new-notification-modal",
+        expectedRevision: revision,
         closeModal: () => this.closeNotificationModal(modal, owned),
       }),
       this.config.actions,
     );
     this.stack.push(modal);
-    this.config.requestShellRender();
+    try {
+      await this.config.requestShellDelivery(() =>
+        this.screenOn && this.stack.topMatches((layer) => layer === modal),
+      );
+      return true;
+    } catch {
+      this.closeNotificationModal(modal, owned);
+      return false;
+    }
+  }
+
+  async openNotificationDigest(
+    entries: readonly { key: string; revision: string; reason: string }[],
+    wokeScreen: boolean,
+  ): Promise<boolean> {
+    if (!this.screenOn || !entries.length || !this.config.requestShellDelivery) return false;
+    let owned = wokeScreen;
+    if (this.musicCard) {
+      const card = this.musicCard;
+      this.stack.popIfTop((layer) => layer === card);
+      if (this.musicCardWokeScreen) owned = true;
+      this.musicCard = null;
+      this.musicCardWokeScreen = false;
+    }
+    const modal: ShellModalLayer = new ShellModalLayer(
+      new NotificationDigestLayer(entries, () => this.closeNotificationModal(modal, owned)),
+      this.config.actions,
+    );
+    this.stack.push(modal);
+    try {
+      await this.config.requestShellDelivery(() =>
+        this.screenOn && this.stack.topMatches((layer) => layer === modal),
+      );
+      return true;
+    } catch {
+      this.closeNotificationModal(modal, owned);
+      return false;
+    }
   }
 
   /** Whether the screen-off now-playing card is currently up. */
@@ -642,7 +680,7 @@ class Shell {
   }
 
   private closeNotificationModal(modal: ShellModalLayer, wokeScreen: boolean): void {
-    this.stack.popIfTop((layer) => layer === modal);
+    this.stack.remove(modal);
     if (wokeScreen) {
       this.sleep();
     }

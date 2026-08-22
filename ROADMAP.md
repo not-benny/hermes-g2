@@ -6,6 +6,21 @@ Current as of 21 August 2026. `main` is the canonical branch.
 
 ## Now
 
+### Notification priority and digests
+
+- **IN PROGRESS — local privacy-first triage (22 August 2026).** A deterministic
+  pure reducer now covers sender/channel/category/app/default precedence, per-app
+  defaults/reset, urgent/immediate/digest/mute tiers, quiet hours, cooldown,
+  cross-key deduplication, global/per-app rate caps, bounded fair digest draining,
+  update replacement, Android removal, dismiss/clear tombstones, restart, and
+  wall/timezone changes. Android emits post and removal events with current bounded
+  metadata; glasses show “Why” for immediate items and offer a reviewable digest.
+  Persisted state contains aggregate counts only and the old external icon-debug
+  files/package logs are removed. Host tests, typecheck and Android build pass;
+  reversible A32 synthetic post → queued update → removal transitions were observed
+  through aggregate-only metadata. Final independent review, CI and remote PR
+  read-back remain the delivery gates. See `docs/notification-triage.md`.
+
 ### Repository and release
 
 - **IN PROGRESS — full audit remediation and protected release path (21 August

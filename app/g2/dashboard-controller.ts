@@ -7,7 +7,7 @@ import * as frameTimings from "../native/frame-timings";
 import { startForegroundNotification, stopForegroundNotification, updateForegroundNotification } from "../native/foreground-service";
 import { mediaControllerBridge, type MediaControllerState } from "../native/media-controller";
 import { nightscoutBridge } from "../native/nightscout-bridge";
-import { onAndroidNotificationPosted } from "../native/notification-icons";
+import { onAndroidNotificationEvent, type AndroidNotificationEvent } from "../native/notification-icons";
 import { openEvenAppSettings, readEvenAppNotificationState } from "../native/even-app-conflict";
 import { grayImageToPreviewSource } from "../native/gray-image-preview";
 import { firmwareIncompatibilityMessage } from "./firmware-compat";
@@ -40,6 +40,8 @@ import { type LayerActions } from "../ui/layers";
 import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "../native/battery-optimization";
 import { shouldFinalizeCommunicatorClose, type DashboardConnectionPhase } from "./connection-state-lifecycle";
+import { notificationTriageController } from "../notifications/triage-controller";
+import type { NotificationTriageEffect } from "../notifications/triage-policy";
 
 type ConnectionPhase = DashboardConnectionPhase;
 
@@ -219,6 +221,8 @@ class DashboardController {
   private offVoiceStatus: (() => void) | null = null;
   private offVoiceWakeWord: (() => void) | null = null;
   private offAndroidNotification: (() => void) | null = null;
+  private notificationDigestTimer: ReturnType<typeof setInterval> | null = null;
+  private notificationPresentationChain: Promise<void> = Promise.resolve();
   private lastInput = "waiting...";
   private lastSys = "none yet";
   private shellRenderInProgress = false;
@@ -291,11 +295,14 @@ class DashboardController {
     for (const app of ALL_APPS) {
       app.boot?.(this.buildAppContext(app));
     }
-    this.offAndroidNotification = onAndroidNotificationPosted((notificationKey) => {
-      void this.handleAndroidNotificationPosted(notificationKey).catch((error) => {
-        this.appendLog(`notification wake failed: ${this.formatError(error)}`);
-      });
+    this.offAndroidNotification = onAndroidNotificationEvent((event) => {
+      this.enqueueNotificationPresentation(() => this.handleAndroidNotificationEvent(event));
     });
+    this.notificationDigestTimer = setInterval(() => {
+      this.enqueueNotificationPresentation(() =>
+        this.handleNotificationTriageEffects(notificationTriageController.tick()),
+      );
+    }, 60_000);
     // Screen-off now-playing card on track change. The bridge replays the
     // current snapshot synchronously on subscribe, seeding the baseline so a
     // track already playing at boot never spuriously drops a card.
@@ -1984,26 +1991,78 @@ class DashboardController {
     }
   }
 
-  private async handleAndroidNotificationPosted(notificationKey: string): Promise<void> {
-    if (!notificationKey) {
-      this.requestShellRender();
-      return;
-    }
-    // New notifications open a shell modal over the app viewport; if the
-    // screen was off, wake for it and go back to sleep when it is closed.
-    // Waking while already on would steal focus, so only wake from sleep.
-    const wokeScreen = shell.isScreenOn() ? false : shell.wake("sidebar");
-    if (wokeScreen) {
-      this.appendLog("android notification woke the screen");
-    }
-    shell.openNotificationModal(notificationKey, wokeScreen);
-    // Beep alongside the modal the user actually sees (this handler already runs
-    // only for notifications that surface), rate-limited against bursts.
-    if (Date.now() - this.lastNotificationBeepMs > 1500) {
-      this.lastNotificationBeepMs = Date.now();
-      void playEventBeep("notification", (p) => this.playBuzzerSequence(p));
+  private async handleAndroidNotificationEvent(event: AndroidNotificationEvent): Promise<void> {
+    const effects = notificationTriageController.handleAndroidEvent(event);
+    await this.handleNotificationTriageEffects(effects);
+    if (event.kind === "posted") {
+      await this.handleNotificationTriageEffects(notificationTriageController.tick());
     }
     this.requestShellRender();
+  }
+
+  private enqueueNotificationPresentation(work: () => Promise<void>): void {
+    this.notificationPresentationChain = this.notificationPresentationChain.then(work, work).catch((error) => {
+      this.appendLog(`notification presentation failed: ${this.formatError(error)}`);
+    });
+  }
+
+  private async handleNotificationTriageEffects(effects: readonly NotificationTriageEffect[]): Promise<void> {
+    for (const effect of effects) {
+      if (effect.kind === "removed" || effect.kind === "dismiss-all") {
+        this.requestShellRender();
+        continue;
+      }
+      let digestItems = effect.kind === "digest-ready"
+        ? effect.items.filter((item) => notificationTriageController.isCurrent(item.key, item.revision, true))
+        : [];
+      if (effect.kind === "immediate" && !notificationTriageController.isCurrent(effect.key, effect.revision)) {
+        notificationTriageController.presentationFailed(effect.key);
+        continue;
+      }
+      if (effect.kind === "digest-ready" && !digestItems.length) continue;
+      const wokeScreen = shell.isScreenOn() ? false : shell.wake("sidebar");
+      if (wokeScreen) {
+        const ready = await this.ensureEvenHubSessionActive();
+        if (!ready || !shell.isScreenOn()) {
+          if (effect.kind === "immediate") notificationTriageController.presentationFailed(effect.key);
+          if (shell.isScreenOn()) shell.sleep();
+          continue;
+        }
+      }
+      if (effect.kind === "immediate") {
+        if (!notificationTriageController.isCurrent(effect.key, effect.revision)) {
+          notificationTriageController.presentationFailed(effect.key);
+          if (wokeScreen) shell.sleep();
+          continue;
+        }
+        const delivered = await shell.openNotificationModal(effect.key, effect.revision, wokeScreen);
+        if (!delivered) {
+          notificationTriageController.presentationFailed(effect.key);
+          continue;
+        }
+      } else if (effect.kind === "digest-ready") {
+        digestItems = digestItems.filter((item) => notificationTriageController.isCurrent(item.key, item.revision, true));
+        if (!digestItems.length) {
+          if (wokeScreen) shell.sleep();
+          continue;
+        }
+        const delivered = await shell.openNotificationDigest(
+          digestItems.map((item) => ({
+            key: item.key,
+            revision: item.revision,
+            reason: notificationTriageController.reasonFor(item.key),
+          })),
+          wokeScreen,
+        );
+        if (!delivered) continue;
+        notificationTriageController.acknowledgeDigest(digestItems);
+      }
+      if (Date.now() - this.lastNotificationBeepMs > 1500) {
+        this.lastNotificationBeepMs = Date.now();
+        void playEventBeep("notification", (payload) => this.playBuzzerSequence(payload));
+      }
+      this.requestShellRender();
+    }
   }
 
   private async playBuzzerSequence(payload: Uint8Array): Promise<void> {
@@ -2031,6 +2090,7 @@ class DashboardController {
   private clearDashboardTimer(): void {
     this.cancelEvenHubSuspendTimer();
     this.clearBrightnessDebounceTimer();
+
     if (this.shellRefreshTimer) {
       clearInterval(this.shellRefreshTimer);
       this.shellRefreshTimer = null;
