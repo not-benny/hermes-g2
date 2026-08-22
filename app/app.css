@@ -10,13 +10,19 @@
  *   bg          #0F1411   surface     #172019   surface-2   #1E2A22
  *   border      #24312A   text        #EAF2EC   text-muted  #9BB0A5
  *   primary     #57D8A6   primary-pr  #46B88C   on-primary  #08120D
- *   secondary   #4C9DF5   danger      #E5484D   action-bar  #101512
+ *   secondary   #4C9DF5   warning     #F5C542   danger      #E5484D
+ *   action-bar  #101512
+ *
+ * Type scale: 12 eyebrow/caption, 13 supporting, 15 body, 16 row title,
+ * 20 section heading, 28 display. Spacing follows a 4/8/12/16/20/24 rhythm;
+ * controls use an 8 radius, cards 12, and feature cards 16.
  */
 
 Page {
   background-color: #0F1411;
   color: #EAF2EC;
-  font-family: "Saira", "Roboto", sans-serif;
+  font-family: sans-serif;
+  font-size: 15;
 }
 
 ScrollView {
@@ -38,7 +44,7 @@ NavigationButton {
 
 Label {
   color: #EAF2EC;
-  font-family: "Saira", "Roboto", sans-serif;
+  font-family: sans-serif;
   /* The @nativescript/theme core sets `Label { text-transform: capitalize }`,
      which Title-Cases every label (e.g. "Configure The Mac Addresses", and even
      "WhatsApp" -> "Whatsapp"). Render text as written; the .section-label /
@@ -55,7 +61,9 @@ TextView {
   border-width: 1;
   border-radius: 8;
   padding: 10;
-  font-family: "Saira", "Roboto", sans-serif;
+  min-height: 48;
+  font-family: sans-serif;
+  font-size: 15;
 }
 
 Button {
@@ -65,7 +73,10 @@ Button {
   border-width: 1;
   border-radius: 8;
   padding: 10;
-  font-family: "Saira", "Roboto", sans-serif;
+  min-height: 48;
+  font-family: sans-serif;
+  font-size: 15;
+  text-transform: none;
 }
 
 Button:highlighted {
@@ -73,7 +84,36 @@ Button:highlighted {
 }
 
 Button.-primary {
-  font-size: 18;
+  background-color: #57D8A6;
+  color: #08120D;
+  border-color: #57D8A6;
+  font-weight: bold;
+}
+
+Button.-primary:highlighted {
+  background-color: #46B88C;
+  border-color: #46B88C;
+}
+
+Button.-secondary {
+  background-color: transparent;
+  color: #4C9DF5;
+  border-color: #4C9DF5;
+}
+
+Button.-secondary:highlighted {
+  background-color: #1E2A22;
+}
+
+Button.-danger {
+  background-color: #E5484D;
+  color: #08120D;
+  border-color: #E5484D;
+  font-weight: bold;
+}
+
+Button.-danger:highlighted {
+  border-color: #08120D;
 }
 
 ListView {
@@ -111,6 +151,68 @@ TabView {
 
 /* --- Additive opt-in component classes ---------------------------------- */
 
+.screen-content {
+  padding: 20;
+}
+
+.section-heading {
+  color: #EAF2EC;
+  font-size: 20;
+  font-weight: bold;
+}
+
+.body-text {
+  color: #EAF2EC;
+  font-size: 15;
+}
+
+.supporting-text {
+  color: #9BB0A5;
+  font-size: 13;
+}
+
+.field-label {
+  color: #9BB0A5;
+  font-size: 13;
+  margin-top: 12;
+}
+
+.status-banner {
+  background-color: #172019;
+  border-color: #24312A;
+  border-width: 1;
+  border-radius: 12;
+  padding: 12 16;
+}
+
+.status-info,
+.status-info Label {
+  color: #4C9DF5;
+}
+
+.status-warning,
+.status-warning Label {
+  color: #F5C542;
+}
+
+.status-danger,
+.status-danger Label {
+  color: #E5484D;
+}
+
+.list-row {
+  min-height: 56;
+  padding: 10 12;
+  background-color: #172019;
+  border-bottom-color: #24312A;
+  border-bottom-width: 1;
+}
+
+.list-row-title {
+  color: #EAF2EC;
+  font-size: 16;
+}
+
 .btn {
   background-color: #172019;
   color: #EAF2EC;
@@ -143,18 +245,27 @@ TabView {
 
 .btn-danger {
   background-color: #E5484D;
-  color: #EAF2EC;
+  color: #08120D;
   border-width: 0;
   border-radius: 8;
   padding: 12;
 }
 
-.card {
+.card,
+.surface-card {
   background-color: #172019;
   border-color: #24312A;
   border-width: 1;
   border-radius: 12;
   padding: 16;
+}
+
+.feature-card {
+  background-color: #172019;
+  border-color: #24312A;
+  border-width: 1;
+  border-radius: 16;
+  padding: 20;
 }
 
 .input {
@@ -189,7 +300,8 @@ TabView {
   color: #9BB0A5;
 }
 
-.muted {
+.muted,
+.text-muted {
   color: #9BB0A5;
 }
 
@@ -218,6 +330,7 @@ TabView {
 .control-row {
   margin-top: 8;
   padding: 10 12;
+  min-height: 56;
   background-color: #172019;
   border-color: #24312A;
   border-width: 1;
@@ -321,8 +434,8 @@ SegmentedBar {
   color: #EAF2EC;
 }
 .chart-caption {
-  font-size: 11;
-  color: #7C9184;
+  font-size: 12;
+  color: #9BB0A5;
 }
 
 /* --- Onboarding wizard: progress dots + permission status ---------------- */
@@ -357,8 +470,7 @@ SegmentedBar {
 }
 .onb-body {
   font-size: 15;
-  color: #C9D6CE;
-  line-height: 4;
+  color: #9BB0A5;
 }
 
 /*

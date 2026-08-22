@@ -1,7 +1,7 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" loaded="loaded" unloaded="unloaded">
     <ActionBar title="Health" />
     <ScrollView>
-        <StackLayout class="p-20">
+        <StackLayout class="screen-content">
             <!-- [A] connection strip -->
             <GridLayout columns="auto,*,auto" class="health-statusbar">
                 <Label col="0" text="●" class="{{ ringDotClass }}" verticalAlignment="center" />
@@ -12,11 +12,11 @@
                 <Label col="2" text="{{ batteryChipLabel }}" class="health-batt-chip" visibility="{{ batteryChipVisibility }}" verticalAlignment="center" />
             </GridLayout>
 
-            <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="card m-t-12">
+            <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="status-banner status-warning m-t-12">
                 <Label text="{{ evenAppConflictMessage }}" textWrap="true" />
                 <GridLayout columns="*,*" class="m-t-4">
-                    <Button col="0" text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" />
-                    <Button col="1" text="Retry R1" tap="{{ onRetryRingTap }}" />
+                    <Button col="0" text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" class="-primary" />
+                    <Button col="1" text="Retry R1" tap="{{ onRetryRingTap }}" class="-secondary" />
                 </GridLayout>
             </StackLayout>
 

@@ -46,6 +46,22 @@ Current as of 22 August 2026. `main` is the canonical branch.
   known-limitation warnings. See
   `docs/development-preview-release-2026-08-21.md`.
 
+### Product experience
+
+- **DONE — modern phone UI design foundation (22 August 2026).** The documented
+  “quiet technical companion” language now defines the Android palette, system
+  typography, spacing, shape, action hierarchy, minimum touch targets, reusable
+  surfaces, list rows, and status banners without gradients, blur, animation, or
+  other costly web styling. Settings, masked credential management, installed-app
+  lists, and Glasses/Health warning states are the first representative slice.
+  Source-contract tests, all 288 host tests, typecheck, Android build, and an
+  authorised A32 upgrade/launch/navigation inspection passed. See
+  `docs/phone-ui-design-language.md`.
+- **TODO — incremental phone UI adoption.** Migrate the remaining configuration
+  and onboarding pages only when touched, using the documented semantic patterns;
+  validate enlarged system text and additional supported phone widths without
+  adding parallel card or button systems.
+
 ### Connection and lifecycle reliability
 
 - **DONE — startup connection race.** A delayed constructor-time disconnected

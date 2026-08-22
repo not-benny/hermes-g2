@@ -1,4 +1,4 @@
-<Page xmlns="http://schemas.nativescript.org/tns.xsd" class="shell-page" actionBarHidden="true">
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" class="shell-page" actionBarHidden="true" loaded="loaded">
     <TabView id="shellTabs" androidTabsPosition="bottom" selectedIndex="0">
         <TabViewItem title="Glasses">
             <Frame defaultPage="phone-ui/main-page" />

@@ -21,16 +21,16 @@
             </GridLayout>
             <GridLayout row="1" rows="auto,auto,auto,*" class="p-20">
                 <StackLayout row="0" class="m-b-8">
-                    <StackLayout visibility="{{ evenAppConflictWarningVisibility }}">
+                    <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="status-banner status-warning">
                         <Label text="{{ evenAppConflictMessage }}" textWrap="true" />
                         <Button text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" class="-primary" />
-                        <Button text="Retry R1" tap="{{ onRetryRingTap }}" />
+                        <Button text="Retry R1" tap="{{ onRetryRingTap }}" class="-secondary" />
                     </StackLayout>
-                    <StackLayout visibility="{{ firmwareWarningVisibility }}">
+                    <StackLayout visibility="{{ firmwareWarningVisibility }}" class="status-banner status-warning m-t-8">
                         <Label text="{{ firmwareWarningMessage }}" textWrap="true" />
                         <Button text="Install custom firmware" tap="{{ onInstallFirmwareTap }}" class="-primary" />
                     </StackLayout>
-                    <StackLayout visibility="{{ batteryOptimizationWarningVisibility }}">
+                    <StackLayout visibility="{{ batteryOptimizationWarningVisibility }}" class="status-banner status-warning m-t-8">
                         <Label text="Android will slow Hermes G2 to a crawl when the phone screen is off unless it is exempt from battery optimization." textWrap="true" />
                         <Button text="Allow unrestricted background usage" tap="{{ onAllowBackgroundUsageTap }}" class="-primary" />
                     </StackLayout>
@@ -55,13 +55,16 @@
 
         <GridLayout rows="auto,*" class="p-20" visibility="{{ landscapeLayoutVisibility }}">
             <StackLayout row="0" class="m-b-8">
-                <StackLayout visibility="{{ evenAppConflictWarningVisibility }}">
+                <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="status-banner status-warning">
                     <Label text="{{ evenAppConflictMessage }}" textWrap="true" />
                     <Button text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" class="-primary" />
-                    <Button text="Retry R1" tap="{{ onRetryRingTap }}" />
+                    <Button text="Retry R1" tap="{{ onRetryRingTap }}" class="-secondary" />
                 </StackLayout>
-                <Label text="{{ firmwareWarningMessage }}" textWrap="true" visibility="{{ firmwareWarningVisibility }}" />
-                <StackLayout visibility="{{ batteryOptimizationWarningVisibility }}">
+                <StackLayout visibility="{{ firmwareWarningVisibility }}" class="status-banner status-warning m-t-8">
+                    <Label text="{{ firmwareWarningMessage }}" textWrap="true" />
+                    <Button text="Install custom firmware" tap="{{ onInstallFirmwareTap }}" class="-primary" />
+                </StackLayout>
+                <StackLayout visibility="{{ batteryOptimizationWarningVisibility }}" class="status-banner status-warning m-t-8">
                     <Label text="Android will slow Hermes G2 to a crawl when the phone screen is off unless it is exempt from battery optimization." textWrap="true" />
                     <Button text="Allow unrestricted background usage" tap="{{ onAllowBackgroundUsageTap }}" class="-primary" />
                 </StackLayout>

@@ -40,6 +40,33 @@ Do not resume work from the old `hermes-g2`, `integration/`, `work/`, `wt/`,
 
 ## Current verified implementation
 
+The phone companion now has a documented “quiet technical companion” design
+language in `docs/phone-ui-design-language.md`. `app/app.css` defines one literal,
+NativeScript-safe palette, Android system typography, a 4/8/12/16/20/24 spacing
+rhythm, 48-DIP controls, 56-DIP rows, semantic surfaces, information/warning/
+danger banners, and primary/secondary/destructive actions. Settings, API Keys &
+Bridge, notification/media app lists, and Glasses/Health warning states are the
+representative first slice. Secure fields, replace-only secret behavior, clear
+handlers, tab structure, and existing device behavior remain unchanged.
+
+The design candidate passes the focused five-test theme contract, all 288 host
+tests, TypeScript typechecking, all 16 phone XML parse checks, `git diff --check`,
+and the JDK 21 / Android SDK 35 build. The 195,410,310-byte debug APK has SHA-256
+`8eacd6e0d5e5b4fb6e888d2cae9a7e064f660451038842dd9658ccbc5a4ad638`.
+Its certificate matched the installed app before an upgrade install on the
+authorised Samsung A32 (Android 13, 720 × 1600). Launch, four-tab shell, Settings
+top/bottom scroll, grouped credential screen, secure-field flags, and process
+liveness passed. Review found the original native bottom-tab row was only about
+28 DIP tall; the final Android shell compensates for NativeScript's density
+normalisation and the repeated UIAutomator check measured every tab at 90 physical
+pixels (48 DIP), with 38-pixel non-clipped labels. Private screenshots showed the
+intended background/surface, mint, blue, and destructive-red roles; a 553-line
+PID-filtered log contained no
+fatal, JavaScript, CSS, unknown-property, binding, credential-sentinel, TypeError,
+or ReferenceError match. Screenshots, UI dumps, installed APK copy, and logs were
+kept in `/tmp` and are not repository artifacts. No pairing, ownership,
+permission, firmware, provisioning, reset, wipe, or credential action was taken.
+
 The audit remediation delivered from canonical `main` baseline
 `f37168cf007450cb2a58513b1f2624aee0b6d6af` adds permanent PR/main CI,
 CodeQL, Dependabot, SBOM/provenance and APK checks; Keystore AES-GCM credential
@@ -216,3 +243,6 @@ unobserved hardware result from passing host tests.
    reversible, private capture plan.
 6. Keep firmware/recovery work blocked unless every independent provenance,
    authority, recovery, privacy, power, and per-run consent gate passes.
+7. Apply `docs/phone-ui-design-language.md` incrementally to remaining phone
+   screens and validate enlarged text/additional phone widths; do not create a
+   second palette, card family, or button hierarchy.
