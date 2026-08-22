@@ -70,6 +70,8 @@ test("durable PR and main CI enforce the release safety matrix", () => {
   assert.match(verifier, /unexpected native or WhatsApp artifact inventory/);
   assert.doesNotMatch(verifier, /WAIVED \(feature disabled\)/);
   assert.match(ci, /pull_request\.base\.sha/);
+  assert.match(ci, /\n          npm audit --audit-level=high/);
+  assert.doesNotMatch(ci, /\n          npm audit --omit=dev/);
   assert.match(ci, /npm --prefix App_Resources\/Android\/whatsapp-node audit/);
   assert.match(ci, /whatsapp-sbom\.cdx\.json/);
   assert.match(release, /ANDROID_SIGNING_KEYSTORE_BASE64/);
