@@ -40,10 +40,25 @@ they have now been joined by an explicit multi-parent consolidation commit.
 Audit remediation PR [#28](https://github.com/not-benny/hermes-g2/pull/28)
 merged by squash as `24f9525eea8ae120ba98ec756b21b92617eb3551` after the
 `release-gate`, `codeql-javascript`, `codeql-java`, and `codeql` checks passed.
-GitHub branch protection/rulesets remain unavailable because this repository is
-private on a plan without that feature: both protection APIs return HTTP 403 with
-"Upgrade to GitHub Pro or make this repository public". Do not make the
-repository public merely to bypass this gate without an explicit owner decision.
+The owner subsequently reported upgrading to GitHub Pro, but GitHub still
+returned HTTP 403 from the private-repository branch-protection PUT at 03:50 UTC
+on 22 August. Do not make the repository public merely to bypass this pending
+entitlement-propagation gate.
+
+Release-governance PR [#40](https://github.com/not-benny/hermes-g2/pull/40)
+merged by squash as `486a8b9f76e228ab70e19e25c4820985f47ce72f`.
+It removes every signing secret and APK upload from pull-request CI. PR and
+`main` builds use an isolated ephemeral debug identity; only a separate post-build
+`protected-release` job receives credentials,
+and that job downloads a content-addressed input without checking out or running
+repository source. The signing job remains disabled by the absent
+`PROTECTED_RELEASE_ENABLED` variable until `main` protection is verified.
+Vulnerability alerts and automated security fixes are enabled.
+Incompatible Dependabot majors #29, #31, and #33-#35 were closed with rationale;
+#30, #32, and #36-#39 were rebased onto the safe CI path and remain separate
+dependency decisions. Enabled scanning now reports no critical/high alert on
+`main`; three GitHub medium alerts / 28 npm moderate development-tool findings
+remain documented.
 
 The resulting tree uses the reviewed cleanup/integration line for application
 code and tests, while retaining the original line's maintained public ring-health
@@ -143,6 +158,26 @@ debug APK is 194,871,195 bytes, versionCode 1000001 / versionName
 final SHA-256 is
 `03a82652986aff42ba70619eb87e28430fdce7fd55d1fbe6a384a54c5d9b8347`.
 
+The integrated release-governance follow-up passes 283 host tests, TypeScript,
+the root high-severity and WhatsApp runtime audits, workflow `actionlint`, diff
+hygiene, and a clean isolated JDK 21 / SDK 35 Android build. Patched lockfile
+overrides, including a loopback-tested ws 8 compatibility exception, reduce the
+root audit from 2 critical / 7 high / 28 moderate to 28 development-only moderate
+findings.
+The CI high-severity gate passes, and the incompatible residual Jimp,
+uuid, and yauzl tool paths remain documented rather than force-downgraded. The
+untrusted-validation APK is 195,396,948 bytes with
+SHA-256 `57118899cd7232229886a0181ca256b324655e9e5d35522a4f13f899bd5f7ddf`;
+the verifier proves it does not carry the protected certificate. This APK is test
+evidence only and is not a release/install artifact.
+
+PR #40's final `release-gate`, `codeql-javascript`, `codeql-java`, and aggregate
+`codeql` checks passed at head `abc39655a28d51994806e95a1db4bfc4631301be`.
+On merged `main`, Protected Release Validation run `32549342872` and CodeQL run
+`32549342876` passed at `486a8b9f76e228ab70e19e25c4820985f47ce72f`.
+The source-free `protected-release` job was correctly skipped because protection
+is not yet enforceable; no protected APK was produced or published.
+
 On the authorised Samsung A32, the existing and candidate APK certificates
 matched. Upgrade install, launch and resumed activity passed; package metadata
 reported the new version. The Settings UI showed WhatsApp disabled, replace-only
@@ -194,9 +229,8 @@ unobserved hardware result from passing host tests.
 
 ## Next recommended work
 
-1. Upgrade the private repository to a plan with branch protection/rulesets, or
-   explicitly decide to make it public. Then require exact `release-gate` and
-   `codeql` checks, one approving review, linear/squash history, conversation
+1. After GitHub Pro entitlement propagates, require exact `release-gate` and
+   `codeql` PR checks, one approving review, linear/squash history, conversation
    resolution, and blocked force-push/deletion; read the effective rules back
    through the API. Until then, treat direct `main` pushes as administratively
    prohibited even though GitHub cannot enforce that policy.
