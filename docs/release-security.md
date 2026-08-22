@@ -6,7 +6,7 @@ This document is the maintained release contract for Hermes G2. Historical previ
 
 - The Android application ID remains `com.faceclaw.app` for upgrade compatibility with the current owner installation. Renaming it would create a second app and strand app-private state, so it requires a separately planned migration.
 - Version metadata is `versionCode 1000001` and `versionName 1.0.0-preview.1`. Future builds must increase `versionCode`; stable releases use the same monotonically increasing sequence.
-- Development builds remain debug-signed. A stable release must use one protected CI signing identity supplied through repository secrets, never repository files or logs. Do not install a differently signed build over the owner phone until certificate and data-migration compatibility are decided.
+- Pull-request and main build-validation APKs use an isolated ephemeral debug identity and are never published as release APKs. After a green `main` build, a separate job downloads only the content-addressed APK/evidence, applies the protected upgrade-compatible identity with pinned `apksigner`, verifies the exact certificate, and publishes the protected artifact. The signing job never checks out or executes repository source, npm, Gradle, or project scripts while credentials are present. Do not install a differently signed build over the owner phone until certificate and data-migration compatibility are decided.
 - The APK is large because it includes offline speech/model and arm64 native runtime assets. CI records its exact size and SHA-256. Splitting models into optional, hash-verified downloads is the preferred future footprint reduction.
 
 ## Credentials and storage
@@ -23,7 +23,7 @@ Android backup is disabled. Keystore keys are device/app-install scoped: uninsta
 
 ## Build and CI gates
 
-Permanent `CI / release-gate` runs on pull requests and pushes to `main`: locked install, host tests, TypeScript, diff hygiene, runtime dependency audit, CycloneDX inventory, JDK 21/SDK 35 Android build, ZIP integrity, private-path scan, APK checksum/provenance, ZIP 16 KiB alignment, and APK-wide ELF LOAD alignment. `CodeQL / codeql` performs source scanning. Dependabot monitors npm and pinned GitHub Actions.
+Permanent `CI / release-gate` runs on pull requests without repository signing secrets: locked install, host tests, TypeScript, diff hygiene, runtime dependency audit, CycloneDX inventory, JDK 21/SDK 35 Android build, ZIP integrity, private-path scan, checksum/provenance, ZIP 16 KiB alignment, and APK-wide ELF LOAD alignment. It uploads only SBOM/provenance/alignment evidence, never the PR APK. `Protected Release Validation` repeats that matrix on `main` with no secrets, then hands the unsigned/debug-signed APK to isolated `protected-release` signing. `CodeQL / codeql` performs source scanning. Dependabot monitors npm and pinned GitHub Actions. Major runtime/toolchain and reviewed prerelease pins are not auto-merge candidates.
 
 All downloaded native/model/source archives have checked-in SHA-256 identities. Downloads use a `.part` file, are hashed before atomic publication, and invalid cache entries are rejected. Native toolchains are pinned to NDK `27.2.12479018` and CMake `3.22.1`; NativeScript CLI `9.0.7` is in `package-lock.json` and invoked without network installation.
 

@@ -4,11 +4,46 @@ import test from "node:test";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
+test("untrusted pull requests cannot publish an APK as release evidence", () => {
+  const ci = read(".github/workflows/ci.yml");
+  assert.doesNotMatch(ci, /\$\{\{ secrets\./);
+  assert.doesNotMatch(ci, /Upload protected release evidence/);
+  assert.match(ci, /HERMES_SIGNING_MODE: untrusted/);
+  assert.match(ci, /ANDROID_USER_HOME=%s[^\n]*RUNNER_TEMP[^\n]*hermes-untrusted-android/);
+  assert.match(ci, /name: release-gate/);
+  const untrustedUpload = ci.match(
+    /name: Upload untrusted validation evidence([\s\S]*?)(?=\n\s+- name:|$)/,
+  )?.[1] ?? "";
+  assert.match(untrustedUpload, /sbom\.cdx\.json/);
+  assert.doesNotMatch(untrustedUpload, /\.apk/);
+  assert.doesNotMatch(ci, /pull_request_target:/);
+
+  const release = read(".github/workflows/release.yml");
+  assert.doesNotMatch(release, /pull_request:/);
+  assert.match(release, /push:\n\s+branches: \[main\]/);
+  assert.match(release, /ANDROID_USER_HOME=%s[^\n]*RUNNER_TEMP[^\n]*hermes-untrusted-android/);
+  const signingJob = release.match(/\n  sign:\n([\s\S]*)/)?.[1] ?? "";
+  assert.match(signingJob, /needs: build/);
+  assert.match(signingJob, /name: protected-release/);
+  assert.match(signingJob, /actions\/download-artifact@/);
+  assert.match(signingJob, /\/usr\/local\/lib\/android\/sdk\/build-tools\/35\.0\.1\/apksigner/);
+  assert.match(signingJob, /ANDROID_SIGNING_KEYSTORE_BASE64/);
+  assert.doesNotMatch(signingJob, /actions\/checkout@|npm |gradlew|scripts\//);
+  assert.match(release, /name: Upload protected release evidence[\s\S]*app-debug\.apk/);
+
+  const verifier = read("scripts/verify-release-artifacts.sh");
+  assert.match(verifier, /HERMES_SIGNING_MODE/);
+  assert.match(verifier, /untrusted/);
+  assert.match(verifier, /must not use the protected signing certificate/);
+});
+
 test("durable PR and main CI enforce the release safety matrix", () => {
   assert.ok(existsSync(new URL("../.github/workflows/ci.yml", import.meta.url)));
+  assert.ok(existsSync(new URL("../.github/workflows/release.yml", import.meta.url)));
   assert.ok(existsSync(new URL("../.github/workflows/codeql.yml", import.meta.url)));
   assert.ok(existsSync(new URL("../.github/dependabot.yml", import.meta.url)));
   const ci = read(".github/workflows/ci.yml");
+  const release = read(".github/workflows/release.yml");
   for (const gate of [
     "npm ci",
     "npm test",
@@ -37,7 +72,7 @@ test("durable PR and main CI enforce the release safety matrix", () => {
   assert.match(ci, /pull_request\.base\.sha/);
   assert.match(ci, /npm --prefix App_Resources\/Android\/whatsapp-node audit/);
   assert.match(ci, /whatsapp-sbom\.cdx\.json/);
-  assert.match(ci, /ANDROID_SIGNING_KEYSTORE_BASE64/);
+  assert.match(release, /ANDROID_SIGNING_KEYSTORE_BASE64/);
 });
 
 test("Android native inputs and release metadata are pinned", () => {
