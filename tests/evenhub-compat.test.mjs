@@ -42,8 +42,8 @@ function setup() {
   return { runtime, rendered, persisted, timers };
 }
 
-function request(generation, requestId, method, params = {}) {
-  return { version: 1, generation, requestId, method, params };
+function request(generation, requestId, method, params = {}, sequence = 1) {
+  return { version: 1, generation, sequence, requestId, method, params };
 }
 
 test("bundled package has a canonical hash, provenance, and only local capabilities", () => {
@@ -55,6 +55,14 @@ test("bundled package has a canonical hash, provenance, and only local capabilit
     createHash("sha256").update(BUNDLED_COUNTER_PACKAGE.canonicalContent, "utf8").digest("hex"),
     BUNDLED_COUNTER_PACKAGE.manifest.contentSha256,
   );
+  const canonical = JSON.parse(BUNDLED_COUNTER_PACKAGE.canonicalContent);
+  assert.deepEqual(canonical.initialView, BUNDLED_COUNTER_PACKAGE.initialView);
+  assert.deepEqual(canonical.permissions, BUNDLED_COUNTER_PACKAGE.manifest.permissions);
+  assert.deepEqual(canonical.actions, {
+    increment: "counter.increment",
+    reset: "counter.reset",
+    timer: { delayMs: 1000, operation: "timer.once" },
+  });
   assert.doesNotMatch(BUNDLED_COUNTER_PACKAGE.canonicalContent, /https?:|WebView|eval\(|Function\(|microphone|location|accelerometer/i);
 });
 
@@ -75,6 +83,13 @@ test("bridge schema rejects malformed, unknown, oversized, and sensor requests",
   ]) assert.ok(validateEvenHubRequest(value), JSON.stringify(value).slice(0, 200));
 });
 
+test("hostile object traps are contained as malformed bridge calls", () => {
+  const { runtime } = setup();
+  runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]), { foreground: true, screenOn: true });
+  const hostile = new Proxy({}, { ownKeys: () => { throw new Error("proxy trap"); } });
+  assert.doesNotThrow(() => assert.equal(runtime.dispatch(hostile).ok, false));
+});
+
 test("host dependency failures return errors instead of escaping the bridge", () => {
   const make = (overrides) => new EvenHubCompatRuntime({
     render: () => {}, readStorage: () => null, writeStorage: () => {}, removeStorage: () => {}, ...overrides,
@@ -86,7 +101,7 @@ test("host dependency failures return errors instead of escaping the bridge", ()
     ["timer.set", { timerId: "x", delayMs: 250 }, { setTimer: () => { throw new Error("timer"); } }],
   ]) {
     const runtime = make(overrides);
-    const generation = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]));
+    const generation = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]), { foreground: true, screenOn: true });
     assert.doesNotThrow(() => {
       const result = runtime.dispatch(request(generation, `failure-${method}`, method, params));
       assert.equal(result.ok, false);
@@ -96,11 +111,11 @@ test("host dependency failures return errors instead of escaping the bridge", ()
 
 test("replayed and stale calls fail closed across exact session generations", () => {
   const { runtime, rendered } = setup();
-  const first = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]));
+  const first = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]), { foreground: true, screenOn: true });
   assert.equal(runtime.dispatch(request(first, "show-1", "display.set", { view: BUNDLED_COUNTER_PACKAGE.initialView })).ok, true);
   assert.equal(runtime.dispatch(request(first, "show-1", "display.set", { view: BUNDLED_COUNTER_PACKAGE.initialView })).ok, false);
   runtime.close(first);
-  const second = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]));
+  const second = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]), { foreground: true, screenOn: true });
   assert.notEqual(second, first);
   assert.equal(runtime.dispatch(request(first, "late-1", "display.set", { view: BUNDLED_COUNTER_PACKAGE.initialView })).ok, false);
   assert.equal(runtime.close(first), false, "stale close cannot close replacement");
@@ -109,14 +124,14 @@ test("replayed and stale calls fail closed across exact session generations", ()
 });
 
 test("session generations remain unique across runtime replacement", () => {
-  const first = setup().runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]));
-  const second = setup().runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]));
+  const first = setup().runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]), { foreground: true, screenOn: true });
+  const second = setup().runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]), { foreground: true, screenOn: true });
   assert.notEqual(second, first);
 });
 
 test("timers and input are foreground, screen, permission, and generation bound", () => {
   const { runtime, timers } = setup();
-  const generation = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]));
+  const generation = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]), { foreground: true, screenOn: true });
   assert.equal(runtime.dispatch(request(generation, "timer-1", "timer.set", { timerId: "tick", delayMs: 250 })).ok, true);
   const staleCallback = [...timers.values()][0];
   runtime.setForeground(generation, false);
@@ -133,28 +148,50 @@ test("timers and input are foreground, screen, permission, and generation bound"
   assert.equal(runtime.handleInput(generation, "click"), false);
 });
 
+test("new sessions fail closed until exact initial lifecycle state is supplied", () => {
+  const { runtime, rendered, timers } = setup();
+  const generation = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]), { foreground: true, screenOn: false });
+  assert.equal(runtime.dispatch(request(generation, "display-off", "display.set", { view: BUNDLED_COUNTER_PACKAGE.initialView })).ok, false);
+  assert.equal(runtime.dispatch(request(generation, "timer-off", "timer.set", { timerId: "x", delayMs: 250 }, 2)).ok, false);
+  assert.equal(rendered.length, 0);
+  assert.equal(timers.size, 0);
+});
+
+test("teardown contains timer cleanup failures after tombstoning", () => {
+  const runtime = new EvenHubCompatRuntime({
+    render: () => {}, readStorage: () => null, writeStorage: () => {}, removeStorage: () => {},
+    setTimer: () => 1, clearTimer: () => { throw new Error("clear failed"); },
+  });
+  const generation = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]), { foreground: true, screenOn: true });
+  runtime.dispatch(request(generation, "timer", "timer.set", { timerId: "x", delayMs: 250 }));
+  assert.doesNotThrow(() => runtime.setForeground(generation, false));
+  assert.equal(runtime.isLive(generation), true);
+  assert.doesNotThrow(() => runtime.close(generation));
+  assert.equal(runtime.isLive(generation), false);
+});
+
 test("storage is namespaced, bounded, clearable, and denied without an exact grant", () => {
   const { runtime, persisted } = setup();
-  const denied = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "timers"]));
+  const denied = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "timers"]), { foreground: true, screenOn: true });
   assert.equal(runtime.dispatch(request(denied, "set-0", "storage.set", { key: "count", value: "1" })).ok, false);
   runtime.close(denied);
 
-  const generation = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]));
+  const generation = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]), { foreground: true, screenOn: true });
   assert.equal(runtime.dispatch(request(generation, "set-1", "storage.set", { key: "count", value: "1" })).ok, true);
-  assert.equal(runtime.dispatch(request(generation, "get-1", "storage.get", { key: "count" })).value, "1");
+  assert.equal(runtime.dispatch(request(generation, "get-1", "storage.get", { key: "count" }, 2)).value, "1");
   assert.ok([...persisted.keys()][0].startsWith("evenhub.compat.storage.v1.local-counter."));
   assert.equal(runtime.clearStorage(generation), true);
   assert.equal(persisted.size, 0);
-  assert.equal(runtime.dispatch(request(generation, "get-2", "storage.get", { key: "count" })).value, null);
+  assert.equal(runtime.dispatch(request(generation, "get-2", "storage.get", { key: "count" }, 3)).value, null);
 });
 
 test("close tombstones before cleanup and stale timer callbacks cannot reach replacements", () => {
   const { runtime, timers } = setup();
-  const first = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]));
+  const first = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]), { foreground: true, screenOn: true });
   runtime.dispatch(request(first, "timer-1", "timer.set", { timerId: "tick", delayMs: 250 }));
   const staleCallback = [...timers.values()][0];
   runtime.close(first);
-  const second = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]));
+  const second = runtime.open(BUNDLED_COUNTER_PACKAGE, new Set(["display", "input", "storage", "timers"]), { foreground: true, screenOn: true });
   staleCallback();
   assert.deepEqual(runtime.drainEvents(second), []);
   assert.equal(runtime.isLive(second), true);
@@ -182,6 +219,41 @@ test("wearer input drives the bundled sample through the compatibility boundary"
   assert.ok(changes >= 3);
 });
 
+test("counter remains responsive beyond the former request tombstone budget", () => {
+  const persisted = new Map();
+  const controller = new EvenHubCounterController({
+    read: (key) => persisted.get(key) ?? null,
+    write: (key, value) => persisted.set(key, value),
+    remove: (key) => persisted.delete(key),
+  }, () => {}, true);
+  for (let index = 0; index < 130; index++) assert.equal(controller.handleInput("click"), true);
+  assert.equal(controller.state().blocks.find((block) => block.type === "key_value" && block.label === "Count").value, "130");
+});
+
+test("counter reports persistence failure without claiming or displaying an unsaved value", () => {
+  const controller = new EvenHubCounterController({
+    read: () => null,
+    write: () => { throw new Error("write failed"); },
+    remove: () => {},
+  }, () => {}, true);
+  controller.handleInput("click");
+  const fields = controller.state().blocks.filter((block) => block.type === "key_value");
+  assert.equal(fields.find((block) => block.label === "Count").value, "0");
+  assert.equal(fields.find((block) => block.label === "Status").value, "Save failed");
+});
+
+test("backgrounding cancels the sample timer and reports truthful resumed state", () => {
+  const controller = new EvenHubCounterController({ read: () => null, write: () => {}, remove: () => {} }, () => {}, true);
+  controller.handleInput("scroll-down");
+  controller.handleInput("scroll-down");
+  controller.handleInput("click");
+  controller.setForeground(false);
+  controller.setForeground(true);
+  const status = controller.state().blocks.find((block) => block.type === "key_value" && block.label === "Status").value;
+  assert.equal(status, "Timer cancelled in background");
+  controller.close();
+});
+
 test("sample is registered as an in-process app with lifecycle and clear-data wiring", () => {
   const registry = readFileSync(new URL("../app/apps/all-apps.ts", import.meta.url), "utf8");
   const app = readFileSync(new URL("../app/apps/evenhub-sample/evenhub-sample-app.ts", import.meta.url), "utf8");
@@ -201,7 +273,9 @@ test("clear-data uses a non-secret settings removal boundary", () => {
   const java = readFileSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawSettings.java", import.meta.url), "utf8");
   assert.match(native, /export function removeStringSetting\(key: string\): void/);
   assert.match(native, /if \(SECRET_SETTING_KEYS\.has\(key\)\) throw new Error/);
-  assert.match(java, /public void removeString\(String key\)/);
+  assert.match(java, /public boolean removeString\(String key\)/);
+  assert.match(java, /public boolean setString\(String key, String value\)/);
+  assert.match(native, /if \(!getJava\(\)\.setString\(key, value\)\) throw new Error/);
 });
 
 test("privacy, provenance, license, and deferred-install gates are documented", () => {

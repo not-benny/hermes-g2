@@ -18,7 +18,7 @@ export class EvenHubCounterController {
   private status = "Ready";
   private requestSequence = 0;
 
-  constructor(storage: SampleStorage, private readonly onChanged: () => void) {
+  constructor(storage: SampleStorage, private readonly onChanged: () => void, initialScreenOn = true) {
     this.runtime = new EvenHubCompatRuntime({
       render: (view) => {
         this.view = view;
@@ -33,6 +33,7 @@ export class EvenHubCounterController {
     this.generation = this.runtime.open(
       BUNDLED_COUNTER_PACKAGE,
       new Set(["display", "input", "storage", "timers"]),
+      { foreground: true, screenOn: initialScreenOn },
     );
     const stored = this.runtime.dispatch(this.request("storage.get", { key: "count" }));
     if (stored.ok && stored.value !== null && /^\d{1,4}$/.test(stored.value ?? "")) this.count = Number(stored.value);
@@ -63,11 +64,13 @@ export class EvenHubCounterController {
 
   setForeground(foreground: boolean): void {
     if (!this.runtime.setForeground(this.generation, foreground)) return;
+    if (!foreground && this.status === "One second timer armed") this.status = "Timer cancelled in background";
     if (foreground) this.show();
   }
 
   setScreenOn(on: boolean): void {
     if (!this.runtime.setScreenOn(this.generation, on)) return;
+    if (!on && this.status === "One second timer armed") this.status = "Timer cancelled while screen was off";
     if (on) this.show();
   }
 
@@ -90,14 +93,19 @@ export class EvenHubCounterController {
       } else if (event.input === "click") {
         const action = this.view.actions[this.selectedAction]?.id;
         if (action === "increment") {
-          this.count = Math.min(9999, this.count + 1);
-          this.runtime.dispatch(this.request("storage.set", { key: "count", value: String(this.count) }));
-          this.status = "Count saved locally";
+          const candidate = Math.min(9999, this.count + 1);
+          const result = this.runtime.dispatch(this.request("storage.set", { key: "count", value: String(candidate) }));
+          if (result.ok) {
+            this.count = candidate;
+            this.status = "Count saved locally";
+          } else this.status = "Save failed";
           this.show();
         } else if (action === "reset") {
-          this.count = 0;
-          this.runtime.dispatch(this.request("storage.set", { key: "count", value: "0" }));
-          this.status = "Counter reset";
+          const result = this.runtime.dispatch(this.request("storage.set", { key: "count", value: "0" }));
+          if (result.ok) {
+            this.count = 0;
+            this.status = "Counter reset";
+          } else this.status = "Save failed";
           this.show();
         } else if (action === "timer") {
           const result = this.runtime.dispatch(this.request("timer.set", { timerId: "sample", delayMs: 1000 }));
@@ -123,6 +131,7 @@ export class EvenHubCounterController {
   }
 
   private request(method: string, params: Record<string, unknown>): unknown {
-    return { version: 1, generation: this.generation, requestId: `sample-${++this.requestSequence}`, method, params };
+    const sequence = ++this.requestSequence;
+    return { version: 1, generation: this.generation, sequence, requestId: `sample-${sequence}`, method, params };
   }
 }

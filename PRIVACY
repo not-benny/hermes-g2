@@ -110,7 +110,7 @@ Development preference pull/push helpers are not a supported credential backup
 path and any output they produce must be treated as secret.
 
 The bundled Local Counter compatibility sample stores only its numeric counter
-and status in an app-private, package/hash-namespaced document. It has no network,
+in an app-private, package/hash-namespaced document. It has no network,
 account, API key, WebView, raw filesystem, microphone, location, accelerometer,
 notification, assistant-tool, or BLE capability. Its window menu can clear the
 local document; app-data clear or uninstall removes it as well. Store downloads,

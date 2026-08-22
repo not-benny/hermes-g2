@@ -16,16 +16,20 @@ compatibility work is unofficial and is not endorsed by Even Realities.
 ## Delivered boundary
 
 The bundled Local Counter is a declarative, compile-time allowlisted package. Its
-canonical content has SHA-256
-`afb4bb9028e1e8e4fba211aeb0bf8c5e3b72573c4c971aaddc444683f95b54ad`.
-The manifest records package ID, semantic version, permissions, hash, source and
-license. The runtime accepts only this exact source identity.
+canonical declarative content (identity, initial view, action vocabulary,
+permissions and license) has SHA-256
+`7d433059173b12026df827e89d5bf046ed28895c6ba9f50795f474ec0c3f61ad`.
+The manifest records package ID, semantic version, permissions, content revision,
+hash, source and license. Tests recompute the digest; at runtime the compiled
+singleton object and exact canonical content are allowlisted without claiming a
+second cryptographic verification.
 
 The V1 host schema allowlists six methods: inert display replacement, namespaced
 storage get/set/remove, and one-shot timer set/clear. Requests require an exact
-live session generation and a unique bounded request ID. Unknown fields,
-methods, package identities, grants, malformed values, stale generations and
-replays fail closed. Display content uses only text, key/value, progress,
+live session generation, the next monotonic safe-integer sequence, and a bounded
+correlation ID. Unknown fields, methods, package identities, grants, malformed
+values, stale generations, replays and out-of-order calls fail closed. Display
+content uses only text, key/value, progress,
 divider and bounded action primitives; HTML, scripts, images, URLs and native
 handles do not exist in the schema.
 
@@ -43,13 +47,15 @@ is part of Hermes and is not separately uninstallable.
 ## Privacy and resource policy
 
 The Local Counter uses no network, account, API key, arbitrary URL, raw
-filesystem, WebView, downloaded code, assistant tool, BLE command or Android
-runtime permission. Microphone, location, and accelerometer are unavailable to
-this foundation. A package cannot declare or invoke those capabilities.
+filesystem, WebView, downloaded code, package-contributed assistant tool, BLE
+command or Android runtime permission. The shell's existing global `apps.launch`
+tool may launch this app under its ordinary authorization policy; the package
+itself registers no tool. Microphone, location, and accelerometer are unavailable
+to this foundation. A package cannot declare or invoke those capabilities.
 
 Limits are 16 KiB per bridge message, 8 KiB display text, 32 blocks, eight
 actions, 16 queued events, four active one-shot timers, 250 ms through 60 second
-timer delays, 256 requests per session, and one active compatibility session.
+timer delays, safe-integer request sequences, and one active compatibility session.
 Timers are suspended rather than retained in the background.
 
 ## Explicit NO-GO items

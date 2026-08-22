@@ -10,20 +10,36 @@ informed by a security/lifecycle/provenance audit of Faceclaw `6e4ece5` without
 copying its unsafe WebView/store/EHPK/sensor/credential surfaces.
 
 The V1 boundary allowlists inert display, input, namespaced storage and bounded
-one-shot timers. Exact monotonically increasing generations own request replay
-tombstones, events and timers; malformed, duplicate, stale, background,
-screen-off and post-close work fails closed. Package identity, SHA-256,
-provenance and fixed per-app grants are checked before launch. Local data is
+one-shot timers. Exact monotonically increasing generations own strict request
+sequences, events and timers; malformed, replayed, out-of-order, stale, background,
+screen-off and post-close work fails closed. Exact compiled package content and
+fixed per-app grants are allowlisted before launch; tests independently recompute
+its SHA-256 and provenance identity. Local data is
 limited to one 16 KiB package/hash namespace and can be cleared from the window
 menu. No Android permissions or BLE commands were added.
 
-Focused verification currently passes 10/10 in
-`tests/evenhub-compat.test.mjs`, including package hash/provenance, malformed and
-sensor requests, replay/stale generations, background/screen lifecycle, timer
-teardown, storage grant/quota/clear, wearer-input controller behavior, registry
-integration, and privacy/license gates. Final full-suite/typecheck/build,
-A32/G2 runtime evidence, frozen-SHA adversarial review, PR/CI and remote readback
-remain pending and must replace this paragraph with exact results before delivery.
+Focused verification passes 18/18 in `tests/evenhub-compat.test.mjs`, including
+canonical package hash/provenance, hostile/malformed/sensor calls, strict request
+sequences, stale generations, initial/background/screen lifecycle, timer teardown
+failures, checked storage commit/quota/clear, persistence-failure truthfulness,
+long-running wearer-input controller behavior, registry integration, and
+privacy/license gates. The full host suite passes 277/277, TypeScript typecheck
+passes, `git diff --check` passes, and the JDK 21 / Android SDK 35 debug build
+passes. The 195,443,439-byte debug APK has SHA-256
+`909e4f69e52094d8853132239bda460b7f6d0bb57ff4144febae42534697682a`.
+
+The final candidate installed and launched non-destructively on the attached
+Samsung A32. PID-filtered startup evidence contained normal NativeScript startup
+and no fatal exception, but repeatedly reported no active glasses session. The
+Local Counter therefore has **no real-G2 render or wearer-input evidence** from
+this run; that acceptance gate remains blocked on an available connected G2 and
+must not be inferred from the host controller test or A32 launch. The first
+frozen-SHA adversarial review found hostile-object containment, unchecked
+SharedPreferences persistence, teardown exception safety, initial screen state,
+finite request-budget, timer-status, and package-identity blockers. Those were
+fixed with regression coverage; final frozen-SHA re-review, PR/CI and remote
+readback remain pending.
+
 Store-backed installation, EHPK parsing/extraction, arbitrary packages, WebView,
 network, API keys, sensors, background apps, assistant tools and firmware
 extensions remain **NO-GO**.

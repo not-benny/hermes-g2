@@ -52,6 +52,7 @@ export type EvenHubCompatPackage = {
 export type EvenHubRequest = {
   version: 1;
   generation: number;
+  sequence: number;
   requestId: string;
   method: "display.set" | "storage.get" | "storage.set" | "storage.remove" | "timer.set" | "timer.clear";
   params: Record<string, unknown>;
@@ -137,17 +138,18 @@ export function validatePackageManifest(value: unknown): string | null {
       value.permissions.some((permission) => !LOCAL_ONLY_PERMISSIONS.includes(permission as EvenHubPermission)) ||
       new Set(value.permissions).size !== value.permissions.length) return "manifest requests a prohibited permission";
   if (!isRecord(value.provenance) || !exactKeys(value.provenance, ["source", "sourceRevision", "license"]) ||
-      value.provenance.source !== "bundled" || value.provenance.sourceRevision !== "in-repository" ||
+      value.provenance.source !== "bundled" || value.provenance.sourceRevision !== "local-counter-v1@sha256:7d433059173b12026df827e89d5bf046ed28895c6ba9f50795f474ec0c3f61ad" ||
       value.provenance.license !== "GPL-3.0-only") return "manifest provenance is invalid";
   return null;
 }
 
 export function validateEvenHubRequest(value: unknown): string | null {
-  if (!isRecord(value) || !exactKeys(value, ["version", "generation", "requestId", "method", "params"])) return "request schema is invalid";
+  if (!isRecord(value) || !exactKeys(value, ["version", "generation", "sequence", "requestId", "method", "params"])) return "request schema is invalid";
   let encoded: string;
   try { encoded = JSON.stringify(value); } catch { return "request is not serializable"; }
   if (utf8Bytes(encoded) > EVENHUB_MAX_MESSAGE_BYTES) return "request exceeds 16 KiB";
-  if (value.version !== 1 || !Number.isSafeInteger(value.generation) || (value.generation as number) < 1 || !validId(value.requestId) || !isRecord(value.params)) {
+  if (value.version !== 1 || !Number.isSafeInteger(value.generation) || (value.generation as number) < 1 ||
+      !Number.isSafeInteger(value.sequence) || (value.sequence as number) < 1 || !validId(value.requestId) || !isRecord(value.params)) {
     return "request envelope is invalid";
   }
   switch (value.method) {
@@ -178,10 +180,14 @@ export const BUNDLED_COUNTER_PACKAGE: EvenHubCompatPackage = Object.freeze({
     version: "1.0.0",
     title: "Local Counter",
     permissions: Object.freeze(["display", "input", "storage", "timers"]),
-    contentSha256: "afb4bb9028e1e8e4fba211aeb0bf8c5e3b72573c4c971aaddc444683f95b54ad",
-    provenance: Object.freeze({ source: "bundled", sourceRevision: "in-repository", license: "GPL-3.0-only" }),
+    contentSha256: "7d433059173b12026df827e89d5bf046ed28895c6ba9f50795f474ec0c3f61ad",
+    provenance: Object.freeze({
+      source: "bundled",
+      sourceRevision: "local-counter-v1@sha256:7d433059173b12026df827e89d5bf046ed28895c6ba9f50795f474ec0c3f61ad",
+      license: "GPL-3.0-only",
+    }),
   }),
-  canonicalContent: '{"actions":["increment","reset","timer"],"appId":"local-counter","title":"Local Counter","version":1}',
+  canonicalContent: '{"actions":{"increment":"counter.increment","reset":"counter.reset","timer":{"delayMs":1000,"operation":"timer.once"}},"appId":"local-counter","initialView":{"actions":[{"id":"increment","label":"Increment"},{"id":"reset","label":"Reset"},{"id":"timer","label":"Start timer"}],"blocks":[{"emphasis":"normal","text":"Audited local compatibility sample","type":"text"},{"label":"Count","type":"key_value","value":"0"}],"title":"Local Counter"},"license":"GPL-3.0-only","permissions":["display","input","storage","timers"],"title":"Local Counter","version":1}',
   initialView: Object.freeze({
     title: "Local Counter",
     blocks: Object.freeze([

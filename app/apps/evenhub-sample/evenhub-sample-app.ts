@@ -3,6 +3,7 @@ import { getStringSetting, removeStringSetting, setStringSetting } from "../../n
 import { ShellRemoteViewLayer } from "../../ui/shell/render-view-layer";
 import type { DashboardInputEvent, Layer, LayerContext, PaintBelow } from "../../ui/layers";
 import { createInProcessWindow, YieldAtRootLayer, type InProcessAppOptions, type InProcessWindow } from "../../ui/shell/in-process-window";
+import { shell } from "../../ui/shell/shell";
 
 export const EVENHUB_SAMPLE_WINDOW_ID = "evenhub-local-counter";
 export const EVENHUB_SAMPLE_SURFACE_ID = "window:evenhub-local-counter";
@@ -26,7 +27,7 @@ export function createEvenHubSampleAppWindow(options: InProcessAppOptions): InPr
     read: (key) => getStringSetting(key, "") || null,
     write: setStringSetting,
     remove: removeStringSetting,
-  }, () => app?.requestRender());
+  }, () => app?.requestRender(), shell.isScreenOn());
 
   app = createInProcessWindow({
     appId: "evenhub-local-counter",

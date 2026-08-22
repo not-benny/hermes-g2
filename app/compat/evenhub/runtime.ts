@@ -37,7 +37,7 @@ type Session = {
   readonly grants: ReadonlySet<EvenHubPermission>;
   readonly namespace: string;
   readonly storage: Map<string, string>;
-  readonly usedRequestIds: Set<string>;
+  nextSequence: number;
   readonly timers: Map<string, TimerHandle>;
   readonly events: EvenHubHostEvent[];
   closed: boolean;
@@ -88,7 +88,11 @@ export class EvenHubCompatRuntime {
     this.clearTimer = deps.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
   }
 
-  open(pkg: EvenHubCompatPackage, grants: ReadonlySet<EvenHubPermission>): number {
+  open(
+    pkg: EvenHubCompatPackage,
+    grants: ReadonlySet<EvenHubPermission>,
+    initialLifecycle: { foreground: boolean; screenOn: boolean },
+  ): number {
     const manifestError = validatePackageManifest(pkg.manifest);
     if (manifestError) throw new Error(`invalid bundled package: ${manifestError}`);
     if (pkg !== BUNDLED_COUNTER_PACKAGE || pkg.manifest.contentSha256 !== BUNDLED_COUNTER_PACKAGE.manifest.contentSha256 ||
@@ -106,12 +110,12 @@ export class EvenHubCompatRuntime {
       grants: new Set(grants),
       namespace,
       storage: parseStorageDocument(this.deps.readStorage(namespace)),
-      usedRequestIds: new Set(),
+      nextSequence: 1,
       timers: new Map(),
       events: [],
       closed: false,
-      foreground: true,
-      screenOn: true,
+      foreground: initialLifecycle.foreground,
+      screenOn: initialLifecycle.screenOn,
     };
     return generation;
   }
@@ -121,16 +125,15 @@ export class EvenHubCompatRuntime {
   }
 
   dispatch(value: unknown): EvenHubDispatchResult {
-    const validation = validateEvenHubRequest(value);
-    if (validation) return { ok: false, error: validation };
-    const request = value as EvenHubRequest;
-    const session = this.liveSession(request.generation);
-    if (!session) return { ok: false, error: "session generation is stale" };
-    if (session.usedRequestIds.has(request.requestId)) return { ok: false, error: "requestId was replayed" };
-    if (session.usedRequestIds.size >= 256) return { ok: false, error: "request budget exhausted" };
-    session.usedRequestIds.add(request.requestId);
-
     try {
+      const validation = validateEvenHubRequest(value);
+      if (validation) return { ok: false, error: validation };
+      const request = value as EvenHubRequest;
+      const session = this.liveSession(request.generation);
+      if (!session) return { ok: false, error: "session generation is stale" };
+      if (request.sequence !== session.nextSequence) return { ok: false, error: "request sequence was replayed, stale, or out of order" };
+      if (session.nextSequence >= Number.MAX_SAFE_INTEGER) return { ok: false, error: "request sequence exhausted" };
+      session.nextSequence++;
       switch (request.method) {
       case "display.set":
         if (!this.allowed(session, "display") || !session.foreground || !session.screenOn) return { ok: false, error: "display is not live and permitted" };
@@ -204,9 +207,9 @@ export class EvenHubCompatRuntime {
     if (!session || session.generation !== generation || session.closed) return false;
     session.closed = true;
     this.active = null;
-    this.clearTimers(session);
+    const cleaned = this.clearTimers(session);
     session.events.length = 0;
-    return true;
+    return cleaned;
   }
 
   private liveSession(generation: number): Session | null {
@@ -255,12 +258,16 @@ export class EvenHubCompatRuntime {
     const handle = session.timers.get(timerId);
     if (handle === undefined) return;
     session.timers.delete(timerId);
-    this.clearTimer(handle);
+    try { this.clearTimer(handle); } catch { /* Timer remains tombstoned. */ }
   }
 
-  private clearTimers(session: Session): void {
-    for (const handle of session.timers.values()) this.clearTimer(handle);
+  private clearTimers(session: Session): boolean {
+    let cleaned = true;
+    for (const handle of session.timers.values()) {
+      try { this.clearTimer(handle); } catch { cleaned = false; }
+    }
     session.timers.clear();
+    return cleaned;
   }
 
   private enqueue(session: Session, event: EvenHubHostEvent): void {
