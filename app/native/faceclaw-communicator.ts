@@ -266,21 +266,25 @@ export class FaceclawCommunicatorBridge {
 
   private enqueueJavaCall<T>(operation: () => T, allowInline = false): Promise<T> {
     if (this.javaCallsPending === 0 && allowInline) {
+      this.javaCallsPending++;
       try {
         return Promise.resolve(operation());
       } catch (error) {
         return Promise.reject(error);
+      } finally {
+        this.javaCallsPending--;
       }
     }
     this.javaCallsPending++;
     const run = () =>
       new Promise<T>((resolve, reject) => {
         setTimeout(() => {
-          this.javaCallsPending--;
           try {
             resolve(operation());
           } catch (error) {
             reject(error);
+          } finally {
+            this.javaCallsPending--;
           }
         }, 0);
       });

@@ -21,13 +21,16 @@ changes are provenance-compatible ports of isolated Faceclaw commit
 `f6035ea9ecdabd13cc85af1e26ef518ae64d3d6b`; no texture-cache firmware modes or
 device commands were ported.
 
-Delivery semantics are stronger, not weaker: strict operations reject missing
-or failed receipts; only the first terminal frame result reaches TypeScript; and
+Delivery semantics are stronger, not weaker: strict operations accept only
+ACK-backed `sent` outcomes and reject queued-image deduplication, missing, or
+failed receipts; only the first communicator terminal frame result reaches TypeScript; and
 multi-message images report `sent` only after every distinct application ACK,
-including out-of-order ACKs. Focused RED/GREEN contracts pass 6/6 and the full
+including out-of-order ACKs. Ordinary redraw work cannot inherit or extend a
+strict owner's receipt, and the inline Java-call fast path remains busy across
+synchronous reentrancy. Focused RED/GREEN contracts pass 7/7 and the full
 host suite passes 265/265. TypeScript and the JDK 21 / SDK 35 Android build pass.
 The final debug APK SHA-256 is
-`bd5c7dc67479694e024c14659d673a29651cf32cc91dc412ca441506c83574db`.
+`98c87fa58d96f8386a526759807adb5c92337e64668a979d8ce3f6edbec41425`.
 
 The frozen preview.1 idle observation reproduced the reported phone-jank floor:
 33/45 frames janky (73.333%), p90 20.498 ms, p99/max 24.643 ms, PSS

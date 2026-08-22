@@ -93,9 +93,7 @@ const EVEN_APP_DETECTED_MESSAGE =
   "The Even Realities app appears to be running. If Hermes G2 has trouble connecting, open its app settings and force stop it.";
 
 function isSuccessfulFrameOutcome(outcome: string | null): boolean {
-  return outcome === "sent"
-    || outcome === "discarded: no change from displayed image"
-    || outcome === "discarded: image content identical to displayed";
+  return outcome !== null && outcome.startsWith("sent");
 }
 
 // The launcher grid's app list; also fixes the app ids apps.launch accepts.
@@ -1840,7 +1838,7 @@ class DashboardController {
   requestShellRender(): Promise<void> {
     if (this.shellRenderInProgress) {
       this.shellRenderQueued = true;
-      return this.shellRenderPromise ?? Promise.resolve();
+      return (this.shellRenderPromise ?? Promise.resolve()).catch(() => undefined);
     }
     return this.requestShellDelivery().catch(() => undefined);
   }
@@ -1861,16 +1859,25 @@ class DashboardController {
     this.shellRenderInProgress = true;
     this.shellRenderPromise = (async () => {
       try {
-        do {
-          this.shellRenderQueued = false;
+        this.shellRenderQueued = false;
+        if (isAllowed) {
           await this.renderShell(isAllowed);
-        } while (this.shellRenderQueued);
+        } else {
+          do {
+            this.shellRenderQueued = false;
+            await this.renderShell();
+          } while (this.shellRenderQueued);
+        }
       } catch (error) {
         this.appendLog(`shell render failed: ${this.formatError(error)}`);
         throw error;
       } finally {
         this.shellRenderInProgress = false;
         this.shellRenderPromise = null;
+        if (isAllowed && this.shellRenderQueued) {
+          this.shellRenderQueued = false;
+          void this.requestShellRender();
+        }
       }
     })();
     return this.shellRenderPromise;
