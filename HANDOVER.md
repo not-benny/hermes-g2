@@ -69,7 +69,8 @@ runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
   starve the battery request. PacketAck wakes are drained and the generation-valid
   rich-health sequence resumes rather than aborting. The last exact-status-verified
   percent and its dedicated timestamp persist under the configured ring identity
-  in the app-private canonical health document and restore on process restart
+  in the app-private canonical health document; callbacks revalidate that identity
+  before ingest, persistence, or UI publication, and restore on process restart
   until a fresh response replaces them. Invalid/future values fail closed and
   unchanged values write at most hourly.
 - The private-evaluation `glasses.render_view` implementation is owner,
@@ -94,14 +95,14 @@ when no later human/automation revision intervened. See
 
 The ring-battery fix passes all 289 host tests, TypeScript typechecking,
 `git diff --check`, and the JDK 21 / Android SDK 35 build. The resulting
-195,410,289-byte debug APK has SHA-256
-`100be4cd20faba8436609e416c621890ac889ddb63e0f012276716b270f6a7ae`.
+195,410,396-byte debug APK has SHA-256
+`44806e41268f2421a1880f8243a0a4e506548161e17a5446fab5b92ac119b12a`.
 That exact APK upgrade-installed and launched on the authorised Samsung A32 over
 USB. Both G2 arms and the direct R1 connected; PID-filtered logs showed
 `deviceStatus GET (battery)` complete before `heartRate/daily GET`; packetAck
 wakes then resumed and completed SpO2, HRV, activity, and sleep GETs rather than
-aborting the poll. The phone Health screen showed `Ring: connected`, `60%`,
-`Updated just now`, and live `56 bpm`; shell frames were acknowledged. This verifies
+aborting the poll. The phone Health screen showed `Ring: connected`, `59%`,
+`Updated just now`, and live `58 bpm`; shell frames were acknowledged. This verifies
 the live worn-ring acquisition and phone display path; overnight continuity is
 covered deterministically by the restart persistence regression, not by a new
 overnight hardware observation. No pairing, ownership, provisioning, reset,

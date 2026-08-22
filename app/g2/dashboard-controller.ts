@@ -1002,6 +1002,8 @@ class DashboardController {
     );
 
     let communicator: FaceclawCommunicatorBridge | null = null;
+    const ringIdentity = addresses.ring;
+    const isRingIdentityCurrent = () => Boolean(ringIdentity) && loadDeviceAddresses().ring === ringIdentity;
     this.faceclawWakeLeaseSupported = false;
     this.faceclawWakeLeaseState = null;
     this.wearNotifySupported = false;
@@ -1092,7 +1094,9 @@ class DashboardController {
           headsetCharging: state.chargingStatus > 0,
           // The standard GATT battery service is usually absent on the ring
           // (-1); fall back to the protocol-decoded deviceStatus percent.
-          ring: state.ringBattery >= 0 ? state.ringBattery : ringHealthStore.snapshot().batteryPercent,
+          ring: isRingIdentityCurrent()
+            ? (state.ringBattery >= 0 ? state.ringBattery : ringHealthStore.snapshot().batteryPercent)
+            : null,
           ringCharging: null,
         });
         if ((this.phase === "connected" || this.phase === "charging") && this.communicator) {
@@ -1102,7 +1106,6 @@ class DashboardController {
       });
       ringHealthStore.setLog((line) => this.appendLog(line));
       ringHealthStore.restoreActivity(loadActivity());
-      const ringIdentity = loadDeviceAddresses().ring;
       const persistedBattery = loadBattery(ringIdentity);
       if (!persistedBattery) {
         ringHealthStore.clearBattery();
@@ -1112,9 +1115,14 @@ class DashboardController {
         shell.setBatteryLevels({ ring: persistedBattery.percent });
       }
       this.offRingHealthFrame = communicator.onRingHealthFrame((frame) => {
+        if (!isRingIdentityCurrent()) return;
         ringHealthStore.ingestFrame(frame.data);
       });
       this.offRingHealthChange = ringHealthStore.onChange((snapshot) => {
+        if (!isRingIdentityCurrent()) {
+          shell.setBatteryLevels({ ring: null });
+          return;
+        }
         recordActivity(snapshot.activity);
         recordBattery(ringIdentity, snapshot.batteryPercent, snapshot.batteryUpdatedAtMs);
         shell.setRingHeartRate(snapshot.currentHr ?? snapshot.heartRate?.avg ?? null);

@@ -31,6 +31,9 @@ test("protocol battery is restored, persisted, and propagated to both battery UI
   assert.match(store, /batteryPercent: percent/);
   assert.match(controller, /loadBattery/);
   assert.match(controller, /loadBattery\(ringIdentity\)/);
+  assert.match(controller, /isRingIdentityCurrent/);
+  assert.match(controller, /onRingHealthFrame\([\s\S]*if \(!isRingIdentityCurrent\(\)\) return;[\s\S]*ingestFrame/);
+  assert.match(controller, /onBatteryState\([\s\S]*ring: isRingIdentityCurrent\(\)/);
   assert.match(controller, /ringHealthStore\.clearBattery\(\)/);
   assert.match(controller, /ringHealthStore\.restoreBattery\(persistedBattery\.percent/);
   assert.match(controller, /recordBattery\(ringIdentity, snapshot\.batteryPercent, snapshot\.batteryUpdatedAtMs\)/);
