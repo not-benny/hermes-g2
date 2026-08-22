@@ -15,7 +15,7 @@ Baseline: `f37168cf007450cb2a58513b1f2624aee0b6d6af` on canonical `main`.
 
 ## Corrected stale findings
 
-Exact-turn ownership, authenticated app-side WSS enforcement, cancellation, duplicate rejection, and the bounded inert `glasses.render_view` implementation already existed at the baseline. Historical MCP documents that describe those app controls as proposed or missing are superseded for implementation status. They remain useful evidence for the still-open external server identity, adapter licensing, generic-client, privacy, and real-G2 publication gates.
+Exact-turn ownership, authenticated app-side WSS enforcement, cancellation, duplicate rejection, and the bounded inert `glasses.render_view` implementation already existed at the baseline. Historical MCP documents that describe those app controls as proposed or missing are superseded for implementation status. A private hostname-verified WSS deployment now closes the private server-identity setup gap, but adapter licensing, generic-client, privacy, credentials, public deployment and real-G2 publication gates remain open.
 
 Current R1 heart-rate/history/activity decoding is implemented. Historical health notes remain snapshots of the pre-implementation investigation. Sleep is still fail-closed pending a correlated type-1 stage/summary frame and absolute timebase.
 

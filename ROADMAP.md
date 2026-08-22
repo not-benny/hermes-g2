@@ -126,8 +126,9 @@ Current as of 22 August 2026. `main` is the canonical branch.
   restoration. All 281 host tests, typecheck, and Android build pass. The exact
   APK installed/launched on the A32 and established a live two-arm G2 session
   with ordinary shell-frame transport ACKs. Dynamic-view/HA scroll and reversible
-  toggle evidence is still blocked by the missing authenticated WSS peer and
-  unavailable private HA credentials; no such result is inferred. See
+  private WSS hello/ack is now verified; dynamic-view/HA scroll and reversible
+  toggle evidence remains blocked by unavailable private HA credentials and
+  missing exact-candidate hardware execution; no such result is inferred. See
   `docs/dynamic-glasses-apps.md`.
 - **BLOCKED — public MCP/skill publication.** No public skill or untrusted remote
   rendering until authenticated `wss://` server identity, compatible licensed

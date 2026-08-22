@@ -126,7 +126,7 @@ malicious users.
 
 | Component | Current observed limit/control | Gap that remains |
 |---|---|---|
-| Bridge transport | Client requires certificate-validated `wss://`; bearer token is in `hello`; no compatible sibling WSS/server proof is available. | Provide and verify an authenticated secure endpoint; never treat a tailnet as peer authentication. |
+| Bridge transport | Client requires certificate-validated `wss://`; bearer token is in `hello`. The private Hermes deployment now has a hostname-verified private-CA endpoint and real hello/ack proof. | Keep TLS mandatory outside loopback and preserve certificate-failure, token, generation and exact-turn gates; private proof is not public publication authorization. |
 | Bridge lifecycle | Connection generations, 15 s auth timeout, 20 s keepalive check, 45 s liveness timeout, 3 min turn timeout, and reconnect backoff of 1–60 s plus up to 50% jitter. | Bind MCP calls to a unique live turn generation and prove replay/late rejection; keepalive and reconnect are availability controls, not peer authentication. |
 | MCP lifecycle | Initialization/version handling, duplicate-ID tombstones, 128 completed-ID retention, and connection epoch suppression. | Bind authorization to the originating turn and make cancellation/late side effects safe. |
 | Proactive MCP | Boolean “some turn active” test, default-off setting, and a sliding quota of 6 calls/minute after preflight. | Explicit turn-bound intent and per-session policy evidence remain required. |
@@ -195,13 +195,13 @@ Every proposed display operation must:
 | Gate | Status now | PASS evidence required |
 |---|---|---|
 | Least privilege | FAIL | Manifest/config review removes unnecessary access or documents a separately approved feature; denial paths pass. |
-| Explicit turn-bound intent | PASS (app-side static) | External MCP frames must claim the originating turn; missing/delayed claims fail and the exact live turn plus connection are revalidated before effects. Compatible server evidence is still absent. |
+| Explicit turn-bound intent | PASS (app-side static + private bridge) | External MCP frames must claim the originating turn; missing/delayed claims fail and the exact live turn plus connection are revalidated before effects. Public/generic adapter evidence remains absent. |
 | Proactive opt-in default-off | PARTIAL (default false; unit policy evidence only) | Explicit setting/consent and bounded per-session policy tests. |
 | Untrusted-content handling | PASS (app-side static) | `render_view` imperative allowlist rejects controls, bidi, URLs, markup, unknown fields/primitives and oversized text before shell mutation. Real-lens evidence remains separate. |
 | Secret-safe storage/logs/errors | FAIL | Secure storage or documented containment, no token/PII in logs/errors/backup/ADB evidence. |
 | Data minimization/retention | FAIL | Field-level export policy, bounded transcript/session retention, deletion/disable behavior. |
 | Bounded HUD schema/output/update rate/TTL | PARTIAL | Exact V1 limits, two accepted renders/s, revision CAS, operation idempotency and generation-bound TTL have focused tests; fuzz corpus, golden render and hardware TTL evidence remain missing. |
-| Secure authenticated transport/server proof | FAIL | WSS certificate validation or enforced authenticated tunnel plus proof the peer knows the secret. |
+| Secure authenticated transport/server proof | PARTIAL (private PASS) | The private endpoint has hostname-verified WSS plus token hello/ack proof; public identity/deployment and negative Android certificate evidence remain open. |
 | Replay/idempotency | PARTIAL | MCP request tombstones, connection-owned cancellation and `render_view` operation IDs/revisions are tested; unrelated phone mutators and operational reconnect retries remain unresolved. |
 | Generic MCP + Hermes adapter interoperability | FAIL | Independent generic client and adapter tests against a versioned endpoint. |
 | Licensing | FAIL | License/provenance clearance for every shipped dependency, especially sibling bridge. |

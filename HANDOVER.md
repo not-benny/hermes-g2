@@ -20,8 +20,7 @@ unchanged. A real WSS hello/hello-ack
 smoke test passed. Host verification has 295 tests, TypeScript, Android build,
 and APK verification passing. The exact 195,673,222-byte debug APK has SHA-256
 `5b5838a238f68daa0af131ccad5a12d79f8079f9f0336225423fdcbae68e476c`.
-Independent adversarial review of app commit
-`0ce562a4370b784f8930cb5c7394cd9b4787b6e2` and bridge commit
+Independent adversarial review of the final app code candidate and bridge commit
 `fdd84de85c82706104428db3e7d0eacb91480b2a` returned static PASS and private,
 non-destructive deployment GO. Exact APK/Fold7/G2/R1 runtime verification is
 blocked by the currently unreachable Fold7 Teleport route. The preceding R1
