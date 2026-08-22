@@ -73,6 +73,11 @@ publication/retirement and rejected legacy persisted `good` quality. Firmware
 completion can now establish at most `fair` sensor/neutral quality; without
 wearer alignment the UI remains approximate.
 
+Final independent adversarial review passed the source at
+`4624c5f7a874cc748e65918dde630e4445aed304`. Static review is **PASS**; operational
+authorization remains **NO-GO** only for the missing worn/moving heading and
+calibration evidence described below.
+
 Final local verification passes 303/303 host tests, TypeScript typechecking,
 `git diff --check`, and the JDK 21 / Android SDK 35 debug build. On USB Samsung
 A32 with both G2 arms live on firmware 2.2.8.4, a cold process restart first
