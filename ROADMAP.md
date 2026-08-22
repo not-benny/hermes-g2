@@ -8,7 +8,7 @@ Current as of 22 August 2026. `main` is the canonical branch.
 
 ### Repository and release
 
-- **IMPLEMENTED / EXACT HARDWARE VALIDATION PENDING — sleep voice, HUD signal/R1, and WSS bridge (22 August 2026).**
+- **DONE / PRIVATE DEPLOYMENT — sleep voice, HUD signal/R1, and WSS bridge (22 August 2026).**
   A sleeping R1 long-press now wakes directly into assistant push-to-talk;
   quick-close mode names its controls; the HUD adds phone signal and keeps a
   configured R1 visible while battery is unknown. Battery requests precede rich
