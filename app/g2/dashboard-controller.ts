@@ -92,6 +92,12 @@ const LOW_BATTERY_PERCENT = 5;
 const EVEN_APP_DETECTED_MESSAGE =
   "The Even Realities app appears to be running. If Hermes G2 has trouble connecting, open its app settings and force stop it.";
 
+function isSuccessfulFrameOutcome(outcome: string | null): boolean {
+  return outcome === "sent"
+    || outcome === "discarded: no change from displayed image"
+    || outcome === "discarded: image content identical to displayed";
+}
+
 // The launcher grid's app list; also fixes the app ids apps.launch accepts.
 const LAUNCHABLE_APPS = ALL_APPS.filter((app) => app.showInLauncher !== false);
 
@@ -1832,6 +1838,10 @@ class DashboardController {
    * one queued.
    */
   requestShellRender(): Promise<void> {
+    if (this.shellRenderInProgress) {
+      this.shellRenderQueued = true;
+      return this.shellRenderPromise ?? Promise.resolve();
+    }
     return this.requestShellDelivery().catch(() => undefined);
   }
 
@@ -1908,7 +1918,10 @@ class DashboardController {
     if (this.communicator !== communicator || this.phase !== "connected") {
       throw new Error("The glasses session changed while sending the alert frame.");
     }
-    await communicator.waitForFrameFinished(frameId, FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS);
+    const outcome = await communicator.waitForFrameFinished(frameId, FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS);
+    if (isAllowed && !isSuccessfulFrameOutcome(outcome)) {
+      throw new Error(`The alert frame was not delivered (${outcome ?? "receipt timeout"}).`);
+    }
     if (this.communicator !== communicator || this.phase !== "connected") {
       throw new Error("The glasses session changed before the alert frame completed.");
     }
