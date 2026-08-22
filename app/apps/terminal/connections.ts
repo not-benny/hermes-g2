@@ -6,8 +6,8 @@ import { getStringSetting, setStringSetting } from "../../native/settings-store"
  * and change notifications ride the ordinary settings-store channel.
  *
  * A connection is entered as a g2mirror:// connection string (the same form
- * g2mirror-view accepts): g2mirror://<token>@<host>[:port] for plain
- * websockets (default port 8737), g2mirrors://... for TLS (default 443).
+ * g2mirror-view accepts): g2mirror:// is permitted only for loopback;
+ * g2mirrors:// is required for every remote host.
  */
 
 export const TERMINAL_CONNECTIONS_KEY = "terminal.connections";
@@ -49,9 +49,15 @@ export function parseConnectionString(url: string): ParsedConnectionString | nul
     // Not valid percent-encoding; use the raw token.
   }
   const host = match[3]!;
+  if (!secure && !isLoopbackHost(host)) return null;
   const port = match[4] ? parseInt(match[4], 10) : secure ? 443 : 8737;
   if (!(port >= 1 && port <= 65535)) return null;
   return { secure, host, port, authToken };
+}
+
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.toLowerCase().replace(/^\[|\]$/g, "");
+  return normalized === "localhost" || normalized === "::1" || /^127(?:\.\d{1,3}){3}$/.test(normalized);
 }
 
 /** The host[:port] part of a connection string; "" if it doesn't parse. */
@@ -64,7 +70,7 @@ export function connectionStringHostLabel(url: string): string {
 
 /** Human label for a connection: cached server name, else its host[:port]. */
 export function connectionDisplayName(connection: TerminalConnection): string {
-  return connection.serverName || connectionStringHostLabel(connection.url) || connection.url;
+  return connection.serverName || connectionStringHostLabel(connection.url) || "invalid connection";
 }
 
 export function loadConnections(): TerminalConnection[] {

@@ -1,5 +1,12 @@
 # Hermes G2 MCP / skill publish-readiness audit (2026-08-20)
 
+> **Historical publication audit.** App-side WSS enforcement, exact turn and
+> connection ownership, cancellation, duplicate rejection, and bounded
+> `glasses.render_view` were subsequently implemented. Public publication is
+> still NO-GO for server identity, adapter licensing, encrypted credential
+> custody, generic interoperability, tool privacy/mutation policy, idempotency,
+> and real-G2 evidence. See `docs/audit-remediation-2026-08-21.md`.
+
 ## Verdict
 
 **Audit complete; public MCP/skill publication is NO-GO.**

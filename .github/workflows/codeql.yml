@@ -1,0 +1,87 @@
+name: CodeQL
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * 2'
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+  security-events: write
+
+jobs:
+  javascript:
+    name: codeql-javascript
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
+        with:
+          languages: javascript-typescript
+          build-mode: none
+      - uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
+        with:
+          category: /language:javascript-typescript
+          upload: never
+          output: sarif-javascript
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: codeql-javascript-${{ github.sha }}
+          path: sarif-javascript/*.sarif
+          if-no-files-found: error
+
+  java:
+    name: codeql-java
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '20.19.4'
+          cache: npm
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install pinned Android toolchain
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.1" "ndk;27.2.12479018" "cmake;3.22.1" "emulator"
+          printf 'ANDROID_NDK_HOME=%s\n' "$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
+        with:
+          languages: java-kotlin
+          build-mode: manual
+      - run: npm ci
+      - run: npm run build
+      - uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
+        with:
+          category: /language:java-kotlin
+          upload: never
+          output: sarif-java
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: codeql-java-${{ github.sha }}
+          path: sarif-java/*.sarif
+          if-no-files-found: error
+
+  complete:
+    name: codeql
+    if: always()
+    needs: [javascript, java]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require both language analyses
+        env:
+          JAVASCRIPT_RESULT: ${{ needs.javascript.result }}
+          JAVA_RESULT: ${{ needs.java.result }}
+        run: test "$JAVASCRIPT_RESULT" = success && test "$JAVA_RESULT" = success

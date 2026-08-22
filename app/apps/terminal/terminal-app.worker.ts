@@ -53,6 +53,7 @@ import {
 } from "../../ui/dashboard-settings";
 import {
   connectionDisplayName,
+  connectionStringHostLabel,
   loadConnections,
   parseConnectionString,
   saveConnections,
@@ -1365,9 +1366,15 @@ function launchPresetNames(): string[] {
 }
 
 /** Launch a preset on a host and open a view window on the new session. */
-async function launchAndOpenView(control: ControlConnection, preset: string): Promise<string> {
+async function launchAndOpenView(
+  control: ControlConnection,
+  preset: string,
+  isAllowed: () => boolean = () => true,
+): Promise<string> {
   if (!control.client) throw new Error("Not connected to the g2mirror server.");
+  if (!isAllowed()) throw new Error("Terminal launch authorization expired.");
   const socket = await control.client.launchSession(preset);
+  if (!isAllowed()) throw new Error("Terminal launch authorization expired before display handoff.");
   openViewWindow(control, socket, preset);
   return socket;
 }
@@ -1441,7 +1448,9 @@ function paintAddConnection(window: HubWindow): GrayImage {
   image.drawText(terminalFont, 24, 34, "Type the g2mirror://token@host string in the", 170);
   image.drawText(terminalFont, 24, 48, "phone app (or use voice input from the menu).", 170);
   const draft = terminalNewConnectionSetting.get();
-  image.drawText(terminalFont, 24, 76, truncateLabel(draft || "(empty)", 52), 220);
+  const hostLabel = draft ? connectionStringHostLabel(draft) : "";
+  const maskedConnectionLabel = draft ? `${hostLabel || "invalid connection"} (token hidden)` : "(empty)";
+  image.drawText(terminalFont, 24, 76, truncateLabel(maskedConnectionLabel, 52), 220);
   if (window.addError) {
     image.drawText(terminalFont, 24, 96, window.addError, 150);
   }
@@ -1597,7 +1606,7 @@ function handleTerminalTool(name: string, args: any, isAllowed: () => boolean): 
     case "list_launch_presets":
       return toolListLaunchPresets();
     case "launch_session":
-      return toolLaunchSession(args);
+      return toolLaunchSession(args, isAllowed);
     default:
       return { ok: false, error: `Unknown terminal tool: ${name}` };
   }
@@ -1638,12 +1647,12 @@ function resolveLaunchControl(host: string): ControlConnection | { error: string
   };
 }
 
-async function toolLaunchSession(args: any): Promise<ToolResult> {
+async function toolLaunchSession(args: any, isAllowed: () => boolean): Promise<ToolResult> {
   const preset = String(args?.preset ?? "").trim();
   if (!preset) return { ok: false, error: "launch_session requires a preset name." };
   const control = resolveLaunchControl(String(args?.host ?? "").trim());
   if ("error" in control) return { ok: false, error: control.error };
-  const socket = await launchAndOpenView(control, preset);
+  const socket = await launchAndOpenView(control, preset, isAllowed);
   return { ok: true, content: `Launched "${preset}" (session ${socket}) and opened a window viewing it.` };
 }
 

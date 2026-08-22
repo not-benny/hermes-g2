@@ -63,7 +63,7 @@ export class ElevenLabsSttClient {
     try {
       // The API key rides an xi-api-key header, added by FaceclawWebSocket.
       const key = this.options.apiKey;
-      console.log(`[elevenlabs] connecting; apiKey length=${key.length} prefix=${key.slice(0, 4)}`);
+      console.log("[elevenlabs] connecting with authentication configured");
       this.ws = new com.faceclaw.app.FaceclawWebSocket(url, this.listenerProxy, "xi-api-key", key);
       this.options.onStatus("Connecting to ElevenLabs...");
     } catch (error) {

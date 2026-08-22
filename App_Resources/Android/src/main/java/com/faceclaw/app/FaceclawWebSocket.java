@@ -45,12 +45,11 @@ public class FaceclawWebSocket {
             builder.addHeader(headerName, headerValue);
         }
         Request request = builder.build();
-        // Redacted diagnostics: confirm the auth header is actually present on
-        // the handshake and carries a plausible value (not empty/truncated).
+        // Header names and presence are useful diagnostics. Values, lengths and
+        // prefixes are credentials and must never reach logcat.
         StringBuilder headerLog = new StringBuilder();
         for (String name : request.headers().names()) {
-            String value = request.header(name);
-            headerLog.append(name).append('=').append(redact(value)).append(' ');
+            headerLog.append(name).append("=present ");
         }
         Log.i(TAG, "ws connect host=" + request.url().host() + request.url().encodedPath()
                 + " headers=[" + headerLog.toString().trim() + "]");
@@ -120,14 +119,6 @@ public class FaceclawWebSocket {
         return client;
     }
 
-    private static String redact(String value) {
-        if (value == null) {
-            return "null";
-        }
-        int len = value.length();
-        String prefix = value.substring(0, Math.min(4, len));
-        return "len" + len + ":" + prefix + "...";
-    }
 
     public boolean sendText(String message) {
         return socket.send(message == null ? "" : message);

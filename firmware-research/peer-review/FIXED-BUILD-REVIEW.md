@@ -1,5 +1,10 @@
 # Fixed-build independent review - Even G2 CFW 2.2.8.4
 
+> **Historical static review.** A later owner report records one boot of the
+> pinned candidate. It does not establish reproducibility, recovery, or broad
+> compatibility; flashing/recovery experiments remain NO-GO without separate
+> authorization and sacrificial recovery evidence.
+
 **Review date:** 2026-08-18
 **Candidate:** `firmware/g2_2.2.8.4_cfw_FIXED.bin`
 **SHA-256:** `bf143aa220d634969fc7ea856716bfccd6cf197fe93f41bec2b87ebd8add7584`

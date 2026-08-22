@@ -5,7 +5,7 @@ import { isPreviewOnlyMode, setPreviewOnlyMode, setOnboardingCompleted } from ".
 import { clearPreviewDemo } from "../native/preview-demo";
 
 /**
- * Settings-tab hub: navigation into Devices / API keys / WhatsApp (within the
+ * Settings-tab hub: navigation into Devices / API keys (within the
  * Settings tab frame) plus a Font control. uiFontSetting is a shared singleton,
  * so this bar and the Controls-tab Font control read/write the same value;
  * subscribing to onAnySettingChanged keeps this bar in sync when the other
@@ -29,7 +29,7 @@ export class SettingsViewModel extends Observable {
 
   onDevicesTap(): void { Frame.topmost()?.navigate("phone-ui/config-page"); }
   onApiKeysTap(): void { Frame.topmost()?.navigate("phone-ui/api-keys-page"); }
-  onWhatsAppTap(): void { Frame.topmost()?.navigate("phone-ui/whatsapp-page"); }
+
   onHealthProfileTap(): void { Frame.topmost()?.navigate("phone-ui/health-profile-page"); }
 
   // --- preview mode ----------------------------------------------------------

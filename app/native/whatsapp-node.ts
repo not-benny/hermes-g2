@@ -13,17 +13,25 @@ import { ApplicationSettings, Http, Utils } from "@nativescript/core";
 declare const com: any;
 
 const NODE_PORT = 8799; // 127.0.0.1 on the phone; unrelated to the LAN bridge port
+export const WHATSAPP_PRODUCTION_ENABLED = false;
 let token = "";
 let started = false;
 
 function makeToken(): string {
+  const bytes = new java.security.SecureRandom().generateSeed(32) as any;
+  const chars = "0123456789abcdef";
   let out = "";
-  for (let i = 0; i < 24; i++) out += Math.floor(Math.random() * 16).toString(16);
+  for (let i = 0; i < bytes.length; i++) {
+    const value = Number(bytes[i]) & 0xff;
+    out += chars[(value >>> 4) & 0x0f] + chars[value & 0x0f];
+  }
+  if (out.length !== 64) throw new Error("secure loopback token generation failed");
   return out;
 }
 
 /** Start the embedded Node runtime (idempotent). No-op off Android. */
 export function startWhatsAppNode(): void {
+  if (!WHATSAPP_PRODUCTION_ENABLED) return;
   if (started || !global.isAndroid) return;
   try {
     token = makeToken();
@@ -32,7 +40,7 @@ export function startWhatsAppNode(): void {
     started = true;
     console.log(`[whatsapp-node] runtime start requested on 127.0.0.1:${NODE_PORT}`);
   } catch (error) {
-    console.error(`[whatsapp-node] failed to start runtime: ${error}`);
+    console.error("[whatsapp-node] failed to start runtime");
   }
 }
 
@@ -43,10 +51,11 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
 /**
  * Request a WhatsApp pairing code for a phone number (E.164 digits). The engine
  * starts the socket and calls requestPairingCode; the 8-char code is returned
- * and logged. The user enters it in WhatsApp > Linked devices > Link with phone
+ * to the caller. The user enters it in WhatsApp > Linked devices > Link with phone
  * number. Resolves null on failure.
  */
 export async function requestWhatsAppPairing(phoneNumber: string): Promise<string | null> {
+  if (!WHATSAPP_PRODUCTION_ENABLED) return null;
   try {
     const res = await Http.request({
       url: `http://127.0.0.1:${NODE_PORT}/pair`,
@@ -57,13 +66,13 @@ export async function requestWhatsAppPairing(phoneNumber: string): Promise<strin
     });
     const body = JSON.parse(res.content?.toString() || "{}");
     if (body.ok && body.code) {
-      console.log(`[whatsapp-node] PAIRING CODE = ${body.code}  (enter in WhatsApp > Linked devices > Link with phone number)`);
+      console.log("[whatsapp-node] pairing authorization received");
       return body.code;
     }
-    console.error(`[whatsapp-node] pair failed: ${res.content}`);
+    console.error(`[whatsapp-node] pair failed with status ${res.statusCode}`);
     return null;
   } catch (error) {
-    console.error(`[whatsapp-node] pair error: ${error}`);
+    console.error("[whatsapp-node] pair request failed");
     return null;
   }
 }

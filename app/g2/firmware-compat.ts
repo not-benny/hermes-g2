@@ -12,12 +12,11 @@ const REQUIRED_CFW_CONTRACT = "EVENCFW/9";
 const REQUIRED_FIRMWARE_EXTENSIONS = ["img640", "fbguard", "wearnotify"] as const;
 
 // The stock firmware release the Hermes G2 candidate image is built from. The
-// candidate is embedded for deterministic review. Installation is explicitly
-// enabled for this owner build, but the firmware still carries the documented
-// hardware and recovery risk warnings.
+// candidate is embedded for deterministic review. Installation remains disabled
+// until a separately authorized sacrificial recovery plan closes the gate.
 export const FLASHABLE_STOCK_VERSION = [2, 2, 8, 4];
 export const FLASHABLE_STOCK_VERSION_TEXT = FLASHABLE_STOCK_VERSION.join(".");
-export const EXPERIMENTAL_FIRMWARE_INSTALL_ENABLED = true;
+export const EXPERIMENTAL_FIRMWARE_INSTALL_ENABLED = false;
 export const FIRMWARE_FLASHING_DISABLED_MESSAGE =
   "Firmware flashing is disabled until hardware testing and recovery validation are complete.";
 

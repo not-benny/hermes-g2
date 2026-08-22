@@ -1,5 +1,12 @@
 # MCP-driven glasses display threat model (2026-08-21)
 
+> **Historical threat-model snapshot, superseded for app implementation status.**
+> Exact-turn/connection binding, cancellation, authenticated app-side `wss://`,
+> duplicate rejection, and bounded inert `glasses.render_view` are implemented.
+> Preserve the external server, licensing, generic-client, privacy, and real-G2
+> publication gates below; those remain NO-GO. Current status is in
+> `docs/mcp-glasses-display.md` and `docs/audit-remediation-2026-08-21.md`.
+
 ## Decision and scope
 
 **Static review: FAIL for publication.**  **Operational authorization: NO-GO.**

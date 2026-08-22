@@ -18,7 +18,7 @@
 
             <Label text="Credentials" class="section-label m-t-20" />
             <Button text="API keys &amp; bridge" tap="{{ onApiKeysTap }}" class="m-t-8" />
-            <Button text="WhatsApp" tap="{{ onWhatsAppTap }}" class="m-t-8" />
+            <Label text="WhatsApp pairing is disabled: the embedded runtime is not validated for 16 KiB Android devices." textWrap="true" class="muted m-t-8" />
 
             <Label text="Appearance" class="section-label m-t-20" />
             <StackLayout class="control-row">

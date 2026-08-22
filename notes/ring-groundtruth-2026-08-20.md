@@ -1,5 +1,11 @@
 # R1 ring ground truth: btsnoop + Even health export (2026-08-20)
 
+> **Historical decoding snapshot.** HR, SpO2, HRV, current-hour refresh,
+> activity, calories, and anchored daily persistence were implemented after this
+> note. Open evidence questions now concern sleep type-1/stage and absolute
+> timebase only. Session setup performs bounded allowlisted `healthEnable` and
+> `systemTime` writes; provisioning/ownership/NVM/DFU remain prohibited.
+
 **Status: verified.** A full btsnoop HCI capture of the Even app driving the R1
 ring, plus the Even app's own built-in health-data export, together pin down what
 the ring actually stores and at what resolution. This note is the decoder

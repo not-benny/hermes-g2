@@ -1,4 +1,5 @@
 import { Utils } from "@nativescript/core";
+import { isFirmwareFlashingEnabled } from "../g2/firmware-compat";
 
 declare const com: any;
 
@@ -79,6 +80,7 @@ export class FirmwareFlasher {
   }
 
   start(): void {
+    if (!isFirmwareFlashingEnabled()) throw new Error("Firmware flashing is release-disabled.");
     this.flasher.start();
   }
 
