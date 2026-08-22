@@ -227,7 +227,7 @@ class DashboardController {
   private lastSys = "none yet";
   private shellRenderInProgress = false;
   private shellRenderQueued = false;
-  private shellRenderPromise: Promise<void> | null = null;
+  private shellRenderPromise: Promise<{ frameId: number; outcome: string }> | null = null;
   private nextShellRenderWantsFreshData = false;
   // One shared worker per app hosts all its windows; spawned on first launch.
   private readonly appHosts = new Map<string, WorkerAppHost>();
@@ -1843,14 +1843,14 @@ class DashboardController {
     return this.requestShellDelivery().catch(() => undefined);
   }
 
-  /** Strict shell delivery used only by user-visible alert operations. */
-  private requestShellDelivery(isAllowed?: () => boolean): Promise<void> {
+  /** Strict shell delivery used only by user-visible remote operations. */
+  private requestShellDelivery(isAllowed?: () => boolean): Promise<{ frameId: number; outcome: string }> {
     if (isAllowed && !isAllowed()) return Promise.reject(new Error("The shell operation is no longer current."));
     if (this.shellRenderInProgress) {
       // Strict alert owners cannot share the ordinary coalesced receipt: a
       // replacement must receive its own frame completion and must not inherit
       // the predecessor's success or failure.
-      const prior = this.shellRenderPromise ?? Promise.resolve();
+      const prior = this.shellRenderPromise ?? Promise.resolve({ frameId: 0, outcome: "discarded: no render" });
       return prior.catch(() => undefined).then(() => {
         if (isAllowed && !isAllowed()) throw new Error("The shell operation is no longer current.");
         return this.requestShellDelivery(isAllowed);
@@ -1858,16 +1858,18 @@ class DashboardController {
     }
     this.shellRenderInProgress = true;
     this.shellRenderPromise = (async () => {
+      let receipt = { frameId: 0, outcome: "discarded: no render" };
       try {
         this.shellRenderQueued = false;
         if (isAllowed) {
-          await this.renderShell(isAllowed);
+          receipt = await this.renderShell(isAllowed);
         } else {
           do {
             this.shellRenderQueued = false;
-            await this.renderShell();
+            receipt = await this.renderShell();
           } while (this.shellRenderQueued);
         }
+        return receipt;
       } catch (error) {
         this.appendLog(`shell render failed: ${this.formatError(error)}`);
         throw error;
@@ -1883,7 +1885,8 @@ class DashboardController {
     return this.shellRenderPromise;
   }
 
-  private async renderShell(isAllowed?: () => boolean): Promise<void> {
+  private async renderShell(isAllowed?: () => boolean): Promise<{ frameId: number; outcome: string }> {
+    const requireSent = Boolean(isAllowed);
     const frameId = frameTimings.startFrame("render:shell");
     const wantFreshData = this.nextShellRenderWantsFreshData;
     this.nextShellRenderWantsFreshData = false;
@@ -1926,13 +1929,14 @@ class DashboardController {
       throw new Error("The glasses session changed while sending the alert frame.");
     }
     const outcome = await communicator.waitForFrameFinished(frameId, FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS);
-    if (isAllowed && !isSuccessfulFrameOutcome(outcome)) {
+    if (requireSent && !isSuccessfulFrameOutcome(outcome)) {
       throw new Error(`The alert frame was not delivered (${outcome ?? "receipt timeout"}).`);
     }
     if (this.communicator !== communicator || this.phase !== "connected") {
       throw new Error("The glasses session changed before the alert frame completed.");
     }
     this.updateCompositePreview();
+    return { frameId, outcome: outcome ?? "" };
   }
 
   private async handleWakeWord(keyword: string): Promise<void> {
@@ -2067,6 +2071,7 @@ class DashboardController {
 
   private setPhase(phase: ConnectionPhase): void {
     if (this.phase === phase) return;
+    if (phase === "disconnected") shell.closeDynamicApp();
     this.phase = phase;
     if (phase === "disconnected") {
       // Kept across "connecting": silent mode blocks app launches, so it can
