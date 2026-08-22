@@ -46,12 +46,14 @@ export const glassesMotionService = new MotionService({
 });
 
 let sessionGeneration = 0;
+let boundCommunicator: FaceclawCommunicatorBridge | null = null;
 
 export function bindGlassesMotionService(
   communicator: FaceclawCommunicatorBridge,
   deviceId: string,
 ): number {
   sessionGeneration++;
+  boundCommunicator = communicator;
   glassesMotionService.bind(communicator, {
     deviceId: opaqueDeviceId(deviceId),
     sessionGeneration,
@@ -59,7 +61,10 @@ export function bindGlassesMotionService(
   return sessionGeneration;
 }
 
-export function retireGlassesMotionSession(): void {
+export function retireGlassesMotionSession(expected?: FaceclawCommunicatorBridge | null): boolean {
+  if (expected && boundCommunicator !== expected) return false;
   sessionGeneration++;
   glassesMotionService.unbind();
+  boundCommunicator = null;
+  return true;
 }

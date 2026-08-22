@@ -193,6 +193,7 @@ class DashboardController {
   private static readonly MEDIA_CARD_DEBOUNCE_MS = 600;
 
   private communicator: FaceclawCommunicatorBridge | null = null;
+  private connectAttemptGeneration = 0;
   private shellRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private previewTimer: ReturnType<typeof setInterval> | null = null;
   private screenTimeoutTimer: ReturnType<typeof setInterval> | null = null;
@@ -979,10 +980,15 @@ class DashboardController {
     this.previewOrRenderAfterTextSettingChange();
   }
 
+  private isCurrentConnectAttempt(generation: number): boolean {
+    return generation === this.connectAttemptGeneration && this.phase === "connecting" && this.communicator === null;
+  }
+
   async connect(): Promise<void> {
     // Retained ownership is authoritative until Java positively completes
     // deferred worker and BLE cleanup.
     if (this.phase !== "disconnected" || this.communicator !== null) return;
+    const connectAttempt = ++this.connectAttemptGeneration;
 
     const addresses = loadDeviceAddresses();
     if (!addresses.right || !addresses.left) {
@@ -1019,6 +1025,7 @@ class DashboardController {
 
     try {
       await ensureBlePermissions();
+      if (!this.isCurrentConnectAttempt(connectAttempt)) return;
       startForegroundNotification("Connecting to the glasses");
       communicator = new FaceclawCommunicatorBridge({
         right: addresses.right,
@@ -1030,6 +1037,7 @@ class DashboardController {
         this.appendLog(line);
       });
       this.offState = communicator.onStateChange((state) => {
+        if (this.communicator !== communicator) return;
         const mappedPhase =
           state.phase === "connected"
             ? "connected"
@@ -1062,7 +1070,7 @@ class DashboardController {
           this.pushBrightness(true);
         }
         if (mappedPhase !== "connected") {
-          if (this.phase === "connected") retireGlassesMotionSession();
+          if (this.phase === "connected") retireGlassesMotionSession(communicator);
           this.motionSessionNeedsWarmReassert = false;
           // A wear snapshot is session-scoped. CFW reports a fresh value when
           // the transport comes back, so do not make lock decisions from a
@@ -1257,7 +1265,7 @@ class DashboardController {
       const message = this.formatError(error);
       // A connected callback may have bound motion before later setup failed.
       // Retire its generation before listeners or the communicator are closed.
-      retireGlassesMotionSession();
+      retireGlassesMotionSession(communicator);
       this.motionSessionNeedsWarmReassert = false;
       this.offState?.();
       this.offState = null;
@@ -1345,6 +1353,7 @@ class DashboardController {
   }
 
   async disconnect(): Promise<void> {
+    ++this.connectAttemptGeneration;
     this.clearEvenAppReleasePoll();
     if (this.phase === "disconnected") return;
 
@@ -1375,7 +1384,7 @@ class DashboardController {
     };
 
     const communicator = this.communicator;
-    retireGlassesMotionSession();
+    retireGlassesMotionSession(communicator);
     this.lockSurfaceConfigured = false;
     this.evenHubSessionSuspended = false;
     this.evenHubResumePromise = null;

@@ -112,7 +112,7 @@ function validCalibration(value: unknown, deviceId: string, nowMs: number): Moti
     candidate.schemaVersion !== 1 ||
     candidate.algorithmVersion !== "motion-v1" ||
     candidate.deviceId !== deviceId ||
-    !["poor", "fair", "good"].includes(String(candidate.quality)) ||
+    !["poor", "fair"].includes(String(candidate.quality)) ||
     !Number.isFinite(candidate.calibratedAtMs) ||
     !Number.isFinite(candidate.headingOffsetDegrees) ||
     candidate.calibratedAtMs! <= 0 ||

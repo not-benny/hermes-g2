@@ -222,6 +222,7 @@ test("restart rejects future, negative, expired, and impossible calibration meta
     { ...base, calibratedAtMs: now + 60_001 },
     { ...base, calibratedAtMs: 1 },
     { ...base, headingOffsetDegrees: 181 },
+    { ...base, quality: "good" },
   ]) {
     const service = new MotionService({ now: () => now, persistence: store(invalid) });
     service.bind(backend().source, { deviceId: "G2-A", sessionGeneration: 1 });

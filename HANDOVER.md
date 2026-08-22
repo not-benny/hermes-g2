@@ -68,10 +68,12 @@ Independent review of the first frozen candidate found and the final source fixe
 IMU shutdown/retry, exact native-generation delivery, connect-failure retirement,
 calibration-start provenance, sustained-turn reacquisition, timestamp/offset
 validation, verified-save ordering, raw-address persistence, and misleading
-wearer-alignment labels. Firmware completion can now establish at most `fair`
-sensor/neutral quality; without wearer alignment the UI remains approximate.
+wearer-alignment labels. A final review pass also closed overlapping-connect
+publication/retirement and rejected legacy persisted `good` quality. Firmware
+completion can now establish at most `fair` sensor/neutral quality; without
+wearer alignment the UI remains approximate.
 
-Final local verification passes 302/302 host tests, TypeScript typechecking,
+Final local verification passes 303/303 host tests, TypeScript typechecking,
 `git diff --check`, and the JDK 21 / Android SDK 35 debug build. On USB Samsung
 A32 with both G2 arms live on firmware 2.2.8.4, a cold process restart first
 logged the expected pre-ready IMU skip, then the warmed-session reassertion

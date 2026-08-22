@@ -20,7 +20,7 @@ test("apps consume the one shared service rather than controlling sensors direct
 test("dashboard binds motion to connected sessions and retires it before shutdown", () => {
   assert.match(controller, /bindGlassesMotionService\(communicator!, addresses\.right\)/);
   assert.match(controller, /handleScreenStateChanged\(on: boolean\)[\s\S]*?glassesMotionService\.setScreenOn\(on\)/);
-  const retire = controller.indexOf("retireGlassesMotionSession();", controller.indexOf("async disconnect"));
+  const retire = controller.indexOf("retireGlassesMotionSession(communicator);", controller.indexOf("async disconnect"));
   const shutdown = controller.indexOf("sendShutdown(0)", controller.indexOf("async disconnect"));
   assert.ok(retire > 0 && shutdown > retire, "sensor retirement must precede EvenHub shutdown");
 });
@@ -55,6 +55,14 @@ test("freshness polling repaints only when the truthful snapshot changes", () =>
 test("connect failure retires motion before closing its exact communicator", () => {
   const catchStart = controller.indexOf("} catch (error) {", controller.indexOf("async connect"));
   const close = controller.indexOf("communicator.close()", catchStart);
-  const retire = controller.indexOf("retireGlassesMotionSession();", catchStart);
+  const retire = controller.indexOf("retireGlassesMotionSession(communicator);", catchStart);
   assert.ok(retire > catchStart && retire < close);
+});
+
+test("overlapping connects cannot publish or retire another motion owner", () => {
+  assert.match(controller, /connectAttemptGeneration/);
+  assert.match(controller, /isCurrentConnectAttempt\(connectAttempt\)/);
+  assert.match(controller, /if \(this\.communicator !== communicator\) return/);
+  const adapter = read("app/native/glasses-motion-service.ts");
+  assert.match(adapter, /boundCommunicator !== expected/);
 });
