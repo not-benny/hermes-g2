@@ -60,6 +60,8 @@ final class ConnectionHealthTracker {
     private int staleWork;
     private int lockLatencyLatestMs;
     private int lockLatencyMaxMs;
+    private boolean g2AttemptSeen;
+    private boolean r1AttemptSeen;
 
     ConnectionHealthTracker(Clock clock) { this.clock = clock; }
 
@@ -86,8 +88,14 @@ final class ConnectionHealthTracker {
         retryAtMs = 0;
     }
 
-    synchronized void recordG2Attempt() { g2Reconnects = increment(g2Reconnects, 1); }
-    synchronized void recordR1Attempt() { r1Reconnects = increment(r1Reconnects, 1); }
+    synchronized void recordG2Attempt() {
+        if (g2AttemptSeen) g2Reconnects = increment(g2Reconnects, 1);
+        g2AttemptSeen = true;
+    }
+    synchronized void recordR1Attempt() {
+        if (r1AttemptSeen) r1Reconnects = increment(r1Reconnects, 1);
+        r1AttemptSeen = true;
+    }
     synchronized void recordAck() { recordAck(1); }
     synchronized void recordAck(long count) { acks = increment(acks, count); }
     synchronized void recordAckTimeout() { ackTimeouts = increment(ackTimeouts, 1); }

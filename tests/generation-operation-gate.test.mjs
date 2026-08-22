@@ -88,3 +88,17 @@ test("the display worker never performs optional R1 connect work", () => {
   assert.doesNotMatch(displayConnect, /tryConnectRing\(/);
   assert.match(displayConnect, /ringInterruptibleSleep\.interrupt\(\)/);
 });
+
+test("G2 arm loss retires the exact R1 session before allowing a reconnect", () => {
+  const communicator = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  const start = communicator.indexOf("public void onConnectionStateChange(String address, boolean connected)");
+  const end = communicator.indexOf("private int updateDirectRingConnectionStateLocked", start);
+  const stateChange = communicator.slice(start, end);
+  assert.match(stateChange, /ringConnected = false/);
+  assert.match(stateChange, /ringNotificationsReady = false/);
+  assert.ok(stateChange.indexOf("ringNotificationsReady = false") < stateChange.indexOf("invalidateRingPacketAckStateLocked()"));
+  assert.match(stateChange, /bleManager\.disconnect\(ringAddress\)/);
+});

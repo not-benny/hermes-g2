@@ -17,6 +17,7 @@ test("phone UI exposes independent redacted G2 and R1 connection health", () => 
   assert.match(page, /g2HealthStatus/);
   assert.match(page, /r1HealthStatus/);
   assert.match(page, /connectionDiagnostics/);
+  assert.match(viewModel, /G2 ACK/);
 });
 
 test("connection health wire parser fails closed and never accepts extra identifier fields", () => {

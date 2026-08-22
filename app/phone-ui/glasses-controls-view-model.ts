@@ -143,7 +143,7 @@ export class GlassesControlsViewModel extends Observable {
 
   get connectionDiagnostics(): string {
     const health = this._connectionHealth;
-    return `Reconnects G2 ${health.g2Reconnects} / R1 ${health.r1Reconnects} · ACK ${health.acks}`
+    return `Reconnects G2 ${health.g2Reconnects} / R1 ${health.r1Reconnects} · G2 ACK ${health.acks}`
       + ` (timeouts ${health.ackTimeouts}) · stale ${health.staleWork}`
       + ` · lock ${health.lockLatencyLatestMs}ms (max ${health.lockLatencyMaxMs}ms)`;
   }

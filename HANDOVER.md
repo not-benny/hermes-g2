@@ -66,10 +66,18 @@ runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
 Current reliability-candidate verification uses deterministic Java harnesses:
 the R1 state snapshot completes below 100 ms while synthetic BLE work is blocked,
 retirement rejects that completion, and the display worker source contract has no
-R1 connect call. The complete host suite passes 264/264, TypeScript typechecking
+R1 connect call. The complete host suite passes 265/265, TypeScript typechecking
 passes, and the JDK 21 / SDK 35 Android debug build passes. Two stale
 source-contract expectations that required the old blocking monitor design were
 replaced with generation-token and non-blocking-monitor assertions.
+
+The first frozen adversarial review found and blocked two issues: a G2 arm loss
+retired the R1 generation without retiring its ready flags/GATT, and diagnostics
+counted initial attempts as reconnects while mixing packetAck writes into the G2
+ACK population. The follow-up retires and disconnects the exact R1 lifecycle on
+arm/transport loss, makes reset/disconnect health transitions explicit, counts
+only replacement attempts as reconnects, labels the coherent G2 ACK population,
+and preserves timeout/protocol failure classes without exposing exception text.
 
 The debug APK installed/launched over USB on the authorised Samsung A32
 `RFCR707RQGV`. PID-filtered runtime evidence (PID 27349) shows a live two-arm G2

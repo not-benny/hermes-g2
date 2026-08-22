@@ -121,6 +121,13 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private interface RingManagerOperation<T> {
         T run();
     }
+    private static final class RingFailureException extends IllegalStateException {
+        final ConnectionHealthTracker.Failure failure;
+        RingFailureException(ConnectionHealthTracker.Failure failure) {
+            super(failure == null ? "transport" : failure.wire);
+            this.failure = failure == null ? ConnectionHealthTracker.Failure.TRANSPORT : failure;
+        }
+    }
     private final ArrayDeque<RingPacketAckCursor> ringPacketAckQueue = new ArrayDeque<>();
     // Written under ringLock. Volatile lets post-lock callback dispatch reject a
     // retired ring session without acquiring ringLock while it takes display state.
@@ -290,6 +297,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         this.rightAddress = requireAddress("rightAddress", rightAddress);
         this.leftAddress = requireAddress("leftAddress", leftAddress);
         this.ringAddress = ringAddress == null ? "" : ringAddress.trim();
+        connectionHealth.setR1State(hasRingAddress() ? "idle" : "not-configured");
         IntentFilter phoneLockFilter = new IntentFilter();
         phoneLockFilter.addAction(Intent.ACTION_SCREEN_ON);
         phoneLockFilter.addAction(Intent.ACTION_SCREEN_OFF);
@@ -1620,8 +1628,16 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
         if (armDisconnected) {
             synchronized (ringLock) {
+                ringConnected = false;
+                ringNotificationsReady = false;
+                ringBattery = -1;
+                ringHealthProbeSent = false;
+                connectionHealth.setR1State("retrying");
                 invalidateRingPacketAckStateLocked();
+                ringReconnectAfterMs = SystemClock.elapsedRealtime()
+                    + ConnectionOptions.RING_RECONNECT_DELAY_MS;
             }
+            if (hasRingAddress()) bleManager.disconnect(ringAddress);
         }
         interruptibleSleep.interrupt();
         ringInterruptibleSleep.interrupt();
@@ -1897,7 +1913,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         // Ring-specific SHORT timeouts limit retry latency on the optional worker.
         if (!withRingManagerOperation(RING_CONNECT_OPERATION,
                 () -> bleManager.connect(ringAddress, ConnectionOptions.RING_CONNECT_TIMEOUT_MS))) {
-            throw new IllegalStateException("connect failed: " + ringAddress);
+            throw new RingFailureException(ConnectionHealthTracker.Failure.TIMEOUT);
         }
 
         // Discover services FIRST (the step that fails for an absent ring). Only
@@ -1905,7 +1921,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         // attempt does not churn the arm connection interval on every retry.
         if (!withRingManagerOperation(RING_CONNECT_OPERATION,
                 () -> bleManager.discoverServices(ringAddress, ConnectionOptions.RING_SERVICES_TIMEOUT_MS))) {
-            throw new IllegalStateException("discoverServices failed: " + ringAddress);
+            throw new RingFailureException(ConnectionHealthTracker.Failure.TIMEOUT);
         }
 
         withRingManagerOperation(RING_CONNECT_OPERATION,
@@ -1920,7 +1936,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         boolean phoneNotify = enableRingNotification(BleProtocol.R1_PHONE_NOTIFY_CHAR_UUID);
         boolean dataNotify = enableRingNotification(BleProtocol.R1_NOTIFY_CHAR_UUID);
         if (!phoneNotify && !dataNotify) {
-            throw new IllegalStateException("no R1 notify characteristic subscribed");
+            throw new RingFailureException(ConnectionHealthTracker.Failure.PROTOCOL);
         }
 
         int generation;
@@ -1974,6 +1990,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private ConnectionHealthTracker.Failure classifyRingFailure(Throwable failure) {
+        if (failure instanceof RingFailureException) return ((RingFailureException) failure).failure;
         String type = failure == null ? "" : failure.getClass().getSimpleName().toLowerCase(Locale.US);
         if (type.contains("timeout")) return ConnectionHealthTracker.Failure.TIMEOUT;
         if (type.contains("busy")) return ConnectionHealthTracker.Failure.CONTENTION;
@@ -2219,10 +2236,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     /** packetAck is generation-bound without holding the state monitor through BLE I/O. */
     private void sendRingPacketAck(RingPacketAckCursor cursor) {
-        if (sendRingCommandForGeneration(cursor.generation,
-                "packetAck", 0x01, 0x00, 0x7e, 0x01, cursor.payload)) {
-            connectionHealth.recordAck();
-        }
+        sendRingCommandForGeneration(cursor.generation,
+            "packetAck", 0x01, 0x00, 0x7e, 0x01, cursor.payload);
     }
 
     private boolean isRingOperationAllowedLocked(int generation) {
@@ -3784,12 +3799,18 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             reconnectAfterMs = SystemClock.elapsedRealtime() + ConnectionOptions.RECONNECT_DELAY_MS;
         }
         synchronized (ringLock) {
+            ringConnected = false;
             ringNotificationsReady = false;
+            ringBattery = -1;
+            connectionHealth.setR1State("retrying");
             invalidateRingPacketAckStateLocked();
+            ringReconnectAfterMs = SystemClock.elapsedRealtime()
+                + ConnectionOptions.RING_RECONNECT_DELAY_MS;
         }
         // Avoid communicator-lock -> manager-lock inversion during callback dispatch.
         bleManager.disconnect(rightAddress);
         bleManager.disconnect(leftAddress);
+        if (hasRingAddress()) bleManager.disconnect(ringAddress);
         if (!userDisconnectRequested) {
             setStateDisplay("retrying", reason == null || reason.isEmpty() ? "Reconnecting..." : "Reconnecting after " + reason);
         }
@@ -3850,6 +3871,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         invalidateRingPacketAckStateLocked();
         ringReconnectAfterMs = 0;
         ringConsecutiveFailures = 0;
+        connectionHealth.setR1State(hasRingAddress() ? "idle" : "not-configured");
     }
 
     private void emitRingEvent(String kind, String containerName, int eventType, int eventSource, int systemExitReasonCode, int frameId) {

@@ -22,7 +22,9 @@ public final class ConnectionHealthTrackerHarness {
         require("connected".equals(first.g2State), "G2 remains independently connected");
         require("backoff".equals(first.r1State), "R1 enters backoff");
         require(first.r1RetryInMs == 300_000, "full countdown");
-        require(first.r1Reconnects == 1, "R1 reconnect counter");
+        require(first.r1Reconnects == 0, "initial R1 attempt is not mislabeled as a reconnect");
+        tracker.recordR1Attempt();
+        require(tracker.snapshot().r1Reconnects == 1, "replacement R1 attempt increments reconnects");
 
         clock.now = 299_250;
         require(tracker.snapshot().r1RetryInMs == 750, "countdown uses monotonic time");
