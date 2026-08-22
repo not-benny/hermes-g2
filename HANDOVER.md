@@ -108,6 +108,11 @@ covered deterministically by the restart persistence regression, not by a new
 overnight hardware observation. No pairing, ownership, provisioning, reset,
 wipe, firmware, DFU, OTA, or destructive operation was performed.
 
+PR [#50](https://github.com/not-benny/hermes-g2/pull/50) is open from
+`wt/t_facbf481` to canonical `main`. At delivered head
+`0f93012ff8181c71864acc7af532fbbaa44b0ca2`, `release-gate`,
+`codeql-javascript`, `codeql-java`, and aggregate `codeql` all passed.
+
 The earlier dynamic-app frozen candidate passed all 281 host tests, TypeScript
 typechecking, `git diff --check`, and the JDK 21 / Android SDK 35 build. Its
 195,407,092-byte debug APK has SHA-256
