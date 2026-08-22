@@ -19,16 +19,16 @@ Current as of 22 August 2026. `main` is the canonical branch.
 
 ### Repository and release
 
-- **IN PROGRESS — full audit remediation and protected release path (21 August
-  2026).** The candidate removes private-data logging, encrypts credential and
+- **DONE — full audit remediation and release path (21 August 2026).** The
+  merged implementation removes private-data logging, encrypts credential and
   token-bearing settings with verified Keystore migration/clear, makes calendar
   failures explicit, narrows foreground-service claims, disables unclosed
   WhatsApp production pairing, requires TLS for remote terminal transport,
   allowlists the R1 health-session boundary, hash-verifies native inputs, pins
   NDK/CMake/NativeScript, and adds permanent CI/CodeQL/Dependabot/SBOM/APK
-  verification. Local host/build/APK and authorised A32 upgrade/launch evidence
-  pass; GitHub review, CI, merge, and protection read-back are the remaining
-  delivery steps. See `docs/audit-remediation-2026-08-21.md` and
+  verification. Local host/build/APK and authorised A32 upgrade/launch evidence,
+  GitHub review, CI, and merge passed. Branch-protection APIs remain unavailable
+  on the private-repository plan. See `docs/audit-remediation-2026-08-21.md` and
   `docs/release-security.md`.
 
 - **DONE — history consolidation.** The original release history, reviewed
@@ -97,6 +97,19 @@ Current as of 22 August 2026. `main` is the canonical branch.
 - **DONE — turn and connection binding.** External calls require a live
   connection and exact claimed originating turn, or an explicitly gated
   proactive call. Disconnect and cancellation retire owned work.
+- **PARTIAL — generic dynamic glasses apps (22 August 2026).** A versioned,
+  provider-neutral rich view/action protocol now supports bounded lifecycle,
+  CAS update/patch/close, stable component IDs, acknowledged event cursors,
+  deterministic G2 rendering, and exact socket/turn/action ownership. The
+  Hermes-hosted reference runtime keeps Home Assistant credentials and entity
+  IDs server-side, discovers the Living Room at runtime, and permits only
+  revision-checked explicit light/switch target states with conservative
+  restoration. All 281 host tests, typecheck, and Android build pass. The exact
+  APK installed/launched on the A32 and established a live two-arm G2 session
+  with ordinary shell-frame transport ACKs. Dynamic-view/HA scroll and reversible
+  toggle evidence is still blocked by the missing authenticated WSS peer and
+  unavailable private HA credentials; no such result is inferred. See
+  `docs/dynamic-glasses-apps.md`.
 - **BLOCKED — public MCP/skill publication.** No public skill or untrusted remote
   rendering until authenticated `wss://` server identity, compatible licensed
   adapter, credentials, generic-client behaviour, mutation/privacy gates, and
