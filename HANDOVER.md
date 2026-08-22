@@ -18,10 +18,10 @@ deployment-local and outside the repository. The custom bridge protocol,
 bearer-token authentication, exact-turn guards, and proactive-action gates are
 unchanged. A real WSS hello/hello-ack
 smoke test passed. Host verification has 295 tests, TypeScript, Android build,
-and APK verification passing. The exact 195,145,053-byte debug APK has SHA-256
-`e7da7473ab632975fd743d5ddfd8149cc495a952ad03d58435adcd09e461acfe`.
+and APK verification passing. The exact 195,673,222-byte debug APK has SHA-256
+`5b5838a238f68daa0af131ccad5a12d79f8079f9f0336225423fdcbae68e476c`.
 Independent adversarial review of app commit
-`d0f32a29b9be8e15ad82f2ce430874435ec1f881` and bridge commit
+`0ce562a4370b784f8930cb5c7394cd9b4787b6e2` and bridge commit
 `fdd84de85c82706104428db3e7d0eacb91480b2a` returned static PASS and private,
 non-destructive deployment GO. Exact APK/Fold7/G2/R1 runtime verification is
 blocked by the currently unreachable Fold7 Teleport route. The preceding R1
