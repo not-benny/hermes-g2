@@ -15,9 +15,12 @@ on the baseline and are GREEN after implementation. The candidate is version
 installed and launched on an authorised Galaxy Z Fold7 SM-F966B (`q7q`),
 Android 16 / SDK 36. Read-only package and process checks reported the expected
 version and a live `com.faceclaw.app` PID. The phone was locked/Dozing, so there
-is no unlocked visual, physical fold-posture, rotation, tabletop, multi-window,
-or G2/R1 evidence for this candidate; none may be inferred from install/process
-proof. No pairing, provisioning, permission, firmware, wake, or unlock action
+is no unlocked Hermes-phone visual, physical fold-posture transition, rotation,
+tabletop, or multi-window evidence for this candidate; none may be inferred from
+install/process proof. After Bluetooth was enabled, the app connected both G2
+arms and logged `session ready`; the direct R1 BLE session also connected. Benny
+observed that the ring was not shown on the glasses HUD, so no R1-HUD success is
+claimed. No pairing, provisioning, permission, firmware, wake, or unlock action
 was performed.
 
 ## Repository state

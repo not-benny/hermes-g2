@@ -42,6 +42,8 @@ existing G2 compositor or stock 288px window-band contract.
 - Emulator screenshots: best effort when a usable AVD exists.
 - Physical Galaxy Z Fold7 install/launch/process: passed for the exact debug APK
   on an authorised SM-F966B (`q7q`) running Android 16 / SDK 36.
-- Unlocked visual, physical fold-posture, rotation, tabletop, multi-window, and
-  G2/R1 testing: not observed because the phone remained locked/Dozing. Install
-  and process proof must not be inflated into those missing hardware claims.
+- Both G2 arms reached session ready and direct R1 BLE connected after Bluetooth
+  was enabled. The owner observed no R1 indicator on the glasses HUD.
+- Unlocked Hermes-phone visual, physical fold-posture transition, rotation,
+  tabletop, and multi-window testing: not observed. Install/process and BLE
+  session proof must not be inflated into those missing hardware claims.

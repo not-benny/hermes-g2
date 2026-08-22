@@ -29,8 +29,10 @@ multi-window changes, bounds wide-screen forms, keeps 48dp touch targets, and
 uses Android's edge-to-edge-aware NativeScript 9 runtime. The APK is arm64-only
 and 16 KiB page-size verified. The exact preview APK was installed, launched,
 and observed as a live process on an SM-F966B running Android 16. Because the
-device remained locked/Dozing, unlocked visual behavior and physical fold,
-rotation, tabletop, multi-window, and G2/R1 behavior remain unverified.
+initial install observation was locked/Dozing; later both G2 arms reached session
+ready and the direct R1 BLE session connected. Unlocked Hermes-phone visual
+behavior and physical fold transitions, rotation, tabletop, and multi-window
+remain unverified, and the owner observed no R1 indicator on the glasses HUD.
 
 ## Before you start
 

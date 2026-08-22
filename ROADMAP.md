@@ -14,8 +14,10 @@ Current as of 22 August 2026. `main` is the canonical branch.
   scaling and 48dp controls, and retains the existing G2 compositor contract.
   Host fixture, build, APK, ABI, signing, and 16 KiB evidence are required for
   publication. The exact debug APK installed and ran as a live process on an
-  SM-F966B with Android 16, but the locked/Dozing device provides no unlocked
-  visual, fold-posture, rotation, tabletop, multi-window, or G2/R1 proof.
+  SM-F966B with Android 16. Both G2 arms later reached session ready and direct
+  R1 BLE connected, but no R1 HUD indicator was visible. Unlocked Hermes-phone
+  visual, physical fold-transition, rotation, tabletop, and multi-window proof
+  remains blocked.
 
 - **DONE — full audit remediation and release path (21 August 2026).** The
   merged PR #28 implementation removes private-data logging, encrypts credential
