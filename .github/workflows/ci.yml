@@ -38,7 +38,9 @@ jobs:
           java-version: '21'
           cache: gradle
       - name: Install locked dependencies
-        run: npm ci
+        run: |
+          npm ci
+          npm --prefix App_Resources/Android/whatsapp-node ci --omit=dev --omit=optional --ignore-scripts
       - name: Host tests and private-data log sentinels
         run: npm test
       - name: Typecheck

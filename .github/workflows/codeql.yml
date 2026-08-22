@@ -9,14 +9,33 @@ on:
     - cron: '17 4 * * 2'
 
 permissions:
+  actions: read
   contents: read
+  pull-requests: read
   security-events: write
 
 jobs:
-  analyze:
-    name: codeql
+  javascript:
+    name: codeql-javascript
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
+        with:
+          languages: javascript-typescript
+          build-mode: none
+      - uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
+        with:
+          category: /language:javascript-typescript
+
+  java:
+    name: codeql-java
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -27,12 +46,24 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: github/codeql-action/init@42947a340483f03ba47bb1a039b2c519aab3df85
+      - uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
         with:
-          languages: javascript-typescript,java-kotlin
+          languages: java-kotlin
           build-mode: manual
       - run: npm ci
       - run: npm run build
-      - uses: github/codeql-action/analyze@42947a340483f03ba47bb1a039b2c519aab3df85
+      - uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
         with:
-          category: /language:combined
+          category: /language:java-kotlin
+
+  complete:
+    name: codeql
+    if: always()
+    needs: [javascript, java]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require both language analyses
+        env:
+          JAVASCRIPT_RESULT: ${{ needs.javascript.result }}
+          JAVA_RESULT: ${{ needs.java.result }}
+        run: test "$JAVASCRIPT_RESULT" = success && test "$JAVA_RESULT" = success
