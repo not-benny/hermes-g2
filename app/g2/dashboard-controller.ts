@@ -1,6 +1,6 @@
 import { Application, ImageSource } from "@nativescript/core";
 import { EvenAIStatus, EvenAIStatusName, EventSourceType, EventSourceTypeName, OsEventTypeList, OsEventTypeName } from "./events";
-import { loadDeviceAddresses } from "./device-addresses";
+import { isValidMacAddress, loadDeviceAddresses } from "./device-addresses";
 import { ensureBlePermissions, ensureVoicePermissions } from "./android-permissions";
 import { FaceclawCommunicatorBridge, type RawInputEvent, type RingConnectionState } from "../native/faceclaw-communicator";
 import * as frameTimings from "../native/frame-timings";
@@ -976,6 +976,7 @@ class DashboardController {
     if (this.phase !== "disconnected" || this.communicator !== null) return;
 
     const addresses = loadDeviceAddresses();
+    shell.setRingConfigured(isValidMacAddress(addresses.ring));
     if (!addresses.right || !addresses.left) {
       const message = "Configure both left and right arm MAC addresses before connecting.";
       this.setPhase("disconnected");
@@ -1087,6 +1088,9 @@ class DashboardController {
       });
       this.offBattery = communicator.onBatteryState((state) => {
         this.lastHeadsetBattery = state.battery >= 0 ? state.battery : null;
+        if (state.ringBattery >= 0) {
+          ringHealthStore.updateBatteryPercent(state.ringBattery);
+        }
         shell.setBatteryLevels({
           headset: state.battery,
           headsetCharging: state.chargingStatus > 0,

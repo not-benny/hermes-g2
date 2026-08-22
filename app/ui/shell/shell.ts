@@ -247,6 +247,8 @@ class Shell {
     ring: null,
     ringCharging: null,
   };
+  /** A configured R1 stays visible in the HUD even while its battery is unknown. */
+  private ringConfigured = false;
   private attention = new Map<string, boolean>();
   // App-provided top-bar tray icons, keyed by owner id; drawn between the
   // notification icons and the battery indicators.
@@ -468,6 +470,12 @@ class Shell {
     const next = bpm !== null && Number.isFinite(bpm) ? Math.round(bpm) : null;
     if (next === this.ringHeartRate) return;
     this.ringHeartRate = next;
+    this.config.requestShellRender();
+  }
+
+  setRingConfigured(configured: boolean): void {
+    if (configured === this.ringConfigured) return;
+    this.ringConfigured = configured;
     this.config.requestShellRender();
   }
 
@@ -714,6 +722,17 @@ class Shell {
     // stream moved on), so the escape countdown stops.
     if (event.type !== "long-press") {
       this.cancelEscapeMenuTimer();
+    }
+
+    // A sleeping long-press is push-to-talk for the assistant. Route it before
+    // the generic screen-off short circuit; the matching release below ends
+    // capture. The master voice switch remains authoritative.
+    if (!this.screenOn && event.type === "long-press" && voiceControlEnabledSetting.get()) {
+      this.wake("sidebar");
+      if (!this.activeVoiceLayer) {
+        this.openVoiceDialog({ defaultTarget: "assistant" });
+      }
+      return { shell: true, window: false };
     }
 
     if (!this.screenOn) {
@@ -1507,6 +1526,7 @@ class Shell {
       focus: this.focus,
       sidebarBounceY: this.sidebarBounce.offsetPx(),
       closing: this.closingActive,
+      ringConfigured: this.ringConfigured,
       ...this.reorderChromeState(),
       foregroundHeightMode: this.foregroundWindow()?.heightMode ?? "min",
       battery: this.battery,

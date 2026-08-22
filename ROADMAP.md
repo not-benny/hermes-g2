@@ -8,6 +8,16 @@ Current as of 22 August 2026. `main` is the canonical branch.
 
 ### Repository and release
 
+- **IMPLEMENTED / EXACT HARDWARE VALIDATION PENDING — sleep voice, HUD signal/R1, and WSS bridge (22 August 2026).**
+  A sleeping R1 long-press now wakes directly into assistant push-to-talk;
+  quick-close mode names its controls; the HUD adds phone signal and keeps a
+  configured R1 visible while battery is unknown. Battery requests precede rich
+  history and both standard-GATT/protocol values feed Health and HUD. The private
+  Hermes bridge now has a certificate-validated WSS deployment with its private
+  key outside the repository. Host tests and a real WSS handshake pass; exact
+  APK/Fold7/G2/R1 visual, gesture, signal-level, battery-response, and assistant
+  turn evidence remains required.
+
 - **IMPLEMENTED / FOLD7 VISUAL AND POSTURE VALIDATION BLOCKED — foldable phone UI (22 August 2026).**
   Preview 2 removes the portrait lock, handles live cover/unfolded/rotation/
   tabletop/multi-window bounds, bounds wide content, preserves platform font

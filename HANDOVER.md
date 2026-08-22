@@ -1,5 +1,26 @@
 # Hermes G2 handover — 22 August 2026
 
+## Gesture, HUD, R1 battery, and Hermes bridge follow-up
+
+Work on stacked branch `feat/gesture-signal-ring` adds sleeping R1 long-press
+push-to-talk for the assistant, an explicit quick-close instruction bar, bounded
+phone cellular-signal bars, and a persistent configured-R1 HUD identity that
+shows `--` until a battery value is known. R1 `deviceStatus` battery is requested
+before rich history traffic, and either standard-GATT or protocol battery values
+feed the same Health/HUD store. The existing generation, command allowlist,
+pairing/provisioning, firmware, and destructive-operation gates are unchanged.
+
+The Hermes `even-g2` gateway bridge now serves certificate-validated WSS on its
+dedicated private-tunnel endpoint. The app bundles only the private CA public
+certificate; the CA/server private keys remain deployment-local and outside the
+repository. The custom bridge protocol, bearer-token authentication, exact-turn
+guards, and proactive-action gates are unchanged. A real WSS hello/hello-ack
+smoke test passed. Host verification has 295 tests and TypeScript passing;
+exact APK/Fold7/G2/R1 runtime verification is still pending. The current R1
+session accepted battery GET writes but emitted no notify frames during the
+observation window, so an actual battery percentage remains operationally
+unproved until the exact candidate reconnects with exclusive R1 access.
+
 ## Fold7 development-preview candidate
 
 Work on `feat/fold7-compat` from canonical baseline

@@ -2098,6 +2098,12 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             logLine("ring systemTime SET best-effort; write failures are logged; continuing health poll");
             if (!ringProbeGap(generation)) return;
         }
+        // Read battery before rich history traffic so it is not delayed behind
+        // multi-packet daily batches. module=system(1), cmd=system(0),
+        // subCmd=deviceStatus(1); status=3 response carries percent in data[0].
+        if (!sendRingCommandForGeneration(generation,
+                "deviceStatus GET (battery)", 0x01, 0x00, 0x01, 0x00, null)) return;
+        if (!ringProbeGap(generation)) return;
         // Health data GETs (re-fired every poll): module=health(2), subCmd=daily(1),
         // status=req, no payload. cmd: heartRate=1 spo2=2 hrv=4 activity=5 sleep=6.
         // Temperature (cmd 3) is RESERVED - the ring skips it - so it is not requested.
@@ -2115,11 +2121,6 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (!ringProbeGap(generation)) return;
         if (!sendRingCommandForGeneration(generation,
                 "sleep/daily GET", 0x02, 0x06, 0x01, 0x00, null)) return;
-        if (!ringProbeGap(generation)) return;
-        // deviceStatus GET: module=system(1), cmd=system(0), subCmd=deviceStatus(1).
-        // The status=3 response carries the ring battery percent in data[0].
-        if (!sendRingCommandForGeneration(generation,
-                "deviceStatus GET (battery)", 0x01, 0x00, 0x01, 0x00, null)) return;
         logLine("ring health poll SENT — watch bae80013 for decoded FRAME replies (raw= hex)");
     }
 

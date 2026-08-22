@@ -165,6 +165,18 @@ export class RingHealthStore {
     return () => this.listeners.delete(listener);
   }
 
+  /** Share a validated battery reading from either standard GATT or deviceStatus. */
+  updateBatteryPercent(percent: number): void {
+    if (!Number.isInteger(percent) || percent < 0 || percent > 100) return;
+    if (this.snapshotState.batteryPercent === percent) return;
+    this.snapshotState = {
+      ...this.snapshotState,
+      batteryPercent: percent,
+      updatedAtMs: this.nowMs(),
+    };
+    this.emit();
+  }
+
   /** Drop pending fragments and decoded values (ring unpaired / new session). */
   reset(): void {
     this.pending.clear();
@@ -225,14 +237,7 @@ export class RingHealthStore {
     if (parsed.module === MODULE_SYSTEM) {
       if (parsed.cmd === CMD_SYSTEM && parsed.subCmd === SUBCMD_DEVICE_STATUS) {
         const percent = decodeRingBattery(parsed.data);
-        if (percent >= 0 && percent <= 100) {
-          this.snapshotState = {
-            ...this.snapshotState,
-            batteryPercent: percent,
-            updatedAtMs: this.nowMs(),
-          };
-          this.emit();
-        }
+        this.updateBatteryPercent(percent);
       } else if (
         parsed.cmd === CMD_SYSTEM &&
         parsed.subCmd === SUBCMD_DEVICE_INFO &&
