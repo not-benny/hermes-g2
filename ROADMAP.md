@@ -93,6 +93,25 @@ Current as of 22 August 2026. `main` is the canonical branch.
 
 ### Connection and lifecycle reliability
 
+- **PARTIAL — shared IMU/compass calibration service (22 August 2026).** One
+  generation-bound owner now arbitrates multi-app sensor demand/rate, stops on
+  screen-off/final release, rejects stale/outlier/interference-like samples,
+  derives bounded level/posture state, and persists only versioned
+  opaque-device-bound calibration quality/neutral metadata. Compass and accelerometer UI expire
+  stale values and label uncertain results. All 303 tests, typecheck and Android
+  build pass. USB A32/G2 evidence proves warmed-session IMU/compass enable ACKs,
+  eight accepted motion samples, prompt dual disable ACKs, and no continuing
+  repaint stream after stop. The resting/off-head G2 emitted no heading or
+  calibration-complete event. A follow-up worn run then proved live `188° S`,
+  level and 54 accepted samples but still no firmware calibration events. Compass
+  now exposes a bounded local start/cancel workflow that sends no BLE command,
+  requires filtered heading coverage plus level-neutral IMU evidence, persists
+  only `poor` summary quality, and fails closed across timeout/session/restart;
+  firmware start/complete remains a separate at-most-`fair` path. Host lifecycle
+  and 576×288 viewport coverage pass, but exact-candidate hardware validation and
+  a meaningful battery delta remain unproven. Repeat the local flow while
+  worn/moving in a serialized hardware window before marking DONE.
+
 - **DONE — startup connection race.** A delayed constructor-time disconnected
   snapshot can no longer release a newly connecting communicator. Retained
   ownership remains authoritative until exact teardown completion.

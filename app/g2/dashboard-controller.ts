@@ -40,6 +40,11 @@ import { type LayerActions } from "../ui/layers";
 import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, resolveAssistantBridgePort, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "../native/battery-optimization";
 import { shouldFinalizeCommunicatorClose, type DashboardConnectionPhase } from "./connection-state-lifecycle";
+import {
+  bindGlassesMotionService,
+  glassesMotionService,
+  retireGlassesMotionSession,
+} from "../native/glasses-motion-service";
 
 type ConnectionPhase = DashboardConnectionPhase;
 
@@ -193,6 +198,7 @@ class DashboardController {
   private static readonly MEDIA_CARD_DEBOUNCE_MS = 600;
 
   private communicator: FaceclawCommunicatorBridge | null = null;
+  private connectAttemptGeneration = 0;
   private shellRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private previewTimer: ReturnType<typeof setInterval> | null = null;
   private screenTimeoutTimer: ReturnType<typeof setInterval> | null = null;
@@ -221,6 +227,7 @@ class DashboardController {
   private offEvenAppConflict: (() => void) | null = null;
   private offFrameMetrics: (() => void) | null = null;
   private offFirmwareInfo: (() => void) | null = null;
+  private motionSessionNeedsWarmReassert = false;
   private offVoiceStatus: (() => void) | null = null;
   private offVoiceWakeWord: (() => void) | null = null;
   private offAndroidNotification: (() => void) | null = null;
@@ -393,6 +400,9 @@ class DashboardController {
   }
 
   private handleScreenStateChanged(on: boolean): void {
+    // Sensor ownership follows the shell state synchronously, before any
+    // delayed compositor/session work can run.
+    glassesMotionService.setScreenOn(on);
     if (on) {
       this.cancelEvenHubSuspendTimer();
       void this.ensureEvenHubSessionActive().catch((error) => {
@@ -984,10 +994,15 @@ class DashboardController {
     this.previewOrRenderAfterTextSettingChange();
   }
 
+  private isCurrentConnectAttempt(generation: number): boolean {
+    return generation === this.connectAttemptGeneration && this.phase === "connecting" && this.communicator === null;
+  }
+
   async connect(): Promise<void> {
     // Retained ownership is authoritative until Java positively completes
     // deferred worker and BLE cleanup.
     if (this.phase !== "disconnected" || this.communicator !== null) return;
+    const connectAttempt = ++this.connectAttemptGeneration;
 
     const addresses = loadDeviceAddresses();
     shell.setRingConfigured(isValidMacAddress(addresses.ring));
@@ -1025,6 +1040,7 @@ class DashboardController {
 
     try {
       await ensureBlePermissions();
+      if (!this.isCurrentConnectAttempt(connectAttempt)) return;
       startForegroundNotification("Connecting to the glasses");
       communicator = new FaceclawCommunicatorBridge({
         right: addresses.right,
@@ -1036,6 +1052,7 @@ class DashboardController {
         this.appendLog(line);
       });
       this.offState = communicator.onStateChange((state) => {
+        if (this.communicator !== communicator) return;
         const mappedPhase =
           state.phase === "connected"
             ? "connected"
@@ -1052,6 +1069,9 @@ class DashboardController {
           void this.communicator?.setG2ScreenOn(false).catch(() => {});
         }
         if (mappedPhase === "connected" && this.phase !== "connected") {
+          bindGlassesMotionService(communicator!, addresses.right);
+          glassesMotionService.setScreenOn(shell.isScreenOn());
+          this.motionSessionNeedsWarmReassert = true;
           // A transport reconnect starts with a live EvenHub lifecycle again;
           // if the shell is asleep, begin a fresh five-second grace period.
           this.evenHubSessionSuspended = false;
@@ -1065,6 +1085,8 @@ class DashboardController {
           this.pushBrightness(true);
         }
         if (mappedPhase !== "connected") {
+          if (this.phase === "connected") retireGlassesMotionSession(communicator);
+          this.motionSessionNeedsWarmReassert = false;
           // A wear snapshot is session-scoped. CFW reports a fresh value when
           // the transport comes back, so do not make lock decisions from a
           // stale pre-disconnect value in the meantime.
@@ -1144,6 +1166,10 @@ class DashboardController {
         this.emit();
       });
       this.offFrameMetrics = communicator.onFrameMetrics(() => {
+        if (this.motionSessionNeedsWarmReassert) {
+          this.motionSessionNeedsWarmReassert = false;
+          glassesMotionService.reassertSourceState();
+        }
         if (this.phase === "connected") {
           this.setStatus("Connected.");
           // A rendered frame means the session is warmed up (fixedLayoutCreated),
@@ -1258,6 +1284,10 @@ class DashboardController {
       }, SCREEN_TIMEOUT_CHECK_MS);
     } catch (error) {
       const message = this.formatError(error);
+      // A connected callback may have bound motion before later setup failed.
+      // Retire its generation before listeners or the communicator are closed.
+      retireGlassesMotionSession(communicator);
+      this.motionSessionNeedsWarmReassert = false;
       this.offState?.();
       this.offState = null;
       this.offLog?.();
@@ -1344,6 +1374,7 @@ class DashboardController {
   }
 
   async disconnect(): Promise<void> {
+    ++this.connectAttemptGeneration;
     this.clearEvenAppReleasePoll();
     if (this.phase === "disconnected") return;
 
@@ -1374,6 +1405,7 @@ class DashboardController {
     };
 
     const communicator = this.communicator;
+    retireGlassesMotionSession(communicator);
     this.lockSurfaceConfigured = false;
     this.evenHubSessionSuspended = false;
     this.evenHubResumePromise = null;

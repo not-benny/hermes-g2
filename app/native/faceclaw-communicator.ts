@@ -66,6 +66,9 @@ export type FirmwareInfo = {
   capabilities: string;
 };
 
+export type ImuReading = { x: number; y: number; z: number; source: number };
+export type CompassEvent = { command: number; headingDegrees: number };
+
 export type WakeBarrierCompletion = {
   requestToken: number;
   success: boolean;
@@ -197,6 +200,12 @@ export class FaceclawCommunicatorBridge {
   private readonly evenAppConflictListeners = new Set<(message: string) => void>();
   private readonly frameMetricsListeners = new Set<(metrics: FrameMetrics) => void>();
   private readonly firmwareInfoListeners = new Set<(info: FirmwareInfo) => void>();
+  private readonly imuListeners = new Set<(reading: ImuReading) => void>();
+  private readonly compassListeners = new Set<(event: CompassEvent) => void>();
+  private readonly imuProxy: any;
+  private readonly compassProxy: any;
+  private imuControlRevision = 0;
+  private compassControlRevision = 0;
 
   constructor(addresses: { right: string; left: string; ring?: string }) {
     const context = Utils.android.getApplicationContext();
@@ -291,6 +300,26 @@ export class FaceclawCommunicatorBridge {
       },
     });
     this.communicator.setListener(this.listenerProxy);
+    this.imuProxy = new com.faceclaw.app.FaceclawImuListener({
+      onImuData: (x: number, y: number, z: number, source: number) => {
+        this.emitAsync(this.imuListeners, {
+          x: Number(x),
+          y: Number(y),
+          z: Number(z),
+          source: Number(source),
+        });
+      },
+    });
+    this.compassProxy = new com.faceclaw.app.FaceclawCompassListener({
+      onCompassEvent: (command: number, headingDegrees: number) => {
+        this.emitAsync(this.compassListeners, {
+          command: Number(command),
+          headingDegrees: Number(headingDegrees),
+        });
+      },
+    });
+    this.communicator.addImuListener(this.imuProxy);
+    this.communicator.addCompassListener(this.compassProxy);
   }
 
   private emitAsync<T>(listeners: Set<(value: T) => void>, value: T): void {
@@ -408,6 +437,34 @@ export class FaceclawCommunicatorBridge {
   onFirmwareInfo(listener: (info: FirmwareInfo) => void): () => void {
     this.firmwareInfoListeners.add(listener);
     return () => this.firmwareInfoListeners.delete(listener);
+  }
+
+  onImu(listener: (reading: ImuReading) => void): () => void {
+    this.imuListeners.add(listener);
+    return () => this.imuListeners.delete(listener);
+  }
+
+  onCompass(listener: (event: CompassEvent) => void): () => void {
+    this.compassListeners.add(listener);
+    return () => this.compassListeners.delete(listener);
+  }
+
+  /** Coalesced exact-instance control: stale queued revisions never reach Java. */
+  setImuEnabled(enabled: boolean, paceCode: number): void {
+    const revision = ++this.imuControlRevision;
+    void this.enqueueJavaCall(() => {
+      if (revision !== this.imuControlRevision) return;
+      this.communicator.setImuReportEnabled(Boolean(enabled), Math.max(0, Math.round(paceCode)));
+    }).catch((error) => console.warn(`IMU control failed: ${error}`));
+  }
+
+  /** Coalesced exact-instance control: stale queued revisions never reach Java. */
+  setCompassEnabled(enabled: boolean): void {
+    const revision = ++this.compassControlRevision;
+    void this.enqueueJavaCall(() => {
+      if (revision !== this.compassControlRevision) return;
+      this.communicator.setCompassEnabled(Boolean(enabled));
+    }).catch((error) => console.warn(`compass control failed: ${error}`));
   }
 
   getNativeCommunicator(): any {
@@ -700,6 +757,12 @@ export class FaceclawCommunicatorBridge {
   }
 
   async close(): Promise<boolean> {
+    ++this.imuControlRevision;
+    ++this.compassControlRevision;
+    this.imuListeners.clear();
+    this.compassListeners.clear();
+    try { this.communicator.removeImuListener(this.imuProxy); } catch {}
+    try { this.communicator.removeCompassListener(this.compassProxy); } catch {}
     return this.enqueueJavaCall(() => Boolean(this.communicator.close()));
   }
 }
