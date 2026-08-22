@@ -28,7 +28,8 @@ Do not resume work from the old `hermes-g2`, `integration/`, `work/`, `wt/`,
 ### Notification triage candidate (22 August 2026)
 
 Branch `feat/notification-priority-digests` is based on canonical
-`main@f02d8f88bb44e147dad213e36a2ab16ad304aebe`. It adds a local-only pure
+`main@2fefac9c3895ebc6c61b003b4c2bb87f5480d6fb` after the final upstream
+merge. It adds a local-only pure
 notification reducer with sender/channel/category/app/default precedence;
 urgent/immediate/digest/mute routing; quiet hours; deduplication, cooldown and
 global/per-app caps; fair bounded digest selection; same-key replacement; Android
@@ -43,10 +44,10 @@ for the existing active set. Android removal prunes Hermes state. The production
 external icon-debug dump and package/icon detail logging were removed. Detailed
 behavior and rollback are in `docs/notification-triage.md`.
 
-Current evidence: focused notification policy/integration tests pass 8/8; the full
-host suite passes 267/267; TypeScript typecheck passes; JDK 21 / SDK 35 Android
+Current evidence: focused notification policy/integration tests pass 8/8; the final
+post-merge host suite passes 289/289; TypeScript typecheck passes; JDK 21 / SDK 35 Android
 build passes after replacing an unavailable MessagingStyle extraction call with
-the public recovered-builder API. Six adversarial review passes drove API-24,
+the public recovered-builder API. Seven adversarial review passes drove API-24,
 privacy bounds, queued deduplication, revision/tombstone identity, delivery receipt,
 scheduler lifetime, modal cleanup, input-index and concurrent-presentation fixes;
 the final staged-diff verdict has no security or logic blockers. The candidate APK
