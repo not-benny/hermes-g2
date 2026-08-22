@@ -114,6 +114,8 @@ public final class EndOfUtteranceDetectorHarness {
         segments(100, 300, 1200, 300, 100, 500, 1200, 300, 100, 900));
     expect("short transient is not speech", EndOfUtteranceDetector.Result.NO_SPEECH,
         segments(100, 300, 2000, 100, 100, 5600));
+    expect("speech below the minimum is not accepted", EndOfUtteranceDetector.Result.NO_SPEECH,
+        segments(100, 300, 1200, 220, 100, 5480));
     expect("onset spike is ignored", EndOfUtteranceDetector.Result.NO_SPEECH,
         segments(100, 300, 2000, 40, 100, 5660));
     expect("maximum utterance", EndOfUtteranceDetector.Result.MAX_UTTERANCE,

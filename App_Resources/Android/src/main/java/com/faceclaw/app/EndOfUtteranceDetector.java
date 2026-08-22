@@ -202,6 +202,7 @@ final class EndOfUtteranceDetector {
         }
         double onsetThreshold = Math.max(config.absoluteOnsetRms, noiseFloor * config.onsetNoiseFactor);
         double releaseThreshold = Math.max(config.absoluteReleaseRms, noiseFloor * config.releaseNoiseFactor);
+        boolean onsetConfirmedThisFrame = false;
 
         if (!speaking) {
             if (rms >= onsetThreshold) {
@@ -213,6 +214,7 @@ final class EndOfUtteranceDetector {
                 activeSpeechSamples += frameSamples;
                 if (samplesToMs(onsetSamples) >= config.onsetHoldMs) {
                     speaking = true;
+                    onsetConfirmedThisFrame = true;
                     trailingSamples = 0;
                 }
             } else if (bootstrapCandidateSamples > 0
@@ -237,7 +239,7 @@ final class EndOfUtteranceDetector {
         }
 
         if (rms >= releaseThreshold) {
-            activeSpeechSamples += frameSamples;
+            if (!onsetConfirmedThisFrame) activeSpeechSamples += frameSamples;
             trailingSamples = 0;
         } else {
             trailingSamples += frameSamples;
