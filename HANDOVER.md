@@ -38,7 +38,15 @@ frozen-SHA adversarial review found hostile-object containment, unchecked
 SharedPreferences persistence, teardown exception safety, initial screen state,
 finite request-budget, timer-status, and package-identity blockers. Those were
 fixed with regression coverage; final frozen-SHA re-review, PR/CI and remote
-readback remain pending.
+readback were then completed. Independent final review of frozen implementation
+SHA `88d06d66b95862e4ad271a81131c57ad6d838450` returned **Static review: PASS**
+and **Licensing: PASS** while keeping **Operational authorization: NO-GO** for
+missing real-G2 evidence. PR
+[#43](https://github.com/not-benny/hermes-g2/pull/43) targets `main`; its reviewed
+implementation head, 17-file scope, open state and body were read back exactly,
+and `release-gate`, `codeql-javascript`, `codeql-java`, and aggregate `codeql`
+all passed. This handover-only follow-up records those results; no implementation
+or operational authorization changed.
 
 Store-backed installation, EHPK parsing/extraction, arbitrary packages, WebView,
 network, API keys, sensors, background apps, assistant tools and firmware
