@@ -78,6 +78,10 @@ ACK population. The follow-up retires and disconnects the exact R1 lifecycle on
 arm/transport loss, makes reset/disconnect health transitions explicit, counts
 only replacement attempts as reconnects, labels the coherent G2 ACK population,
 and preserves timeout/protocol failure classes without exposing exception text.
+The second review found three remaining diagnostic reset inconsistencies; organic
+R1 disconnect now publishes a bounded transport backoff, no-address arm/transport
+loss remains `not-configured`, and idle/not-configured resets clear stale failure
+and countdown fields.
 
 The debug APK installed/launched over USB on the authorised Samsung A32
 `RFCR707RQGV`. PID-filtered runtime evidence (PID 27349) shows a live two-arm G2

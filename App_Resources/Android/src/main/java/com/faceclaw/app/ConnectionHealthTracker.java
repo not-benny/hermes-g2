@@ -71,7 +71,8 @@ final class ConnectionHealthTracker {
 
     synchronized void setR1State(String state) {
         r1State = safeState(state, "idle");
-        if ("ready".equals(r1State)) {
+        if ("ready".equals(r1State) || "idle".equals(r1State)
+                || "not-configured".equals(r1State)) {
             failure = Failure.NONE;
             retryAtMs = 0;
         }

@@ -34,6 +34,12 @@ public final class ConnectionHealthTrackerHarness {
         require(retry.r1RetryInMs == 0, "explicit retry clears countdown");
         require("connected".equals(retry.g2State), "explicit R1 retry does not mutate G2");
 
+        tracker.setR1Backoff(ConnectionHealthTracker.Failure.TRANSPORT, 5_000);
+        tracker.setR1State("idle");
+        ConnectionHealthTracker.Snapshot idle = tracker.snapshot();
+        require("none".equals(idle.failure) && idle.r1RetryInMs == 0,
+            "idle reset clears stale failure and countdown");
+
         tracker.recordAck();
         tracker.recordAck();
         tracker.recordStaleWork();

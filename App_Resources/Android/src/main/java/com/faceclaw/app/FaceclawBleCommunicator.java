@@ -1632,7 +1632,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 ringNotificationsReady = false;
                 ringBattery = -1;
                 ringHealthProbeSent = false;
-                connectionHealth.setR1State("retrying");
+                connectionHealth.setR1State(hasRingAddress() ? "idle" : "not-configured");
                 invalidateRingPacketAckStateLocked();
                 ringReconnectAfterMs = SystemClock.elapsedRealtime()
                     + ConnectionOptions.RING_RECONNECT_DELAY_MS;
@@ -1662,6 +1662,12 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             invalidateRingPacketAckStateLocked();
             ringReconnectAfterMs = Math.max(ringReconnectAfterMs,
                 SystemClock.elapsedRealtime() + ConnectionOptions.RING_RECONNECT_DELAY_MS);
+            if (hasRingAddress()) {
+                connectionHealth.setR1Backoff(ConnectionHealthTracker.Failure.TRANSPORT,
+                    ConnectionOptions.RING_RECONNECT_DELAY_MS);
+            } else {
+                connectionHealth.setR1State("not-configured");
+            }
         }
         return ringConnectionGeneration;
     }
@@ -3802,7 +3808,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             ringConnected = false;
             ringNotificationsReady = false;
             ringBattery = -1;
-            connectionHealth.setR1State("retrying");
+            connectionHealth.setR1State(hasRingAddress() ? "idle" : "not-configured");
             invalidateRingPacketAckStateLocked();
             ringReconnectAfterMs = SystemClock.elapsedRealtime()
                 + ConnectionOptions.RING_RECONNECT_DELAY_MS;
