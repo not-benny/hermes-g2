@@ -127,6 +127,9 @@ test("Android native inputs and release metadata are pinned", () => {
   }
   assert.equal(packageJson.private, true);
   assert.equal(packageJson.devDependencies.nativescript, "9.0.7");
+  assert.equal(packageJson.overrides["fork-ts-checker-webpack-plugin"].minimatch, "3.1.5");
+  assert.equal(packageJson.overrides.replace.minimatch, "3.1.5");
+  assert.equal(typeof packageJson.overrides.minimatch, "undefined");
   assert.equal(packageJson.overrides.ws, "8.21.3");
   assert.equal(packageJson.scripts.build, "npx --no-install ns build android");
 });
