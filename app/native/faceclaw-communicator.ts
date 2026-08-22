@@ -20,6 +20,26 @@ export type CommunicatorState = {
 
 export type RingConnectionState = "not-configured" | "idle" | "retrying" | "subscribing" | "ready";
 
+export type ConnectionHealthSnapshot = {
+  g2State: string;
+  r1State: string;
+  failure: "none" | "timeout" | "unavailable" | "contention" | "transport" | "protocol";
+  r1RetryInMs: number;
+  g2Reconnects: number;
+  r1Reconnects: number;
+  acks: number;
+  ackTimeouts: number;
+  staleWork: number;
+  lockLatencyLatestMs: number;
+  lockLatencyMaxMs: number;
+};
+
+const EMPTY_CONNECTION_HEALTH: ConnectionHealthSnapshot = {
+  g2State: "disconnected", r1State: "idle", failure: "none", r1RetryInMs: 0,
+  g2Reconnects: 0, r1Reconnects: 0, acks: 0, ackTimeouts: 0, staleWork: 0,
+  lockLatencyLatestMs: 0, lockLatencyMaxMs: 0,
+};
+
 /** One raw frame from the ring's health/command notify characteristic. */
 export type RingHealthFrame = {
   /** Short characteristic uuid, e.g. "bae80013". */
@@ -121,6 +141,24 @@ export type RawInputEvent =
 function nonNegativeNumber(value: number): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+}
+
+function parseConnectionHealthWire(wire: string): ConnectionHealthSnapshot {
+  const parts = wire.split("|");
+  if (parts.length !== 11) return { ...EMPTY_CONNECTION_HEALTH };
+  const failures = new Set(["none", "timeout", "unavailable", "contention", "transport", "protocol"]);
+  const safeFailure = failures.has(parts[2])
+    ? (parts[2] as ConnectionHealthSnapshot["failure"])
+    : "transport";
+  const count = (index: number) => Math.min(2_147_483_647, Math.round(nonNegativeNumber(Number(parts[index]))));
+  return {
+    g2State: /^[a-z-]{2,16}$/.test(parts[0]) ? parts[0] : "disconnected",
+    r1State: /^[a-z-]{2,16}$/.test(parts[1]) ? parts[1] : "idle",
+    failure: safeFailure,
+    r1RetryInMs: count(3), g2Reconnects: count(4), r1Reconnects: count(5),
+    acks: count(6), ackTimeouts: count(7), staleWork: count(8),
+    lockLatencyLatestMs: count(9), lockLatencyMaxMs: count(10),
+  };
 }
 
 /** Decode the Java side's continuous lowercase-hex encoding; null if invalid. */
@@ -465,6 +503,11 @@ export class FaceclawCommunicatorBridge {
   getRingConnectionState(): RingConnectionState {
     if (!global.isAndroid) return "not-configured";
     return String(this.communicator.getRingConnectionState()) as RingConnectionState;
+  }
+
+  getConnectionHealthSnapshot(): ConnectionHealthSnapshot {
+    if (!global.isAndroid) return { ...EMPTY_CONNECTION_HEALTH };
+    return parseConnectionHealthWire(String(this.communicator.getConnectionHealthSnapshot()));
   }
 
   async requestRingReconnect(): Promise<boolean> {
