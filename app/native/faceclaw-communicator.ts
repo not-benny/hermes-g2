@@ -139,6 +139,8 @@ export class FaceclawCommunicatorBridge {
   private readonly communicator: any;
   private readonly listenerProxy: any;
   private javaCallQueue: Promise<void> = Promise.resolve();
+  /** Calls waiting on javaCallQueue; zero makes the frame fast path safe. */
+  private javaCallsPending = 0;
   private readonly frameMetricWaiters = new Set<(metrics: FrameMetrics) => void>();
   // Recent frame-finished outcomes from the Java side, so waitForFrameFinished
   // does not race against finishes that land before the wait starts.
@@ -262,7 +264,18 @@ export class FaceclawCommunicatorBridge {
     }, 0);
   }
 
-  private enqueueJavaCall<T>(operation: () => T): Promise<T> {
+  private enqueueJavaCall<T>(operation: () => T, allowInline = false): Promise<T> {
+    if (this.javaCallsPending === 0 && allowInline) {
+      this.javaCallsPending++;
+      try {
+        return Promise.resolve(operation());
+      } catch (error) {
+        return Promise.reject(error);
+      } finally {
+        this.javaCallsPending--;
+      }
+    }
+    this.javaCallsPending++;
     const run = () =>
       new Promise<T>((resolve, reject) => {
         setTimeout(() => {
@@ -270,6 +283,8 @@ export class FaceclawCommunicatorBridge {
             resolve(operation());
           } catch (error) {
             reject(error);
+          } finally {
+            this.javaCallsPending--;
           }
         }, 0);
       });
@@ -574,20 +589,25 @@ export class FaceclawCommunicatorBridge {
     // Snapshot because the Java call is deferred; the buffer is passed as an
     // ArrayBuffer, which NativeScript marshals to a ByteBuffer without the
     // ~150ms per-element copy a byte[] parameter would need.
-    const snapshot = new Uint8Array(pixels8bpp);
-    await this.enqueueJavaCall(() => {
-      this.communicator.submitSurfaceFrame(
-        snapshot.buffer,
-        surfaceId,
-        Math.round(rect.x),
-        Math.round(rect.y),
-        Math.round(rect.width),
-        Math.round(rect.height),
-        fingerprint,
-        Math.round(nonNegativeNumber(paintMs)),
-        Math.round(nonNegativeNumber(frameId)),
-      );
-    });
+    const snapshot = frameTimings.span(frameId, "bridge-snapshot", () => new Uint8Array(pixels8bpp));
+    frameTimings.spanStart(frameId, "java-submit");
+    try {
+      await this.enqueueJavaCall(() => {
+        this.communicator.submitSurfaceFrame(
+          snapshot.buffer,
+          surfaceId,
+          Math.round(rect.x),
+          Math.round(rect.y),
+          Math.round(rect.width),
+          Math.round(rect.height),
+          fingerprint,
+          Math.round(nonNegativeNumber(paintMs)),
+          Math.round(nonNegativeNumber(frameId)),
+        );
+      }, true);
+    } finally {
+      frameTimings.spanEnd(frameId, "java-submit");
+    }
   }
 
   async disconnect(): Promise<boolean> {

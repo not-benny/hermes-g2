@@ -6,6 +6,24 @@ Current as of 22 August 2026. `main` is the canonical branch.
 
 ## Now
 
+### Renderer performance
+
+- **IMPLEMENTED / HARDWARE FLOOR MEASURED — renderer hot paths (22 August
+  2026).** Added a fixed 60-second, privacy-safe A32 benchmark and separated
+  paint, snapshot/bridge, composite, pack, compression/plan, Bluetooth send,
+  application ACK, phone framestats, GC, and PSS evidence. Ordinary redraws
+  coalesce, idle Java submission skips one measured timer hop, queued images
+  outrank redundant heartbeats, native typed-array copying replaces the slower
+  generic copy, and repetitive success logs leave the release hot path. Receipt
+  correctness is stronger: strict operations require a successful terminal
+  outcome, first-finish wins across Java/TS, and multi-message frames complete
+  only after every application ACK. Host tests pass 266/266, typecheck/build
+  pass, and an installed USB A32 candidate received both ACKs for a real
+  two-message G2 image before reporting `sent`. A clean fixed-duration candidate
+  percentile remains open because another concurrent device installer replaced
+  the package during the run; do not claim the target from contaminated or
+  zero-frame samples. No firmware/texture-cache device command was added.
+
 ### Repository and release
 
 - **DONE — full audit remediation and release path (21 August 2026).** The

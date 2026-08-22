@@ -1,5 +1,61 @@
 # Hermes G2 handover — 22 August 2026
 
+## Renderer-jank candidate
+
+The `perf/glasses-renderer-jank` candidate starts from canonical `main` at
+`f02d8f88bb44e147dad213e36a2ab16ad304aebe`. It adds a non-destructive,
+privacy-allowlisted 60-second USB A32 benchmark (`scripts/run-render-benchmark.sh`)
+that records phone framestats, PSS, GC lines, and the existing per-frame paint,
+fingerprint, bitmap snapshot/bridge, composite, 4-bpp pack, compression/plan,
+Bluetooth-send, and application-ACK landmarks. It auto-discovers USB and does
+not publish device identifiers, pair/reconnect, clear data, toggle Bluetooth,
+or send a new device command.
+
+The measured fixes are deliberately small: ordinary shell render bursts now
+coalesce to one follow-up while strict alert deliveries keep separate receipts;
+idle frame submission avoids an approximately 18 ms timer hop; typed-array
+snapshot copying uses the native `slice` path; an already queued image blocks a
+redundant heartbeat; and repetitive successful frame, GATT-write, image-plan,
+enqueue, and ACK logs are removed from release hot paths. The scheduling/copy
+changes are provenance-compatible ports of isolated Faceclaw commit
+`f6035ea9ecdabd13cc85af1e26ef518ae64d3d6b`; no texture-cache firmware modes or
+device commands were ported.
+
+Delivery semantics are stronger, not weaker: strict operations accept only
+ACK-backed `sent` outcomes and reject queued-image deduplication, missing, or
+failed receipts; only the first communicator terminal frame result reaches TypeScript; and
+multi-message images report `sent` only after every distinct application ACK,
+including out-of-order ACKs. Ordinary redraw work cannot inherit or extend a
+strict owner's receipt, and the inline Java-call fast path remains busy across
+synchronous reentrancy. Focused RED/GREEN contracts pass 7/7 and the full
+host suite passes 266/266. TypeScript and the JDK 21 / SDK 35 Android build pass.
+Independent adversarial review of frozen `c8fa3b1` passed all static receipt,
+queue, timeout, and coalescing gates; operational performance authorization
+remains NO-GO because the fixed-duration candidate run was contaminated and the
+371–374 ms hardware floor exceeds the 50 ms target.
+The final debug APK SHA-256 is
+`98c87fa58d96f8386a526759807adb5c92337e64668a979d8ce3f6edbec41425`.
+
+The frozen preview.1 idle observation reproduced the reported phone-jank floor:
+33/45 frames janky (73.333%), p90 20.498 ms, p99/max 24.643 ms, PSS
+245217→244282 KiB. A later candidate idle interval produced no phone frames and
+therefore no valid jank percentile; PSS fell 276480→180944 KiB rather than
+growing. The candidate APK was installed and launched on the USB Samsung A32.
+A real two-message G2 image reached application ACKs and only then completed its
+receipt (`frame#10`, 4353 ms including initial connect/warm-up), proving the
+all-ACK path on hardware. Its measured stages were paint 7 ms, fingerprint
+0 ms, 8-bpp copy 0 ms, bridge snapshot 1 ms, Java submit 10 ms, composite 5 ms,
+4-bpp pack 1 ms, compression/plan 249 ms, first Bluetooth write at 4191 ms,
+last write at 4221 ms, and final application ACK at 4353 ms. Later connected
+frames completed in 374 ms and 371 ms; this is an honest hardware/radio floor,
+not a claim that the requested 50 ms end-to-end threshold was met.
+The fixed-duration post-change run was contaminated by
+another concurrent A32 installer replacing the package, so it is not used to
+claim the below-10% / p99-under-50-ms target. The remaining measured floor is
+startup/radio/compression work, not phone paint, snapshot, composite, or pack.
+No firmware, DFU, OTA, pairing, provisioning, reset, wipe,
+power, or NVM operation was performed.
+
 ## Repository state
 
 `main` is the canonical development branch. The original release lineage and the
