@@ -15,8 +15,14 @@ dedicated private-tunnel endpoint. The app bundles only the private CA public
 certificate; the CA/server private keys remain deployment-local and outside the
 repository. The custom bridge protocol, bearer-token authentication, exact-turn
 guards, and proactive-action gates are unchanged. A real WSS hello/hello-ack
-smoke test passed. Host verification has 295 tests and TypeScript passing;
-exact APK/Fold7/G2/R1 runtime verification is still pending. The current R1
+smoke test passed. Host verification has 295 tests, TypeScript, Android build,
+and APK verification passing. The exact 195,145,053-byte debug APK has SHA-256
+`e7da7473ab632975fd743d5ddfd8149cc495a952ad03d58435adcd09e461acfe`.
+Independent adversarial review of app commit
+`d0f32a29b9be8e15ad82f2ce430874435ec1f881` and bridge commit
+`fdd84de85c82706104428db3e7d0eacb91480b2a` returned static PASS and private,
+non-destructive deployment GO. Exact APK/Fold7/G2/R1 runtime verification is
+blocked by the currently unreachable Fold7 Teleport route. The preceding R1
 session accepted battery GET writes but emitted no notify frames during the
 observation window, so an actual battery percentage remains operationally
 unproved until the exact candidate reconnects with exclusive R1 access.

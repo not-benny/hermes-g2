@@ -14,9 +14,10 @@ Current as of 22 August 2026. `main` is the canonical branch.
   configured R1 visible while battery is unknown. Battery requests precede rich
   history and both standard-GATT/protocol values feed Health and HUD. The private
   Hermes bridge now has a certificate-validated WSS deployment with its private
-  key outside the repository. Host tests and a real WSS handshake pass; exact
-  APK/Fold7/G2/R1 visual, gesture, signal-level, battery-response, and assistant
-  turn evidence remains required.
+  key outside the repository. Host tests, build, APK checks, independent review,
+  and a real WSS handshake pass. Exact APK/Fold7/G2/R1 visual, gesture,
+  signal-level, battery-response, and assistant-turn evidence is blocked by the
+  currently unreachable Fold7 Teleport route.
 
 - **IMPLEMENTED / FOLD7 VISUAL AND POSTURE VALIDATION BLOCKED — foldable phone UI (22 August 2026).**
   Preview 2 removes the portrait lock, handles live cover/unfolded/rotation/
