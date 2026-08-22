@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { HomeAssistantAdapter, createHomeAssistantTransport } from "../hermes-host/home-assistant-adapter.mjs";
 import { DynamicGlassesRuntime } from "../hermes-host/dynamic-glasses-runtime.mjs";
@@ -25,6 +26,17 @@ function fakeHa() {
       }
       throw new Error("unexpected request");
     },
+  };
+  transport.mutateBinaryCapability = async (request, signal) => {
+    const before = structuredClone(lamp);
+    const revision = createHash("sha256").update(JSON.stringify({ state: before.state, last_updated: before.last_updated,
+      context: before.context.id, attributes: before.attributes })).digest("base64url");
+    if (!areaEntities.includes(request.entity_id)) return { applied: false, code: "stale_scope" };
+    if (request.expected_revision !== revision) return { applied: false, code: "stale_revision" };
+    const service = request.target === "on" ? "turn_on" : "turn_off";
+    const [after] = await transport.request({ method: "POST", path: `/api/services/light/${service}`,
+      body: { entity_id: request.entity_id }, signal });
+    return { applied: true, area: "Living Room", before, after };
   };
   return { transport, calls, setLamp: (value) => { lamp = value; }, setAreaEntities: (value) => { areaEntities = value; } };
 }
@@ -78,10 +90,14 @@ test("Home Assistant reserves concurrent operation IDs and revalidates area memb
   let releaseService;
   const serviceGate = new Promise((resolve) => { releaseService = resolve; });
   let serviceAttempts = 0;
-  const transport = { request: async (request) => {
-    if (request.path.startsWith("/api/services/")) { serviceAttempts++; await serviceGate; }
-    return base.transport.request(request);
-  } };
+  const transport = {
+    request: (request) => base.transport.request(request),
+    mutateBinaryCapability: async (request, signal) => {
+      serviceAttempts++;
+      await serviceGate;
+      return base.transport.mutateBinaryCapability(request, signal);
+    },
+  };
   const adapter = new HomeAssistantAdapter({ transport, createHandle: () => "opaque_entity_handle_0001", now: () => 1_000 });
   const [device] = await adapter.discover({ kind: "area", label: "Living Room" });
   const request = { operationId: "same-op", handle: device.handle, value: "on", expectedRevision: device.revision };
@@ -104,13 +120,15 @@ test("Home Assistant reserves concurrent operation IDs and revalidates area memb
 
 test("a post-dispatch failure is outcome-unknown and retry never redispatches", async () => {
   const base = fakeHa();
-  let dispatched = false;
   let serviceCalls = 0;
-  const transport = { request: async (request) => {
-    if (request.path.startsWith("/api/services/")) { dispatched = true; serviceCalls++; return base.transport.request(request); }
-    if (dispatched && request.path.startsWith("/api/states/")) throw new Error("private provider failure");
-    return base.transport.request(request);
-  } };
+  const transport = {
+    request: (request) => base.transport.request(request),
+    mutateBinaryCapability: async (request, signal) => {
+      serviceCalls++;
+      await base.transport.mutateBinaryCapability(request, signal);
+      throw new Error("private provider response lost");
+    },
+  };
   const adapter = new HomeAssistantAdapter({ transport, createHandle: () => "opaque_entity_handle_0001", now: () => 1_000 });
   const [device] = await adapter.discover({ kind: "area", label: "Living Room" });
   const request = { operationId: "unknown-op", handle: device.handle, value: "on", expectedRevision: device.revision };
@@ -243,4 +261,69 @@ test("runtime rejects concurrent opens and close tombstones an in-flight discove
   release([]);
   await assert.rejects(() => first, /stale/i);
   assert.equal(phoneCalls.length, 0);
+});
+
+test("runtime compensates a close racing phone create and permits a clean replacement only afterward", async () => {
+  let releaseCreate;
+  const adapter = { async discover() { return []; } };
+  const calls = [];
+  const phone = { async callTool(name, args) {
+    calls.push({ name, args });
+    if (name.endsWith(".create")) {
+      await new Promise((resolve) => { releaseCreate = resolve; });
+      return { status: "acknowledged", view_id: "opaque_dynamic_view_0001", revision: 1, frame_id: 1 };
+    }
+    return { status: "closed" };
+  } };
+  const runtime = new DynamicGlassesRuntime({ adapter, phone, now: () => 1_000 });
+  const ownerA = { tenant: "a", device: "g2", connectionGeneration: "socket-a", turnGeneration: "turn-a" };
+  const ownerB = { tenant: "b", device: "g2", connectionGeneration: "socket-b", turnGeneration: "turn-b" };
+  const first = runtime.openLivingRoom(ownerA, { operationId: "open-a" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  runtime.close(ownerA);
+  await assert.rejects(() => runtime.openLivingRoom(ownerB, { operationId: "open-b-early" }), /pending/i);
+  releaseCreate();
+  await assert.rejects(() => first, /stale/i);
+  assert.equal(calls.some((call) => call.name.endsWith(".close")), true);
+});
+
+test("runtime retires expired sessions and serializes different action side effects", async () => {
+  let now = 1_000;
+  let setCalls = 0;
+  let releaseSet;
+  const devices = [
+    { handle: "entity-handle-0001", label: "A", value: "off", revision: "a1" },
+    { handle: "entity-handle-0002", label: "B", value: "off", revision: "b1" },
+  ];
+  const adapter = {
+    async discover() { return devices; },
+    async read(handle) { return structuredClone(devices.find((device) => device.handle === handle)); },
+    async setPower(request) {
+      setCalls++;
+      await new Promise((resolve) => { releaseSet = resolve; });
+      const before = structuredClone(devices.find((device) => device.handle === request.handle));
+      const after = { ...before, value: request.value, revision: `${before.revision}-next` };
+      return { changed: true, before, after };
+    },
+  };
+  let revision = 0;
+  const phone = { async callTool(name, args) {
+    if (name.endsWith(".create")) return { status: "acknowledged", view_id: `opaque_dynamic_view_000${revision + 1}`, revision: 1, frame_id: ++revision };
+    if (name.endsWith(".patch")) return { status: "acknowledged", view_id: args.view_id, revision: args.expected_revision + 1, frame_id: ++revision };
+    return { status: "acknowledged" };
+  } };
+  let actionN = 0;
+  const runtime = new DynamicGlassesRuntime({ adapter, phone, createHandle: () => `opaque_action_handle_${String(++actionN).padStart(4, "0")}`, now: () => now });
+  const identity = { tenant: "owner", device: "g2", connectionGeneration: "socket", turnGeneration: "turn" };
+  const opened = await runtime.openLivingRoom(identity, { operationId: "open" });
+  const first = runtime.deliverInput(identity, { event_id: "e1", view_id: opened.viewId, revision: 1,
+    action_handle: "opaque_action_handle_0001", kind: "activate" }, { operationId: "op1" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await assert.rejects(() => runtime.deliverInput(identity, { event_id: "e2", view_id: opened.viewId, revision: 1,
+    action_handle: "opaque_action_handle_0002", kind: "activate" }, { operationId: "op2" }), /in progress/i);
+  assert.equal(setCalls, 1);
+  releaseSet();
+  await first;
+  now += 301_000;
+  await runtime.openLivingRoom(identity, { operationId: "reopen" });
 });

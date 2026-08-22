@@ -15,15 +15,18 @@ export class HomeAssistantError extends Error {
   }
 }
 
-export function createHomeAssistantTransport({ baseUrl, getToken, fetchImpl = globalThis.fetch }) {
+export function createHomeAssistantTransport({ baseUrl, getToken, fetchImpl = globalThis.fetch, atomicMutationPath = null }) {
   let origin;
   try { origin = new URL(baseUrl); } catch { throw new Error("Home Assistant requires a valid HTTPS URL"); }
   if (origin.protocol !== "https:" || origin.username || origin.password || origin.search || origin.hash) {
     throw new Error("Home Assistant requires a credential-free HTTPS origin");
   }
   if (typeof getToken !== "function" || typeof fetchImpl !== "function") throw new Error("Home Assistant transport is not configured");
+  if (atomicMutationPath !== null && (typeof atomicMutationPath !== "string" || !atomicMutationPath.startsWith("/api/") || atomicMutationPath.length > 160)) {
+    throw new Error("Home Assistant atomic mutation path is invalid");
+  }
   const root = origin.href.replace(/\/$/, "");
-  return {
+  const transport = {
     async request({ method, path, body, signal }) {
       if ((method !== "GET" && method !== "POST") || typeof path !== "string" || !path.startsWith("/api/")) {
         throw new HomeAssistantError("request rejected");
@@ -50,6 +53,11 @@ export function createHomeAssistantTransport({ baseUrl, getToken, fetchImpl = gl
       try { return await response.json(); } catch { throw new HomeAssistantError("response malformed"); }
     },
   };
+  transport.mutateBinaryCapability = async (request, signal) => {
+    if (!atomicMutationPath) throw new HomeAssistantError("atomic mutation unavailable");
+    return transport.request({ method: "POST", path: atomicMutationPath, body: request, signal });
+  };
+  return transport;
 }
 
 function opaqueHandle() {
@@ -167,17 +175,6 @@ export class HomeAssistantAdapter {
     return (await this.#readCurrent(handle, signal)).snapshot;
   }
 
-  async #assertInScope(capability, signal) {
-    let members = await this.#transport.request({
-      method: "POST", path: "/api/template",
-      body: { template: "{{ area_entities(area) | tojson }}", variables: { area: "Living Room" } }, signal,
-    });
-    if (typeof members === "string") {
-      try { members = JSON.parse(members); } catch { throw new HomeAssistantError("area scope malformed"); }
-    }
-    if (!Array.isArray(members) || !members.includes(capability.entityId)) throw new HomeAssistantError("area scope is stale");
-  }
-
   setPower(request, context) {
     if (!request || !/^[A-Za-z0-9._-]{1,64}$/.test(request.operationId ?? "") || !SAFE_STATES.has(request.value)) {
       return Promise.reject(new HomeAssistantError("mutation rejected"));
@@ -205,31 +202,38 @@ export class HomeAssistantAdapter {
       this.#issuedReceipts.add(receipt);
       return receipt;
     }
-    await this.#assertInScope(capability, context?.signal);
-    if (this.#resolve(request.handle) !== capability) throw new HomeAssistantError("stale capability");
-    const { snapshot: immediate } = await this.#readCurrent(request.handle, context?.signal);
-    if (immediate.revision !== request.expectedRevision) throw new HomeAssistantError("revision changed before mutation");
     if (context?.signal?.aborted || context?.isAuthorized?.() !== true) throw new HomeAssistantError("mutation no longer authorized");
-    const service = request.value === "on" ? "turn_on" : "turn_off";
-    let serviceResponse;
+    if (typeof this.#transport.mutateBinaryCapability !== "function") throw new HomeAssistantError("atomic mutation unavailable");
     try {
-      serviceResponse = await this.#transport.request({
-        method: "POST", path: `/api/services/${capability.domain}/${service}`,
-        body: { entity_id: capability.entityId }, signal: context?.signal,
-      });
-      const { entity: afterEntity, snapshot: after } = await this.#readCurrent(request.handle, context?.signal);
-      if (after.value !== request.value) throw new HomeAssistantError("mutation outcome unknown");
-      const responseEntity = Array.isArray(serviceResponse)
-        ? serviceResponse.map(parseEntity).find((entity) => entity?.entityId === capability.entityId)
-        : null;
-      const contextDigest = responseEntity?.contextId === afterEntity.contextId
-        ? createHash("sha256").update(afterEntity.contextId).digest("base64url")
-        : null;
-      const receipt = Object.freeze({ operationId: request.operationId, changed: true, restorable: contextDigest !== null,
+      const result = await this.#transport.mutateBinaryCapability({
+        version: 1,
+        area: "Living Room",
+        entity_id: capability.entityId,
+        domain: capability.domain,
+        expected_revision: request.expectedRevision,
+        target: request.value,
+      }, context?.signal);
+      if (result?.applied === false && ["stale_scope", "stale_revision", "unavailable"].includes(result.code)) {
+        throw new HomeAssistantError(result.code.replace(/_/g, " "));
+      }
+      const beforeEntity = parseEntity(result?.before);
+      const afterEntity = parseEntity(result?.after);
+      if (result?.applied !== true || result?.area !== "Living Room" || !beforeEntity || !afterEntity ||
+          beforeEntity.entityId !== capability.entityId || afterEntity.entityId !== capability.entityId ||
+          beforeEntity.revision !== request.expectedRevision || afterEntity.value !== request.value) {
+        throw new HomeAssistantError("mutation outcome unknown");
+      }
+      const after = Object.freeze({ handle: request.handle, kind: afterEntity.domain, label: afterEntity.label,
+        value: afterEntity.value, revision: afterEntity.revision, observedAtMs: this.#now() });
+      const contextDigest = createHash("sha256").update(afterEntity.contextId).digest("base64url");
+      const receipt = Object.freeze({ operationId: request.operationId, changed: true, restorable: true,
         restorationProof: contextDigest, before, after });
       this.#issuedReceipts.add(receipt);
       return receipt;
-    } catch {
+    } catch (error) {
+      if (error instanceof HomeAssistantError && ["Home Assistant stale scope", "Home Assistant stale revision", "Home Assistant unavailable"].includes(error.message)) {
+        throw error;
+      }
       throw new HomeAssistantError("mutation outcome unknown");
     }
   }

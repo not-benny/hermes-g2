@@ -237,7 +237,7 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
       inputSchema: {
         type: "object",
         properties: { ...operationIdentitySchema, patch: { type: "object", properties: {
-          upsert: { type: "array", maxItems: 64, items: { type: "object" } },
+          upsert: { type: "array", maxItems: 64, items: dynamicSpecSchema.properties.components.items },
           remove: { type: "array", maxItems: 64, items: { type: "string", maxLength: 64 } },
         }, required: ["upsert", "remove"], additionalProperties: false } },
         required: ["operation_id", "view_id", "expected_revision", "patch"], additionalProperties: false,

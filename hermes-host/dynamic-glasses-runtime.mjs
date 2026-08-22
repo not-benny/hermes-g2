@@ -25,6 +25,7 @@ export class DynamicGlassesRuntime {
   #pendingOpen = null;
   #actions = new Map();
   #operations = new Map();
+  #activeOperation = null;
 
   constructor({ adapter, phone, createHandle = randomHandle, now = Date.now }) {
     if (!adapter || !phone?.callTool) throw new Error("adapter and phone MCP client are required");
@@ -36,6 +37,10 @@ export class DynamicGlassesRuntime {
 
   async openLivingRoom(identity, { operationId }) {
     const owner = identityKey(identity);
+    if (this.#session?.expiresAtMs <= this.#now()) {
+      this.#session = null;
+      this.#actions.clear();
+    }
     if (this.#session || this.#pendingOpen) throw new Error("a dynamic app session is already open or pending");
     const pending = { owner, cancelled: false };
     this.#pendingOpen = pending;
@@ -68,14 +73,23 @@ export class DynamicGlassesRuntime {
         ttl_seconds: 300,
       },
     });
-    if (pending.cancelled || this.#pendingOpen !== pending) throw new Error("stale dynamic app open");
+    if (pending.cancelled || this.#pendingOpen !== pending) {
+      if (result?.status === "acknowledged" && result.view_id && result.revision === 1) {
+        await this.#phone.callTool("glasses.dynamic_apps.close", {
+          operation_id: `${operationId}.cancel`, view_id: result.view_id, expected_revision: result.revision,
+        }).catch(() => undefined);
+      }
+      throw new Error("stale dynamic app open");
+    }
     if (result?.status !== "acknowledged" || !result.view_id || result.revision !== 1) throw new Error("phone did not acknowledge dynamic app delivery");
     this.#session = { owner, viewId: result.view_id, revision: result.revision, expiresAtMs: this.#now() + 300_000 };
     this.#pendingOpen = null;
     return { viewId: result.view_id, revision: result.revision };
     } catch (error) {
-      if (this.#pendingOpen === pending) this.#pendingOpen = null;
-      if (!this.#session) this.#actions.clear();
+      if (this.#pendingOpen === pending) {
+        this.#pendingOpen = null;
+        if (!this.#session) this.#actions.clear();
+      }
       throw error;
     }
   }
@@ -94,13 +108,17 @@ export class DynamicGlassesRuntime {
       if (prior.eventFingerprint !== eventFingerprint) return Promise.reject(new Error("operation was reused for a different event"));
       return prior.promise;
     }
+    if (this.#activeOperation) return Promise.reject(new Error("another dynamic app mutation is in progress"));
     if (session.revision !== event?.revision || event?.kind !== "activate") return Promise.reject(new Error("stale dynamic app event"));
     const action = this.#actions.get(event.action_handle);
     if (!action || action.owner !== owner || action.viewRevision !== session.revision || action.used) {
       return Promise.reject(new Error("stale action capability"));
     }
     action.used = true;
-    const promise = this.#deliverInputOnce(owner, session, action, event, operationId, signal);
+    const token = {};
+    this.#activeOperation = token;
+    const promise = this.#deliverInputOnce(owner, session, action, event, operationId, signal)
+      .finally(() => { if (this.#activeOperation === token) this.#activeOperation = null; });
     this.#operations.set(operationKey, { eventFingerprint, promise });
     return promise;
   }
@@ -152,7 +170,7 @@ export class DynamicGlassesRuntime {
     const owner = identityKey(identity);
     if (this.#pendingOpen?.owner === owner) {
       this.#pendingOpen.cancelled = true;
-      this.#pendingOpen = null;
+      return;
     }
     if (!this.#session || this.#session.owner !== owner) return;
     this.#session = null;

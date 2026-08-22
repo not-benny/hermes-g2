@@ -12,7 +12,8 @@ Usage:
   node hermes-host/private-evaluation.mjs --apply --label "Floor lamp" --to on --restore
 
 Mutation requires --apply, --restore, an exact unique discovered --label, an
-explicit --to on|off target, and HA_ALLOW_MUTATION=I_UNDERSTAND. Restoration is
+explicit --to on|off target, HA_ALLOW_MUTATION=I_UNDERSTAND, and a configured
+provider-side atomic mutation endpoint. Restoration is
 receipt-based and refuses to overwrite a later human or automation change.
 Credentials are read only from the server-side environment.
 `;
@@ -41,14 +42,16 @@ async function main() {
   }
   const apply = args.includes("--apply");
   const restore = args.includes("--restore");
+  const atomicMutationPath = process.env.HA_ATOMIC_MUTATION_PATH;
   const label = option(args, "--label");
   const target = option(args, "--to");
-  if (apply && (!restore || !label || (target !== "on" && target !== "off") || process.env.HA_ALLOW_MUTATION !== "I_UNDERSTAND")) {
-    fail("Mutation refused: require --restore, exact --label, --to on|off, and the explicit server-side mutation gate.");
+  if (apply && (!restore || !label || (target !== "on" && target !== "off") ||
+      process.env.HA_ALLOW_MUTATION !== "I_UNDERSTAND" || !atomicMutationPath)) {
+    fail("Mutation refused: require --restore, exact --label, --to on|off, the explicit gate, and an atomic provider endpoint.");
     return;
   }
 
-  const transport = createHomeAssistantTransport({ baseUrl, getToken: () => token });
+  const transport = createHomeAssistantTransport({ baseUrl, getToken: () => token, atomicMutationPath });
   const adapter = new HomeAssistantAdapter({ transport });
   const devices = await adapter.discover({ kind: "area", label: "Living Room" });
   process.stdout.write(`${JSON.stringify({ area: "Living Room", devices: devices.map((device) => ({ label: device.label, kind: device.kind, value: device.value })) }, null, 2)}\n`);
@@ -70,8 +73,8 @@ async function main() {
   // after the signal. Let it resolve to a receipt, then the normal finally path
   // performs the only causality-checked restoration available.
   const onSignal = () => { interrupted = true; process.exitCode = 130; };
-  process.once("SIGINT", onSignal);
-  process.once("SIGTERM", onSignal);
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
   try {
     receipt = await adapter.setPower({ operationId, handle: device.handle, value: target, expectedRevision: device.revision }, { isAuthorized: authorized });
     process.stdout.write(`${JSON.stringify({ mutation: receipt.changed ? "verified" : "already-set", label: device.label, value: receipt.after.value })}\n`);

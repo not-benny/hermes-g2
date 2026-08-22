@@ -56,7 +56,8 @@ off-screen action focus and distinct confirmation choices, stale provider
 generations, area-membership revocation, excluded/unavailable HA entities,
 revision races, concurrent operation reservation, lost authorization before
 service dispatch, explicit service allowlisting, retained outcome-unknown
-failures, causality-proven conservative restoration, HTTPS/redirect handling,
+failures, provider-side atomic scope/revision mutation, causality-proven
+conservative restoration, HTTPS/redirect handling,
 sanitized transport errors, cross-owner replay rejection, concurrent open/close,
 multi-device action generations, and bounded end-to-end opaque projection.
 

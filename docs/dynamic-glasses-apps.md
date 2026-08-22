@@ -85,10 +85,12 @@ replacement.
 4. intersects membership with current state and permits only available
    `light.*` and `switch.*` entities;
 5. exposes fresh opaque handles rather than entity IDs;
-6. performs only explicit per-entity `turn_on` or `turn_off` calls—never
-   provider `toggle` and never an area-wide target;
-7. checks the exact provider revision and authorization immediately before the
-   service call, then re-reads state before reporting success;
+6. delegates mutation to one configured provider-side atomic endpoint that
+   checks the exact area membership, entity/domain, provider revision, and
+   explicit `on`/`off` target in the same Home Assistant operation; the endpoint
+   must never use provider `toggle` or an area-wide target;
+7. fails closed with `atomic mutation unavailable` when that endpoint is absent,
+   rather than attempting a check-then-service TOCTOU sequence;
 8. atomically reserves in-flight idempotency keys before asynchronous work and
    retains outcome-unknown failures so retries cannot redispatch;
 9. rechecks current Living Room membership, capability generation, entity
@@ -132,6 +134,7 @@ A reversible mutation requires all gates:
 ```bash
 HA_URL=https://home-assistant.example \
 HA_TOKEN='server-side-secret' \
+HA_ATOMIC_MUTATION_PATH=/api/hermes_g2/safe_set_power \
 HA_ALLOW_MUTATION=I_UNDERSTAND \
 node hermes-host/private-evaluation.mjs \
   --apply --label 'Floor lamp' --to on --restore
@@ -144,6 +147,13 @@ revision conflict leaves the newer state untouched. SIGINT/SIGTERM does not exit
 while a mutation is in flight; it waits for a verifiable receipt and then enters
 the same restoration path. Kill/crash recovery still requires the durable
 production ledger described below and is not authorised by this private harness.
+
+The atomic endpoint is an external Home Assistant peer contract, not arbitrary
+code delivered to the phone. It accepts only protocol version 1, exact area,
+one `light`/`switch` entity, expected revision, and `on`/`off`; it returns bounded
+before/after states plus `applied`, area, and provider context. It must perform
+membership/revision validation and the explicit service transition atomically.
+Without this peer, read-only discovery works and every mutation fails closed.
 
 ## Remaining gates
 

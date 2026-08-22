@@ -122,6 +122,7 @@ test("an old-revision input can be acknowledged after its resulting state patch"
   await manager.patch({ operation_id: "patch", view_id: "opaque_dynamic_view_0001", expected_revision: 1,
     patch: { upsert: [{ id: "lamp", type: "toggle", label: "Floor lamp", value: false, action_handle: "opaque_action_handle_0002" }], remove: [] } },
   undefined, () => true, owner);
+  assert.equal(manager.ackEvents(owner, "opaque_dynamic_view_0001", 2, event.event_id).ok, false);
   assert.equal(manager.ackEvents(owner, "opaque_dynamic_view_0001", 1, event.event_id).ok, true);
   assert.equal(manager.snapshot().revision, 2);
 });

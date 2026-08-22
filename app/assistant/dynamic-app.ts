@@ -216,7 +216,7 @@ export class DynamicAppManager {
   private pending: (Identity & { ownerKey: string; cancelled: boolean }) | null = null;
   private readonly operations = new Map<string, OperationRecord>();
   private readonly events: DynamicAppEvent[] = [];
-  private readonly acknowledgedEventIds = new Set<string>();
+  private readonly acknowledgedEventIds = new Map<string, number>();
   private eventSequence = 0;
   private readonly now: () => number;
   private readonly setTimer: (callback: () => void, delayMs: number) => TimerHandle;
@@ -403,13 +403,17 @@ export class DynamicAppManager {
     const index = this.events.findIndex((event) => event.event_id === throughEventId);
     if (index < 0) {
       if (this.acknowledgedEventIds.has(throughEventId)) {
+        if (this.acknowledgedEventIds.get(throughEventId) !== revision) {
+          return { ok: false, error: "historical event acknowledgement revision is stale" };
+        }
         return { ok: true, content: JSON.stringify({ status: "historical_acknowledgement", through_event_id: throughEventId }) };
       }
       return { ok: false, error: "event acknowledgement identity is unknown or stale" };
     }
     if (index !== 0) return { ok: false, error: "events must be acknowledged in queue order" };
-    for (const event of this.events.splice(0, index + 1)) this.acknowledgedEventIds.add(event.event_id);
-    while (this.acknowledgedEventIds.size > 64) this.acknowledgedEventIds.delete(this.acknowledgedEventIds.values().next().value!);
+    if (this.events[index]!.revision !== revision) return { ok: false, error: "event acknowledgement revision is stale" };
+    for (const event of this.events.splice(0, index + 1)) this.acknowledgedEventIds.set(event.event_id, event.revision);
+    while (this.acknowledgedEventIds.size > 64) this.acknowledgedEventIds.delete(this.acknowledgedEventIds.keys().next().value!);
     return { ok: true, content: JSON.stringify({ status: "acknowledged", through_event_id: throughEventId }) };
   }
 
