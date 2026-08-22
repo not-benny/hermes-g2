@@ -24,16 +24,24 @@ Current as of 22 August 2026. `main` is the canonical branch.
 ### Repository and release
 
 - **DONE — full audit remediation and release path (21 August 2026).** The
-  merged implementation removes private-data logging, encrypts credential and
-  token-bearing settings with verified Keystore migration/clear, makes calendar
+  merged PR #28 implementation removes private-data logging, encrypts credential
+  and token-bearing settings with verified Keystore migration/clear, makes calendar
   failures explicit, narrows foreground-service claims, disables unclosed
   WhatsApp production pairing, requires TLS for remote terminal transport,
   allowlists the R1 health-session boundary, hash-verifies native inputs, pins
   NDK/CMake/NativeScript, and adds permanent CI/CodeQL/Dependabot/SBOM/APK
   verification. Local host/build/APK and authorised A32 upgrade/launch evidence,
-  GitHub review, CI, and merge passed. Branch-protection APIs remain unavailable
-  on the private-repository plan. See `docs/audit-remediation-2026-08-21.md` and
+  independent review, GitHub CI, and merge passed. See
+  `docs/audit-remediation-2026-08-21.md` and
   `docs/release-security.md`.
+
+- **IN PROGRESS — enforced release governance (22 August 2026).** The follow-up
+  candidate removes signing secrets and APK publication from PR jobs, gives
+  untrusted builds an isolated debug identity, and separates secret-free `main`
+  validation from a source-free protected signing job. Vulnerability alerts and
+  automated security fixes are enabled. GitHub still returned the private-plan
+  branch-protection HTTP 403 at 02:39 UTC after the owner reported upgrading to
+  Pro; protection remains pending entitlement propagation and API read-back.
 
 - **DONE — history consolidation.** The original release history, reviewed
   integration history, remaining PR heads, and superseded startup-race attempt
