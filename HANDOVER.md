@@ -6,6 +6,14 @@
 later Hermes/R1 integration lineage were created as unrelated Git histories;
 they have now been joined by an explicit multi-parent consolidation commit.
 
+Audit remediation PR [#28](https://github.com/not-benny/hermes-g2/pull/28)
+merged by squash as `24f9525eea8ae120ba98ec756b21b92617eb3551` after the
+`release-gate`, `codeql-javascript`, `codeql-java`, and `codeql` checks passed.
+GitHub branch protection/rulesets remain unavailable because this repository is
+private on a plan without that feature: both protection APIs return HTTP 403 with
+"Upgrade to GitHub Pro or make this repository public". Do not make the
+repository public merely to bypass this gate without an explicit owner decision.
+
 The resulting tree uses the reviewed cleanup/integration line for application
 code and tests, while retaining the original line's maintained public ring-health
 documentation, G2 firmware-research archive, and development guide. Divergent PR
@@ -17,8 +25,8 @@ Do not resume work from the old `hermes-g2`, `integration/`, `work/`, `wt/`,
 
 ## Current verified implementation
 
-The active audit-remediation candidate is based on canonical `main` baseline
-`f37168cf007450cb2a58513b1f2624aee0b6d6af`. It adds permanent PR/main CI,
+The audit remediation delivered from canonical `main` baseline
+`f37168cf007450cb2a58513b1f2624aee0b6d6af` adds permanent PR/main CI,
 CodeQL, Dependabot, SBOM/provenance and APK checks; Keystore AES-GCM credential
 storage with verified plaintext migration and explicit clear; discriminated
 calendar failures; exact active-operation foreground-service types; remote
@@ -105,9 +113,12 @@ unobserved hardware result from passing host tests.
 
 ## Next recommended work
 
-1. Finish the audit-remediation PR review/CI/merge, then require the exact durable
-   `release-gate` and `codeql` checks plus review on protected `main` and read the
-   effective GitHub rules back through the API.
+1. Upgrade the private repository to a plan with branch protection/rulesets, or
+   explicitly decide to make it public. Then require exact `release-gate` and
+   `codeql` checks, one approving review, linear/squash history, conversation
+   resolution, and blocked force-push/deletion; read the effective rules back
+   through the API. Until then, treat direct `main` pushes as administratively
+   prohibited even though GitHub cannot enforce that policy.
 2. Validate the private bridge end to end with an authenticated `wss://` server,
    exact-turn envelopes, credentials, and a disposable generic client.
 3. Complete the deferred non-destructive G2/R1/Doze/calendar/mic matrix when the
