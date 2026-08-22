@@ -83,6 +83,7 @@ jobs:
   sign:
     name: protected-release
     needs: build
+    if: vars.PROTECTED_RELEASE_ENABLED == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

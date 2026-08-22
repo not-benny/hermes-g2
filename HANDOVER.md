@@ -18,7 +18,9 @@ The release-governance follow-up candidate removes every signing secret and APK
 upload from pull-request CI. PR and `main` builds use an isolated ephemeral debug
 identity; only a separate post-build `protected-release` job receives credentials,
 and that job downloads a content-addressed input without checking out or running
-repository source. Vulnerability alerts and automated security fixes are enabled.
+repository source. The signing job remains disabled by the absent
+`PROTECTED_RELEASE_ENABLED` variable until `main` protection is verified.
+Vulnerability alerts and automated security fixes are enabled.
 Incompatible Dependabot majors #29, #31, and #33-#35 were closed with rationale;
 #30, #32, and #36-#39 remain for rebase and green isolated validation.
 

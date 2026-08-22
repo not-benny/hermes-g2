@@ -59,6 +59,7 @@ test("untrusted pull requests cannot publish an APK as release evidence", () => 
   assert.match(release, /ANDROID_USER_HOME=%s[^\n]*RUNNER_TEMP[^\n]*hermes-untrusted-android/);
   const signingJob = release.match(/\n  sign:\n([\s\S]*)/)?.[1] ?? "";
   assert.match(signingJob, /needs: build/);
+  assert.match(signingJob, /if: vars\.PROTECTED_RELEASE_ENABLED == 'true'/);
   assert.match(signingJob, /name: protected-release/);
   assert.match(signingJob, /actions\/download-artifact@/);
   assert.match(signingJob, /\/usr\/local\/lib\/android\/sdk\/build-tools\/35\.0\.1\/apksigner/);
