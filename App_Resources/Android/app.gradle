@@ -72,17 +72,15 @@ def faceclawNdkHostTag = {
 }
 
 def faceclawFindNdkRoot = {
-  def explicitNdk = System.getenv("ANDROID_NDK_HOME")
-  if (explicitNdk != null && file(explicitNdk).exists()) {
-    if (file(explicitNdk).name != faceclawNdkVersion) {
-      throw new GradleException("ANDROID_NDK_HOME must point to NDK $faceclawNdkVersion")
-    }
-    return file(explicitNdk)
-  }
   def sdkRoot = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
   if (sdkRoot != null) {
     def pinnedNdk = file("$sdkRoot/ndk/$faceclawNdkVersion")
     if (pinnedNdk.exists()) return pinnedNdk
+  }
+  def explicitNdk = System.getenv("ANDROID_NDK_HOME")
+  if (explicitNdk != null && file(explicitNdk).exists()
+      && file(explicitNdk).name == faceclawNdkVersion) {
+    return file(explicitNdk)
   }
   return null
 }
