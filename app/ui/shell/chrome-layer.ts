@@ -67,6 +67,8 @@ export type ShellChromeState = {
   reordering: boolean;
   /** Quick-close mode: the selected card shows a close marker; a tap closes it. */
   closing: boolean;
+  /** Action a close-mode tap performs for the selected sidebar item. */
+  closingAction: "close" | "hide" | "pinned";
   /** A configured R1 remains represented even before a battery reply arrives. */
   ringConfigured: boolean;
   /** While reordering, whether the picked-up tab can still move up / down. */
@@ -273,7 +275,11 @@ export class ShellChromeLayer implements Layer {
 
     if (state.closing) {
       const hintFont = getDefaultSmallFont();
-      const hint = "CLOSE MODE   swipe choose   tap close   dbl exit";
+      const hint = state.closingAction === "hide"
+        ? "HIDE HEALTH   swipe choose   tap hide   dbl exit"
+        : state.closingAction === "pinned"
+          ? "PINNED APP   swipe choose   cannot close   dbl exit"
+          : "CLOSE MODE   swipe choose   tap close   dbl exit";
       const hintY = barTop + Math.max(0, ((TOP_BAR_HEIGHT - hintFont.lineHeight) / 2) | 0);
       image.drawText(hintFont, SIDEBAR_WIDTH + 10, hintY, hint, 235);
       return;

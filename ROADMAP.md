@@ -18,9 +18,10 @@ Current as of 22 August 2026. `main` is the canonical branch.
   and a real WSS handshake pass. The exact APK installed/launched on the Fold7
   and authenticated to Hermes with 33 phone tools. Both G2 arms then reached
   session ready and direct R1 BLE reached MTU-247/notify readiness on the exact
-  candidate. Wearer confirmation of signal bars, quick-close and sleep
-  long-press remains open; repeated R1 `deviceStatus` GETs still yield no decoded
-  battery percentage, so the honest HUD/Health value remains `--`.
+  candidate. The wearer confirmed signal bars, sleep long-press voice capture,
+  clear close-mode guidance, and a matching R1 battery percentage in HUD and
+  Health. Health is now explicitly labelled as hideable rather than closeable
+  in quick-close mode; the launcher is labelled pinned.
 
 - **IMPLEMENTED / FOLD7 VISUAL AND POSTURE VALIDATION BLOCKED — foldable phone UI (22 August 2026).**
   Preview 2 removes the portrait lock, handles live cover/unfolded/rotation/

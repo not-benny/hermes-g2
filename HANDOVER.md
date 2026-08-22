@@ -33,8 +33,12 @@ bridge reconnect loop was traced to the A32 running the same identity; the A32
 was restored enabled with its assistant backend set to direct, leaving the Fold7
 as the single stable bridge owner. The ring lacks the standard battery service,
 and repeated protocol `deviceStatus` GET writes still produced no decoded
-battery value, so Health/HUD correctly remain `--`. Optical signal-bar,
-quick-close and sleep-long-press behavior still requires wearer confirmation.
+battery value initially; it arrived after the ready session and the wearer
+confirmed the same percentage in both HUD and Health. The wearer also confirmed
+sleep long-press opens voice capture, phone signal bars are visible, and the
+quick-close guidance is clear. A follow-up makes the selected Health tab say
+`HIDE HEALTH / tap hide` and hides it on tap rather than implying the pinned tab
+can be closed; the launcher is explicitly labelled pinned.
 
 ## Fold7 development-preview candidate
 

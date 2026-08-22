@@ -902,11 +902,13 @@ class Shell {
           return { shell: true, window: false };
         case "click": {
           const window = this.windows[this.selectedIndex];
-          if (window && window.closeable !== false) {
+          if (window === this.healthWindow) {
+            this.setHealthHidden(true);
+          } else if (window && window.closeable !== false) {
             this.closeWindow(window.windowId);
-            // Stay armed while there is still something to close; else exit.
-            if (!this.hasCloseableWindow()) this.closingActive = false;
           }
+          // Stay armed while there is still something to close; else exit.
+          if (!this.hasCloseableWindow()) this.closingActive = false;
           this.config.requestShellRender();
           return { shell: true, window: false };
         }
@@ -1526,6 +1528,12 @@ class Shell {
       focus: this.focus,
       sidebarBounceY: this.sidebarBounce.offsetPx(),
       closing: this.closingActive,
+      closingAction:
+        this.windows[this.selectedIndex] === this.healthWindow
+          ? "hide"
+          : this.windows[this.selectedIndex]?.closeable === false
+            ? "pinned"
+            : "close",
       ringConfigured: this.ringConfigured,
       ...this.reorderChromeState(),
       foregroundHeightMode: this.foregroundWindow()?.heightMode ?? "min",

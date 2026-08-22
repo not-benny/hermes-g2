@@ -24,6 +24,12 @@ test("quick-close mode replaces the crowded status bar with explicit gesture gui
   assert.match(topBar, /swipe choose/);
   assert.match(topBar, /tap close/);
   assert.match(topBar, /dbl exit/);
+  assert.match(topBar, /HIDE HEALTH/);
+  assert.match(topBar, /tap hide/);
+  assert.match(topBar, /PINNED APP/);
+  assert.match(chrome, /closingAction/);
+  const sidebar = read("app/ui/shell/shell.ts");
+  assert.match(sidebar, /window === this\.healthWindow[\s\S]*this\.setHealthHidden\(true\)/);
 });
 
 test("the glasses HUD reads and renders bounded phone cellular signal bars without a new phone-state permission", () => {
