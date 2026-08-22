@@ -75,8 +75,8 @@ typechecking, `git diff --check`, and the JDK 21 / Android SDK 35 build. Its
 `d6083a30344db8f03b16b38228da81622cd2effdb4f88256ed16a9ea4b0d87a7`.
 That exact APK upgrade-installed and launched on the authorised Samsung A32 over
 USB. Both G2 arms reached session-ready on firmware 2.2.8.4, wear state was
-not re-proven in this final install, and ordinary shell frames 10, 11, 15, 16,
-and 17 completed with transport outcome `sent`. The PID-filtered final log
+not re-proven in this final install, and ordinary shell frames 11, 12, and 13
+completed with transport outcome `sent`. The PID-filtered final log
 contained no fatal/TypeScript/dynamic
 app errors and no token/password/API-key/HA sentinel pattern. No private log was
 retained in the repository.
