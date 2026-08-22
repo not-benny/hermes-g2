@@ -3,8 +3,6 @@ name: CI
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
 
 permissions:
   contents: read
@@ -21,11 +19,14 @@ jobs:
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      HERMES_SIGNING_MODE: untrusted
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
+      - name: Isolate untrusted Android signing home
+        run: printf 'ANDROID_USER_HOME=%s\n' "$RUNNER_TEMP/hermes-untrusted-android" >> "$GITHUB_ENV"
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -56,24 +57,12 @@ jobs:
           git diff --check "$base"...HEAD
       - name: Runtime dependency audit
         run: |
-          npm audit --omit=dev --audit-level=high
+          npm audit --audit-level=high
           npm --prefix App_Resources/Android/whatsapp-node audit --omit=dev --audit-level=high
       - name: Generate CycloneDX dependency inventory
         run: |
           npm sbom --sbom-format=cyclonedx > sbom.cdx.json
           npm --prefix App_Resources/Android/whatsapp-node sbom --sbom-format=cyclonedx > whatsapp-sbom.cdx.json
-      - name: Configure protected upgrade-compatible signing
-        env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
-        run: |
-          test -n "$KEYSTORE_BASE64" && test -n "$STORE_PASSWORD" && test -n "$KEY_ALIAS" && test -n "$KEY_PASSWORD"
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/hermes-signing.keystore"
-          chmod 600 "$RUNNER_TEMP/hermes-signing.keystore"
-          printf 'ANDROID_SIGNING_STORE_FILE=%s\nANDROID_SIGNING_STORE_PASSWORD=%s\nANDROID_SIGNING_KEY_ALIAS=%s\nANDROID_SIGNING_KEY_PASSWORD=%s\n' \
-            "$RUNNER_TEMP/hermes-signing.keystore" "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" >> "$GITHUB_ENV"
       - name: Android JDK 21 / SDK 35 build
         run: npm run build
       - name: Verify APK integrity, privacy, and native alignment
@@ -83,17 +72,16 @@ jobs:
           apk=platforms/android/app/build/outputs/apk/debug/app-debug.apk
           test -f "$apk"
           sha256sum "$apk" sbom.cdx.json whatsapp-sbom.cdx.json > SHA256SUMS
-          printf 'source=%s\nsize=%s\nnode=%s\njava=%s\n' "$GITHUB_SHA" "$(stat -c %s "$apk")" "$(node --version)" "$(java -version 2>&1 | sed -n '1p')" > PROVENANCE.txt
-      - name: Upload verified evidence
+          printf 'source=%s\nsize=%s\nsigning_mode=%s\nnode=%s\njava=%s\n' "$GITHUB_SHA" "$(stat -c %s "$apk")" "$HERMES_SIGNING_MODE" "$(node --version)" "$(java -version 2>&1 | sed -n '1p')" > PROVENANCE.txt
+      - name: Upload untrusted validation evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: hermes-g2-${{ github.sha }}
+          name: hermes-g2-untrusted-validation-${{ github.sha }}
           path: |
-            platforms/android/app/build/outputs/apk/debug/app-debug.apk
             SHA256SUMS
             PROVENANCE.txt
             sbom.cdx.json
             whatsapp-sbom.cdx.json
             build/reports/native-alignment.txt
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
