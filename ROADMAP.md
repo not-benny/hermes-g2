@@ -122,15 +122,27 @@ Current as of 22 August 2026. `main` is the canonical branch.
 - **RESEARCH / LIMITED OWNER EVIDENCE.** The reviewed 2.2.8.4 custom candidate has
   reportedly booted and run on one owner unit. That does not establish broad
   compatibility, reproducibility, or recovery.
+- **INVESTIGATION DONE — automatic patching (22 August 2026).** Quarantined,
+  offline rebuild, delta generation, independent replay, and static validation
+  are feasible for an exact, already human-ported firmware version. Automatic
+  relocation to a newly discovered base, trust promotion, unattended flashing,
+  and claimed automatic rollback are not: the current single-slot/two-lens path
+  has no proven hard-brick recovery or interruption reconciliation. Recommended
+  direction: quarantined acquisition plus a hermetic non-publishing CI builder
+  after manual port review, then separately reviewed manifest promotion and
+  human-authorized staged deployment only after recovery evidence. See
+  `docs/automatic-firmware-patching-investigation-2026-08-22.md`.
 - **BLOCKED — recovery assurance.** Do not claim the flash path safe until a
   documented, independently witnessed recovery procedure succeeds on appropriate
   sacrificial hardware.
 
 ### R1 ring
 
-- **BLOCKED / DO NOT BUILD.** Standalone R1 DFU/OTA remains absent. Secure DFU
-  requires a genuine compatible vendor-signed image, while provenance, authority,
-  recovery, privacy, power, and per-run consent gates remain unsatisfied.
+- **BLOCKED / DO NOT BUILD.** Standalone R1 DFU/OTA remains absent. The R1 exposes
+  Nordic Secure DFU and is expected, but not yet observed, to enforce a genuine
+  compatible vendor-signed image; no DFU transaction/init packet has been
+  captured, and provenance, authority, recovery, privacy, power, and per-run
+  consent gates remain unsatisfied.
 - **BLOCKED.** Reset, wipe, pair-delete, host rebinding, algorithm-key mutation,
   power-control, and raw-command bypasses stay blocklisted.
 

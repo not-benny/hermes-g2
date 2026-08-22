@@ -169,6 +169,13 @@ destructive/pairing/firmware operation was performed.
   minimisation are approved
 - G2 firmware flashing/recovery experiments until separately authorized
   sacrificial recovery evidence exists
+- Automatic G2 firmware trust promotion, unattended flashing, and claimed
+  automatic rollback. The 22 August investigation found that only quarantined
+  acquisition followed by offline rebuild/replay/static validation of an exact,
+  already human-ported version is ready to automate. New-version relocation,
+  promotion, and every deployment stage remain human-reviewed and recovery-gated.
+  See
+  `docs/automatic-firmware-patching-investigation-2026-08-22.md`.
 - First-time R1 provisioning, pair/unpair ownership, and NVM mutation
 - R1 firmware/DFU/OTA, recovery, reset, wipe, power, and destructive commands
 - Sleep decoding until a CRC-valid type-1 stage-bearing frame and absolute
@@ -214,5 +221,8 @@ unobserved hardware result from passing host tests.
    live devices are available without contention; do not infer it from this APK.
 5. Obtain the missing type-1 R1 sleep evidence only under a separately reviewed,
    reversible, private capture plan.
-6. Keep firmware/recovery work blocked unless every independent provenance,
-   authority, recovery, privacy, power, and per-run consent gate passes.
+6. If firmware work resumes, start only with the investigation's hermetic,
+   quarantine-only CI candidate builder. It must not publish firmware, change
+   trusted hashes, enable installation, or contact hardware. Keep promotion and
+   deployment blocked unless every independent provenance, authority, recovery,
+   privacy, power, and per-run consent gate passes.
