@@ -17,9 +17,9 @@ reaches every in-process window. Persisted state is limited to the approved URI,
 page/bookmark, typography, and speed; reopening restores paused. See
 `docs/local-reader.md`.
 
-Verification on the current candidate: focused reader tests pass 7/7; the full
-host suite passes 266/266; TypeScript typechecking passes; JDK 21 / SDK 35 Android
-build passes. The debug APK installed on the USB Samsung A32 and launched.
+Verification on the current merged candidate: focused reader tests pass 7/7; the
+full host suite passes 288/288; TypeScript typechecking passes; JDK 21 / SDK 35
+Android build passes. The debug APK installed on the USB Samsung A32 and launched.
 Synthetic non-private text opened a reader window after one runtime null-restore
 bug was reproduced in PID-filtered logs, fixed with a failing regression
 contract, rebuilt, and reinstalled. With both G2 arms live, the corrected reader
