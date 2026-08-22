@@ -16,14 +16,18 @@ releases each main-page dashboard subscription. The focused 8-test contract and
 full 291-test suite pass. The final 195,664,501-byte debug APK built from
 `444e4032b3d630962047f6d3a2ef4e472164bff0` has SHA-256
 `1d61d96548ed721c5c84ec36b738e92435bada0179d9c4eba03a9145b678f067`.
-Its immediate predecessor (`d26f01795863b6f4ab1fe0f6e7e3966a818e7b19c7f9c0a96bd57676e2a022f8`)
-installed and launched on an authorised Galaxy Z Fold7 SM-F966B (`q7q`),
-Android 16 / SDK 36. Read-only package and process checks reported the expected
-version and a live `com.faceclaw.app` PID. The final zero-size-layout guard was
-added and rebuilt afterward, so exact-final-APK hardware installation is not
-claimed. The phone was locked/Dozing, so there is no unlocked Hermes-phone
-visual, physical fold-posture transition, rotation, tabletop, or multi-window
-evidence; none may be inferred from install/process proof. After Bluetooth was enabled, the app connected both G2
+The immediate predecessor (`d26f01795863b6f4ab1fe0f6e7e3966a818e7b19c7f9c0a96bd57676e2a022f8`)
+reproduced a launch crash when NativeScript reported a transient 0×0 page during
+fragment construction. A focused regression was observed RED, the strict
+classifier gained a non-throwing deferred-layout wrapper, and the focused/full
+suites returned GREEN. The exact final APK then upgrade-installed and launched
+on an authorised Galaxy Z Fold7 SM-F966B (`q7q`), Android 16 / SDK 36. Package
+metadata reported the expected version, the process remained live, and the
+PID-filtered post-launch log contained no `FATAL EXCEPTION`, zero-size-bounds,
+or `onCreateView` failure marker. The phone was locked/Dozing, so there is no
+unlocked Hermes-phone visual, physical fold-posture transition, rotation,
+tabletop, or multi-window evidence; none may be inferred from install/process
+proof. After Bluetooth was enabled, the app connected both G2
 arms and logged `session ready`; the direct R1 BLE session also connected. Benny
 observed that the ring was not shown on the glasses HUD, so no R1-HUD success is
 claimed. No pairing, provisioning, permission, firmware, wake, or unlock action
