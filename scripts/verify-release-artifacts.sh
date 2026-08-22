@@ -68,7 +68,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 unzip -qq "$APK" -d "$tmp"
 python3 -c 'import os,sys
-blocked=((os.path.expanduser("~") + os.sep).encode(), os.getcwd().encode())
+blocked=(os.getcwd().encode(),)
 for root,_,files in os.walk(sys.argv[1]):
     for name in files:
         path=os.path.join(root,name)
