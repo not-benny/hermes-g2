@@ -46,10 +46,24 @@ actual_cert=$($APKSIGNER verify --print-certs "$APK" | python3 -c 'import sys
 for line in sys.stdin:
     if "certificate SHA-256 digest:" in line:
         print(line.rsplit(":",1)[1].strip()); break')
-if [[ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]]; then
-  printf 'unexpected APK signing certificate\n' >&2
-  exit 1
-fi
+case "${HERMES_SIGNING_MODE:-protected}" in
+  protected)
+    if [[ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]]; then
+      printf 'unexpected APK signing certificate\n' >&2
+      exit 1
+    fi
+    ;;
+  untrusted)
+    if [[ "$actual_cert" == "$EXPECTED_CERT_SHA256" ]]; then
+      printf 'untrusted validation APK must not use the protected signing certificate\n' >&2
+      exit 1
+    fi
+    ;;
+  *)
+    printf 'unknown signing verification mode\n' >&2
+    exit 1
+    ;;
+esac
 badging=$($AAPT dump badging "$APK")
 if [[ "$badging" != *"package: name='com.faceclaw.app' versionCode='1000001' versionName='1.0.0-preview.1'"* ]]; then
   printf 'unexpected APK package identity or version\n' >&2
