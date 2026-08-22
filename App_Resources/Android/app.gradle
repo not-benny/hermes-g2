@@ -82,6 +82,13 @@ def faceclawFindNdkRoot = {
       && file(explicitNdk).name == faceclawNdkVersion) {
     return file(explicitNdk)
   }
+  try {
+    def gradleNdk = android.ndkDirectory
+    if (gradleNdk != null && gradleNdk.exists() && gradleNdk.name == faceclawNdkVersion) {
+      return gradleNdk
+    }
+  } catch (Throwable ignored) {
+  }
   return null
 }
 
