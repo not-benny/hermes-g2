@@ -16,10 +16,14 @@ test("Hermes G2 embeds the reviewed 2.2.8.4 fixed firmware patch set", () => {
   assert.match(builder, /g2_2\.2\.8\.4_cfw\.bin/);
 
   const compatibility = read("app/g2/firmware-compat.ts");
+  const wrapper = read("app/native/firmware-flasher.ts");
+  const nativeFlasher = read("App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawFirmwareFlasher.java");
   assert.match(compatibility, /FLASHABLE_STOCK_VERSION\s*=\s*\[2,\s*2,\s*8,\s*4\]/);
   assert.match(compatibility, /REQUIRED_CFW_CONTRACT\s*=\s*"EVENCFW\/9"/);
   assert.match(compatibility, /tokens\.includes\(REQUIRED_CFW_CONTRACT\)/);
   assert.match(compatibility, /EXPERIMENTAL_FIRMWARE_INSTALL_ENABLED\s*=\s*false/);
+  assert.match(wrapper, /if \(!isFirmwareFlashingEnabled\(\)\)/);
+  assert.match(nativeFlasher, /FIRMWARE_FLASHING_ENABLED = false/);
 
   assert.match(builder, /if \(!isFirmwareFlashingEnabled\(\)\)/);
   const onboarding = read("app/phone-ui/onboarding-firmware-check-view-model.ts");

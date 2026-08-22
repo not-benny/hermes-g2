@@ -101,7 +101,11 @@ public final class FaceclawSettings {
     public synchronized String getSecret(String key, String defaultValue) {
         if (securePrefs.contains(key)) {
             try {
-                return decrypt(securePrefs.getString(key, ""));
+                String decrypted = decrypt(securePrefs.getString(key, ""));
+                if (prefs.contains(key) && !prefs.edit().remove(key).commit()) {
+                    Log.w(TAG, "legacy encrypted-setting cleanup will retry");
+                }
+                return decrypted;
             } catch (Exception e) {
                 Log.w(TAG, "encrypted setting could not be read");
                 if (prefs.contains(key)) return prefs.getString(key, defaultValue);
@@ -111,13 +115,7 @@ public final class FaceclawSettings {
         if (!prefs.contains(key)) return defaultValue;
         String legacy = prefs.getString(key, defaultValue);
         if (setSecretInternal(key, legacy)) {
-            try {
-                if (legacy.equals(getSecret(key, defaultValue))) {
-                    prefs.edit().remove(key).commit();
-                }
-            } catch (Exception ignored) {
-                // Keep the only known-good plaintext copy if verification fails.
-            }
+            prefs.edit().remove(key).commit();
         }
         return legacy;
     }
@@ -125,7 +123,7 @@ public final class FaceclawSettings {
     public synchronized boolean setSecret(String key, String value) {
         boolean stored = setSecretInternal(key, value == null ? "" : value);
         if (stored) {
-            prefs.edit().remove(key).commit();
+            if (!prefs.edit().remove(key).commit()) return false;
             notifyChanged(key);
         }
         return stored;
@@ -139,26 +137,19 @@ public final class FaceclawSettings {
     }
 
     private boolean setSecretInternal(String key, String value) {
-        boolean hadPreviousEncrypted = securePrefs.contains(key);
-        String previousEncrypted = hadPreviousEncrypted ? securePrefs.getString(key, "") : null;
-        boolean replacementCommitted = false;
+        String pendingKey = key + ".__pending";
         try {
             String encrypted = encrypt(value);
+            if (!securePrefs.edit().putString(pendingKey, encrypted).commit()) return false;
+            if (!value.equals(decrypt(securePrefs.getString(pendingKey, "")))) return false;
             if (!securePrefs.edit().putString(key, encrypted).commit()) return false;
-            replacementCommitted = true;
-            if (value.equals(decrypt(securePrefs.getString(key, "")))) return true;
+            securePrefs.edit().remove(pendingKey).commit();
+            return true;
         } catch (Exception e) {
             Log.w(TAG, "encrypted setting could not be written");
+            securePrefs.edit().remove(pendingKey).commit();
+            return false;
         }
-        if (replacementCommitted) restoreEncryptedValue(key, hadPreviousEncrypted, previousEncrypted);
-        return false;
-    }
-
-    private void restoreEncryptedValue(String key, boolean hadPreviousEncrypted, String previousEncrypted) {
-        SharedPreferences.Editor editor = securePrefs.edit();
-        if (hadPreviousEncrypted) editor.putString(key, previousEncrypted);
-        else editor.remove(key);
-        if (!editor.commit()) Log.w(TAG, "encrypted setting rollback failed");
     }
 
     private SecretKey getOrCreateSecretKey() throws Exception {

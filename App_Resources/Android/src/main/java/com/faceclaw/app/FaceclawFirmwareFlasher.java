@@ -64,6 +64,7 @@ public class FaceclawFirmwareFlasher implements FaceclawBleListener {
     private static final int REBOOT_SETTLE_MS = 5_000;
     private static final int NOTIFY_SETTLE_MS = 2_500;
     private static final int RETRY_DELAY_MS = 2_500;
+    private static final boolean FIRMWARE_FLASHING_ENABLED = false;
 
     // END ack statuses that mean "component accepted": SUCCESS, UPDATING, SYS_RESTART.
     private static final int[] END_OK = new int[] {0, 8, 9};
@@ -112,6 +113,9 @@ public class FaceclawFirmwareFlasher implements FaceclawBleListener {
     }
 
     public void start() {
+        if (!FIRMWARE_FLASHING_ENABLED) {
+            throw new SecurityException("Firmware flashing is release-disabled.");
+        }
         synchronized (lock) {
             if (worker != null) {
                 return;

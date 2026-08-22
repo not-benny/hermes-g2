@@ -52,10 +52,10 @@ two stale branding expectations were updated for the now-lockfile-pinned CLI,
 TypeScript, JDK 21 / SDK 35 / NDK 27.2.12479018 / CMake 3.22.1 Android build,
 ZIP integrity, private-content/path scan, ZIP 16 KiB alignment, and APK-wide ELF
 LOAD alignment. The disabled WhatsApp/Node runtime is excluded. The arm64-only
-debug APK is 194,871,051 bytes, versionCode 1000001 / versionName
+debug APK is 194,871,195 bytes, versionCode 1000001 / versionName
 1.0.0-preview.1, and its
 final SHA-256 is
-`78891adfa9e76f1ada56d28521f9cc5d5b82253a722cb6d283eee54d0b62e350`.
+`df96b012567cf37a037a53cab6ed8b58466e3c9ee4acda51ba769738baff6e35`.
 
 On the authorised Samsung A32, the existing and candidate APK certificates
 matched. Upgrade install, launch and resumed activity passed; package metadata

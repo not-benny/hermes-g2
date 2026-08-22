@@ -56,13 +56,26 @@ jobs:
         run: |
           npm sbom --sbom-format=cyclonedx > sbom.cdx.json
           npm --prefix App_Resources/Android/whatsapp-node sbom --sbom-format=cyclonedx > whatsapp-sbom.cdx.json
+      - name: Configure protected upgrade-compatible signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64" && test -n "$STORE_PASSWORD" && test -n "$KEY_ALIAS" && test -n "$KEY_PASSWORD"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/hermes-signing.keystore"
+          chmod 600 "$RUNNER_TEMP/hermes-signing.keystore"
+          printf 'ANDROID_SIGNING_STORE_FILE=%s\nANDROID_SIGNING_STORE_PASSWORD=%s\nANDROID_SIGNING_KEY_ALIAS=%s\nANDROID_SIGNING_KEY_PASSWORD=%s\n' \
+            "$RUNNER_TEMP/hermes-signing.keystore" "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" >> "$GITHUB_ENV"
       - name: Android JDK 21 / SDK 35 build
         run: npm run build
       - name: Verify APK integrity, privacy, and native alignment
         run: bash scripts/verify-release-artifacts.sh
       - name: Record APK and SBOM provenance
         run: |
-          apk=$(find platforms/android/app/build/outputs/apk -type f -name '*.apk' -print -quit)
+          apk=platforms/android/app/build/outputs/apk/debug/app-debug.apk
+          test -f "$apk"
           sha256sum "$apk" sbom.cdx.json whatsapp-sbom.cdx.json > SHA256SUMS
           printf 'source=%s\nsize=%s\nnode=%s\njava=%s\n' "$GITHUB_SHA" "$(stat -c %s "$apk")" "$(node --version)" "$(java -version 2>&1 | sed -n '1p')" > PROVENANCE.txt
       - name: Upload verified evidence
@@ -70,7 +83,7 @@ jobs:
         with:
           name: hermes-g2-${{ github.sha }}
           path: |
-            platforms/android/app/build/outputs/apk/**/*.apk
+            platforms/android/app/build/outputs/apk/debug/app-debug.apk
             SHA256SUMS
             PROVENANCE.txt
             sbom.cdx.json

@@ -53,8 +53,8 @@ test("credential settings migrate to Android Keystore encryption before plaintex
   assert.match(javaStore, /AES\/GCM\/NoPadding/);
   assert.match(javaStore, /commit\s*\(\s*\)/);
   assert.match(javaStore, /getSecret\s*\([^)]*\)[\s\S]*remove\s*\(/);
-  assert.match(javaStore, /previousEncrypted/);
-  assert.match(javaStore, /restoreEncryptedValue/);
+  assert.match(javaStore, /pendingKey/);
+  assert.match(javaStore, /decrypt\(securePrefs\.getString\(pendingKey/);
   assert.match(javaStore, /if \(prefs\.contains\(key\)\)[\s\S]*prefs\.getString/);
   for (const key of [
     "assistant.bridgeToken",

@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APK=${1:-$(find platforms/android/app/build/outputs/apk -type f -name '*.apk' -print -quit)}
+if [[ $# -gt 0 ]]; then
+  APK=$1
+else
+  mapfile -t apks < <(find platforms/android/app/build/outputs/apk -type f -name '*.apk' -print | sort)
+  if [[ ${#apks[@]} -ne 1 ]]; then printf 'expected exactly one APK, found %s\n' "${#apks[@]}" >&2; exit 1; fi
+  APK=${apks[0]}
+fi
 if [[ -z "${APK:-}" || ! -f "$APK" ]]; then
   printf 'APK not found\n' >&2
   exit 1
@@ -14,9 +20,15 @@ unzip -t "$APK" >/dev/null
 
 unzip -Z1 "$APK" | python3 -c 'import sys
 blocked=("/home/", "/Users/", ".hermes", "ground-truth-private", ".env", "bluetooth-capture")
-bad=[line.strip() for line in sys.stdin if any(item.lower() in line.lower() for item in blocked)]
+names=[line.strip() for line in sys.stdin]
+bad=[line for line in names if any(item.lower() in line.lower() for item in blocked)]
 if bad:
     print("private path names in APK", file=sys.stderr)
+    raise SystemExit(1)
+required={"lib/arm64-v8a/libNativeScript.so","lib/arm64-v8a/libfaceclaw_lc3.so","lib/arm64-v8a/libfaceclaw_llama.so","lib/arm64-v8a/libonnxruntime.so","lib/arm64-v8a/libsherpa-onnx-jni.so"}
+actual={name for name in names if name.startswith("lib/") and name.endswith(".so")}
+if actual != required or "assets/whatsapp-node.zip" in names:
+    print("unexpected native or WhatsApp artifact inventory", file=sys.stderr)
     raise SystemExit(1)'
 
 SDK_ROOT=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
@@ -29,6 +41,15 @@ for tool in "$ZIPALIGN" "$AAPT" "$APKSIGNER"; do
 done
 
 "$APKSIGNER" verify --verbose "$APK" >/dev/null
+EXPECTED_CERT_SHA256=f64ccdb8d462b42c6d143cb1323350b052acebc0a5023e14d05fea86ef7766d4
+actual_cert=$($APKSIGNER verify --print-certs "$APK" | python3 -c 'import sys
+for line in sys.stdin:
+    if "certificate SHA-256 digest:" in line:
+        print(line.rsplit(":",1)[1].strip()); break')
+if [[ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]]; then
+  printf 'unexpected APK signing certificate\n' >&2
+  exit 1
+fi
 badging=$($AAPT dump badging "$APK")
 if [[ "$badging" != *"package: name='com.faceclaw.app' versionCode='1000001' versionName='1.0.0-preview.1'"* ]]; then
   printf 'unexpected APK package identity or version\n' >&2
@@ -47,7 +68,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 unzip -qq "$APK" -d "$tmp"
 python3 -c 'import os,sys
-blocked=(b"/home/benny/", b"/Users/benny/", b"Documents/hermes-g2", b"Ben\x27s WhatsApp")
+blocked=((os.path.expanduser("~") + os.sep).encode(), os.getcwd().encode())
 for root,_,files in os.walk(sys.argv[1]):
     for name in files:
         path=os.path.join(root,name)
