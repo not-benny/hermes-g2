@@ -57,10 +57,15 @@ Current as of 22 August 2026. `main` is the canonical branch.
   build pass. USB A32/G2 evidence proves warmed-session IMU/compass enable ACKs,
   eight accepted motion samples, prompt dual disable ACKs, and no continuing
   repaint stream after stop. The resting/off-head G2 emitted no heading or
-  calibration-complete event, so real heading, calibrated posture/level and a
-  meaningful battery delta remain unproven; the bounded USB-powered run stayed
-  at 100% and unchanged charge counter. Repeat while worn/moving in a serialized
-  hardware window before marking DONE.
+  calibration-complete event. A follow-up worn run then proved live `188° S`,
+  level and 54 accepted samples but still no firmware calibration events. Compass
+  now exposes a bounded local start/cancel workflow that sends no BLE command,
+  requires filtered heading coverage plus level-neutral IMU evidence, persists
+  only `poor` summary quality, and fails closed across timeout/session/restart;
+  firmware start/complete remains a separate at-most-`fair` path. Host lifecycle
+  and 576×288 viewport coverage pass, but exact-candidate hardware validation and
+  a meaningful battery delta remain unproven. Repeat the local flow while
+  worn/moving in a serialized hardware window before marking DONE.
 
 - **DONE — startup connection race.** A delayed constructor-time disconnected
   snapshot can no longer release a newly connecting communicator. Retained

@@ -15,7 +15,7 @@ export const COMPASS_WINDOW_ID = "compass";
 export const COMPASS_SURFACE_ID = "window:compass";
 const RECONCILE_INTERVAL_MS = 400;
 
-class CompassLayer implements Layer {
+export class CompassLayer implements Layer {
   private heading: number | null = null;
   private status = "Waiting for compass data…";
   private quality = "Calibration: uncalibrated";
@@ -24,11 +24,20 @@ class CompassLayer implements Layer {
   private timer: ReturnType<typeof setInterval> | null = null;
   private lease: MotionLease | null = null;
   private lastSnapshotKey = "";
+  private localCalibration: MotionSnapshot["localCalibration"] = {
+    status: "idle", headingSamples: 0, neutralSamples: 0, headingSectors: 0, reason: null,
+  };
 
-  constructor(private readonly requestRender: () => void) {}
+  constructor(
+    private readonly requestRender: () => void,
+    private readonly motionService: Pick<
+      typeof glassesMotionService,
+      "acquire" | "snapshot" | "startLocalCalibration" | "cancelLocalCalibration"
+    > = glassesMotionService,
+  ) {}
 
   start(): void {
-    this.lease = glassesMotionService.acquire(
+    this.lease = this.motionService.acquire(
       { compass: true, imuRate: "low" },
       (snapshot) => this.onMotion(snapshot),
     );
@@ -53,7 +62,7 @@ class CompassLayer implements Layer {
 
   private reconcile(): void {
     if (this.removed) return;
-    this.onMotion(glassesMotionService.snapshot());
+    this.onMotion(this.motionService.snapshot());
     const visible = shell.isWindowVisible(COMPASS_WINDOW_ID);
     if (visible === this.enabled) return;
     this.enabled = visible;
@@ -71,12 +80,20 @@ class CompassLayer implements Layer {
       snapshot.calibrationQuality,
       snapshot.acceptedSamples,
       snapshot.rejectedSamples,
+      snapshot.localCalibration,
     ]);
     if (key === this.lastSnapshotKey) return;
     this.lastSnapshotKey = key;
     this.heading = snapshot.headingDegrees;
+    this.localCalibration = { ...snapshot.localCalibration };
     this.quality = `Cal: ${snapshot.calibrationQuality}  samples: ${snapshot.acceptedSamples}`;
-    this.status = snapshot.compassQuality === "interference"
+    this.status = snapshot.localCalibration.status === "collecting"
+      ? "Keep level; slowly turn full circle"
+      : snapshot.localCalibration.status === "succeeded"
+        ? "Local calibration saved (low confidence)"
+        : snapshot.localCalibration.status === "failed"
+          ? localCalibrationFailure(snapshot.localCalibration.reason)
+          : snapshot.compassQuality === "interference"
       ? "Heading unreliable: possible interference"
       : snapshot.compassQuality === "calibrating"
         ? "Calibrating — move the glasses"
@@ -110,10 +127,35 @@ class CompassLayer implements Layer {
     }
     image.drawText(small, Math.round(width * 0.56), 158, this.status, 125);
     image.drawText(small, Math.round(width * 0.56), 176, this.quality, 110);
+    if (this.localCalibration.status === "collecting") {
+      image.drawText(
+        small,
+        Math.round(width * 0.56),
+        194,
+        `${this.localCalibration.headingSamples}/24 headings  ${this.localCalibration.neutralSamples}/8 level  ${this.localCalibration.headingSectors}/6 sectors`,
+        125,
+      );
+    }
+    const action = this.localCalibration.status === "collecting"
+      ? "click: cancel local calibration"
+      : "click: start local calibration";
+    image.drawText(small, Math.round(width * 0.56), height - 20, action, 145);
     return image;
   }
 
-  handleInput(_event: DashboardInputEvent, _ctx: LayerContext): void {}
+  handleInput(event: DashboardInputEvent, _ctx: LayerContext): void {
+    if (event.type !== "click") return;
+    if (this.localCalibration.status === "collecting") this.motionService.cancelLocalCalibration();
+    else this.motionService.startLocalCalibration();
+    this.onMotion(this.motionService.snapshot());
+  }
+}
+
+function localCalibrationFailure(reason: MotionSnapshot["localCalibration"]["reason"]): string {
+  if (reason === "cancelled") return "Local calibration cancelled";
+  if (reason === "firmware-started") return "Firmware calibration took over";
+  if (reason === "unavailable") return "Calibration unavailable: wait for sensors";
+  return "Local calibration failed: insufficient quality";
 }
 
 export function createCompassAppWindow(options: InProcessAppOptions): InProcessWindow {

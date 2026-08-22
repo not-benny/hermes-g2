@@ -73,6 +73,28 @@ publication/retirement and rejected legacy persisted `good` quality. Firmware
 completion can now establish at most `fair` sensor/neutral quality; without
 wearer alignment the UI remains approximate.
 
+A follow-up blocker was reproduced on the authorised worn/moving A32/G2 run:
+the exact installed APK SHA-256
+`9ecd9e6128ebaae49fb133135a69c5a4fa7deaf3121fcd3e661e7a3e9bc77e21`
+rendered `188° S`, live level, and 54 accepted samples, but remained
+`uncalibrated` because the firmware emitted headings without calibration
+start/complete events. The branch now adds an explicit phone-side Compass click
+action that collects for at most 30 seconds, requires 24 filtered headings over
+six 45-degree sectors plus eight level-neutral IMU samples, and can be cancelled.
+It sends no new BLE command. Verified local completion persists only the existing
+compact summary at `poor`; only a matched firmware start/complete can reach
+`fair`, and neither path claims boresight alignment or exact heading. Firmware
+start safely supersedes local collection, while timeout, stale callbacks,
+session replacement, screen-off, and restart cannot persist partial data. See
+`docs/g2-local-motion-calibration.md`.
+
+Acceptance for this follow-up is source/build complete only when focused and full
+host tests, TypeScript, the 576×288 Compass viewport test, and the JDK 21 Android
+build pass at the pushed SHA. Hardware validation remains pending: no device is
+touched by this follow-up task, so the new start/progress/cancel/success UI and
+persisted `poor` restart state must still be exercised with the exact candidate
+on the authorised worn G2 before the operational gate is closed.
+
 Final independent adversarial review passed the source at
 `4624c5f7a874cc748e65918dde630e4445aed304`. Static review is **PASS**; operational
 authorization remains **NO-GO** only for the missing worn/moving heading and

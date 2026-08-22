@@ -160,6 +160,146 @@ test("a sustained legitimate turn reacquires instead of staying interference-loc
   assert.notEqual(service.snapshot().compassQuality, "interference");
 });
 
+test("explicit local calibration completes from bounded quality samples without a new source command", () => {
+  let now = 10_000;
+  const persisted = store();
+  const io = backend();
+  const service = new MotionService({ now: () => now, persistence: persisted });
+  service.bind(io.source, { deviceId: "G2-A", sessionGeneration: 1 });
+  service.setScreenOn(true);
+  service.acquire({ imuRate: "low", compass: true }, () => {});
+  const controlCalls = structuredClone(io.calls);
+
+  assert.equal(service.startLocalCalibration(), true);
+  assert.equal(service.snapshot().localCalibration.status, "collecting");
+  for (let i = 0; i < 32; i++) {
+    now += 200;
+    io.imu({ x: 0.01, y: -0.01, z: 1, source: 1 });
+    io.compass({ command: 15, headingDegrees: (i * 12) % 360 });
+  }
+
+  const snapshot = service.snapshot();
+  assert.equal(snapshot.localCalibration.status, "succeeded");
+  assert.equal(snapshot.calibrationQuality, "poor");
+  assert.deepEqual(io.calls, controlCalls, "local calibration must not send a BLE command");
+  assert.equal(persisted.value().quality, "poor");
+  assert.equal(persisted.value().headingOffsetDegrees, 0);
+  assert.doesNotMatch(JSON.stringify(persisted.value()), /samples|history|readings/);
+});
+
+test("local calibration times out truthfully and never persists insufficient samples", () => {
+  let now = 5_000;
+  const persisted = store();
+  const io = backend();
+  const service = new MotionService({ now: () => now, persistence: persisted });
+  service.bind(io.source, { deviceId: "G2-A", sessionGeneration: 1 });
+  service.setScreenOn(true);
+  service.acquire({ imuRate: "low", compass: true }, () => {});
+  service.startLocalCalibration();
+  for (let i = 0; i < 7; i++) {
+    io.imu({ x: 0, y: 0, z: 1, source: 1 });
+    io.compass({ command: 15, headingDegrees: 40 + i });
+  }
+  now += 30_000;
+
+  const result = service.snapshot();
+  assert.equal(result.localCalibration.status, "failed");
+  assert.equal(result.localCalibration.reason, "insufficient-quality");
+  assert.equal(result.calibrationQuality, "uncalibrated");
+  assert.equal(persisted.value(), null);
+});
+
+test("cancel is local-only and a later firmware calibration can still complete at fair", () => {
+  let now = 10_000;
+  const persisted = store();
+  const io = backend();
+  const service = new MotionService({ now: () => now, persistence: persisted });
+  service.bind(io.source, { deviceId: "G2-A", sessionGeneration: 1 });
+  service.setScreenOn(true);
+  service.acquire({ imuRate: "low", compass: true }, () => {});
+  service.startLocalCalibration();
+  assert.equal(service.cancelLocalCalibration(), true);
+  assert.equal(service.snapshot().localCalibration.reason, "cancelled");
+
+  io.compass({ command: 16, headingDegrees: -1 });
+  for (let i = 0; i < 12; i++) {
+    now += 100;
+    io.imu({ x: 0, y: 0, z: 1, source: 1 });
+    io.compass({ command: 15, headingDegrees: 42 + (i % 2) });
+  }
+  io.compass({ command: 17, headingDegrees: -1 });
+  assert.equal(service.snapshot().calibrationQuality, "fair");
+  assert.equal(persisted.value().quality, "fair");
+});
+
+test("firmware complete cannot upgrade or finish a phone-local session", () => {
+  let now = 10_000;
+  const persisted = store();
+  const io = backend();
+  const service = new MotionService({ now: () => now, persistence: persisted });
+  service.bind(io.source, { deviceId: "G2-A", sessionGeneration: 1 });
+  service.setScreenOn(true);
+  service.acquire({ imuRate: "low", compass: true }, () => {});
+  service.startLocalCalibration();
+  for (let i = 0; i < 12; i++) {
+    now += 100;
+    io.imu({ x: 0, y: 0, z: 1, source: 1 });
+    io.compass({ command: 15, headingDegrees: i * 20 });
+  }
+  io.compass({ command: 17, headingDegrees: -1 });
+
+  assert.equal(service.snapshot().localCalibration.status, "collecting");
+  assert.equal(service.snapshot().calibrationQuality, "uncalibrated");
+  assert.equal(persisted.value(), null);
+});
+
+test("firmware start supersedes local collection without mixing sample provenance", () => {
+  let now = 10_000;
+  const persisted = store();
+  const io = backend();
+  const service = new MotionService({ now: () => now, persistence: persisted });
+  service.bind(io.source, { deviceId: "G2-A", sessionGeneration: 1 });
+  service.setScreenOn(true);
+  service.acquire({ imuRate: "low", compass: true }, () => {});
+  service.startLocalCalibration();
+  for (let i = 0; i < 7; i++) {
+    io.imu({ x: 0, y: 0, z: 1, source: 1 });
+    io.compass({ command: 15, headingDegrees: i * 45 });
+  }
+  io.compass({ command: 16, headingDegrees: -1 });
+  io.compass({ command: 17, headingDegrees: -1 });
+
+  assert.equal(service.snapshot().localCalibration.reason, "firmware-started");
+  assert.equal(service.snapshot().calibrationQuality, "poor");
+  assert.equal(persisted.value(), null, "pre-firmware local samples must not satisfy firmware completion");
+});
+
+test("local collection is session-bound and never survives bind or process restart", () => {
+  let now = 10_000;
+  const persisted = store();
+  const firstIo = backend();
+  const secondIo = backend();
+  const service = new MotionService({ now: () => now, persistence: persisted });
+  service.bind(firstIo.source, { deviceId: "G2-A", sessionGeneration: 1 });
+  service.setScreenOn(true);
+  service.acquire({ imuRate: "low", compass: true }, () => {});
+  service.startLocalCalibration();
+  const staleImu = firstIo.staleImu();
+  const staleCompass = firstIo.staleCompass();
+  service.bind(secondIo.source, { deviceId: "G2-A", sessionGeneration: 2 });
+  for (let i = 0; i < 40; i++) {
+    staleImu({ x: 0, y: 0, z: 1, source: 1 });
+    staleCompass({ command: 15, headingDegrees: i * 12 });
+  }
+  assert.equal(service.snapshot().localCalibration.status, "idle");
+  assert.equal(persisted.value(), null);
+
+  const restarted = new MotionService({ now: () => now, persistence: persisted });
+  restarted.bind(backend().source, { deviceId: "G2-A", sessionGeneration: 3 });
+  assert.equal(restarted.snapshot().localCalibration.status, "idle");
+  assert.equal(restarted.snapshot().calibrationQuality, "uncalibrated");
+});
+
 test("calibration completion without a matching start fails closed", () => {
   let now = 10_000;
   const persisted = store();

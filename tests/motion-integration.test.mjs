@@ -42,6 +42,10 @@ test("persistence is a compact calibration summary and UI labels uncertainty", (
   assert.match(persistence, /contains no raw motion sample history/);
   assert.match(compass, /Approximate magnetic heading/);
   assert.match(compass, /Heading unreliable: possible interference/);
+  assert.match(compass, /click: start local calibration/);
+  assert.match(compass, /click: cancel local calibration/);
+  assert.match(compass, /startLocalCalibration\(\)/);
+  assert.doesNotMatch(compass, /setCompassEnabled|sendCommand|writeValue/);
   assert.match(accelerometer, /posture:/);
 });
 

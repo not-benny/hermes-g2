@@ -2,6 +2,14 @@ export type MotionRate = "low" | "interactive";
 export type CalibrationQuality = "uncalibrated" | "poor" | "fair" | "good";
 export type CompassQuality = "unavailable" | "calibrating" | "poor" | "fair" | "good" | "interference";
 export type MotionState = "inactive" | "starting" | "live" | "stale" | "disconnected";
+export type LocalCalibrationStatus = "idle" | "collecting" | "succeeded" | "failed";
+export type LocalCalibrationSnapshot = {
+  status: LocalCalibrationStatus;
+  headingSamples: number;
+  neutralSamples: number;
+  headingSectors: number;
+  reason: "cancelled" | "insufficient-quality" | "unavailable" | "firmware-started" | null;
+};
 
 export type ImuSample = { x: number; y: number; z: number; source: number };
 export type CompassSample = { command: number; headingDegrees: number };
@@ -25,6 +33,7 @@ export type MotionSnapshot = {
   lastSampleAtMs: number | null;
   acceptedSamples: number;
   rejectedSamples: number;
+  localCalibration: LocalCalibrationSnapshot;
 };
 
 export type MotionRequest = {
@@ -76,6 +85,10 @@ const INTERFERENCE_DELTA_DEGREES = 85;
 const REACQUIRE_TOLERANCE_DEGREES = 25;
 const CALIBRATION_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1_000;
 const CALIBRATION_FUTURE_TOLERANCE_MS = 60_000;
+const LOCAL_CALIBRATION_TIMEOUT_MS = 30_000;
+const LOCAL_MIN_HEADING_SAMPLES = 24;
+const LOCAL_MIN_NEUTRAL_SAMPLES = 8;
+const LOCAL_MIN_HEADING_SECTORS = 6;
 const RATE_PACE: Record<MotionRate, number> = { low: 500, interactive: 200 };
 
 export function normalizeHeading(value: number): number {
@@ -149,9 +162,13 @@ export class MotionService {
   private outlierCandidate: number | null = null;
   private outlierCandidateCount = 0;
   private calibrationActive = false;
+  private calibrationOrigin: "firmware" | "local" | null = null;
   private calibrationHeadingCount = 0;
   private neutralSum = { x: 0, y: 0, z: 0 };
   private neutralCount = 0;
+  private localCalibration: LocalCalibrationSnapshot = this.idleLocalCalibration();
+  private localCalibrationDeadlineMs: number | null = null;
+  private readonly localHeadingSectors = new Set<number>();
   private acceptedSamples = 0;
   private rejectedSamples = 0;
   private lastSampleAtMs: number | null = null;
@@ -247,6 +264,7 @@ export class MotionService {
 
   snapshot(): MotionSnapshot {
     const now = this.options.now();
+    this.expireLocalCalibration(now);
     const headingFresh = this.headingAtMs !== null && now - this.headingAtMs <= SAMPLE_FRESH_MS;
     const orientationFresh = this.orientationAtMs !== null && now - this.orientationAtMs <= SAMPLE_FRESH_MS;
     const demanded = this.hasDemand();
@@ -272,7 +290,36 @@ export class MotionService {
       lastSampleAtMs: this.lastSampleAtMs,
       acceptedSamples: this.acceptedSamples,
       rejectedSamples: this.rejectedSamples,
+      localCalibration: { ...this.localCalibration },
     };
+  }
+
+  startLocalCalibration(): boolean {
+    if (!this.activeFor("imu") || !this.activeFor("compass") || this.calibrationOrigin === "firmware") {
+      this.localCalibration = {
+        status: "failed", headingSamples: 0, neutralSamples: 0, headingSectors: 0,
+        reason: "unavailable",
+      };
+      this.dispatch();
+      return false;
+    }
+    this.resetCalibrationSamples();
+    this.calibrationActive = true;
+    this.calibrationOrigin = "local";
+    this.localCalibrationDeadlineMs = this.options.now() + LOCAL_CALIBRATION_TIMEOUT_MS;
+    this.localCalibration = {
+      status: "collecting", headingSamples: 0, neutralSamples: 0, headingSectors: 0, reason: null,
+    };
+    this.compassQuality = "calibrating";
+    this.dispatch();
+    return true;
+  }
+
+  cancelLocalCalibration(): boolean {
+    if (this.calibrationOrigin !== "local") return false;
+    this.failLocalCalibration("cancelled");
+    this.dispatch();
+    return true;
   }
 
   private hasDemand(): boolean {
@@ -331,6 +378,7 @@ export class MotionService {
   }
 
   private acceptImu(sample: ImuSample): void {
+    this.expireLocalCalibration(this.options.now());
     if (!this.activeFor("imu") || sample.source !== 1) {
       this.rejectedSamples++;
       return;
@@ -359,31 +407,38 @@ export class MotionService {
       this.neutralSum.y += sample.y;
       this.neutralSum.z += sample.z;
       this.neutralCount++;
+      this.updateLocalProgress();
+      this.maybeCompleteLocalCalibration();
     }
     this.dispatch();
   }
 
   private acceptCompass(sample: CompassSample): void {
+    this.expireLocalCalibration(this.options.now());
     if (!this.activeFor("compass")) {
       this.rejectedSamples++;
       return;
     }
     if (sample.command === COMPASS_CALIBRATION_STARTED) {
+      if (this.calibrationOrigin === "local") {
+        this.localCalibration = { ...this.localCalibration, status: "failed", reason: "firmware-started" };
+      }
       this.calibrationActive = true;
-      this.calibrationHeadingCount = 0;
-      this.neutralSum = { x: 0, y: 0, z: 0 };
-      this.neutralCount = 0;
+      this.calibrationOrigin = "firmware";
+      this.localCalibrationDeadlineMs = null;
+      this.resetCalibrationSamples();
       this.compassQuality = "calibrating";
       this.dispatch();
       return;
     }
     if (sample.command === COMPASS_CALIBRATION_COMPLETE) {
-      if (!this.calibrationActive) {
+      if (!this.calibrationActive || this.calibrationOrigin !== "firmware") {
         this.rejectedSamples++;
         return;
       }
       this.calibrationActive = false;
-      this.persistCalibration();
+      this.calibrationOrigin = null;
+      this.persistCalibration("fair");
       this.dispatch();
       return;
     }
@@ -409,7 +464,7 @@ export class MotionService {
           this.lastSampleAtMs = now;
           this.acceptedSamples++;
           this.stableHeadingCount = 1;
-          if (this.calibrationActive) this.calibrationHeadingCount++;
+          if (this.calibrationActive) this.recordCalibrationHeading(candidate);
           this.outlierCandidate = null;
           this.outlierCandidateCount = 0;
           this.headingDiscontinuities = 0;
@@ -431,7 +486,7 @@ export class MotionService {
     this.lastSampleAtMs = now;
     this.acceptedSamples++;
     this.stableHeadingCount++;
-    if (this.calibrationActive) this.calibrationHeadingCount++;
+    if (this.calibrationActive) this.recordCalibrationHeading(candidate);
     if (this.stableHeadingCount >= 10) {
       this.headingDiscontinuities = 0;
       this.compassQuality = this.calibrationQuality === "good" ? "good" : "fair";
@@ -447,15 +502,12 @@ export class MotionService {
     return deriveOrientation(vector)?.pitchDegrees ?? 0;
   }
 
-  private persistCalibration(): void {
+  private persistCalibration(quality: Exclude<CalibrationQuality, "uncalibrated">): boolean {
     if (!this.identity || this.calibrationHeadingCount < 8 || this.neutralCount < 8) {
       this.calibrationQuality = "poor";
       this.compassQuality = "poor";
-      return;
+      return false;
     }
-    // Firmware completion plus stable samples proves sensor/neutral quality,
-    // not wearer boresight alignment. Keep the maximum truthful grade at fair.
-    const quality: Exclude<CalibrationQuality, "uncalibrated"> = "fair";
     const record: MotionCalibrationRecordV1 = {
       schemaVersion: 1,
       algorithmVersion: "motion-v1",
@@ -474,11 +526,80 @@ export class MotionService {
       this.calibration = record;
       this.calibrationQuality = quality;
       this.compassQuality = quality;
+      return true;
     } catch {
       this.calibration = null;
       this.calibrationQuality = "poor";
       this.compassQuality = "poor";
+      return false;
     }
+  }
+
+  private idleLocalCalibration(): LocalCalibrationSnapshot {
+    return { status: "idle", headingSamples: 0, neutralSamples: 0, headingSectors: 0, reason: null };
+  }
+
+  private resetCalibrationSamples(): void {
+    this.calibrationHeadingCount = 0;
+    this.neutralSum = { x: 0, y: 0, z: 0 };
+    this.neutralCount = 0;
+    this.localHeadingSectors.clear();
+  }
+
+  private updateLocalProgress(): void {
+    if (this.calibrationOrigin !== "local") return;
+    this.localCalibration = {
+      ...this.localCalibration,
+      headingSamples: this.calibrationHeadingCount,
+      neutralSamples: this.neutralCount,
+      headingSectors: this.localHeadingSectors.size,
+    };
+  }
+
+  private recordCalibrationHeading(headingDegrees: number): void {
+    this.calibrationHeadingCount++;
+    if (this.calibrationOrigin !== "local") return;
+    this.localHeadingSectors.add(Math.floor(normalizeHeading(headingDegrees) / 45) % 8);
+    this.updateLocalProgress();
+    this.maybeCompleteLocalCalibration();
+  }
+
+  private maybeCompleteLocalCalibration(): void {
+    if (
+      this.calibrationOrigin !== "local" ||
+      this.calibrationHeadingCount < LOCAL_MIN_HEADING_SAMPLES ||
+      this.neutralCount < LOCAL_MIN_NEUTRAL_SAMPLES ||
+      this.localHeadingSectors.size < LOCAL_MIN_HEADING_SECTORS
+    ) return;
+    const progress = { ...this.localCalibration };
+    this.calibrationActive = false;
+    this.calibrationOrigin = null;
+    this.localCalibrationDeadlineMs = null;
+    // Phone-observed samples establish only low-confidence local sensor/neutral
+    // evidence. They do not prove firmware calibration or wearer boresight.
+    const saved = this.persistCalibration("poor");
+    this.localCalibration = {
+      ...progress,
+      status: saved ? "succeeded" : "failed",
+      reason: saved ? null : "insufficient-quality",
+    };
+  }
+
+  private expireLocalCalibration(nowMs: number): void {
+    if (
+      this.calibrationOrigin === "local" &&
+      this.localCalibrationDeadlineMs !== null &&
+      nowMs >= this.localCalibrationDeadlineMs
+    ) this.failLocalCalibration("insufficient-quality");
+  }
+
+  private failLocalCalibration(reason: NonNullable<LocalCalibrationSnapshot["reason"]>): void {
+    this.updateLocalProgress();
+    this.localCalibration = { ...this.localCalibration, status: "failed", reason };
+    this.calibrationActive = false;
+    this.calibrationOrigin = null;
+    this.localCalibrationDeadlineMs = null;
+    this.compassQuality = this.heading === null ? "unavailable" : "poor";
   }
 
   private clearLiveSamples(): void {
@@ -494,9 +615,13 @@ export class MotionService {
     this.outlierCandidate = null;
     this.outlierCandidateCount = 0;
     this.calibrationActive = false;
+    this.calibrationOrigin = null;
     this.calibrationHeadingCount = 0;
     this.neutralSum = { x: 0, y: 0, z: 0 };
     this.neutralCount = 0;
+    this.localCalibration = this.idleLocalCalibration();
+    this.localCalibrationDeadlineMs = null;
+    this.localHeadingSectors.clear();
   }
 
   private dispatch(): void {
