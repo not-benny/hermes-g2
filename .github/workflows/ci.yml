@@ -37,6 +37,8 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
+      - name: Install pinned Android toolchain
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.1" "ndk;27.2.12479018" "cmake;3.22.1" "emulator"
       - name: Install locked dependencies
         run: |
           npm ci

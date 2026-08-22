@@ -28,6 +28,13 @@ jobs:
       - uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
         with:
           category: /language:javascript-typescript
+          upload: never
+          output: sarif-javascript
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: codeql-javascript-${{ github.sha }}
+          path: sarif-javascript/*.sarif
+          if-no-files-found: error
 
   java:
     name: codeql-java
@@ -46,6 +53,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Install pinned Android toolchain
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.1" "ndk;27.2.12479018" "cmake;3.22.1" "emulator"
       - uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
         with:
           languages: java-kotlin
@@ -55,6 +64,13 @@ jobs:
       - uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28
         with:
           category: /language:java-kotlin
+          upload: never
+          output: sarif-java
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: codeql-java-${{ github.sha }}
+          path: sarif-java/*.sarif
+          if-no-files-found: error
 
   complete:
     name: codeql
