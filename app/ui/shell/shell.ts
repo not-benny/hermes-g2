@@ -37,7 +37,9 @@ import { playEventBeep } from "../event-beeps";
 import { MusicCardLayer } from "./music-card";
 import { toolRegistry } from "../../assistant/tool-registry";
 import type { RenderViewState } from "../../assistant/render-view";
+import type { DynamicAppState } from "../../assistant/dynamic-app";
 import { ShellRemoteViewLayer } from "./render-view-layer";
+import { ShellDynamicAppLayer } from "./dynamic-app-layer";
 import {
   MIN_WINDOW_HEIGHT,
   minWindowTop,
@@ -113,7 +115,7 @@ export type ShellConfig = {
   getScreenTimeoutMs: () => number | null;
   requestShellRender: () => void | Promise<void>;
   /** Awaited delivery path for operations that must prove lens transport success. */
-  requestShellDelivery?: (isAllowed?: () => boolean) => Promise<void>;
+  requestShellDelivery?: (isAllowed?: () => boolean) => Promise<{ frameId: number; outcome: string }>;
   /** True only while a real glasses transport/session can accept frames. */
   isDisplayAvailable?: () => boolean;
   /** Screen on/off changed: the controller blanks/unblanks the compositor. */
@@ -257,6 +259,7 @@ class Shell {
   private alertLayer: ShellAlertLayer | null = null;
   private alertRevision = 0;
   private remoteViewLayer: ShellRemoteViewLayer | null = null;
+  private dynamicAppLayer: ShellDynamicAppLayer | null = null;
   private escapeMenuTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly actions: LayerActions = { ...noopActions };
   private config: ShellConfig = {
@@ -533,6 +536,7 @@ class Shell {
     // A remote MCP view is transient and must not survive a display-off
     // transition in retained manager state or reappear after wake.
     this.remoteViewLayer?.close();
+    this.dynamicAppLayer?.close();
     this.screenOn = false;
     this.stack.clearToBase();
     // clearToBase pops the card and fires its onRemoved (timers cleared); null
@@ -729,6 +733,12 @@ class Shell {
       // closes it before the normal escape countdown continues.
       if (this.remoteViewLayer) {
         const layer = this.remoteViewLayer;
+        layer.close();
+        this.startEscapeMenuTimer();
+        return { shell: true, window: false };
+      }
+      if (this.dynamicAppLayer) {
+        const layer = this.dynamicAppLayer;
         layer.close();
         this.startEscapeMenuTimer();
         return { shell: true, window: false };
@@ -1358,6 +1368,62 @@ class Shell {
     this.stack.remove(layer);
     this.remoteViewLayer = null;
     this.config.requestShellRender();
+  }
+
+  /** Deliver a provider-neutral dynamic app without waking or changing focus. */
+  async showDynamicApp(
+    state: DynamicAppState,
+    signal: AbortSignal | undefined,
+    isSideEffectAllowed: (() => boolean) | undefined,
+    onInput: (type: "scroll-up" | "scroll-down" | "click", foreground: boolean) => boolean,
+    onClose: () => void,
+  ): Promise<{ status: "acknowledged"; frameId: number }> {
+    if (!this.screenOn) throw new Error("The glasses display is off; no dynamic app was sent.");
+    if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
+      throw new Error("The glasses are disconnected; no dynamic app was sent.");
+    }
+    if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
+      throw new Error("The dynamic app operation is stale.");
+    }
+    const prior = this.dynamicAppLayer;
+    const layer = new ShellDynamicAppLayer(state, onInput, onClose);
+    if (prior) this.stack.remove(prior);
+    this.dynamicAppLayer = layer;
+    this.stack.push(layer);
+    const isOwner = () =>
+      this.dynamicAppLayer === layer &&
+      !signal?.aborted &&
+      (!isSideEffectAllowed || isSideEffectAllowed());
+    try {
+      const receipt = this.config.requestShellDelivery
+        ? await this.config.requestShellDelivery(isOwner)
+        : (() => { this.config.requestShellRender(); return { frameId: 0, outcome: "unverified" }; })();
+      if (!isOwner() || receipt.frameId <= 0 || receipt.outcome !== "sent") {
+        throw new Error("The dynamic app did not receive a current transport acknowledgement.");
+      }
+      return { status: "acknowledged", frameId: receipt.frameId };
+    } catch (error) {
+      this.stack.remove(layer);
+      if (this.dynamicAppLayer === layer) {
+        this.dynamicAppLayer = prior;
+        if (prior) this.stack.push(prior);
+      }
+      try { await this.config.requestShellRender(); } catch { /* preserve delivery error */ }
+      throw error;
+    }
+  }
+
+  clearDynamicApp(identity: { viewId: string; revision: number }): void {
+    const layer = this.dynamicAppLayer;
+    if (!layer || layer.state.viewId !== identity.viewId || layer.state.revision !== identity.revision) return;
+    this.stack.remove(layer);
+    this.dynamicAppLayer = null;
+    this.config.requestShellRender();
+  }
+
+  /** Physical transport loss tombstones remote authority before any reconnect. */
+  closeDynamicApp(): void {
+    this.dynamicAppLayer?.close();
   }
 
   private startEscapeMenuTimer(): void {
