@@ -1,7 +1,9 @@
 # Automatic firmware patching investigation
 
-**Date:** 22 August 2026  
-**Scope:** Even Realities G2 glasses only  
+**Date:** 22 August 2026
+
+**Scope:** Even Realities G2 glasses only
+
 **Baseline:** canonical `main` at `60d92905652a9b2a5664ab5e4db5b8b30cdaddcd`
 
 ## Decision
