@@ -609,6 +609,18 @@ export const assistantBridgePortSetting = new ConfigSettingString({
   description: "TCP port the Hermes Agent bridge listens on. The default is 8791.",
 });
 
+/** One canonical bridge-port resolver for both transport and assistant sessions. */
+export function resolveAssistantBridgePort(): number {
+  const raw = assistantBridgePortSetting.get().trim();
+  // Deployment port moved when the Hermes bridge gained mandatory WSS. Migrate
+  // only the exact historical default; every custom port remains untouched.
+  if (raw === "8790") {
+    assistantBridgePortSetting.set("8791");
+    return 8791;
+  }
+  return parseInt(raw, 10) || 8791;
+}
+
 export const assistantBridgeTokenSetting = new ConfigSettingString({
   id: "assistant-bridge-token",
   label: "Hermes Agent token",

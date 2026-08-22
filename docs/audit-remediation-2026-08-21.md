@@ -28,7 +28,7 @@ separately authorized sacrificial plan.
 
 - WhatsApp live pairing/reconnect/session ownership was not authorized and remains disabled.
 - A 16 KiB device was not available; no hardware compatibility claim is made for stock Node.
-- No compatible private bridge endpoint or generic client was supplied, so full wakeword → remote agent/MCP → real-G2 evidence remains pending rather than simulated.
+- A compatible private WSS bridge endpoint now has server-identity and hello/ack proof, but no generic-client or exact-candidate wakeword → remote agent/MCP → real-G2 execution evidence exists yet.
 - R1 provisioning/ownership/NVM/DFU and G2 firmware flash/recovery were not performed.
 - Public MCP/skill publication remains NO-GO.
 

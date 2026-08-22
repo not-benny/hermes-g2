@@ -37,7 +37,7 @@ import { loadPersistedOpenApps, savePersistedOpenApps } from "../ui/shell/open-a
 import { loadHealthTabHidden, saveHealthTabHidden } from "../ui/shell/health-tab-persistence";
 import { appViewportRect, type WindowHeightMode } from "../ui/shell/geometry";
 import { type LayerActions } from "../ui/layers";
-import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
+import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, resolveAssistantBridgePort, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "../native/battery-optimization";
 import { shouldFinalizeCommunicatorClose, type DashboardConnectionPhase } from "./connection-state-lifecycle";
 
@@ -343,17 +343,6 @@ class DashboardController {
     this.syncAssistantBridge();
   }
 
-  private bridgePort(): number {
-    const raw = assistantBridgePortSetting.get().trim();
-    // Deployment port moved when the Hermes bridge gained mandatory WSS.
-    // Migrate only the exact historical default; preserve every custom port.
-    if (raw === "8790") {
-      assistantBridgePortSetting.set("8791");
-      return 8791;
-    }
-    return parseInt(raw, 10) || 8791;
-  }
-
   private syncAssistantBridge(): void {
     this.lastBridgeConfigKey = this.bridgeConfigKey();
     const host = assistantBridgeHostSetting.get().trim();
@@ -364,7 +353,7 @@ class DashboardController {
     }
     assistantBridge.configure({
       host,
-      port: this.bridgePort(),
+      port: resolveAssistantBridgePort(),
       token,
       deviceName: "hermes-g2",
       allowProactive: () => assistantAllowProactiveSetting.get(),

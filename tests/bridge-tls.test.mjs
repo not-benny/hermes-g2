@@ -17,5 +17,7 @@ test("Hermes bridge remains WSS-only and trusts only the deployed private bridge
   assert.match(security, /cleartextTrafficPermitted="false"/);
   assert.equal(existsSync(new URL("../App_Resources/Android/src/main/res/raw/hermes_g2_bridge_ca.crt", import.meta.url)), true);
   assert.match(settings, /assistantBridgePortSetting[\s\S]*defaultValue: "8791"/);
-  assert.match(controller, /if \(raw === "8790"\)[\s\S]*assistantBridgePortSetting\.set\("8791"\)/);
+  assert.match(settings, /resolveAssistantBridgePort[\s\S]*if \(raw === "8790"\)[\s\S]*assistantBridgePortSetting\.set\("8791"\)/);
+  assert.match(controller, /port: resolveAssistantBridgePort\(\)/);
+  assert.match(read("app/ui/shell/shell.ts"), /const port = resolveAssistantBridgePort\(\)/);
 });

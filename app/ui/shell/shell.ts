@@ -15,8 +15,8 @@ import {
   anthropicApiKeySetting,
   assistantBackendSetting,
   assistantBridgeHostSetting,
-  assistantBridgePortSetting,
   assistantBridgeTokenSetting,
+  resolveAssistantBridgePort,
   assistantModelSetting,
   assistantSkipConfirmationSetting,
   batteryDisplayModeSetting,
@@ -1177,7 +1177,7 @@ class Shell {
       const host = assistantBridgeHostSetting.get().trim();
       const token = assistantBridgeTokenSetting.get();
       if (!host || !token) return null;
-      const port = parseInt(assistantBridgePortSetting.get(), 10) || 8790;
+      const port = resolveAssistantBridgePort();
       return { kind: "external", bridge: { host, port, token } };
     }
     const llm = resolveAssistantModel(assistantModelSetting.get(), {
