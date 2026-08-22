@@ -41,6 +41,11 @@ export class GlassesControlsViewModel extends Observable {
   private _glassesWorn: boolean | null = null;
   private _glassesLocked = false;
   private _ringConnectionState: RingConnectionState = "not-configured";
+  private _connectionHealth: DashboardSnapshot["connectionHealth"] = {
+    g2State: "disconnected", r1State: "idle", failure: "none", r1RetryInMs: 0,
+    g2Reconnects: 0, r1Reconnects: 0, acks: 0, ackTimeouts: 0, staleWork: 0,
+    lockLatencyLatestMs: 0, lockLatencyMaxMs: 0,
+  };
   private _evenAppConflictMessage = "";
   private unsubscribeSnapshot: (() => void) | null = null;
   private unsubscribeSettings: (() => void) | null = null;
@@ -123,6 +128,24 @@ export class GlassesControlsViewModel extends Observable {
 
   get ringStatus(): string {
     return RING_STATUS_LABELS[this._ringConnectionState];
+  }
+
+  get g2HealthStatus(): string {
+    return `G2: ${this._connectionHealth.g2State}`;
+  }
+
+  get r1HealthStatus(): string {
+    const health = this._connectionHealth;
+    const retry = health.r1RetryInMs > 0 ? ` · retry in ${Math.ceil(health.r1RetryInMs / 1000)}s` : "";
+    const failure = health.failure !== "none" ? ` · ${health.failure}` : "";
+    return `R1: ${health.r1State}${failure}${retry}`;
+  }
+
+  get connectionDiagnostics(): string {
+    const health = this._connectionHealth;
+    return `Reconnects G2 ${health.g2Reconnects} / R1 ${health.r1Reconnects} · ACK ${health.acks}`
+      + ` (timeouts ${health.ackTimeouts}) · stale ${health.staleWork}`
+      + ` · lock ${health.lockLatencyLatestMs}ms (max ${health.lockLatencyMaxMs}ms)`;
   }
 
   get evenAppConflictMessage(): string { return this._evenAppConflictMessage; }
@@ -261,9 +284,11 @@ export class GlassesControlsViewModel extends Observable {
     this._glassesWorn = snapshot.glassesWorn;
     this._glassesLocked = snapshot.glassesLocked;
     this._ringConnectionState = snapshot.ringConnectionState;
+    this._connectionHealth = snapshot.connectionHealth;
     this._evenAppConflictMessage = snapshot.evenAppConflictMessage;
     for (const property of [
       "status", "canControl", "screenActionLabel", "wearStatus", "ringStatus",
+      "g2HealthStatus", "r1HealthStatus", "connectionDiagnostics",
       "evenAppConflictMessage", "evenAppConflictWarningVisibility",
     ]) {
       this.notifyPropertyChange(property, (this as any)[property]);

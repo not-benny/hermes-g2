@@ -1,4 +1,4 @@
-# Hermes G2 handover — 21 August 2026
+# Hermes G2 handover — 22 August 2026
 
 ## Repository state
 
@@ -39,6 +39,14 @@ runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
 - Exact-GATT and generation ownership protect BLE connect, operation, timeout,
   disconnect, stale-callback, and replacement lifecycles.
 - Display and R1 workers have separate bounded teardown ownership.
+- Optional R1 connect/discovery/subscription/health work runs only on
+  `FaceclawRingLink`. Blocking Android BLE calls execute outside the short R1
+  lifecycle monitor under generation tokens, so connection-health reads stay
+  responsive and retired work cannot publish into a replacement generation.
+- Phone Controls exposes independent G2 and R1 state, a safe R1 failure class,
+  monotonic retry countdown and explicit retry, plus saturating redacted
+  reconnect/ACK/timeout/stale-work/lock-latency counters. The fixed-width health
+  snapshot contains no identifier, UUID, payload, or exception text.
 - The constructor-time disconnected-state race no longer tears down a live
   connection; the final implementation was verified on both G2 arms with the
   phone reporting Connected, frame delivery acknowledged, and wearer input
@@ -55,26 +63,22 @@ runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
 - External MCP calls require a live connection and exact originating turn (or an
   explicitly gated proactive call); cancellation reaches delayed side effects.
 
-Local candidate verification passed the complete 259-test host suite after the
-two stale branding expectations were updated for the now-lockfile-pinned CLI,
-TypeScript, JDK 21 / SDK 35 / NDK 27.2.12479018 / CMake 3.22.1 Android build,
-ZIP integrity, private-content/path scan, ZIP 16 KiB alignment, and APK-wide ELF
-LOAD alignment. The disabled WhatsApp/Node runtime is excluded. The arm64-only
-debug APK is 194,871,195 bytes, versionCode 1000001 / versionName
-1.0.0-preview.1, and its
-final SHA-256 is
-`03a82652986aff42ba70619eb87e28430fdce7fd55d1fbe6a384a54c5d9b8347`.
+Current reliability-candidate verification uses deterministic Java harnesses:
+the R1 state snapshot completes below 100 ms while synthetic BLE work is blocked,
+retirement rejects that completion, and the display worker source contract has no
+R1 connect call. The complete host suite passes 264/264, TypeScript typechecking
+passes, and the JDK 21 / SDK 35 Android debug build passes. Two stale
+source-contract expectations that required the old blocking monitor design were
+replaced with generation-token and non-blocking-monitor assertions.
 
-On the authorised Samsung A32, the existing and candidate APK certificates
-matched. Upgrade install, launch and resumed activity passed; package metadata
-reported the new version. The Settings UI showed WhatsApp disabled, replace-only
-secret fields, and explicit clear actions without displaying values. The bridge
-token migrated to the encrypted preferences file and was absent from ordinary
-`faceclaw_settings`. A 222-line PID-filtered log review found zero configured
-secret/pairing/content sentinels. Both G2 arms reached live GATT activity, but the
-session remained in reconnect attempts, so no new render/wearer, Doze, charging,
-phone-mic, calendar, or R1-value evidence is claimed. No gated dialog or
-destructive/pairing/firmware operation was performed.
+The debug APK installed/launched over USB on the authorised Samsung A32
+`RFCR707RQGV`. PID-filtered runtime evidence (PID 27349) shows a live two-arm G2
+session with render, heartbeat, settings, shutdown and warmup ACKs; the R1 then
+connected independently, subscribed at MTU 247, completed the read-only session
+open/device-info/health GET flow, delivered health notifications, and accepted a
+generation-bound packetAck. The Controls page rendered normally on the phone.
+No pairing, ownership, NVM, firmware/DFU, reset, wipe, permission, or Even-app
+Bluetooth state was changed.
 
 ## Deliberately blocked
 

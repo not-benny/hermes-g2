@@ -2,7 +2,7 @@ import { Application, ImageSource } from "@nativescript/core";
 import { EvenAIStatus, EvenAIStatusName, EventSourceType, EventSourceTypeName, OsEventTypeList, OsEventTypeName } from "./events";
 import { loadDeviceAddresses } from "./device-addresses";
 import { ensureBlePermissions, ensureVoicePermissions } from "./android-permissions";
-import { FaceclawCommunicatorBridge, type RawInputEvent, type RingConnectionState } from "../native/faceclaw-communicator";
+import { FaceclawCommunicatorBridge, type ConnectionHealthSnapshot, type RawInputEvent, type RingConnectionState } from "../native/faceclaw-communicator";
 import * as frameTimings from "../native/frame-timings";
 import { startForegroundNotification, stopForegroundNotification, updateForegroundNotification } from "../native/foreground-service";
 import { mediaControllerBridge, type MediaControllerState } from "../native/media-controller";
@@ -67,6 +67,7 @@ export type DashboardSnapshot = {
   glassesWorn: boolean | null;
   glassesLocked: boolean;
   ringConnectionState: RingConnectionState;
+  connectionHealth: ConnectionHealthSnapshot;
 };
 
 type DashboardListener = (snapshot: DashboardSnapshot) => void;
@@ -819,6 +820,14 @@ class DashboardController {
     return loadDeviceAddresses().ring ? "idle" : "not-configured";
   }
 
+  private connectionHealth(): ConnectionHealthSnapshot {
+    return this.communicator?.getConnectionHealthSnapshot() ?? {
+      g2State: this.phase, r1State: loadDeviceAddresses().ring ? "idle" : "not-configured",
+      failure: "none", r1RetryInMs: 0, g2Reconnects: 0, r1Reconnects: 0,
+      acks: 0, ackTimeouts: 0, staleWork: 0, lockLatencyLatestMs: 0, lockLatencyMaxMs: 0,
+    };
+  }
+
   /** Request an immediate safe retry of the optional direct R1 BLE link. */
   async reconnectRing(): Promise<boolean> {
     const communicator = this.communicator;
@@ -856,6 +865,7 @@ class DashboardController {
       glassesWorn: this.glassesWorn,
       glassesLocked: this.glassesLocked,
       ringConnectionState: this.ringConnectionState(),
+      connectionHealth: this.connectionHealth(),
     };
   }
 
@@ -1228,7 +1238,10 @@ class DashboardController {
         this.updateCompositePreview();
         this.updateConnectedForegroundNotification();
       }, SHELL_REFRESH_INTERVAL_MS);
-      this.previewTimer = setInterval(() => this.updateCompositePreview(), PREVIEW_INTERVAL_MS);
+      this.previewTimer = setInterval(() => {
+        this.updateCompositePreview();
+        this.emit();
+      }, PREVIEW_INTERVAL_MS);
       this.screenTimeoutTimer = setInterval(() => {
         if (this.phase !== "connected" || !this.communicator) return;
         if (!shell.applyScreenTimeout()) return;

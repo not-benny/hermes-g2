@@ -1,6 +1,6 @@
 # Hermes G2 roadmap
 
-Current as of 21 August 2026. `main` is the canonical branch.
+Current as of 22 August 2026. `main` is the canonical branch.
 
 **Status key:** DONE · IN PROGRESS · PARTIAL · TODO · RESEARCH · BLOCKED
 
@@ -49,15 +49,23 @@ Current as of 21 August 2026. `main` is the canonical branch.
 - **DONE — worker isolation and bounded teardown.** Display and R1 workers have
   separate lifecycle ownership, generation-bound packet acknowledgements, and
   deferred exact-once cleanup.
+- **DONE — truthful independent connection health (22 August 2026).** Optional
+  R1 connect and health work stays off the display worker, and blocking BLE work
+  runs outside its short state monitor under generation ownership. Deterministic
+  blocked-work reads stay below 100 ms. Controls distinguishes G2 from R1 and
+  shows a safe failure class, retry countdown/action, and bounded redacted
+  reconnect/ACK/stale-work/lock-latency counters. USB A32 evidence proves live G2
+  ACK traffic and independent R1 health/packetAck traffic.
 - **TODO — broader device matrix.** Repeat non-destructive startup, reconnect,
   charging, screen-off, and wearer-input checks on additional supported phones
   and G2 firmware revisions without weakening the existing safety gates.
-- **PARTIAL — audit device matrix (21 August 2026).** Same-certificate upgrade,
-  launch, Keystore migration, settings redaction, and log sentinels passed on the
-  authorised Samsung A32. Both G2 arms were visible at the GATT boundary, but the
-  live session was still reconnecting during this run; no wearer/render, Doze,
-  charging, phone-mic, calendar, or R1 value claim is inferred. No pairing,
-  provisioning, reset, wipe, firmware, or permission-dialog action was taken.
+- **PARTIAL — audit device matrix (updated 22 August 2026).** Same-certificate
+  upgrade, launch, Keystore migration, settings redaction, and log sentinels
+  passed on the authorised Samsung A32. A later non-destructive run proves a live
+  two-arm G2 render/ACK session and independent R1 session-open, device-info,
+  health notify and packetAck traffic. Doze, charging, phone-mic, calendar, and
+  additional phone/firmware variants remain open. No pairing, provisioning,
+  reset, wipe, firmware, permission-dialog, or Even-app Bluetooth action occurred.
 
 ## R1 health
 
