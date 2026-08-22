@@ -78,10 +78,14 @@ Current as of 22 August 2026. `main` is the canonical branch.
 - **DONE — session clock and polling.** A one-shot best-effort `systemTime`
   command runs during session setup; HR-only refresh remains separate from the
   slower full-health poll.
-- **RESEARCH — sleep.** Three CRC-valid type-2 frames establish ordered relative
-  interval endpoints in seconds. Full decoding remains blocked until a matching
-  type-1 summary/stage frame and the absolute time-base handoff are proven.
-  `decodeSleep` must remain fail-closed.
+- **RESEARCH — health parity and sleep.** The requested/decoded/persisted/surfaced
+  inventory is recorded in `notes/health-data-parity-2026-08-22.md`. Heart rate,
+  SpO2, HRV, steps, and native calorie fields match the documented first-party
+  exports; daily skin temperature has no validated mapping. Three CRC-valid
+  type-2 frames establish ordered relative sleep intervals, and a later capture
+  contains an intact type-1 frame, but no stage-bearing same-session
+  `ring1Notify` row or absolute time-base handoff exists. Full sleep decoding
+  remains blocked and `decodeSleep` must remain fail-closed.
 - **BLOCKED — first-time provisioning and ownership.** Pair/unpair, host binding,
   NVM mutation, recovery, and fresh-device onboarding remain unproven and are not
   authorised for implementation or hardware use.

@@ -60,6 +60,17 @@ runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
   consumed by the shell.
 - R1 health supports battery, read-only firmware version, live/current-hour HR,
   hourly HR/SpO2/HRV, and confirmed 10-minute activity and calorie buckets.
+- The field-level first-party parity inventory is in
+  `notes/health-data-parity-2026-08-22.md`: documented heart-rate, SpO2, HRV,
+  step, and calorie data are captured; daily skin temperature remains unmapped.
+  The overnight sleep issue is reproduced. A private capture now contains a
+  CRC-valid, structurally stage-bearing type-1 cmd-6 frame, but it has no
+  stage-bearing same-session `ring1Notify` row and no proven absolute-base
+  handoff, so no semantic sleep mapping is safe.
+- Parity evidence verification passed the 34-test focused parser/store set,
+  complete 283-test host suite, TypeScript typecheck, and JDK 21 / Android SDK 35
+  build. Independent adversarial review passed. No hardware or device-state
+  operation was used; `decodeSleep` remains throwing.
 - Daily vital timestamps are anchored only when timezone and local-midnight
   metadata validate; malformed and stale data fails closed.
 - A best-effort one-shot R1 system-time write runs during health-session setup,
@@ -171,8 +182,9 @@ destructive/pairing/firmware operation was performed.
   sacrificial recovery evidence exists
 - First-time R1 provisioning, pair/unpair ownership, and NVM mutation
 - R1 firmware/DFU/OTA, recovery, reset, wipe, power, and destructive commands
-- Sleep decoding until a CRC-valid type-1 stage-bearing frame and absolute
-  time-base handoff are correlated to the matching ground truth
+- Sleep decoding until the existing CRC-valid, structurally stage-bearing type-1
+  frame and absolute time-base handoff are correlated to coherent same-session
+  ground truth
 - Broad custom-firmware compatibility or recovery claims beyond one owner-unit
   boot report
 
@@ -212,7 +224,8 @@ unobserved hardware result from passing host tests.
    a disposable generic client.
 4. Complete the deferred non-destructive G2/R1/Doze/calendar/mic matrix when the
    live devices are available without contention; do not infer it from this APK.
-5. Obtain the missing type-1 R1 sleep evidence only under a separately reviewed,
+5. Obtain coherent same-session R1 sleep ground truth and the absolute-base
+   handoff for the existing type-1 evidence only under a separately reviewed,
    reversible, private capture plan.
 6. Keep firmware/recovery work blocked unless every independent provenance,
    authority, recovery, privacy, power, and per-run consent gate passes.

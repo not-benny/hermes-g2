@@ -1,4 +1,4 @@
-# Ring sleep frames (cmd=6) — relative intervals confirmed (2026-08-20)
+# Ring sleep frames (cmd=6) — decoder evidence gate (updated 2026-08-22)
 
 The R1 pushes sleep on `module=2 cmd=0x6 subCmd=1`. A fresh BLE session can
 re-pull stored records. This note contains sanitized layout facts only; the
@@ -52,19 +52,34 @@ the exact base handed to the phone. Keep this concept separate from both the
 confirmed activity local-midnight epoch base and the opaque non-activity daily
 header word at offset 7.
 
-## Remaining decoder gate
+## New overnight capture: type 1 observed, correlation still missing
 
-The fourth ring1Notify database session has non-empty stages and summary fields,
-but the existing capture has no matching type-1 cmd=6 notification. Therefore
-score, efficiency, totals, body temperature, full field widths, stage runs, and
-absolute timestamp reconstruction remain unvalidated. `decodeSleep` must keep
-throwing, cmd=6 must remain unmapped, and the store must keep ignoring it.
+A later private overnight capture contains four cmd-6 requests and five
+responses, including one intact 104-byte type-1 notification. Its exact hash
+matches the frozen provenance manifest; the outer CRC, inner declared length,
+inner CRC, non-zero stage count, and `32 + 3 * stageCount` bounds all validate.
+This establishes a structurally stage-bearing wire shape, not field semantics.
 
-The exact missing evidence is a complete CRC-valid type-1 cmd=6 notification
-correlated to a non-empty-stage ring1Notify row, plus the absolute-base handoff.
-Obtain it only in a reversible Even-only sync/capture window, then restore Even
-stopped/disabled with both Bluetooth permissions revoked. A separately reviewed
-implementation card is required after that evidence exists.
+It does **not** close the decoder gate. The same-window `source=ring1Notify`
+database rows contain interval endpoints but empty stages and zero summaries.
+The database's only stage-bearing `ring1Notify` row is older and has no matching
+captured type-1 wire leg. The captured type-1 bytes therefore cannot be mapped
+to authoritative start/end, totals, stage runs, score/efficiency, temperature,
+or timezone for the same session. The absolute-base handoff also remains absent.
+
+The copied SQLite main file no longer matches its frozen provenance artifact
+set: its current hash differs, and the manifest-listed WAL/SHM sidecars are
+absent. The cause is not established. It may support read-only accounting, but
+it is not immutable decode ground truth until that provenance change is
+explained and reconciled.
+
+Therefore `decodeSleep` must keep throwing, cmd=6 must remain unmapped, and the
+store must keep ignoring it. The exact missing evidence is a non-empty-stage
+`ring1Notify` row correlated to the existing CRC-valid type-1 notification from
+the same session, coherent database provenance, and the absolute-base handoff.
+Obtain that correlation only under a separately reviewed reversible private
+capture plan. See `notes/health-data-parity-2026-08-22.md` for the full product
+inventory.
 
 The confirmed daily HR/HRV/SpO2 record layout remains unchanged; see
 `notes/ring-daily-layout-2026-08-20.md`.
