@@ -18,8 +18,8 @@ deployment-local and outside the repository. The custom bridge protocol,
 bearer-token authentication, exact-turn guards, and proactive-action gates are
 unchanged. A real WSS hello/hello-ack
 smoke test passed. Host verification has 295 tests, TypeScript, Android build,
-and APK verification passing. The exact 195,673,222-byte debug APK has SHA-256
-`5b5838a238f68daa0af131ccad5a12d79f8079f9f0336225423fdcbae68e476c`.
+and APK verification passing. The exact 195,673,277-byte debug APK has SHA-256
+`1f1df51d8a93e6716eb4ab912fa14a0930d645a0a9b2b513a86033c502fbaa8f`.
 Independent adversarial review of the final app code candidate and bridge commit
 `fdd84de85c82706104428db3e7d0eacb91480b2a` returned static PASS and private,
 non-destructive deployment GO. Exact APK/Fold7/G2/R1 runtime verification is
