@@ -15,12 +15,11 @@ assistant bridge and the proposed, not-yet-implemented `glasses.render_view`
 surface. It describes the path from agent intent to pixels and the evidence still
 needed before any public MCP endpoint, adapter, or skill can be advertised.
 
-The client configuration now requires certificate-validated `wss://`; however,
-the available sibling bridge/server is plaintext-only and has not supplied a
-compatible authenticated endpoint. No external operation is authorized. A
-trusted-tailnet experiment would not be public proof: it would not authenticate
-the WebSocket server, establish generic MCP interoperability, or prove safe
-behavior on real hardware. The sibling
+The client configuration requires certificate-validated `wss://`. The private
+Hermes bridge now supplies a hostname-verified, private-CA endpoint with token
+hello/ack proof, so private non-destructive evaluation is authorized. This is
+not public proof: it does not establish a public server identity, generic MCP
+interoperability, or safe behavior on real hardware. The sibling
 `hermes-faceclaw-agent-bridge` is also **NO-GO for licensing/redistribution**: the
 checkout identifies the upstream project as `jimrandomh`, contains no license
 that this repository can rely on, and is not a distributable Hermes artifact.
@@ -126,7 +125,7 @@ malicious users.
 
 | Component | Current observed limit/control | Gap that remains |
 |---|---|---|
-| Bridge transport | Client requires certificate-validated `wss://`; bearer token is in `hello`; no compatible sibling WSS/server proof is available. | Provide and verify an authenticated secure endpoint; never treat a tailnet as peer authentication. |
+| Bridge transport | Client requires certificate-validated `wss://`; bearer token is in `hello`. The private Hermes deployment now has a hostname-verified private-CA endpoint and real hello/ack proof. | Keep TLS mandatory outside loopback and preserve certificate-failure, token, generation and exact-turn gates; private proof is not public publication authorization. |
 | Bridge lifecycle | Connection generations, 15 s auth timeout, 20 s keepalive check, 45 s liveness timeout, 3 min turn timeout, and reconnect backoff of 1–60 s plus up to 50% jitter. | Bind MCP calls to a unique live turn generation and prove replay/late rejection; keepalive and reconnect are availability controls, not peer authentication. |
 | MCP lifecycle | Initialization/version handling, duplicate-ID tombstones, 128 completed-ID retention, and connection epoch suppression. | Bind authorization to the originating turn and make cancellation/late side effects safe. |
 | Proactive MCP | Boolean “some turn active” test, default-off setting, and a sliding quota of 6 calls/minute after preflight. | Explicit turn-bound intent and per-session policy evidence remain required. |
@@ -135,7 +134,7 @@ malicious users.
 | Streamed reply today | `AssistantLayer` retains the full stream; only the visible tail is clipped by HUD geometry. | Visual clipping is not input bounding; cap bytes/chars before retention and transport. |
 | Proposed view | Audit design specifies singleton, 16 KiB encoded spec, 32 blocks, 8 actions, 8 KiB total text, 1 KiB/text block, title 80, label 40, ID 64 ASCII, TTL 30–3600 s, 2 updates/s. | No implementation or race/fuzz/golden/hardware evidence exists. Adopt, do not redesign, these limits. |
 | Android | Manifest blocks cleartext and disables backup; feature permissions remain broad for the existing app surface. | Complete least-privilege review and user-visible permission/privacy behavior. |
-| Sibling bridge | Shared token/plaintext WebSocket that may bind non-loopback; 10 s hello timeout, 120 s turn timeout, and 20 s MCP caller timeout; persistent OpenClaw session; caller-only deadlines do not cancel handlers. | Secure/replay-safe implementation, license authority, and generic-client/adapter evidence. |
+| Sibling bridge | Private Hermes adapter requires TLS for non-loopback, uses token hello, exact-turn ownership, bounded deadlines and one durable glasses session. | License authority, public deployment, generic-client/adapter and real-hardware evidence remain open. |
 
 In particular, a clipped tail in the HUD is only a presentation limit. Alert
 input is now bounded before shell retention and delivery; streamed-reply input
@@ -150,8 +149,8 @@ already assigned or complete.
 
 | ID / attack | Current control | Residual gap | Severity | Exact remediation / evidence owner |
 |---|---|---|---|---|
-| T1 spoofed bridge/server | Shared token and client generation guard | Plaintext transport; unauthenticated `hello-ack` server identity | Critical | Bridge owner: WSS with certificate validation or enforced authenticated tunnel plus server proof; negative/positive credential tests. |
-| T2 token theft/replay | Token is masked in settings UI; pre-auth frames rejected | Token is sent over `ws://`, stored as a string, and may enter ADB/backup/log paths | Critical | Android/bridge owner: secret-safe storage and redaction, backup policy, secure transport; inspect logs/backup and run stolen-token/replay tests. |
+| T1 spoofed bridge/server | Private endpoint uses hostname-verified WSS, token hello, and client generation guard | Public identity/deployment and Android negative-certificate evidence remain absent | Critical | Bridge owner: preserve mandatory non-loopback TLS and add Android wrong-CA/wrong-host/expired-certificate tests before broader deployment. |
+| T2 token theft/replay | Token is masked, Keystore-backed, sent only inside WSS, and pre-auth frames are rejected | ADB/debug access and stolen-token replay still require operational negative evidence | Critical | Android/bridge owner: inspect logs/backup and run stolen-token/replay tests without weakening TLS or generation gates. |
 | T3 prompt/tool injection | Central JSON schema preflight | Model/tool text can be treated as instructions; meta-tool accepts dynamic names/args | High | Agent adapter owner: explicit untrusted-data contract; registry rejects unsupported schemas and per-tool authorization tests. |
 | T4 schema abuse | Types, required fields, bounds, additional properties are checked | Existing tools still have broad/insufficient bounds and no render schema | High | Registry/system-tools owner: per-tool schemas and hostile/oversize tests; child hardening task owns code. |
 | T5 duplicate/late side effect | Duplicate request-ID tombstones and connection epoch | Handler continues after timeout; retries can toggle, skip, dismiss, write, or close twice | Critical | Registry/tool owners: cancellation or operation IDs/idempotency and late-completion tests. |
@@ -168,7 +167,7 @@ already assigned or complete.
 | T16 local close/TTL race | Proposed tombstone and TTL rules in audit | No implementation; update can resurrect closed/expired view | High | Render owner: tombstone closed views, monotonic revision/operation ID; close/update/TTL race tests. |
 | T17 unsafe actions/distraction | Shell owns some gestures | Agent content/actions can disclose data or distract wearer; no `render_view` exists | High | UX/shell owner: static text/key-value/progress/divider only, bounded actions, escape semantics, shoulder-surf review and real-G2 test. |
 | T18 licensing/redistribution | Audit identifies sibling checkout and upstream | No license authority for sibling bridge; publication could redistribute improperly | Critical | Release owner: obtain written license or do not ship/reference as artifact; provenance record. |
-| T19 evidence laundering | Existing unit/fake-phone tests are useful static/simulated evidence | No generic MCP, WSS, credentials, A32+G2, or operational proof | Critical | QA/release owner: ledger labels and reproducible evidence bundle; operational GO remains blocked. |
+| T19 evidence laundering | Unit tests plus a private WSS handshake are useful static/private-deployment evidence | No generic MCP, Android certificate-negative, exact-candidate A32+G2, or tool-specific operational proof | Critical | QA/release owner: ledger labels and reproducible evidence bundle; public operational GO remains blocked. |
 | T20 malicious action labels/content | Text is displayed as text | URLs/scripts/Markdown/images/raw pixels could become unsafe if admitted later | High | Render owner: reject all non-v1 fields and escape/plain-text render; hostile-content schema tests. |
 
 ## Safe-failure contract
@@ -195,13 +194,13 @@ Every proposed display operation must:
 | Gate | Status now | PASS evidence required |
 |---|---|---|
 | Least privilege | FAIL | Manifest/config review removes unnecessary access or documents a separately approved feature; denial paths pass. |
-| Explicit turn-bound intent | PASS (app-side static) | External MCP frames must claim the originating turn; missing/delayed claims fail and the exact live turn plus connection are revalidated before effects. Compatible server evidence is still absent. |
+| Explicit turn-bound intent | PASS (app-side static + private bridge) | External MCP frames must claim the originating turn; missing/delayed claims fail and the exact live turn plus connection are revalidated before effects. Public/generic adapter evidence remains absent. |
 | Proactive opt-in default-off | PARTIAL (default false; unit policy evidence only) | Explicit setting/consent and bounded per-session policy tests. |
 | Untrusted-content handling | PASS (app-side static) | `render_view` imperative allowlist rejects controls, bidi, URLs, markup, unknown fields/primitives and oversized text before shell mutation. Real-lens evidence remains separate. |
 | Secret-safe storage/logs/errors | FAIL | Secure storage or documented containment, no token/PII in logs/errors/backup/ADB evidence. |
 | Data minimization/retention | FAIL | Field-level export policy, bounded transcript/session retention, deletion/disable behavior. |
 | Bounded HUD schema/output/update rate/TTL | PARTIAL | Exact V1 limits, two accepted renders/s, revision CAS, operation idempotency and generation-bound TTL have focused tests; fuzz corpus, golden render and hardware TTL evidence remain missing. |
-| Secure authenticated transport/server proof | FAIL | WSS certificate validation or enforced authenticated tunnel plus proof the peer knows the secret. |
+| Secure authenticated transport/server proof | PARTIAL (private PASS) | The private endpoint has hostname-verified WSS plus token hello/ack proof; public identity/deployment and negative Android certificate evidence remain open. |
 | Replay/idempotency | PARTIAL | MCP request tombstones, connection-owned cancellation and `render_view` operation IDs/revisions are tested; unrelated phone mutators and operational reconnect retries remain unresolved. |
 | Generic MCP + Hermes adapter interoperability | FAIL | Independent generic client and adapter tests against a versioned endpoint. |
 | Licensing | FAIL | License/provenance clearance for every shipped dependency, especially sibling bridge. |

@@ -1,6 +1,6 @@
 import { Application, ImageSource } from "@nativescript/core";
 import { EvenAIStatus, EvenAIStatusName, EventSourceType, EventSourceTypeName, OsEventTypeList, OsEventTypeName } from "./events";
-import { loadDeviceAddresses } from "./device-addresses";
+import { isValidMacAddress, loadDeviceAddresses } from "./device-addresses";
 import { ensureBlePermissions, ensureVoicePermissions } from "./android-permissions";
 import { FaceclawCommunicatorBridge, type RawInputEvent, type RingConnectionState } from "../native/faceclaw-communicator";
 import * as frameTimings from "../native/frame-timings";
@@ -37,7 +37,7 @@ import { loadPersistedOpenApps, savePersistedOpenApps } from "../ui/shell/open-a
 import { loadHealthTabHidden, saveHealthTabHidden } from "../ui/shell/health-tab-persistence";
 import { appViewportRect, type WindowHeightMode } from "../ui/shell/geometry";
 import { type LayerActions } from "../ui/layers";
-import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
+import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, resolveAssistantBridgePort, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "../native/battery-optimization";
 import { shouldFinalizeCommunicatorClose, type DashboardConnectionPhase } from "./connection-state-lifecycle";
 
@@ -357,7 +357,7 @@ class DashboardController {
     }
     assistantBridge.configure({
       host,
-      port: parseInt(assistantBridgePortSetting.get(), 10) || 8790,
+      port: resolveAssistantBridgePort(),
       token,
       deviceName: "hermes-g2",
       allowProactive: () => assistantAllowProactiveSetting.get(),
@@ -980,6 +980,7 @@ class DashboardController {
     if (this.phase !== "disconnected" || this.communicator !== null) return;
 
     const addresses = loadDeviceAddresses();
+    shell.setRingConfigured(isValidMacAddress(addresses.ring));
     if (!addresses.right || !addresses.left) {
       const message = "Configure both left and right arm MAC addresses before connecting.";
       this.setPhase("disconnected");
@@ -1091,6 +1092,9 @@ class DashboardController {
       });
       this.offBattery = communicator.onBatteryState((state) => {
         this.lastHeadsetBattery = state.battery >= 0 ? state.battery : null;
+        if (state.ringBattery >= 0) {
+          ringHealthStore.updateBatteryPercent(state.ringBattery);
+        }
         shell.setBatteryLevels({
           headset: state.battery,
           headsetCharging: state.chargingStatus > 0,

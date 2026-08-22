@@ -65,10 +65,10 @@ All tools currently return text. The MCP server implements `initialize`, `ping`,
 
 ### Bridge and turn authorization (HIGH)
 
-1. The bridge always uses plaintext `ws://`; the bearer token is sent in the
-   `hello` JSON frame. Any `hello-ack` is accepted without proof that the peer
-   knows the token. Public use requires `wss://` with normal certificate
-   validation or an explicitly enforced authenticated tunnel plus a server proof.
+1. **Closed for private evaluation:** the app and private Hermes adapter require
+   hostname-verified WSS outside loopback, and a token-authenticated hello/ack
+   passed. Public identity/deployment, generic-client, licensing and Android
+   negative-certificate evidence remain open.
 2. **Closed:** `chat` and `mcp` frames are rejected before `hello-ack` completes.
 3. **Closed:** WebSocket callbacks are bound to a connection generation and
    stale callbacks from replaced sockets are ignored.
@@ -193,7 +193,7 @@ where a wrapper forwards a call.
 
 | Item / name | Source entry point | Purpose; availability / permissions | Sensitive data; side effects / destructive risk | Docs status; tests | Publication identity / mechanism | Hardware, credentials, external dependency | Disposition; exact reason / required change |
 |---|---|---|---|---|---|---|---|
-| MCP transport / bridge server | `app/assistant/mcp-server.ts:1-181`; `bridge-client.ts:167-177` | JSON-RPC `initialize`, `ping`, `tools/list`, `tools/call`; external bridge `mcp` channel; outbound `ws://`, bearer token in `hello` | All listed tool data and mutations cross the bridge; plaintext transport and peer proof are unsafe for public use | Protocol/lifecycle/error coverage: `tests/mcp-server.test.mjs`, `tests/bridge-connection-guard.test.mjs`; no generic-client or WSS/server-proof test | No MCP registry, server package, npm publish config, or release automation; only app APK + GitHub Release + CHANGELOG | Bridge server, shared credential, network, generic MCP client; no WSS or server-proof evidence | **blocked** — add authenticated secure transport/server proof, then generic-client interoperability and operational credential tests; do not publish current endpoint |
+| MCP transport / bridge server | `app/assistant/mcp-server.ts:1-181`; `bridge-client.ts:167-177` | JSON-RPC `initialize`, `ping`, `tools/list`, `tools/call`; external bridge `mcp` channel; outbound WSS with bearer token in `hello` | All listed tool data and mutations cross the bridge; private WSS proof does not authorize public export | Protocol/lifecycle/error coverage plus private server TLS and hello/ack proof; no generic-client or Android negative-certificate test | No MCP registry, licensed server package, npm publish config, or release automation; only app APK + GitHub Release + CHANGELOG | Private bridge server/credential/network exist; generic MCP client, licensing and public deployment evidence remain absent | **blocked for publication** — preserve private WSS and add generic-client interoperability, licensing, Android certificate-negative and operational credential tests |
 | `glasses.get_state` | `system-tools.ts:25-34` | Read display, foreground app/title, headset battery, local time; always available and proactive | Window title/app ID and battery are contextual device data; no mutation | Registration covered indirectly by registry/MCP tests; no per-tool permission/privacy or real-device result test | No independent package; app debug APK workflow only | Live G2/display and battery state required for result verification; no generic-client evidence | **remediable** — document least-privilege export and add per-tool privacy/result tests plus A32/G2 evidence |
 | `glasses.show_alert` | `system-tools.ts:36-55` | Display short popup; always available and proactive | User-visible display wake/mutation; can interrupt and is not live-transport gated | No dedicated alert permission, rate, wake, or result-verification test | App APK + GitHub Release + CHANGELOG only | Real glasses display required; proactive policy depends on bridge/session | **blocked** — add explicit live/proactive authorization, bounds and interruption tests, and real-glasses verification |
 | `calendar.list_events` | `system-tools.ts:57-81` | Upcoming events with bounded window/count; always available; Android calendar permission is implicit in native reader | Titles, times, locations are sensitive personal data; read-only | No per-tool permission/privacy/result test; generic registry schema coverage only | No public MCP/skill artifact | Android calendar permission and populated calendar; no A32 evidence | **remediable** — document permission/redaction/retention, add denied/empty/result tests and real-device proof |

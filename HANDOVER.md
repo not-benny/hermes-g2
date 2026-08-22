@@ -1,5 +1,45 @@
 # Hermes G2 handover — 22 August 2026
 
+## Gesture, HUD, R1 battery, and Hermes bridge follow-up
+
+Work on stacked branch `feat/gesture-signal-ring` adds sleeping R1 long-press
+push-to-talk for the assistant, an explicit quick-close instruction bar, bounded
+phone cellular-signal bars, and a persistent configured-R1 HUD identity that
+shows `--` until a battery value is known. R1 `deviceStatus` battery is requested
+before rich history traffic, and either standard-GATT or protocol battery values
+feed the same Health/HUD store. The existing generation, command allowlist,
+pairing/provisioning, firmware, and destructive-operation gates are unchanged.
+
+The Hermes `even-g2` gateway bridge now serves certificate-validated WSS on its
+dedicated private-tunnel endpoint. The app migrates the exact legacy default
+port 8790 to the WSS deployment on 8791 while preserving custom ports. The app
+bundles only the private CA public certificate; the CA/server private keys remain
+deployment-local and outside the repository. The custom bridge protocol,
+bearer-token authentication, exact-turn guards, and proactive-action gates are
+unchanged. A real WSS hello/hello-ack
+smoke test passed. Host verification has 302 tests, TypeScript, Android build,
+and APK verification passing. The exact 195,708,625-byte debug APK has SHA-256
+`05752f99271eec1e29c58779a11e3167bd2111c62e80883b7ad589d3eb2951d4`.
+Independent adversarial review of the final app code candidate and bridge commit
+`fdd84de85c82706104428db3e7d0eacb91480b2a` returned static PASS and private,
+non-destructive deployment GO. The exact APK upgrade-installed and launched on
+the authorised Fold7 with the expected version and a live process; no fatal,
+JavaScript, or TLS/certificate failure marker appeared. The exact legacy bridge
+port migrated to 8791, and the live Hermes gateway authenticated `hermes-g2` and
+listed 33 phone MCP tools. After both G2 arms were physically recycled, the exact
+candidate reached `session ready`; direct R1 BLE reached ready at MTU 247 with
+both notify channels active and emitted live data notifications. The duplicate
+bridge reconnect loop was traced to the A32 running the same identity; the A32
+was restored enabled with its assistant backend set to direct, leaving the Fold7
+as the single stable bridge owner. The ring lacks the standard battery service,
+and repeated protocol `deviceStatus` GET writes still produced no decoded
+battery value initially; it arrived after the ready session and the wearer
+confirmed the same percentage in both HUD and Health. The wearer also confirmed
+sleep long-press opens voice capture, phone signal bars are visible, and the
+quick-close guidance is clear. The wearer then verified the selected Health tab
+says `HIDE HEALTH / tap hide` and hides on tap rather than implying the pinned
+tab can be closed; the launcher is explicitly labelled pinned.
+
 ## Fold7 development-preview candidate
 
 Work on `feat/fold7-compat` from canonical baseline

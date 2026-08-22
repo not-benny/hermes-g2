@@ -15,8 +15,8 @@ import {
   anthropicApiKeySetting,
   assistantBackendSetting,
   assistantBridgeHostSetting,
-  assistantBridgePortSetting,
   assistantBridgeTokenSetting,
+  resolveAssistantBridgePort,
   assistantModelSetting,
   assistantSkipConfirmationSetting,
   batteryDisplayModeSetting,
@@ -247,6 +247,8 @@ class Shell {
     ring: null,
     ringCharging: null,
   };
+  /** A configured R1 stays visible in the HUD even while its battery is unknown. */
+  private ringConfigured = false;
   private attention = new Map<string, boolean>();
   // App-provided top-bar tray icons, keyed by owner id; drawn between the
   // notification icons and the battery indicators.
@@ -468,6 +470,12 @@ class Shell {
     const next = bpm !== null && Number.isFinite(bpm) ? Math.round(bpm) : null;
     if (next === this.ringHeartRate) return;
     this.ringHeartRate = next;
+    this.config.requestShellRender();
+  }
+
+  setRingConfigured(configured: boolean): void {
+    if (configured === this.ringConfigured) return;
+    this.ringConfigured = configured;
     this.config.requestShellRender();
   }
 
@@ -716,6 +724,17 @@ class Shell {
       this.cancelEscapeMenuTimer();
     }
 
+    // A sleeping long-press is push-to-talk for the assistant. Route it before
+    // the generic screen-off short circuit; the matching release below ends
+    // capture. The master voice switch remains authoritative.
+    if (!this.screenOn && event.type === "long-press" && voiceControlEnabledSetting.get()) {
+      this.wake("sidebar");
+      if (!this.activeVoiceLayer) {
+        this.openVoiceDialog({ defaultTarget: "assistant" });
+      }
+      return { shell: true, window: false };
+    }
+
     if (!this.screenOn) {
       if (event.type === "double-click") {
         this.wake("sidebar");
@@ -883,11 +902,13 @@ class Shell {
           return { shell: true, window: false };
         case "click": {
           const window = this.windows[this.selectedIndex];
-          if (window && window.closeable !== false) {
+          if (window === this.healthWindow) {
+            this.setHealthHidden(true);
+          } else if (window && window.closeable !== false) {
             this.closeWindow(window.windowId);
-            // Stay armed while there is still something to close; else exit.
-            if (!this.hasCloseableWindow()) this.closingActive = false;
           }
+          // Stay armed while there is still something to close; else exit.
+          if (!this.hasCloseableWindow()) this.closingActive = false;
           this.config.requestShellRender();
           return { shell: true, window: false };
         }
@@ -1158,7 +1179,7 @@ class Shell {
       const host = assistantBridgeHostSetting.get().trim();
       const token = assistantBridgeTokenSetting.get();
       if (!host || !token) return null;
-      const port = parseInt(assistantBridgePortSetting.get(), 10) || 8790;
+      const port = resolveAssistantBridgePort();
       return { kind: "external", bridge: { host, port, token } };
     }
     const llm = resolveAssistantModel(assistantModelSetting.get(), {
@@ -1507,6 +1528,13 @@ class Shell {
       focus: this.focus,
       sidebarBounceY: this.sidebarBounce.offsetPx(),
       closing: this.closingActive,
+      closingAction:
+        this.windows[this.selectedIndex] === this.healthWindow
+          ? "hide"
+          : this.windows[this.selectedIndex]?.closeable === false
+            ? "pinned"
+            : "close",
+      ringConfigured: this.ringConfigured,
       ...this.reorderChromeState(),
       foregroundHeightMode: this.foregroundWindow()?.heightMode ?? "min",
       battery: this.battery,
