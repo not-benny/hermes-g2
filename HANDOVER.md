@@ -173,6 +173,45 @@ Do not resume work from the old `hermes-g2`, `integration/`, `work/`, `wt/`,
 
 ## Current verified implementation
 
+### Notification triage candidate (22 August 2026)
+
+Branch `feat/notification-priority-digests` now includes canonical
+`main@5b6947c78c7d89fd881ddcc7a76cb97803079fe5` after PRs #46 and #49
+merged. It adds a local-only pure
+notification reducer with sender/channel/category/app/default precedence;
+urgent/immediate/digest/mute routing; quiet hours; deduplication, cooldown and
+global/per-app caps; fair bounded digest selection; same-key replacement; Android
+removal; dismiss/clear tombstones; and restart/wall/timezone protections. Existing
+all-installed-app names and allow/block toggles remain; each app also has a priority
+cycle and reset. Immediate and digest glasses views explain why an item was routed.
+
+Observed notification content, Android keys, senders and app/channel identity remain
+volatile; explicitly user-authored rule selectors are normalized bounded local
+configuration. Only bounded aggregate runtime queue metadata is persisted; restart never wakes
+for the existing active set. Android removal prunes Hermes state. The production
+external icon-debug dump and package/icon detail logging were removed. Detailed
+behavior and rollback are in `docs/notification-triage.md`.
+
+Current evidence: focused notification policy/integration tests pass 8/8; the final
+post-integration host suite passes 344/344; TypeScript typecheck and the JDK 21 /
+SDK 35 Android build pass. The earlier MessagingStyle compatibility fix uses the
+public recovered-builder API. Seven adversarial review passes drove API-24,
+privacy bounds, queued deduplication, revision/tombstone identity, delivery receipt,
+scheduler lifetime, modal cleanup, input-index and concurrent-presentation fixes;
+the final staged-diff verdict has no security or logic blockers. The candidate APK
+installed and launched on a Samsung A32 over USB; notification access remained granted and only reversible
+synthetic `com.android.shell` notifications were used. The final APK produced the
+expected aggregate-only transitions: a new synthetic post was accepted with no
+queued item, a same-key synthetic update moved one revision into the digest queue,
+and Android snooze/removal returned the queue to zero while decreasing the active
+count. The user’s Selected-app filter was temporarily changed to All from a
+force-stopped private-settings backup, then restored byte-for-byte to Selected;
+synthetic items were snoozed and temporary files removed. This verifies the A32
+listener → NativeScript → policy → bounded-metadata post/update/removal path. Real-G2
+digest rendering was unavailable and remains unverified. No personal notification
+content was read or logged; no pairing, firmware, provisioning, reset, wipe, or
+destructive command ran.
+
 ### Shared G2 motion service candidate (22 August 2026)
 
 Branch `feat/imu-compass-service` replaces app-owned IMU/compass controls with
