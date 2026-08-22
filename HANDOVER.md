@@ -82,7 +82,7 @@ Current reliability-candidate verification uses deterministic Java harnesses:
 the R1 state snapshot completes below 100 ms while synthetic BLE work is blocked,
 retirement rejects that completion, and the display worker source contract has no
 R1 connect call. After merging canonical `main` through
-`a77c6d2db90570a7c26b317d53cb5d92106442a8`, the complete host suite passes
+`76adcd5e443a9ee9295a3683f1f8a149be669d7a`, the complete host suite passes
 290/290, TypeScript typechecking passes, and the JDK 21 / SDK 35 Android debug
 build passes. Two stale source-contract expectations that required the old
 blocking monitor design were replaced with generation-token and
