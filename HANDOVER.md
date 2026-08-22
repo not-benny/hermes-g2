@@ -28,7 +28,11 @@ multi-message images report `sent` only after every distinct application ACK,
 including out-of-order ACKs. Ordinary redraw work cannot inherit or extend a
 strict owner's receipt, and the inline Java-call fast path remains busy across
 synchronous reentrancy. Focused RED/GREEN contracts pass 7/7 and the full
-host suite passes 265/265. TypeScript and the JDK 21 / SDK 35 Android build pass.
+host suite passes 266/266. TypeScript and the JDK 21 / SDK 35 Android build pass.
+Independent adversarial review of frozen `c8fa3b1` passed all static receipt,
+queue, timeout, and coalescing gates; operational performance authorization
+remains NO-GO because the fixed-duration candidate run was contaminated and the
+371–374 ms hardware floor exceeds the 50 ms target.
 The final debug APK SHA-256 is
 `98c87fa58d96f8386a526759807adb5c92337e64668a979d8ce3f6edbec41425`.
 

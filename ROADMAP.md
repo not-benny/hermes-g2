@@ -17,7 +17,7 @@ Current as of 22 August 2026. `main` is the canonical branch.
   generic copy, and repetitive success logs leave the release hot path. Receipt
   correctness is stronger: strict operations require a successful terminal
   outcome, first-finish wins across Java/TS, and multi-message frames complete
-  only after every application ACK. Host tests pass 265/265, typecheck/build
+  only after every application ACK. Host tests pass 266/266, typecheck/build
   pass, and an installed USB A32 candidate received both ACKs for a real
   two-message G2 image before reporting `sent`. A clean fixed-duration candidate
   percentile remains open because another concurrent device installer replaced
