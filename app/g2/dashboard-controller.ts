@@ -343,6 +343,17 @@ class DashboardController {
     this.syncAssistantBridge();
   }
 
+  private bridgePort(): number {
+    const raw = assistantBridgePortSetting.get().trim();
+    // Deployment port moved when the Hermes bridge gained mandatory WSS.
+    // Migrate only the exact historical default; preserve every custom port.
+    if (raw === "8790") {
+      assistantBridgePortSetting.set("8791");
+      return 8791;
+    }
+    return parseInt(raw, 10) || 8791;
+  }
+
   private syncAssistantBridge(): void {
     this.lastBridgeConfigKey = this.bridgeConfigKey();
     const host = assistantBridgeHostSetting.get().trim();
@@ -353,7 +364,7 @@ class DashboardController {
     }
     assistantBridge.configure({
       host,
-      port: parseInt(assistantBridgePortSetting.get(), 10) || 8790,
+      port: this.bridgePort(),
       token,
       deviceName: "hermes-g2",
       allowProactive: () => assistantAllowProactiveSetting.get(),

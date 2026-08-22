@@ -603,10 +603,10 @@ export const assistantBridgePortSetting = new ConfigSettingString({
   id: "assistant-bridge-port",
   label: "Hermes Agent port",
   storageKey: "assistant.bridgePort",
-  defaultValue: "8790",
+  defaultValue: "8791",
   editorTitle: "Hermes Agent bridge port",
   glassesEditTitle: "Edit Hermes port",
-  description: "TCP port the Hermes Agent bridge listens on. The default is 8790.",
+  description: "TCP port the Hermes Agent bridge listens on. The default is 8791.",
 });
 
 export const assistantBridgeTokenSetting = new ConfigSettingString({

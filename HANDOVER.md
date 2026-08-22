@@ -11,10 +11,12 @@ feed the same Health/HUD store. The existing generation, command allowlist,
 pairing/provisioning, firmware, and destructive-operation gates are unchanged.
 
 The Hermes `even-g2` gateway bridge now serves certificate-validated WSS on its
-dedicated private-tunnel endpoint. The app bundles only the private CA public
-certificate; the CA/server private keys remain deployment-local and outside the
-repository. The custom bridge protocol, bearer-token authentication, exact-turn
-guards, and proactive-action gates are unchanged. A real WSS hello/hello-ack
+dedicated private-tunnel endpoint. The app migrates the exact legacy default
+port 8790 to the WSS deployment on 8791 while preserving custom ports. The app
+bundles only the private CA public certificate; the CA/server private keys remain
+deployment-local and outside the repository. The custom bridge protocol,
+bearer-token authentication, exact-turn guards, and proactive-action gates are
+unchanged. A real WSS hello/hello-ack
 smoke test passed. Host verification has 295 tests, TypeScript, Android build,
 and APK verification passing. The exact 195,145,053-byte debug APK has SHA-256
 `e7da7473ab632975fd743d5ddfd8149cc495a952ad03d58435adcd09e461acfe`.
