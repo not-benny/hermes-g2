@@ -18,8 +18,8 @@ deployment-local and outside the repository. The custom bridge protocol,
 bearer-token authentication, exact-turn guards, and proactive-action gates are
 unchanged. A real WSS hello/hello-ack
 smoke test passed. Host verification has 295 tests, TypeScript, Android build,
-and APK verification passing. The exact 195,673,277-byte debug APK has SHA-256
-`1f1df51d8a93e6716eb4ab912fa14a0930d645a0a9b2b513a86033c502fbaa8f`.
+and APK verification passing. The exact 195,673,486-byte debug APK has SHA-256
+`4f8c5f8ed4a05ae900ef1626c531d17ae0c588c7e87fd5a621b80f33334d8fa7`.
 Independent adversarial review of the final app code candidate and bridge commit
 `fdd84de85c82706104428db3e7d0eacb91480b2a` returned static PASS and private,
 non-destructive deployment GO. The exact APK upgrade-installed and launched on
@@ -36,9 +36,9 @@ and repeated protocol `deviceStatus` GET writes still produced no decoded
 battery value initially; it arrived after the ready session and the wearer
 confirmed the same percentage in both HUD and Health. The wearer also confirmed
 sleep long-press opens voice capture, phone signal bars are visible, and the
-quick-close guidance is clear. A follow-up makes the selected Health tab say
-`HIDE HEALTH / tap hide` and hides it on tap rather than implying the pinned tab
-can be closed; the launcher is explicitly labelled pinned.
+quick-close guidance is clear. The wearer then verified the selected Health tab
+says `HIDE HEALTH / tap hide` and hides on tap rather than implying the pinned
+tab can be closed; the launcher is explicitly labelled pinned.
 
 ## Fold7 development-preview candidate
 

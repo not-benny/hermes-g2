@@ -20,8 +20,9 @@ Current as of 22 August 2026. `main` is the canonical branch.
   session ready and direct R1 BLE reached MTU-247/notify readiness on the exact
   candidate. The wearer confirmed signal bars, sleep long-press voice capture,
   clear close-mode guidance, and a matching R1 battery percentage in HUD and
-  Health. Health is now explicitly labelled as hideable rather than closeable
-  in quick-close mode; the launcher is labelled pinned.
+  Health. The wearer verified Health is explicitly labelled as hideable rather
+  than closeable in quick-close mode and tap hides it; the launcher is labelled
+  pinned.
 
 - **IMPLEMENTED / FOLD7 VISUAL AND POSTURE VALIDATION BLOCKED — foldable phone UI (22 August 2026).**
   Preview 2 removes the portrait lock, handles live cover/unfolded/rotation/
