@@ -40,6 +40,7 @@ import { type LayerActions } from "../ui/layers";
 import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "../native/battery-optimization";
 import { shouldFinalizeCommunicatorClose, type DashboardConnectionPhase } from "./connection-state-lifecycle";
+import { registerDebugControl } from "../debug/control-runtime";
 
 type ConnectionPhase = DashboardConnectionPhase;
 
@@ -318,6 +319,7 @@ class DashboardController {
     // connection stays up (with re-dial) so proactive tool calls work
     // outside voice turns.
     this.syncAssistantBridge();
+    registerDebugControl(this);
   }
 
   /** A local shell flag is not device availability; require the live session. */
@@ -1410,6 +1412,14 @@ class DashboardController {
         this.appendLog("Disconnected from the glasses.");
       }
     }
+  }
+
+  /** Debug harness uses the same fixed launcher registry; no arbitrary deep links. */
+  async launchDebugAllowlistedApp(appId: string): Promise<void> {
+    if (!ALL_APPS.some((app) => app.appId === appId)) {
+      throw new Error("app is not allowlisted");
+    }
+    await this.launchApp(appId);
   }
 
   async injectSyntheticRingInput(

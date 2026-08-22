@@ -388,6 +388,12 @@ android {
   buildToolsVersion "35"
   ndkVersion "27.2.12479018"
 
+  // The debug-only control boundary checks the generated variant constant in
+  // both Java and NativeScript. AGP 8 no longer generates it unless requested.
+  buildFeatures {
+    buildConfig true
+  }
+
   sourceSets.main {
     jniLibs.srcDirs += ["$projectDir/src/main/jniLibs"]
   }
@@ -401,6 +407,27 @@ android {
         keyAlias System.getenv("ANDROID_SIGNING_KEY_ALIAS")
         keyPassword System.getenv("ANDROID_SIGNING_KEY_PASSWORD")
       }
+    }
+  }
+
+  // Release verification is deliberately narrower than publishable release builds.
+  // The explicit property permits only direct assembleRelease, disconnects the
+  // release signing config, and therefore produces a non-publishable unsigned APK.
+  // Every other release task remains fail-closed unless NativeScript supplies all
+  // four real keystore properties; never invent verification credentials.
+  def requestedTasks = gradle.startParameter.taskNames
+  def releaseTaskRequested = requestedTasks.any { it.toLowerCase().contains("release") }
+  def hermesUnsignedReleaseVerification = project.findProperty("hermesUnsignedReleaseVerification") == "true"
+  if (hermesUnsignedReleaseVerification) {
+    if (requestedTasks != ["assembleRelease"]) {
+      throw new GradleException("Unsigned release verification permits only assembleRelease")
+    }
+    buildTypes.release.signingConfig null
+    logger.warn("Building explicitly unsigned, non-publishable release verification APK")
+  } else if (releaseTaskRequested) {
+    def signingProperties = ["ksPath", "ksPassword", "alias", "password"]
+    if (!signingProperties.every { project.hasProperty(it) && !project.property(it).toString().isEmpty() }) {
+      throw new GradleException("Protected release signing requires all real keystore properties")
     }
   }
 

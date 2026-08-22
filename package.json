@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "npx --no-install ns build android",
+    "verify:release-unsigned": "npx --no-install ns prepare android && cd platforms/android && ./gradlew clean && ./gradlew assembleRelease -Prelease -PhermesUnsignedReleaseVerification=true",
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit"
   },

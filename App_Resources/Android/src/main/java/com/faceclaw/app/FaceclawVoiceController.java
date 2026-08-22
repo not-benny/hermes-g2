@@ -103,6 +103,7 @@ public class FaceclawVoiceController {
     private String lastTranscript = "";
     private volatile boolean saveRecordings;
     private volatile boolean endpointing;
+    private boolean debugFixtureActive;
     private final EndpointDetector endpointDetector = new EndpointDetector();
     private java.io.ByteArrayOutputStream recordingPcm;
     private long queuedPackets;
@@ -138,6 +139,105 @@ public class FaceclawVoiceController {
      */
     public void setEndpointing(boolean endpointing) {
         this.endpointing = endpointing;
+    }
+
+    /**
+     * Debug-build-only fixture session. It deliberately bypasses BLE capture but
+     * initializes the same Moonshine recognizer and endpoint detector used by
+     * real decoded G2 PCM. There is no file or caller-supplied audio input.
+     */
+    public void startDebugFixtureTest(boolean endpointing) {
+        if (!BuildConfig.DEBUG) {
+            throw new SecurityException("debug fixture unavailable");
+        }
+        synchronized (lock) {
+            if (started || debugFixtureActive) {
+                throw new IllegalStateException("voice capture active");
+            }
+            File modelDir;
+            try {
+                modelDir = installAsrModelFiles();
+            } catch (IOException ignored) {
+                debugFixtureActive = false;
+                this.endpointing = false;
+                resetTranscriptState();
+                lastTranscript = "";
+                releaseSherpa();
+                throw new IllegalStateException("fixture unavailable");
+            }
+            recognizer = new OfflineRecognizer(buildRecognizerConfig(modelDir));
+            this.endpointing = endpointing;
+            endpointDetector.reset();
+            resetTranscriptState();
+            lastTranscript = "";
+            debugFixtureActive = true;
+        }
+    }
+
+    /** Feed one of two procedural, repository-safe fixtures into production DSP paths. */
+    public String injectDebugFixture(String fixture) {
+        if (!BuildConfig.DEBUG) {
+            throw new SecurityException("debug fixture unavailable");
+        }
+        synchronized (lock) {
+            if (!debugFixtureActive || recognizer == null) {
+                throw new IllegalStateException("fixture capture inactive");
+            }
+            if (!"silence-1s".equals(fixture) && !"speech-envelope-then-silence".equals(fixture)) {
+                throw new IllegalArgumentException("unknown fixture");
+            }
+            endpointDetector.reset();
+            resetTranscriptState();
+            lastTranscript = "";
+            short[] pcm = buildDebugFixture(fixture);
+            boolean endpoint = false;
+            final int packetSamples = SAMPLE_RATE / 20;
+            for (int offset = 0; offset < pcm.length; offset += packetSamples) {
+                int count = Math.min(packetSamples, pcm.length - offset);
+                short[] packet = Arrays.copyOfRange(pcm, offset, offset + count);
+                if (endpointing && endpointDetector.accept(packet, packet.length)) {
+                    endpoint = true;
+                }
+                float[] samples = new float[packet.length];
+                for (int i = 0; i < packet.length; i++) {
+                    samples[i] = packet[i] / 32768.0f;
+                }
+                processRecognizer(samples);
+            }
+            decodeTranscript(true);
+            return "endpoint=" + endpoint + ";transcript=" + (lastTranscript.isEmpty() ? "empty" : "nonempty");
+        }
+    }
+
+    public void stopDebugFixtureTest() {
+        if (!BuildConfig.DEBUG) {
+            throw new SecurityException("debug fixture unavailable");
+        }
+        synchronized (lock) {
+            if (!debugFixtureActive) return;
+            debugFixtureActive = false;
+            endpointing = false;
+            resetTranscriptState();
+            lastTranscript = "";
+            releaseSherpa();
+        }
+    }
+
+    private static short[] buildDebugFixture(String fixture) {
+        int length = "silence-1s".equals(fixture) ? SAMPLE_RATE : SAMPLE_RATE * 5 / 2;
+        short[] pcm = new short[length];
+        if ("silence-1s".equals(fixture)) return pcm;
+        int speechStart = SAMPLE_RATE * 3 / 10;
+        int speechEnd = speechStart + SAMPLE_RATE * 6 / 5;
+        for (int i = speechStart; i < speechEnd; i++) {
+            double time = (i - speechStart) / (double) SAMPLE_RATE;
+            double envelope = 0.55 + 0.35 * Math.sin(2.0 * Math.PI * 4.0 * time);
+            double carrier = Math.sin(2.0 * Math.PI * 180.0 * time)
+                    + 0.45 * Math.sin(2.0 * Math.PI * 360.0 * time);
+            pcm[i] = (short) Math.max(Short.MIN_VALUE,
+                    Math.min(Short.MAX_VALUE, Math.round(9000.0 * envelope * carrier)));
+        }
+        return pcm;
     }
 
     public void start() {

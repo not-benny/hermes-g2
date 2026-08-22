@@ -48,6 +48,18 @@ Current as of 22 August 2026. `main` is the canonical branch.
 
 ### Connection and lifecycle reliability
 
+- **DONE — secure debug-only ADB control harness (22 August 2026).** A
+  debug-source-set-only, `android.permission.DUMP`-protected receiver and strict
+  JSON host command provide generation-bound display, allowlisted window,
+  synthetic ring-input, and procedural voice-fixture automation. Malformed,
+  replayed, stale, offline, ambiguous-target, and invalid-capture requests fail
+  closed; dispatch is serialized across lifecycle changes. Explicit unsigned
+  `assembleRelease` verification proved the release APK and merged manifest contain
+  no receiver, action, or DUMP entry, while publishable release tasks still fail
+  closed without complete real signing credentials. All 13 focused and 296 host
+  tests, typecheck, debug build, and release verification passed. No hardware
+  operation was authorised or claimed.
+
 - **DONE — startup connection race.** A delayed constructor-time disconnected
   snapshot can no longer release a newly connecting communicator. Retained
   ownership remains authoritative until exact teardown completion.

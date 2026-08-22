@@ -158,6 +158,35 @@ session remained in reconnect attempts, so no new render/wearer, Doze, charging,
 phone-mic, calendar, or R1-value evidence is claimed. No gated dialog or
 destructive/pairing/firmware operation was performed.
 
+## Debug-only ADB control candidate
+
+The `feat/debug-adb-control` candidate adds a DUMP-protected ordered-broadcast
+receiver in the Android debug source set plus a strict JSON-in/JSON-out host
+command. Mutations are bound to exact process/session/window/capture generations,
+serialized to close stale-command races, replay bounded, offline-safe, and limited
+to fixed display/window/input/voice-fixture allowlists. Voice fixtures are
+procedural, accept no caller content, use the production endpoint/Moonshine path,
+return only content-free classifications, and never log samples or recognized
+text. `DEVELOPMENT.md` documents targeting and use.
+
+TDD preserved three meaningful RED results: missing protocol source, missing CLI
+module, and a concurrent stale-generation command that executed before dispatch
+serialization. Final verification passed 13/13 focused tests and 296/296 full
+host tests, TypeScript, diff hygiene, a JDK 21 debug APK build, and the explicit
+clean unsigned `assembleRelease` path. The 7,444-byte merged release manifest and
+531-entry unsigned APK contain zero `FaceclawDebugControlReceiver`,
+`com.faceclaw.app.DEBUG_CONTROL_V1`, or `android.permission.DUMP` entries.
+`apksigner` rejects the verification APK as unsigned, and both an ordinary
+credential-free release and misuse of the unsigned property for `bundleRelease`
+fail closed. Artifact hashes and final commit/PR/CI evidence are recorded in the
+pull request; no device was contacted and no hardware result is claimed.
+
+Static safety boundary: debug receiver publication is acceptable only when final
+release-artifact inspection confirms that both receiver class and action are
+absent. Operational authorization remains NO-GO for unattended device control;
+the harness requires an already-authorised ADB shell and this work did not touch
+hardware.
+
 ## Deliberately blocked
 
 - Public MCP/skill publication and untrusted external `glasses.render_view`
