@@ -99,6 +99,12 @@ public final class FaceclawSettings {
      * only after the encrypted write commits and decrypts to the same value.
      */
     public synchronized String getSecret(String key, String defaultValue) {
+        String pendingKey = key + ".__pending";
+        if (securePrefs.contains(pendingKey)
+                && !securePrefs.edit().remove(pendingKey).commit()) {
+            Log.w(TAG, "pending encrypted-setting cleanup will retry");
+            return defaultValue;
+        }
         if (securePrefs.contains(key)) {
             try {
                 String decrypted = decrypt(securePrefs.getString(key, ""));
