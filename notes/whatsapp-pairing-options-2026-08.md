@@ -4,7 +4,7 @@
 
 **Shelve live WhatsApp pairing now, while retaining bridge QR as a separately gated fallback.** Do not resume live-link batches 3–6 and do not enable production pairing during this evaluation. The embedded client has a credible future repair path for the April link-code failure, but the existing Hermes Agent bridge is not a WhatsApp bridge and cannot be substituted by changing a URL or pairing screen.
 
-A bridge QR path is technically feasible only as a new host-side service or an explicitly extended bridge deployment. It is not ready for implementation or operation because it moves the WhatsApp session and long-lived credentials off the phone, adds a network trust boundary, and the currently available sibling bridge is private evaluation infrastructure with plaintext WebSocket transport and unresolved server-authentication/licensing gates.
+A bridge QR path is technically feasible only as a new host-side service or an explicitly extended bridge deployment. It is not ready for implementation or operation because it moves the WhatsApp session and long-lived credentials off the phone and adds a separate network trust boundary. The existing private WSS glasses bridge has server-identity proof for its own protocol, but it is not a WhatsApp bridge and its licensing gate remains unresolved.
 
 ## Current architecture and failure boundary
 
