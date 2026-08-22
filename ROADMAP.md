@@ -8,6 +8,21 @@ Current as of 22 August 2026. `main` is the canonical branch.
 
 ### Repository and release
 
+- **IN PROGRESS — public-launch readiness (22 August 2026).** The maintained
+  app/repository/glasses plan is `docs/public-launch-readiness.md`. Current
+  verdict is NO-GO for public visibility or a broadly supported release. The
+  recommended first milestone is curated public source plus a sideload-only
+  development preview with firmware installation, WhatsApp, public MCP/dynamic
+  apps, R1 provisioning/DFU, and destructive controls excluded. P0 blockers
+  include publishable-history/privacy clearance, public security/contribution
+  intake, complete third-party notices and a repaired firmware-research
+  manifest, enforceable/read-back governance, user-data/privacy validation, a
+  fail-closed preview scope, least-privilege packaging, a current protected
+  release identity, and exact signed-candidate preview hardware qualification.
+  A supported glasses release additionally requires the broader non-destructive
+  device matrix, normal two-arm runtime qualification, independently witnessed
+  firmware recovery evidence, and a maintainable supported assistant path.
+
 - **DONE — full audit remediation and release path (21 August 2026).** The
   merged PR #28 implementation removes private-data logging, encrypts credential
   and token-bearing settings with verified Keystore migration/clear, makes calendar

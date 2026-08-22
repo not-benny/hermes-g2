@@ -2,6 +2,20 @@
 
 ## Repository state
 
+The maintained public-launch plan is now `docs/public-launch-readiness.md`,
+audited against canonical `main` at
+`60d92905652a9b2a5664ab5e4db5b8b30cdaddcd`. Current verdict is **NO-GO for
+public visibility or a broadly supported app/glasses release**. The recommended
+first milestone is curated public source plus a sideload-only development
+preview, with firmware installation, WhatsApp, public MCP/dynamic apps, R1
+provisioning/DFU, and destructive controls excluded. Before visibility changes,
+the publishable history needs privacy/identifier clearance, public security and
+contribution intake, complete third-party notices, and a repaired
+`firmware-research/` verification manifest. Branch protection and CodeQL result
+reporting must then be enabled and read back before protected signing. A full
+glasses launch remains separately gated on a broader non-destructive hardware
+matrix and independently witnessed firmware recovery evidence.
+
 `main` is the canonical development branch. The original release lineage and the
 later Hermes/R1 integration lineage were created as unrelated Git histories;
 they have now been joined by an explicit multi-parent consolidation commit.
