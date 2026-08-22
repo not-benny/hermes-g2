@@ -1,7 +1,7 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" unloaded="unloaded">
     <ActionBar title="Glasses Controls" />
     <ScrollView>
-        <StackLayout class="p-20">
+        <StackLayout class="p-20 phone-content">
             <Label text="{{ status }}" textWrap="true" class="m-b-16" />
 
             <Label text="Display" class="h2" />

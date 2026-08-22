@@ -1,5 +1,25 @@
 # Hermes G2 handover — 22 August 2026
 
+## Fold7 development-preview candidate
+
+Work on `feat/fold7-compat` from canonical baseline
+`c4e512509d30a587f511896b87415b8d29f7b4f8` adds a pure live-window size-class
+contract and Fold7-like cover/unfolded/landscape/tabletop/split fixtures, removes
+the portrait lock, marks the activity resizable with IME resize, replaces
+physical-screen calculations with page bounds, bounds phone content at 840dp,
+and enforces 48dp controls. It does not touch G2/R1 pairing, permissions,
+firmware, BLE ownership, or glasses compositor geometry. Focused tests were RED
+on the baseline and are GREEN after implementation. The candidate is version
+1000002 / 1.0.0-preview.2. The exact 195,137,995-byte debug APK with SHA-256
+`98512ea999701517a4de6c4f6b0bbdc99e89f3989c0daee5827e833f0518aa36`
+installed and launched on an authorised Galaxy Z Fold7 SM-F966B (`q7q`),
+Android 16 / SDK 36. Read-only package and process checks reported the expected
+version and a live `com.faceclaw.app` PID. The phone was locked/Dozing, so there
+is no unlocked visual, physical fold-posture, rotation, tabletop, multi-window,
+or G2/R1 evidence for this candidate; none may be inferred from install/process
+proof. No pairing, provisioning, permission, firmware, wake, or unlock action
+was performed.
+
 ## Repository state
 
 `main` is the canonical development branch. The original release lineage and the

@@ -412,8 +412,8 @@ android {
     }
 
     // Version Information
-    versionCode 1000001
-    versionName "1.0.0-preview.1"
+    versionCode 1000002
+    versionName "1.0.0-preview.2"
     
     generatedDensities = []
   }

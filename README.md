@@ -23,6 +23,15 @@ integration lineage. The startup connection-race fix was also verified on a
 real two-arm G2 session. These checks are evidence for that source revision,
 not a guarantee for every phone, firmware version, or hardware unit.
 
+Development preview 2 adds static Fold7/foldable compatibility: the phone UI is
+resizable, responds to live application-window bounds across fold, rotation and
+multi-window changes, bounds wide-screen forms, keeps 48dp touch targets, and
+uses Android's edge-to-edge-aware NativeScript 9 runtime. The APK is arm64-only
+and 16 KiB page-size verified. The exact preview APK was installed, launched,
+and observed as a live process on an SM-F966B running Android 16. Because the
+device remained locked/Dozing, unlocked visual behavior and physical fold,
+rotation, tabletop, multi-window, and G2/R1 behavior remain unverified.
+
 ## Before you start
 
 Hermes currently works alongside the official Even Realities app rather than

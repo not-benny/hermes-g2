@@ -58,8 +58,9 @@
 		<activity
 			android:name="com.tns.NativeScriptActivity"
 			android:label="@string/title_activity_kimera"
-			android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|locale|uiMode"
-			android:screenOrientation="portrait"
+			android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|density|fontScale|layoutDirection|locale|uiMode"
+			android:resizeableActivity="true"
+			android:windowSoftInputMode="adjustResize"
 			android:theme="@style/LaunchScreenTheme"
 			android:hardwareAccelerated="true"
       		android:launchMode="singleTask"

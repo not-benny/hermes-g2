@@ -1,18 +1,19 @@
-import { Application, Frame, ImageSource, Observable, Screen } from "@nativescript/core";
+import { Frame, ImageSource, Observable } from "@nativescript/core";
 import { dashboardController } from "../g2/dashboard-controller";
 import { isValidMacAddress, loadDeviceAddresses } from "../g2/device-addresses";
 import { G2_LENS_HEIGHT, G2_LENS_WIDTH } from "../graphics/image";
+import { classifyPhoneWindow, WindowOrientation } from "./window-layout";
 
 const LENS_ASPECT_RATIO = G2_LENS_WIDTH / G2_LENS_HEIGHT;
-
-type LayoutOrientation = "portrait" | "landscape";
 
 export class MainViewModel extends Observable {
   private _status = "Disconnected.";
   private _log = "";
   private _displayPreview: ImageSource | null = null;
   private _displayPreviewMessage = "";
-  private _layoutOrientation: LayoutOrientation = this.readLayoutOrientation();
+  private _windowWidth = 360;
+  private _windowHeight = 640;
+  private _layoutOrientation: WindowOrientation = "portrait";
   private _activeTextSettingId: string | null = null;
   private _activeTextSettingTitle = "";
   private _activeTextSettingValue = "";
@@ -110,7 +111,7 @@ export class MainViewModel extends Observable {
   }
 
   get displayPreviewHeight(): number {
-    return Screen.mainScreen.widthDIPs / LENS_ASPECT_RATIO;
+    return this._windowWidth / LENS_ASPECT_RATIO;
   }
 
   get landscapeDisplayPreviewWidth(): number {
@@ -121,9 +122,8 @@ export class MainViewModel extends Observable {
     // Height keeps the vertical footprint the preview had at the old 2:1
     // aspect; the width is derived from it, so a wider lens aspect can't
     // grow the preview past the side panel.
-    const screenWidth = Screen.mainScreen.widthDIPs;
     const sidePanelWidth = 260;
-    const availableWidth = Math.max(240, Math.floor(screenWidth - sidePanelWidth - 56));
+    const availableWidth = Math.max(240, Math.floor(this._windowWidth - sidePanelWidth - 56));
     return Math.floor(availableWidth / 2);
   }
 
@@ -135,8 +135,13 @@ export class MainViewModel extends Observable {
     return this._layoutOrientation === "landscape" ? "visible" : "collapse";
   }
 
-  refreshLayoutMetrics(): void {
-    const nextOrientation = this.readLayoutOrientation();
+  refreshLayoutMetrics(width?: number, height?: number): void {
+    if (width !== undefined && height !== undefined && width > 0 && height > 0) {
+      const layout = classifyPhoneWindow(width, height);
+      this._windowWidth = layout.width;
+      this._windowHeight = layout.height;
+    }
+    const nextOrientation: WindowOrientation = this._windowWidth > this._windowHeight ? "landscape" : "portrait";
     if (this._layoutOrientation !== nextOrientation) {
       this._layoutOrientation = nextOrientation;
       this.notifyPropertyChange("portraitLayoutVisibility", this.portraitLayoutVisibility);
@@ -492,13 +497,6 @@ export class MainViewModel extends Observable {
     this.log = this.log ? `${this.log}\n[${stamp}] ${line}` : `[${stamp}] ${line}`;
   }
 
-  private readLayoutOrientation(): LayoutOrientation {
-    const applicationOrientation = Application.orientation();
-    if (applicationOrientation === "landscape" || applicationOrientation === "portrait") {
-      return applicationOrientation;
-    }
-    return Screen.mainScreen.widthDIPs > Screen.mainScreen.heightDIPs ? "landscape" : "portrait";
-  }
 
   private formatError(error: unknown): string {
     const raw = (error as Error)?.message ?? String(error);
