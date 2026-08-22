@@ -102,3 +102,21 @@ test("G2 arm loss retires the exact R1 session before allowing a reconnect", () 
   assert.ok(stateChange.indexOf("ringNotificationsReady = false") < stateChange.indexOf("invalidateRingPacketAckStateLocked()"));
   assert.match(stateChange, /bleManager\.disconnect\(ringAddress\)/);
 });
+
+test("R1 readiness publication rejects a disconnect racing connect callbacks", () => {
+  const communicator = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  const connectStart = communicator.indexOf("private int connectRing(long glassesAttemptGeneration)");
+  const connectEnd = communicator.indexOf("private <T> T withRingManagerOperation", connectStart);
+  const connect = communicator.slice(connectStart, connectEnd);
+  assert.match(connect, /ringAttemptGeneration = ringConnectionGeneration/);
+  assert.match(connect, /ringAttemptGeneration != ringConnectionGeneration/);
+  assert.ok(connect.indexOf("ringAttemptGeneration != ringConnectionGeneration") < connect.indexOf("ringNotificationsReady = true"));
+
+  const updateStart = communicator.indexOf("private int updateDirectRingConnectionStateLocked(boolean connected)");
+  const updateEnd = communicator.indexOf("private void finishDirectRingConnectionStateChange", updateStart);
+  const update = communicator.slice(updateStart, updateEnd);
+  assert.match(update, /if \(connected && ringNotificationsReady\)/);
+});

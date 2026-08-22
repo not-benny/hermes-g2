@@ -1652,6 +1652,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private int updateDirectRingConnectionStateLocked(boolean connected) {
+        if (connected && ringNotificationsReady) {
+            ringConnected = true;
+            return ringConnectionGeneration;
+        }
         ringConnected = connected;
         ringNotificationsReady = false;
         if (!connected) {
@@ -1915,6 +1919,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (stopping) {
             throw new IllegalStateException("ring connect cancelled");
         }
+        final int ringAttemptGeneration;
+        synchronized (ringLock) {
+            ringAttemptGeneration = ringConnectionGeneration;
+        }
         logLine("connecting configured direct ring");
         // Ring-specific SHORT timeouts limit retry latency on the optional worker.
         if (!withRingManagerOperation(RING_CONNECT_OPERATION,
@@ -1949,7 +1957,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         synchronized (ringLock) {
             synchronized (glassesGenerationLock) {
                 if (stopping || !running || !sessionReady
-                        || glassesAttemptGeneration != glassesConnectionGeneration) {
+                        || glassesAttemptGeneration != glassesConnectionGeneration
+                        || ringAttemptGeneration != ringConnectionGeneration) {
                     throw new IllegalStateException("ring connect cancelled");
                 }
                 invalidateRingPacketAckStateLocked();

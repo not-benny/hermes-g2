@@ -66,7 +66,7 @@ runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
 Current reliability-candidate verification uses deterministic Java harnesses:
 the R1 state snapshot completes below 100 ms while synthetic BLE work is blocked,
 retirement rejects that completion, and the display worker source contract has no
-R1 connect call. The complete host suite passes 265/265, TypeScript typechecking
+R1 connect call. The complete host suite passes 266/266, TypeScript typechecking
 passes, and the JDK 21 / SDK 35 Android debug build passes. Two stale
 source-contract expectations that required the old blocking monitor design were
 replaced with generation-token and non-blocking-monitor assertions.
@@ -82,6 +82,10 @@ The second review found three remaining diagnostic reset inconsistencies; organi
 R1 disconnect now publishes a bounded transport backoff, no-address arm/transport
 loss remains `not-configured`, and idle/not-configured resets clear stale failure
 and countdown fields.
+The third review found one final callback-order race; R1 connect publication now
+captures and revalidates the pre-connect R1 generation, while a delayed connected
+callback preserves already-published notification readiness. A disconnect racing
+setup therefore cancels publication instead of resurrecting a retired session.
 
 The debug APK installed/launched over USB on the authorised Samsung A32
 `RFCR707RQGV`. PID-filtered runtime evidence (PID 27349) shows a live two-arm G2
