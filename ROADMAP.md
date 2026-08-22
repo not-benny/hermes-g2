@@ -88,10 +88,13 @@ Current as of 22 August 2026. `main` is the canonical branch.
   callbacks, finish/cancel, provider failure, timers, and exactly-one submit;
   ring/manual finish and cancellation remain available. Deterministic fixtures,
   all 268 host tests, typecheck, and Android build pass. The APK installed and
-  launched on the USB A32 with a connected G2 transport, but no full real voice
-  reply/cancel/follow-up was captured because the configured wakeword action did
-  not enter voice capture. There is no phone-mic PCM route to validate; current
-  voice PCM is the G2 LC3 stream. No wakeword firmware change was made.
+  launched on the USB A32 with a connected G2 transport. Final independent
+  lifecycle/detector reviews pass the exact code candidate, including the
+  minimum-speech boundary. The device capture path failed closed before PCM
+  because the EvenHub display path was not ready, and the configured wakeword
+  action did not enter capture; no full real reply/cancel/follow-up is claimed.
+  There is no phone-mic PCM route to validate; current voice PCM is the G2 LC3
+  stream. No wakeword firmware change was made.
 - **DONE — private bounded render surface.** `glasses.render_view` has operation
   IDs, exact owner/revision checks, TTL and rate limits, inert content, strict
   compositor receipts, gesture-event polling, cancellation, and no wake/focus.

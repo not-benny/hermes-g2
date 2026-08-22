@@ -49,15 +49,21 @@ speech, no-speech and maximum-duration endpoints, packet-gap invariance,
 one-shot/reset reuse, manual/automatic finish races, cancellation, provider
 failure, delayed permission completion, and stale new-turn events. `npm test`
 passes 268/268, `npm run typecheck` passes, and the JDK 21 / SDK 35 Android debug
-build passes. The resulting APK installed and launched on the USB Samsung A32;
+build passes. Independent final static reviews pass the lifecycle and detector
+candidate at `78f8f8c22d8af6d4dcf8f42e2b12ecae2dc35d94`, including explicit
+200/220/240/260 ms minimum-speech boundary probes. The resulting APK installed
+and launched on the USB Samsung A32;
 the phone showed `Connected.` and PID-filtered logs showed live G2
 GATT traffic. The application has no phone-microphone PCM route: `RECORD_AUDIO`
 is a consent gate while voice PCM comes from the G2 LC3 stream, so no phone-mic
-result can truthfully be claimed. A live reply/cancel/follow-up voice turn was
-not completed in this run because the installed wakeword action did not open
-voice capture; real G2 endpoint behavior therefore remains pending despite the
-connected transport. No pairing, ownership, firmware, reset, wipe, provisioning,
-NVM, or other destructive operation was performed.
+result can truthfully be claimed. A final on-device capture attempt reached the
+generation-scoped permission/model path, then failed closed with `Could not start
+G2 microphone input` / `Voice capture stopped unexpectedly` because the EvenHub
+display path was not ready; a later synthetic wakeword did not enter capture.
+No live reply/cancel/follow-up or decoded G2 PCM was therefore claimed, and real
+G2 endpoint behavior remains pending despite the connected transport. No
+pairing, ownership, firmware, reset, wipe, provisioning, NVM, or other
+destructive operation was performed.
 
 ## Current verified implementation
 
