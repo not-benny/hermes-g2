@@ -1012,6 +1012,9 @@ class DashboardController {
 
     try {
       await ensureBlePermissions();
+      if (loadDeviceAddresses().ring !== ringIdentity) {
+        throw new Error("Ring configuration changed while connecting. Retry the connection.");
+      }
       startForegroundNotification("Connecting to the glasses");
       communicator = new FaceclawCommunicatorBridge({
         right: addresses.right,
