@@ -81,11 +81,12 @@ runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
 Current reliability-candidate verification uses deterministic Java harnesses:
 the R1 state snapshot completes below 100 ms while synthetic BLE work is blocked,
 retirement rejects that completion, and the display worker source contract has no
-R1 connect call. After merging current canonical `main`, the complete host suite
-passes 288/288, TypeScript typechecking
-passes, and the JDK 21 / SDK 35 Android debug build passes. Two stale
-source-contract expectations that required the old blocking monitor design were
-replaced with generation-token and non-blocking-monitor assertions.
+R1 connect call. After merging canonical `main` through
+`60d92905652a9b2a5664ab5e4db5b8b30cdaddcd`, the complete host suite passes
+290/290, TypeScript typechecking passes, and the JDK 21 / SDK 35 Android debug
+build passes. Two stale source-contract expectations that required the old
+blocking monitor design were replaced with generation-token and
+non-blocking-monitor assertions.
 
 The dynamic-glasses-app candidate is based directly on canonical `main`
 `f02d8f88bb44e147dad213e36a2ab16ad304aebe`. It adds a versioned generic
