@@ -3906,8 +3906,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (imuListeners.isEmpty()) {
             return;
         }
+        final FaceclawImuListener[] currentListeners =
+            imuListeners.toArray(new FaceclawImuListener[0]);
         mainHandler.post(() -> {
-            for (FaceclawImuListener imuListener : imuListeners) {
+            for (FaceclawImuListener imuListener : currentListeners) {
                 try {
                     imuListener.onImuData(x, y, z, eventSource);
                 } catch (Throwable t) {
@@ -3921,8 +3923,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (compassListeners.isEmpty()) {
             return;
         }
+        final FaceclawCompassListener[] currentListeners =
+            compassListeners.toArray(new FaceclawCompassListener[0]);
         mainHandler.post(() -> {
-            for (FaceclawCompassListener compassListener : compassListeners) {
+            for (FaceclawCompassListener compassListener : currentListeners) {
                 try {
                     compassListener.onCompassEvent(command, headingDegrees);
                 } catch (Throwable t) {

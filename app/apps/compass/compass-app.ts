@@ -1,13 +1,7 @@
 import { getDefaultLargeFont, getDefaultMediumFont, getDefaultSmallFont } from "../../graphics/bdffont";
 import { GrayImage } from "../../graphics/image";
-import {
-  COMPASS_CALIBRATION_COMPLETE,
-  COMPASS_CALIBRATION_STARTED,
-  COMPASS_CHANGED,
-  addCompassListener,
-  setCompassEnabled,
-  type CompassEvent,
-} from "../../native/compass";
+import { glassesMotionService } from "../../native/glasses-motion-service";
+import type { MotionLease, MotionSnapshot } from "../../motion/motion-service";
 import { type DashboardInputEvent, type Layer, type LayerContext } from "../../ui/layers";
 import {
   createInProcessWindow,
@@ -24,15 +18,21 @@ const RECONCILE_INTERVAL_MS = 400;
 class CompassLayer implements Layer {
   private heading: number | null = null;
   private status = "Waiting for compass data…";
+  private quality = "Calibration: uncalibrated";
   private enabled = false;
   private removed = false;
   private timer: ReturnType<typeof setInterval> | null = null;
-  private unsubscribe: (() => void) | null = null;
+  private lease: MotionLease | null = null;
+  private lastSnapshotKey = "";
 
   constructor(private readonly requestRender: () => void) {}
 
   start(): void {
-    this.unsubscribe = addCompassListener((event) => this.onCompassEvent(event));
+    this.lease = glassesMotionService.acquire(
+      { compass: true, imuRate: "low" },
+      (snapshot) => this.onMotion(snapshot),
+    );
+    this.lease.setActive(false);
     this.timer = setInterval(() => this.reconcile(), RECONCILE_INTERVAL_MS);
     this.reconcile();
   }
@@ -42,9 +42,8 @@ class CompassLayer implements Layer {
     this.removed = true;
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
-    this.unsubscribe?.();
-    this.unsubscribe = null;
-    if (this.enabled) setCompassEnabled(false);
+    this.lease?.release();
+    this.lease = null;
     this.enabled = false;
   }
 
@@ -54,24 +53,36 @@ class CompassLayer implements Layer {
 
   private reconcile(): void {
     if (this.removed) return;
+    this.onMotion(glassesMotionService.snapshot());
     const visible = shell.isWindowVisible(COMPASS_WINDOW_ID);
     if (visible === this.enabled) return;
     this.enabled = visible;
-    setCompassEnabled(visible);
+    this.lease?.setActive(visible);
     this.status = visible ? "Waiting for compass data…" : "Compass paused";
     this.requestRender();
   }
 
-  private onCompassEvent(event: CompassEvent): void {
+  private onMotion(snapshot: MotionSnapshot): void {
     if (this.removed) return;
-    if (event.command === COMPASS_CHANGED && event.headingDegrees >= 0) {
-      this.heading = normalizeHeading(event.headingDegrees);
-      this.status = "Magnetic heading";
-    } else if (event.command === COMPASS_CALIBRATION_STARTED) {
-      this.status = "Calibrating — move the glasses";
-    } else if (event.command === COMPASS_CALIBRATION_COMPLETE) {
-      this.status = "Calibration complete";
-    }
+    const key = JSON.stringify([
+      snapshot.state,
+      snapshot.headingDegrees,
+      snapshot.compassQuality,
+      snapshot.calibrationQuality,
+      snapshot.acceptedSamples,
+      snapshot.rejectedSamples,
+    ]);
+    if (key === this.lastSnapshotKey) return;
+    this.lastSnapshotKey = key;
+    this.heading = snapshot.headingDegrees;
+    this.quality = `Cal: ${snapshot.calibrationQuality}  samples: ${snapshot.acceptedSamples}`;
+    this.status = snapshot.compassQuality === "interference"
+      ? "Heading unreliable: possible interference"
+      : snapshot.compassQuality === "calibrating"
+        ? "Calibrating — move the glasses"
+        : snapshot.headingDegrees === null
+          ? snapshot.state === "stale" ? "Heading stale" : "Waiting for compass data…"
+          : snapshot.compassQuality === "good" ? "Magnetic heading (good)" : "Approximate magnetic heading";
     this.requestRender();
   }
 
@@ -98,6 +109,7 @@ class CompassLayer implements Layer {
       image.drawText(small, Math.round(width * 0.56), 116, "No heading yet", 130);
     }
     image.drawText(small, Math.round(width * 0.56), 158, this.status, 125);
+    image.drawText(small, Math.round(width * 0.56), 176, this.quality, 110);
     return image;
   }
 

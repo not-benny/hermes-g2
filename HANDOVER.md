@@ -40,6 +40,46 @@ Do not resume work from the old `hermes-g2`, `integration/`, `work/`, `wt/`,
 
 ## Current verified implementation
 
+### Shared G2 motion service candidate (22 August 2026)
+
+Branch `feat/imu-compass-service` replaces app-owned IMU/compass controls with
+one process-wide lease service. It aggregates low/interactive IMU demand and
+compass demand, binds callbacks to the exact communicator/session generation,
+coalesces queued native controls, snapshots Java listeners before main-thread
+delivery, rejects stale/non-finite/wrong-source samples, and disables both
+streams synchronously with screen-off or final release. The first warmed frame
+reasserts retained demand because native connectivity becomes visible before
+the EvenHub session accepts IMU control. Compass and accelerometer UI values
+expire after three seconds; unchanged freshness polls no longer repaint.
+
+Pure calibration/filter state handles circular wraparound, discontinuity-based
+possible-interference detection, bounded gravity orientation, level/posture
+derivation, and versioned device-bound persistence. Persistence contains only a
+neutral vector, zero boresight offset, schema/algorithm versions, timestamp and
+quality; it stores no raw motion history. Uncalibrated posture remains
+`unknown`, and the compass labels non-good values approximate rather than exact.
+The supplied upstream hash `6e4ece5` is album-art work, not compass work; the
+relevant ancestor `12bb76b` was reviewed for ideas but its unversioned scalar
+offset, stale-reading and false-completion behavior was not copied.
+
+Final local verification passes 297/297 host tests, TypeScript typechecking,
+`git diff --check`, and the JDK 21 / Android SDK 35 debug build. On USB Samsung
+A32 with both G2 arms live on firmware 2.2.8.4, a cold process restart first
+logged the expected pre-ready IMU skip, then the warmed-session reassertion
+queued IMU pace 500 plus compass enable and both controls ACKed. The phone/G2
+UI accepted eight motion samples in the bounded capture and truthfully rendered
+`Cal: uncalibrated ... samples: 8`; the stock compass emitted no heading or
+calibration-complete event while the glasses were off-head/resting, so no
+heading, posture-calibration, or exact-level hardware claim is made. Screen-off
+queued IMU and compass disable at 05:53:50 local, both ACKed within 93 ms, and
+the final UI transition settled without the previous 400 ms repaint stream.
+Across the USB-powered bounded run the phone stayed at 100% with charge counter
+2,946,000 µAh, so short-run battery delta was below device reporting resolution;
+this is traffic/lifecycle evidence, not a battery-life estimate. Screenshot
+evidence is local at `/tmp/hermes-compass-final-live.png` and contains no private
+content. No pairing, permission, coordinate/device-setting, firmware,
+provisioning, reset, wipe, credential, or destructive action was performed.
+
 The audit remediation delivered from canonical `main` baseline
 `f37168cf007450cb2a58513b1f2624aee0b6d6af` adds permanent PR/main CI,
 CodeQL, Dependabot, SBOM/provenance and APK checks; Keystore AES-GCM credential
