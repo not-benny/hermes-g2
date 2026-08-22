@@ -257,6 +257,7 @@ public class FaceclawVoiceController {
             writeRecordingIfAny();
             releaseSherpa();
             releaseLc3();
+            emitCaptureStopped(generation);
             synchronized (lock) {
                 if (workerThread == Thread.currentThread()) {
                     started = false;
@@ -690,6 +691,16 @@ public class FaceclawVoiceController {
         }
         long generation = currentGeneration;
         mainHandler.post(() -> currentListener.onSpeechEnd(generation));
+    }
+
+    private void emitCaptureStopped(long generation) {
+        FaceclawVoiceControllerListener currentListener = listener;
+        if (currentListener == null) {
+            return;
+        }
+        // Handler FIFO places this after every PCM/transcript callback queued by
+        // the worker, giving cloud commit an exact flush barrier.
+        mainHandler.post(() -> currentListener.onCaptureStopped(generation));
     }
 
 

@@ -16,6 +16,8 @@ test("manual finish racing auto-finish commits and submits exactly once", () => 
   assert.equal(gate.activate(generation), true);
   assert.equal(gate.acceptsAudio(generation), true);
   assert.equal(gate.finish(generation), true);
+  assert.equal(gate.acceptsAudio(generation), true);
+  assert.equal(gate.complete(generation), true);
   assert.equal(gate.acceptsAudio(generation), false);
   assert.equal(gate.finish(generation), false);
   assert.equal(gate.accepts(generation), true);
@@ -70,6 +72,7 @@ test("manual finish before permission resolves prevents a late start", () => {
   const generation = gate.reserve();
   assert.equal(gate.finish(generation), true);
   assert.equal(gate.activate(generation), false);
+  assert.equal(gate.complete(generation), true);
   assert.equal(gate.acceptsAudio(generation), false);
 });
 
@@ -83,6 +86,11 @@ test("voice capture integration carries the exact generation through permission,
   assert.match(layers, /stopVoiceCapture: \(generation: number, commit: boolean\)/);
   assert.match(dashboard, /startVoiceCapture: \(endpointing\?: boolean\) => this\.startVoiceCapture\(endpointing\)/);
   assert.match(dashboard, /voiceControlBridge\.startPushToTalk\(generation, options\)/);
+  assert.match(dashboard, /voiceControlBridge\.failCaptureRequest\(generation/);
+  assert.match(dashboard, /voiceControlBridge\.failActiveCapture\("Glasses disconnected/);
+  assert.match(voice, /reserveContinuousCapture\(\): number/);
+  assert.match(voice, /onCaptureStopped: \(generation: number\)/);
+  assert.match(voice, /this\.completeCapture\(generation\)/);
   assert.match(voice, /onTranscript: \(generation: number, text: string, isFinal: boolean\)/);
   assert.match(voice, /onPcm: \(generation: number, pcm: any\)/);
   assert.match(voice, /onSpeechEnd: \(generation: number\)/);

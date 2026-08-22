@@ -39,8 +39,8 @@ export type LayerActions = {
   /** Finish (commit=true) or cancel the exact capture generation. */
   stopVoiceCapture: (generation: number, commit: boolean) => Promise<void> | void;
   /** Start isolated continuous capture (Transcribe). */
-  startContinuousVoiceCapture: () => Promise<void> | void;
-  stopContinuousVoiceCapture: () => Promise<void> | void;
+  startContinuousVoiceCapture: () => number;
+  stopContinuousVoiceCapture: (generation: number) => Promise<void> | void;
   /** Play a CFW tone-sequencer payload (see sound-effects.ts). */
   playBuzzerSequence: (payload: Uint8Array) => Promise<void> | void;
 };
@@ -53,7 +53,7 @@ export const noopLayerActions: LayerActions = {
   endTextSettingEdit: () => {},
   startVoiceCapture: () => 0,
   stopVoiceCapture: () => {},
-  startContinuousVoiceCapture: () => {},
+  startContinuousVoiceCapture: () => 0,
   stopContinuousVoiceCapture: () => {},
   playBuzzerSequence: () => {},
 };

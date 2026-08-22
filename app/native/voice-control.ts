@@ -51,6 +51,7 @@ type ActiveCapture = {
   holder: CaptureHolder;
   cloudClient: CloudSttClient | null;
   started: boolean;
+  commitSent: boolean;
 };
 
 export class FaceclawVoiceControlBridge {
@@ -97,7 +98,7 @@ export class FaceclawVoiceControlBridge {
     }
     if (this.activeCapture) this.cancelCapture(this.activeCapture.generation);
     const generation = this.turnGate.reserve();
-    this.activeCapture = { generation, holder: "ptt", cloudClient: null, started: false };
+    this.activeCapture = { generation, holder: "ptt", cloudClient: null, started: false, commitSent: false };
     this.setStatus(generation, "Waiting for microphone permission...");
     return generation;
   }
@@ -111,9 +112,12 @@ export class FaceclawVoiceControlBridge {
     const capture = this.activeCapture;
     if (!capture || capture.holder !== "ptt" || capture.generation !== generation) return;
     if (!this.turnGate.finish(generation)) return;
-    if (capture.started && global.isAndroid) this.controller?.stop(generation);
+    if (capture.started && global.isAndroid) {
+      this.controller?.stop(generation);
+    } else {
+      this.completeCapture(generation);
+    }
     capture.started = false;
-    capture.cloudClient?.finish();
   }
 
   cancelPushToTalk(generation: number): void {
@@ -124,17 +128,34 @@ export class FaceclawVoiceControlBridge {
     return this.turnGate.claimSubmit(generation);
   }
 
-  /** Begin continuous capture (Transcribe) as an isolated mic generation. */
-  startContinuousCapture(options: PushToTalkOptions): void {
-    if (this.activeCapture) this.cancelCapture(this.activeCapture.generation);
+  reserveContinuousCapture(): number {
+    if (this.activeCapture) {
+      this.setStatus(null, "Finish the active voice turn before opening Transcribe.");
+      return 0;
+    }
     const generation = this.turnGate.reserve();
-    this.activeCapture = { generation, holder: "continuous", cloudClient: null, started: false };
+    this.activeCapture = { generation, holder: "continuous", cloudClient: null, started: false, commitSent: false };
+    this.setStatus(generation, "Waiting for microphone permission...");
+    return generation;
+  }
+
+  /** Begin continuous capture (Transcribe) as an isolated mic generation. */
+  startContinuousCapture(generation: number, options: PushToTalkOptions): void {
     this.startReservedCapture(generation, "continuous", options);
   }
 
-  stopContinuousCapture(): void {
+  stopContinuousCapture(generation: number): void {
     const capture = this.activeCapture;
-    if (capture?.holder === "continuous") this.cancelCapture(capture.generation);
+    if (capture?.holder === "continuous" && capture.generation === generation) this.cancelCapture(generation);
+  }
+
+  failCaptureRequest(generation: number, message: string): void {
+    this.failCapture(generation, message);
+  }
+
+  failActiveCapture(message: string): void {
+    const generation = this.activeCapture?.generation;
+    if (generation) this.failCapture(generation, message);
   }
 
   private startReservedCapture(
@@ -214,7 +235,8 @@ export class FaceclawVoiceControlBridge {
   private cancelCapture(generation: number): void {
     const capture = this.activeCapture;
     if (!capture || capture.generation !== generation) return;
-    if (!this.turnGate.cancel(generation)) return;
+    const cancelled = this.turnGate.cancel(generation);
+    if (!cancelled && this.turnGate.accepts(generation)) return;
     if (capture.started && global.isAndroid) this.controller?.stop(generation);
     capture.started = false;
     capture.cloudClient?.stop();
@@ -230,6 +252,19 @@ export class FaceclawVoiceControlBridge {
     capture.cloudClient?.stop();
     capture.cloudClient = null;
     this.setStatus(generation, message, true);
+  }
+
+  private completeCapture(generation: number): void {
+    const capture = this.activeCapture;
+    if (!capture || capture.generation !== generation || capture.commitSent) return;
+    if (!this.turnGate.complete(generation)) {
+      if (this.turnGate.acceptsAudio(generation)) {
+        this.failCapture(generation, "Voice capture stopped unexpectedly.");
+      }
+      return;
+    }
+    capture.commitSent = true;
+    capture.cloudClient?.finish();
   }
 
   stop(): void {
@@ -267,6 +302,9 @@ export class FaceclawVoiceControlBridge {
         for (const listener of this.speechEndListeners) {
           listener(generation);
         }
+      },
+      onCaptureStopped: (generation: number) => {
+        this.completeCapture(generation);
       },
     });
     this.controller.setListener(this.listenerProxy);

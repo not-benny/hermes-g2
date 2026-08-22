@@ -1,4 +1,4 @@
-export type VoiceTurnState = "requested" | "active" | "finishing" | "cancelled" | "failed";
+export type VoiceTurnState = "requested" | "active" | "finishing" | "finished" | "cancelled" | "failed";
 
 /**
  * Provider-neutral identity and exactly-once gate for one voice turn at a time.
@@ -43,15 +43,24 @@ export class VoiceTurnGate {
   }
 
   accepts(generation: number): boolean {
-    return this.isCurrent(generation) && (this.state === "active" || this.state === "finishing");
+    return this.isCurrent(generation)
+      && (this.state === "active" || this.state === "finishing" || this.state === "finished");
   }
 
   acceptsAudio(generation: number): boolean {
-    return this.isCurrent(generation) && this.state === "active";
+    return this.isCurrent(generation) && (this.state === "active" || this.state === "finishing");
+  }
+
+  complete(generation: number): boolean {
+    if (!this.isCurrent(generation) || this.state !== "finishing") return false;
+    this.state = "finished";
+    return true;
   }
 
   claimSubmit(generation: number): boolean {
-    if (!this.isCurrent(generation) || this.state !== "finishing" || this.submitted) return false;
+    if (!this.isCurrent(generation)
+      || (this.state !== "finishing" && this.state !== "finished")
+      || this.submitted) return false;
     this.submitted = true;
     return true;
   }

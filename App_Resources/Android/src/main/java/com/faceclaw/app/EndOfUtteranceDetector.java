@@ -51,15 +51,21 @@ final class EndOfUtteranceDetector {
                 double releaseNoiseFactor,
                 int noiseRiseTimeMs,
                 int noiseFallTimeMs) {
+            long configuredFrameSamples = (long) sampleRateHz * analysisFrameMs / 1000L;
             if (sampleRateHz <= 0 || analysisFrameMs <= 0 || calibrationMs < analysisFrameMs
+                    || calibrationMs % analysisFrameMs != 0
                     || onsetHoldMs <= 0 || minimumSpeechMs < onsetHoldMs
                     || trailingSilenceMs <= 0 || noSpeechTimeoutMs <= calibrationMs
                     || maximumUtteranceMs < minimumSpeechMs
+                    || !Double.isFinite(minimumNoiseRms) || !Double.isFinite(absoluteOnsetRms)
+                    || !Double.isFinite(absoluteReleaseRms) || !Double.isFinite(onsetNoiseFactor)
+                    || !Double.isFinite(releaseNoiseFactor)
                     || minimumNoiseRms < 0 || absoluteOnsetRms <= 0 || absoluteReleaseRms <= 0
                     || absoluteOnsetRms <= absoluteReleaseRms
                     || onsetNoiseFactor <= releaseNoiseFactor || releaseNoiseFactor <= 0
                     || noiseRiseTimeMs <= 0 || noiseFallTimeMs <= 0
-                    || (long) sampleRateHz * analysisFrameMs % 1000L != 0) {
+                    || (long) sampleRateHz * analysisFrameMs % 1000L != 0
+                    || configuredFrameSamples <= 0 || configuredFrameSamples >= Integer.MAX_VALUE) {
                 throw new IllegalArgumentException("Invalid end-of-utterance configuration");
             }
             this.sampleRateHz = sampleRateHz;
@@ -83,7 +89,7 @@ final class EndOfUtteranceDetector {
             return new Config(
                     16000,
                     20,
-                    300,
+                    100,
                     60,
                     240,
                     900,
@@ -111,6 +117,7 @@ final class EndOfUtteranceDetector {
     private long onsetSamples;
     private long activeSpeechSamples;
     private long trailingSamples;
+    private long bootstrapCandidateSamples;
     private double noiseFloor;
     private boolean speaking;
     private boolean terminal;
@@ -120,7 +127,7 @@ final class EndOfUtteranceDetector {
             throw new IllegalArgumentException("End-of-utterance config is required");
         }
         this.config = config;
-        this.frameSamples = config.sampleRateHz * config.analysisFrameMs / 1000;
+        this.frameSamples = (int) ((long) config.sampleRateHz * config.analysisFrameMs / 1000L);
         this.calibrationFrames = config.calibrationMs / config.analysisFrameMs;
         this.frame = new short[frameSamples];
         this.calibrationRms = new double[calibrationFrames];
@@ -135,6 +142,7 @@ final class EndOfUtteranceDetector {
         onsetSamples = 0;
         activeSpeechSamples = 0;
         trailingSamples = 0;
+        bootstrapCandidateSamples = 0;
         noiseFloor = config.minimumNoiseRms;
         speaking = false;
         terminal = false;
@@ -142,11 +150,11 @@ final class EndOfUtteranceDetector {
     }
 
     Result accept(short[] pcm, int offset, int count) {
-        if (terminal || count <= 0) {
-            return Result.NONE;
-        }
         if (pcm == null || offset < 0 || count < 0 || offset > pcm.length - count) {
             throw new IllegalArgumentException("Invalid PCM slice");
+        }
+        if (terminal || count == 0) {
+            return Result.NONE;
         }
         int end = offset + count;
         while (offset < end) {
@@ -175,15 +183,29 @@ final class EndOfUtteranceDetector {
                 Arrays.sort(sorted);
                 int percentileIndex = Math.max(0, (int) Math.floor((sorted.length - 1) * 0.2));
                 noiseFloor = Math.max(config.minimumNoiseRms, sorted[percentileIndex]);
+                // A high bootstrap may be immediate speech or steady room noise.
+                // Preserve it without classifying it until a substantial release
+                // distinguishes prompt speech from a stationary background.
+                bootstrapCandidateSamples = noiseFloor >= config.absoluteOnsetRms ? totalSamples : 0;
             }
             return Result.NONE;
         }
 
+        double priorOnsetThreshold = Math.max(
+                config.absoluteOnsetRms,
+                noiseFloor * config.onsetNoiseFactor);
+        if (!speaking && onsetSamples == 0 && rms < priorOnsetThreshold) {
+            // Track gradual room changes before testing onset. A sudden speech
+            // jump remains far above the updated threshold, while a slow fan or
+            // traffic ramp does not become a false utterance.
+            adaptNoise(rms);
+        }
         double onsetThreshold = Math.max(config.absoluteOnsetRms, noiseFloor * config.onsetNoiseFactor);
         double releaseThreshold = Math.max(config.absoluteReleaseRms, noiseFloor * config.releaseNoiseFactor);
 
         if (!speaking) {
             if (rms >= onsetThreshold) {
+                bootstrapCandidateSamples = 0;
                 if (onsetSamples == 0) {
                     candidateStartSample = totalSamples - frameSamples;
                 }
@@ -193,13 +215,25 @@ final class EndOfUtteranceDetector {
                     speaking = true;
                     trailingSamples = 0;
                 }
+            } else if (bootstrapCandidateSamples > 0
+                    && rms < Math.max(config.absoluteReleaseRms, noiseFloor * 0.5)) {
+                candidateStartSample = 0;
+                onsetSamples = bootstrapCandidateSamples;
+                activeSpeechSamples = bootstrapCandidateSamples;
+                bootstrapCandidateSamples = 0;
+                speaking = true;
+                trailingSamples = 0;
             } else {
+                if (bootstrapCandidateSamples > 0) {
+                    bootstrapCandidateSamples += frameSamples;
+                }
                 onsetSamples = 0;
                 activeSpeechSamples = 0;
                 candidateStartSample = -1;
-                adaptNoise(rms);
             }
-            return samplesToMs(totalSamples) >= config.noSpeechTimeoutMs ? Result.NO_SPEECH : Result.NONE;
+            if (!speaking) {
+                return samplesToMs(totalSamples) >= config.noSpeechTimeoutMs ? Result.NO_SPEECH : Result.NONE;
+            }
         }
 
         if (rms >= releaseThreshold) {

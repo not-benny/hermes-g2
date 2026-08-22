@@ -24,4 +24,7 @@ public interface FaceclawVoiceControllerListener {
      * FaceclawVoiceController.setEndpointing.
      */
     void onSpeechEnd(long generation);
+
+    /** All native audio and final transcript callbacks for this generation were queued. */
+    void onCaptureStopped(long generation);
 }
