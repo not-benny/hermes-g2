@@ -1,6 +1,6 @@
 # Hermes G2 roadmap
 
-Current as of 21 August 2026. `main` is the canonical branch.
+Current as of 22 August 2026. `main` is the canonical branch.
 
 **Status key:** DONE · IN PROGRESS · PARTIAL · TODO · RESEARCH · BLOCKED
 
@@ -80,6 +80,18 @@ Current as of 21 August 2026. `main` is the canonical branch.
 
 ## Assistant, MCP, and glasses rendering
 
+- **IMPLEMENTED / RUNTIME VALIDATION PARTIAL — local voice end detection (22
+  August 2026).** Provider-neutral fixed-frame PCM endpointing now combines
+  minimum speech, adaptive noise, onset/release hysteresis, trailing silence,
+  no-speech timeout, and maximum utterance duration without treating packet gaps
+  as silence. Exact generations fence permission completion, native/cloud
+  callbacks, finish/cancel, provider failure, timers, and exactly-one submit;
+  ring/manual finish and cancellation remain available. Deterministic fixtures,
+  all 268 host tests, typecheck, and Android build pass. The APK installed and
+  launched on the USB A32 with a connected G2 transport, but no full real voice
+  reply/cancel/follow-up was captured because the configured wakeword action did
+  not enter voice capture. There is no phone-mic PCM route to validate; current
+  voice PCM is the G2 LC3 stream. No wakeword firmware change was made.
 - **DONE — private bounded render surface.** `glasses.render_view` has operation
   IDs, exact owner/revision checks, TTL and rate limits, inert content, strict
   compositor receipts, gesture-event polling, cancellation, and no wake/focus.

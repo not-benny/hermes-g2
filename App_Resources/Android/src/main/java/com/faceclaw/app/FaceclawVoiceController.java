@@ -89,6 +89,7 @@ public class FaceclawVoiceController {
     private volatile FaceclawBleCommunicator communicator;
     private Thread workerThread;
     private volatile boolean started;
+    private volatile long currentGeneration;
     private VoiceInputMode mode = VoiceInputMode.WAKEWORD;
     private KeywordSpotter keywordSpotter;
     private OfflineRecognizer recognizer;
@@ -103,7 +104,8 @@ public class FaceclawVoiceController {
     private String lastTranscript = "";
     private volatile boolean saveRecordings;
     private volatile boolean endpointing;
-    private final EndpointDetector endpointDetector = new EndpointDetector();
+    private final EndOfUtteranceDetector endpointDetector =
+            new EndOfUtteranceDetector(EndOfUtteranceDetector.Config.defaults());
     private java.io.ByteArrayOutputStream recordingPcm;
     private long queuedPackets;
     private long queueDroppedPackets;
@@ -141,30 +143,44 @@ public class FaceclawVoiceController {
     }
 
     public void start() {
-        start("wakeword");
+        start("wakeword", currentGeneration + 1);
     }
 
     public void start(String requestedMode) {
+        start(requestedMode, currentGeneration + 1);
+    }
+
+    public boolean start(String requestedMode, long generation) {
         synchronized (lock) {
-            if (started) {
-                emitStatus("Voice control is already listening.");
-                return;
+            if (generation <= 0) {
+                return false;
+            }
+            if (workerThread != null) {
+                emitStatus(generation, "Previous voice capture is still stopping.");
+                return false;
             }
             if (communicator == null || !communicator.isSessionReady()) {
-                emitStatus("Voice control needs an active G2 connection.");
-                return;
+                emitStatus(generation, "Voice control needs an active G2 connection.");
+                return false;
             }
             mode = parseMode(requestedMode);
+            VoiceInputMode runMode = mode;
+            currentGeneration = generation;
             started = true;
-            workerThread = new Thread(this::runLoop, "FaceclawVoiceController");
+            workerThread = new Thread(() -> runLoop(generation, runMode), "FaceclawVoiceController");
             workerThread.start();
+            return true;
         }
     }
 
     public void stop() {
+        stop(currentGeneration);
+    }
+
+    public void stop(long generation) {
         Thread threadToJoin;
         synchronized (lock) {
-            if (!started) {
+            if (generation <= 0 || generation != currentGeneration || workerThread == null || !started) {
                 return;
             }
             started = false;
@@ -200,17 +216,16 @@ public class FaceclawVoiceController {
         return VoiceInputMode.WAKEWORD;
     }
 
-    private void runLoop() {
+    private void runLoop(long generation, VoiceInputMode currentMode) {
         try {
-            VoiceInputMode currentMode = mode;
             if (currentMode == VoiceInputMode.ONBOARD) {
-                emitStatus("Loading transcription model...");
+                emitStatus(generation, "Loading transcription model...");
                 File modelDir = installAsrModelFiles();
                 recognizer = new OfflineRecognizer(buildRecognizerConfig(modelDir));
                 resetTranscriptState();
                 lastTranscript = "";
             } else if (currentMode == VoiceInputMode.WAKEWORD) {
-                emitStatus("Loading wake-word model...");
+                emitStatus(generation, "Loading wake-word model...");
                 File modelDir = installModelFiles();
                 keywordSpotter = new KeywordSpotter(buildConfig(modelDir));
                 stream = keywordSpotter.createStream();
@@ -218,17 +233,17 @@ public class FaceclawVoiceController {
             lc3Decoder = new FaceclawLc3Decoder();
             endpointDetector.reset();
             recordingPcm = saveRecordings ? new java.io.ByteArrayOutputStream(SAMPLE_RATE * 2 * 4) : null;
-            if (!startG2Audio()) {
-                emitStatus("Could not start G2 microphone input.");
+            if (!startG2Audio(generation)) {
+                emitStatus(generation, "Could not start G2 microphone input.");
                 return;
             }
 
-            emitStatus(currentMode == VoiceInputMode.CLOUD
+            emitStatus(generation, currentMode == VoiceInputMode.CLOUD
                     ? "Listening (cloud)..."
                     : currentMode == VoiceInputMode.ONBOARD
                         ? "Listening..."
                         : "Listening for \"screen on\"...");
-            processG2Audio();
+            processG2Audio(generation, currentMode);
             // Button released / stop requested: emit one final full-utterance
             // transcript so the UI can freeze it.
             if (currentMode == VoiceInputMode.ONBOARD) {
@@ -236,15 +251,17 @@ public class FaceclawVoiceController {
             }
         } catch (Throwable error) {
             Log.e(TAG, "Voice control failed", error);
-            emitStatus("Voice control failed: " + error.getMessage());
+            emitStatus(generation, "Voice control failed: " + error.getMessage());
         } finally {
             stopG2Audio();
             writeRecordingIfAny();
             releaseSherpa();
             releaseLc3();
             synchronized (lock) {
-                started = false;
-                workerThread = null;
+                if (workerThread == Thread.currentThread()) {
+                    started = false;
+                    workerThread = null;
+                }
             }
         }
     }
@@ -396,7 +413,7 @@ public class FaceclawVoiceController {
         }
     }
 
-    private boolean startG2Audio() {
+    private boolean startG2Audio(long generation) {
         FaceclawBleCommunicator currentCommunicator = communicator;
         if (currentCommunicator == null) {
             return false;
@@ -405,19 +422,20 @@ public class FaceclawVoiceController {
         synchronized (audioQueueLock) {
             audioQueue.clear();
         }
-        return currentCommunicator.startG2AudioCapture(this::queueAudioPacket);
+        return currentCommunicator.startG2AudioCapture(
+                (data, arm, arrivalMs) -> queueAudioPacket(generation, data, arm, arrivalMs));
     }
 
-    private void processG2Audio() {
+    private void processG2Audio(long generation, VoiceInputMode currentMode) {
         short[] pcm = new short[FaceclawLc3Decoder.SAMPLES_PER_PACKET];
-        while (started && !Thread.currentThread().isInterrupted()) {
+        while (isGenerationRunning(generation) && !Thread.currentThread().isInterrupted()) {
             OnlineStream currentStream = stream;
             FaceclawLc3Decoder currentDecoder = lc3Decoder;
-            if (currentDecoder == null || (mode == VoiceInputMode.WAKEWORD && currentStream == null)) {
+            if (currentDecoder == null || (currentMode == VoiceInputMode.WAKEWORD && currentStream == null)) {
                 return;
             }
 
-            AudioPacket packet = takeAudioPacket();
+            AudioPacket packet = takeAudioPacket(generation);
             if (packet == null) {
                 continue;
             }
@@ -431,12 +449,9 @@ public class FaceclawVoiceController {
             if (recordingPcm != null) {
                 appendRecording(pcm, count);
             }
-            if (endpointing && endpointDetector.accept(pcm, count)) {
-                emitSpeechEnd();
-            }
-            if (mode == VoiceInputMode.CLOUD) {
+            if (currentMode == VoiceInputMode.CLOUD) {
                 emitPcm(pcm, count);
-            } else if (mode == VoiceInputMode.ONBOARD) {
+            } else if (currentMode == VoiceInputMode.ONBOARD) {
                 float[] samples = new float[count];
                 for (int i = 0; i < count; i++) {
                     samples[i] = pcm[i] / 32768.0f;
@@ -450,8 +465,18 @@ public class FaceclawVoiceController {
                 currentStream.acceptWaveform(samples, SAMPLE_RATE);
                 processKeywordSpotter(currentStream);
             }
+            if (endpointing
+                    && endpointDetector.accept(pcm, 0, count) != EndOfUtteranceDetector.Result.NONE) {
+                // Forward/process the endpoint frame before asking the UI to
+                // stop and commit a cloud provider.
+                emitSpeechEnd();
+            }
             maybeEmitAudioStats(false);
         }
+    }
+
+    private boolean isGenerationRunning(long generation) {
+        return started && currentGeneration == generation;
     }
 
     private void processKeywordSpotter(OnlineStream currentStream) {
@@ -654,7 +679,8 @@ public class FaceclawVoiceController {
             le[i * 2] = (byte) (s & 0xff);
             le[i * 2 + 1] = (byte) ((s >> 8) & 0xff);
         }
-        mainHandler.post(() -> currentListener.onPcm(le));
+        long generation = currentGeneration;
+        mainHandler.post(() -> currentListener.onPcm(generation, le));
     }
 
     private void emitSpeechEnd() {
@@ -662,113 +688,10 @@ public class FaceclawVoiceController {
         if (currentListener == null) {
             return;
         }
-        mainHandler.post(currentListener::onSpeechEnd);
+        long generation = currentGeneration;
+        mainHandler.post(() -> currentListener.onSpeechEnd(generation));
     }
 
-    /**
-     * Decides when a hands-free utterance is over, so "Hey Even" capture can
-     * stop without a button release.
-     *
-     * Runs on the decoded 16 kHz PCM, so it works the same in every input mode
-     * (the cloud path never sees the samples on this side, and the onboard
-     * recognizer's own endpointing only covers ONBOARD).
-     *
-     * Timing is measured on the sample clock rather than the wall clock: BLE
-     * delivers mic packets in bursts, so elapsed real time badly overestimates
-     * how much audio has actually been heard.
-     *
-     * The threshold is relative to a noise floor measured over the first
-     * {@link #CALIBRATE_MS} of the session, which is roughly the interval where
-     * the user is reacting to the dialog appearing and not yet speaking.
-     */
-    private static final class EndpointDetector {
-        /** Audio used to estimate the room's noise floor. */
-        private static final int CALIBRATE_MS = 300;
-        /** Speech must exceed this multiple of the noise floor to count as onset. */
-        private static final double ONSET_FACTOR = 3.0;
-        /** Below this multiple of the noise floor counts as silence again. */
-        private static final double RELEASE_FACTOR = 1.8;
-        /** Absolute floor, so a silent room can't make the threshold ~0. */
-        private static final double MIN_RMS = 220.0;
-        /** Trailing silence that ends an utterance. */
-        private static final int SILENCE_MS = 900;
-        /** If the user never speaks, give up rather than record forever. */
-        private static final int LEAD_IN_MS = 6000;
-        /** Hard cap on a single utterance. */
-        private static final int MAX_UTTERANCE_MS = 30000;
-
-        private long totalSamples;
-        private double noiseAccum;
-        private int noisePackets;
-        private double threshold;
-        private boolean speechStarted;
-        private long silenceSamples;
-        private boolean fired;
-
-        void reset() {
-            totalSamples = 0;
-            noiseAccum = 0;
-            noisePackets = 0;
-            threshold = 0;
-            speechStarted = false;
-            silenceSamples = 0;
-            fired = false;
-        }
-
-        /** Returns true exactly once, on the packet that ends the utterance. */
-        boolean accept(short[] pcm, int count) {
-            if (fired || count <= 0) {
-                return false;
-            }
-            totalSamples += count;
-            long elapsedMs = totalSamples * 1000L / SAMPLE_RATE;
-
-            double sumSquares = 0;
-            for (int i = 0; i < count; i++) {
-                double s = pcm[i];
-                sumSquares += s * s;
-            }
-            double rms = Math.sqrt(sumSquares / count);
-
-            if (elapsedMs <= CALIBRATE_MS) {
-                noiseAccum += rms;
-                noisePackets++;
-                return false;
-            }
-            if (threshold == 0) {
-                double noiseFloor = noisePackets > 0 ? noiseAccum / noisePackets : 0;
-                threshold = Math.max(noiseFloor, MIN_RMS);
-            }
-
-            if (!speechStarted) {
-                if (rms >= threshold * ONSET_FACTOR) {
-                    speechStarted = true;
-                    silenceSamples = 0;
-                } else if (elapsedMs >= LEAD_IN_MS) {
-                    // Never heard anything; close the dialog rather than hang.
-                    fired = true;
-                    return true;
-                }
-                return false;
-            }
-
-            if (rms < threshold * RELEASE_FACTOR) {
-                silenceSamples += count;
-                if (silenceSamples * 1000L / SAMPLE_RATE >= SILENCE_MS) {
-                    fired = true;
-                    return true;
-                }
-            } else {
-                silenceSamples = 0;
-            }
-
-            if (elapsedMs >= MAX_UTTERANCE_MS) {
-                fired = true;
-                return true;
-            }
-            return false;
-        }
-    }
 
     private void stopG2Audio() {
         FaceclawBleCommunicator currentCommunicator = communicator;
@@ -800,8 +723,8 @@ public class FaceclawVoiceController {
         }
     }
 
-    private void queueAudioPacket(byte[] data, String arm, long arrivalMs) {
-        if (!started || data == null) {
+    private void queueAudioPacket(long generation, byte[] data, String arm, long arrivalMs) {
+        if (!isGenerationRunning(generation) || data == null) {
             return;
         }
         if (!"L".equals(arm)) {
@@ -812,7 +735,7 @@ public class FaceclawVoiceController {
                 audioQueue.removeFirst();
                 queueDroppedPackets++;
             }
-            audioQueue.addLast(new AudioPacket(data, arm, arrivalMs));
+            audioQueue.addLast(new AudioPacket(generation, data, arm, arrivalMs));
             queuedPackets++;
             if (lastPacketArrivalMs > 0) {
                 long delta = arrivalMs - lastPacketArrivalMs;
@@ -828,9 +751,9 @@ public class FaceclawVoiceController {
         }
     }
 
-    private AudioPacket takeAudioPacket() {
+    private AudioPacket takeAudioPacket(long generation) {
         synchronized (audioQueueLock) {
-            while (started && audioQueue.isEmpty()) {
+            while (isGenerationRunning(generation) && audioQueue.isEmpty()) {
                 try {
                     audioQueueLock.wait(250);
                     maybeEmitAudioStats(false);
@@ -839,7 +762,8 @@ public class FaceclawVoiceController {
                     return null;
                 }
             }
-            return audioQueue.pollFirst();
+            AudioPacket packet = audioQueue.pollFirst();
+            return packet != null && packet.generation == generation ? packet : null;
         }
     }
 
@@ -882,11 +806,15 @@ public class FaceclawVoiceController {
     }
 
     private void emitStatus(String status) {
+        emitStatus(currentGeneration, status);
+    }
+
+    private void emitStatus(long generation, String status) {
         FaceclawVoiceControllerListener currentListener = listener;
         if (currentListener == null) {
             return;
         }
-        mainHandler.post(() -> currentListener.onStatus(status));
+        mainHandler.post(() -> currentListener.onStatus(generation, status));
     }
 
     private void emitWakeWord(String keyword) {
@@ -903,15 +831,18 @@ public class FaceclawVoiceController {
             return;
         }
         Log.i(TAG, "Emit transcript final=" + isFinal + " textLen=" + (text == null ? 0 : text.trim().length()));
-        mainHandler.post(() -> currentListener.onTranscript(text, isFinal));
+        long generation = currentGeneration;
+        mainHandler.post(() -> currentListener.onTranscript(generation, text, isFinal));
     }
 
     private static final class AudioPacket {
+        final long generation;
         final byte[] data;
         final String arm;
         final long arrivalMs;
 
-        AudioPacket(byte[] data, String arm, long arrivalMs) {
+        AudioPacket(long generation, byte[] data, String arm, long arrivalMs) {
+            this.generation = generation;
             this.data = data;
             this.arm = arm == null ? "?" : arm;
             this.arrivalMs = arrivalMs;

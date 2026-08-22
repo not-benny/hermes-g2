@@ -5,17 +5,21 @@ import { DeepgramSttClient } from "./deepgram-stt";
 import { ElevenLabsSttClient } from "./elevenlabs-stt";
 import { OpenAiRealtimeSttClient } from "./openai-stt";
 import { SonioxSttClient } from "./soniox-stt";
+import { VoiceTurnGate } from "./voice-turn-gate";
 import { toUint8Array } from "../util/array-util";
 
 declare const com: any;
 
 export type VoiceControlState = {
+  generation: number | null;
   status: string;
+  terminalError?: boolean;
 };
 
 export type VoiceProviderKind = "onboard" | "deepgram" | "elevenlabs" | "whisper" | "soniox";
 
 export type VoiceTranscriptEvent = {
+  generation: number;
   /**
    * Complete best transcript of the current utterance. REPLACE semantics —
    * render as-is, replacing any previous partial. Not a delta.
@@ -40,29 +44,29 @@ export type PushToTalkOptions = {
   endpointing?: boolean;
 };
 
-/** Who currently wants the mic running. */
 type CaptureHolder = "ptt" | "continuous";
+
+type ActiveCapture = {
+  generation: number;
+  holder: CaptureHolder;
+  cloudClient: CloudSttClient | null;
+  started: boolean;
+};
 
 export class FaceclawVoiceControlBridge {
   private readonly statusListeners = new Set<(state: VoiceControlState) => void>();
   private readonly wakeWordListeners = new Set<(keyword: string) => void>();
   private readonly transcriptListeners = new Set<(event: VoiceTranscriptEvent) => void>();
-  private readonly speechEndListeners = new Set<() => void>();
+  private readonly speechEndListeners = new Set<(generation: number) => void>();
   private controller: any | null = null;
   private listenerProxy: any | null = null;
   private status = "Voice control stopped.";
-  private started = false;
-  // The mic is a single shared stream; these are the reasons it is running.
-  // The first holder starts capture (choosing the provider); the mic stops
-  // when the last one releases. Transcript events broadcast to every
-  // listener, so push-to-talk and the Transcribe window both receive text.
-  private readonly captureHolders = new Set<CaptureHolder>();
-  // Non-null while a cloud provider owns the transcript; Java only decodes PCM.
-  private cloudClient: CloudSttClient | null = null;
+  private readonly turnGate = new VoiceTurnGate();
+  private activeCapture: ActiveCapture | null = null;
 
   onStatus(listener: (state: VoiceControlState) => void): () => void {
     this.statusListeners.add(listener);
-    listener({ status: this.status });
+    listener({ generation: this.activeCapture?.generation ?? null, status: this.status });
     return () => this.statusListeners.delete(listener);
   }
 
@@ -80,37 +84,69 @@ export class FaceclawVoiceControlBridge {
    * The speaker stopped, in a hands-free session. Only fires when the capture
    * was started with `endpointing: true`.
    */
-  onSpeechEnd(listener: () => void): () => void {
+  onSpeechEnd(listener: (generation: number) => void): () => void {
     this.speechEndListeners.add(listener);
     return () => this.speechEndListeners.delete(listener);
   }
 
-  /** Begin push-to-talk capture (momentary; released with stopPushToTalk). */
-  startPushToTalk(options: PushToTalkOptions): void {
-    this.acquireCapture("ptt", options);
+  /** Allocate identity before permission work begins. */
+  reservePushToTalk(): number {
+    if (this.activeCapture?.holder === "continuous") {
+      this.setStatus(null, "Stop Transcribe before starting a voice turn.");
+      return 0;
+    }
+    if (this.activeCapture) this.cancelCapture(this.activeCapture.generation);
+    const generation = this.turnGate.reserve();
+    this.activeCapture = { generation, holder: "ptt", cloudClient: null, started: false };
+    this.setStatus(generation, "Waiting for microphone permission...");
+    return generation;
   }
 
-  /** End push-to-talk: for cloud, commit for a final result if it was the last holder. */
-  stopPushToTalk(): void {
-    this.releaseCapture("ptt", true);
+  /** Start a reserved turn after its asynchronous permission check succeeds. */
+  startPushToTalk(generation: number, options: PushToTalkOptions): void {
+    this.startReservedCapture(generation, "ptt", options);
   }
 
-  /** Begin continuous capture (Transcribe): the mic stays on until released. */
+  finishPushToTalk(generation: number): void {
+    const capture = this.activeCapture;
+    if (!capture || capture.holder !== "ptt" || capture.generation !== generation) return;
+    if (!this.turnGate.finish(generation)) return;
+    if (capture.started && global.isAndroid) this.controller?.stop(generation);
+    capture.started = false;
+    capture.cloudClient?.finish();
+  }
+
+  cancelPushToTalk(generation: number): void {
+    this.cancelCapture(generation);
+  }
+
+  claimSubmit(generation: number): boolean {
+    return this.turnGate.claimSubmit(generation);
+  }
+
+  /** Begin continuous capture (Transcribe) as an isolated mic generation. */
   startContinuousCapture(options: PushToTalkOptions): void {
-    this.acquireCapture("continuous", options);
+    if (this.activeCapture) this.cancelCapture(this.activeCapture.generation);
+    const generation = this.turnGate.reserve();
+    this.activeCapture = { generation, holder: "continuous", cloudClient: null, started: false };
+    this.startReservedCapture(generation, "continuous", options);
   }
 
   stopContinuousCapture(): void {
-    this.releaseCapture("continuous", false);
+    const capture = this.activeCapture;
+    if (capture?.holder === "continuous") this.cancelCapture(capture.generation);
   }
 
-  private acquireCapture(holder: CaptureHolder, options: PushToTalkOptions): void {
-    if (!global.isAndroid) return;
-    const wasIdle = this.captureHolders.size === 0;
-    this.captureHolders.add(holder);
-    if (!wasIdle) {
-      // Mic already running; the new holder just shares the existing stream
-      // (transcripts are already broadcast to its listeners).
+  private startReservedCapture(
+    generation: number,
+    holder: CaptureHolder,
+    options: PushToTalkOptions,
+  ): void {
+    const capture = this.activeCapture;
+    if (!capture || capture.generation !== generation || capture.holder !== holder) return;
+    if (!this.turnGate.activate(generation)) return;
+    if (!global.isAndroid) {
+      this.failCapture(generation, "Voice capture is only available on Android.");
       return;
     }
     this.ensureController();
@@ -118,18 +154,13 @@ export class FaceclawVoiceControlBridge {
     this.controller?.setSaveRecordings(options.saveRecording);
     this.controller?.setEndpointing(Boolean(options.endpointing));
 
-    const cloudClient = this.createCloudClient(options);
-    if (cloudClient) {
-      this.cloudClient = cloudClient;
-      cloudClient.start();
-      this.started = true;
-      this.controller?.start("cloud");
-      return;
-    }
-
-    this.cloudClient = null;
-    this.started = true;
-    this.controller?.start("onboard");
+    const cloudClient = this.createCloudClient(generation, options);
+    capture.cloudClient = cloudClient;
+    cloudClient?.start();
+    if (!this.turnGate.accepts(generation)) return;
+    const nativeStarted = Boolean(this.controller?.start(cloudClient ? "cloud" : "onboard", generation));
+    if (!nativeStarted) this.failCapture(generation, "Could not start voice capture.");
+    capture.started = nativeStarted;
   }
 
   /**
@@ -137,19 +168,21 @@ export class FaceclawVoiceControlBridge {
    * A cloud provider whose API key is missing falls back to on-device rather
    * than failing the capture outright.
    */
-  private createCloudClient(options: PushToTalkOptions): CloudSttClient | null {
+  private createCloudClient(generation: number, options: PushToTalkOptions): CloudSttClient | null {
     if (options.provider === "onboard") return null;
     const sttOptions = {
       apiKey: "",
       onTranscript: (event: { text: string; isFinal: boolean }) =>
-        this.emitTranscript(event.text, event.isFinal),
-      onStatus: (status: string) => this.setStatus(status),
-      onError: (message: string) => this.setStatus(message),
+        this.emitTranscript(generation, event.text, event.isFinal),
+      onStatus: (status: string) => {
+        if (this.turnGate.accepts(generation)) this.setStatus(generation, status);
+      },
+      onError: (message: string) => this.failCapture(generation, message),
     };
     if (options.provider === "deepgram") {
       const apiKey = options.deepgramApiKey.trim();
       if (!apiKey) {
-        this.setStatus("No Deepgram key set; using on-device voice.");
+        this.setStatus(generation, "No Deepgram key set; using on-device voice.");
         return null;
       }
       return new DeepgramSttClient({ ...sttOptions, apiKey });
@@ -157,7 +190,7 @@ export class FaceclawVoiceControlBridge {
     if (options.provider === "elevenlabs") {
       const apiKey = options.elevenLabsApiKey.trim();
       if (!apiKey) {
-        this.setStatus("No ElevenLabs key set; using on-device voice.");
+        this.setStatus(generation, "No ElevenLabs key set; using on-device voice.");
         return null;
       }
       return new ElevenLabsSttClient({ ...sttOptions, apiKey });
@@ -165,54 +198,43 @@ export class FaceclawVoiceControlBridge {
     if (options.provider === "soniox") {
       const apiKey = options.sonioxApiKey.trim();
       if (!apiKey) {
-        this.setStatus("No Soniox key set; using on-device voice.");
+        this.setStatus(generation, "No Soniox key set; using on-device voice.");
         return null;
       }
       return new SonioxSttClient({ ...sttOptions, apiKey });
     }
     const apiKey = options.openAiApiKey.trim();
     if (!apiKey) {
-      this.setStatus("No OpenAI key set; using on-device voice.");
+      this.setStatus(generation, "No OpenAI key set; using on-device voice.");
       return null;
     }
     return new OpenAiRealtimeSttClient({ ...sttOptions, apiKey });
   }
 
-  private releaseCapture(holder: CaptureHolder, commit: boolean): void {
-    if (!this.captureHolders.delete(holder)) {
-      // Never held; still finish a dangling cloud commit if one is pending.
-      if (commit) this.cloudClient?.finish();
-      return;
-    }
-    if (this.captureHolders.size > 0) {
-      // Another holder still wants the mic; keep it running.
-      return;
-    }
-    if (!this.started) {
-      this.cloudClient?.finish();
-      return;
-    }
-    // Order matters for cloud: stopping the Java controller flushes any final
-    // decode/PCM; then commit so the provider finalizes the transcript.
-    this.controller?.stop();
-    this.started = false;
-    if (commit) {
-      this.cloudClient?.finish();
-    } else {
-      this.cloudClient?.stop();
-      this.cloudClient = null;
-    }
+  private cancelCapture(generation: number): void {
+    const capture = this.activeCapture;
+    if (!capture || capture.generation !== generation) return;
+    if (!this.turnGate.cancel(generation)) return;
+    if (capture.started && global.isAndroid) this.controller?.stop(generation);
+    capture.started = false;
+    capture.cloudClient?.stop();
+    capture.cloudClient = null;
+    this.activeCapture = null;
+  }
+
+  private failCapture(generation: number, message: string): void {
+    const capture = this.activeCapture;
+    if (!capture || capture.generation !== generation || !this.turnGate.fail(generation)) return;
+    if (capture.started && global.isAndroid) this.controller?.stop(generation);
+    capture.started = false;
+    capture.cloudClient?.stop();
+    capture.cloudClient = null;
+    this.setStatus(generation, message, true);
   }
 
   stop(): void {
-    this.captureHolders.clear();
-    if (global.isAndroid) {
-      this.controller?.stop();
-    }
-    this.started = false;
-    this.cloudClient?.stop();
-    this.cloudClient = null;
-    this.setStatus("Voice control stopped.");
+    if (this.activeCapture) this.cancelCapture(this.activeCapture.generation);
+    this.setStatus(null, "Voice control stopped.");
   }
 
   private ensureController(): void {
@@ -223,40 +245,45 @@ export class FaceclawVoiceControlBridge {
     }
     this.controller = new com.faceclaw.app.FaceclawVoiceController(context);
     this.listenerProxy = new com.faceclaw.app.FaceclawVoiceControllerListener({
-      onStatus: (status: string) => {
-        this.setStatus(String(status));
+      onStatus: (generation: number, status: string) => {
+        if (this.turnGate.accepts(generation)) this.setStatus(generation, String(status));
       },
       onWakeWord: (keyword: string) => {
         for (const listener of this.wakeWordListeners) {
           listener(String(keyword));
         }
       },
-      onTranscript: (text: string, isFinal: boolean) => {
-        this.emitTranscript(String(text), Boolean(isFinal));
+      onTranscript: (generation: number, text: string, isFinal: boolean) => {
+        this.emitTranscript(generation, String(text), Boolean(isFinal));
       },
-      onPcm: (pcm: any) => {
-        this.cloudClient?.acceptPcm(toUint8Array(pcm));
+      onPcm: (generation: number, pcm: any) => {
+        const capture = this.activeCapture;
+        if (capture?.generation === generation && this.turnGate.acceptsAudio(generation)) {
+          capture.cloudClient?.acceptPcm(toUint8Array(pcm));
+        }
       },
-      onSpeechEnd: () => {
+      onSpeechEnd: (generation: number) => {
+        if (!this.turnGate.acceptsAudio(generation)) return;
         for (const listener of this.speechEndListeners) {
-          listener();
+          listener(generation);
         }
       },
     });
     this.controller.setListener(this.listenerProxy);
   }
 
-  private emitTranscript(text: string, isFinal: boolean): void {
-    const event = { text, isFinal };
+  private emitTranscript(generation: number, text: string, isFinal: boolean): void {
+    if (!this.turnGate.accepts(generation)) return;
+    const event = { generation, text, isFinal };
     for (const listener of this.transcriptListeners) {
       listener(event);
     }
   }
 
-  private setStatus(status: string): void {
+  private setStatus(generation: number | null, status: string, terminalError = false): void {
     this.status = status;
     for (const listener of this.statusListeners) {
-      listener({ status });
+      listener({ generation, status, terminalError });
     }
   }
 }

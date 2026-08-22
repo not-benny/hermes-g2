@@ -245,8 +245,8 @@ class DashboardController {
       disconnect: () => this.disconnect(),
       startTextSettingEdit: (setting: ConfigSettingString) => this.startTextSettingEdit(setting),
       endTextSettingEdit: () => this.endTextSettingEdit(),
-      startVoiceCapture: () => this.startVoiceCapture(),
-      stopVoiceCapture: () => this.stopVoiceCapture(),
+      startVoiceCapture: (endpointing?: boolean) => this.startVoiceCapture(endpointing),
+      stopVoiceCapture: (generation: number, commit: boolean) => this.stopVoiceCapture(generation, commit),
       startContinuousVoiceCapture: () => this.startContinuousVoiceCapture(),
       stopContinuousVoiceCapture: () => this.stopContinuousVoiceCapture(),
       playBuzzerSequence: (payload: Uint8Array) => this.playBuzzerSequence(payload),
@@ -1450,12 +1450,19 @@ class DashboardController {
    * push-to-talk and the Transcribe app. Android mic permission is the consent
    * gate even though the audio source is the G2 mic over BLE.
    */
-  private startVoiceCapture(endpointing = false): void {
-    this.beginVoiceCapture("ptt", endpointing);
+  private startVoiceCapture(endpointing = false): number {
+    if (this.phase !== "connected" || !this.communicator) return 0;
+    const generation = voiceControlBridge.reservePushToTalk();
+    if (generation > 0) this.beginVoiceCapture("ptt", endpointing, generation);
+    return generation;
   }
 
-  private stopVoiceCapture(): void {
-    voiceControlBridge.stopPushToTalk();
+  private stopVoiceCapture(generation: number, commit: boolean): void {
+    if (commit) {
+      voiceControlBridge.finishPushToTalk(generation);
+    } else {
+      voiceControlBridge.cancelPushToTalk(generation);
+    }
   }
 
   private startContinuousVoiceCapture(): void {
@@ -1466,7 +1473,11 @@ class DashboardController {
     voiceControlBridge.stopContinuousCapture();
   }
 
-  private beginVoiceCapture(kind: "ptt" | "continuous", endpointing = false): void {
+  private beginVoiceCapture(
+    kind: "ptt" | "continuous",
+    endpointing = false,
+    generation = 0,
+  ): void {
     if (this.phase !== "connected" || !this.communicator) {
       return;
     }
@@ -1485,7 +1496,7 @@ class DashboardController {
           endpointing,
         };
         if (kind === "ptt") {
-          voiceControlBridge.startPushToTalk(options);
+          voiceControlBridge.startPushToTalk(generation, options);
         } else {
           voiceControlBridge.startContinuousCapture(options);
         }

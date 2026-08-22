@@ -1,4 +1,4 @@
-# Hermes G2 handover — 21 August 2026
+# Hermes G2 handover — 22 August 2026
 
 ## Repository state
 
@@ -22,6 +22,42 @@ the newer implementations in the final tree.
 
 Do not resume work from the old `hermes-g2`, `integration/`, `work/`, `wt/`,
 `fix/`, or dated cleanup branches. Create new feature branches from `main`.
+
+## Voice end-of-utterance candidate
+
+The `feat/voice-end-of-utterance` candidate adds provider-neutral local
+end-of-utterance detection over decoded 16 kHz G2 PCM. The pure Java detector
+uses fixed 20 ms analysis frames, onset/release hysteresis, minimum speech,
+adaptive background-noise tracking, 900 ms trailing silence, a 6 s no-speech
+timeout, and a 30 s utterance cap. Empty accepts and BLE packet-arrival gaps do
+not advance its sample clock. A ring click remains a visible manual finish and
+double-click remains cancellation; no wakeword firmware behavior changed.
+
+Voice capture now allocates an exact monotonic generation before Android
+permission work. That identity follows native PCM/status/transcript/endpoint
+callbacks, cloud-provider callbacks, finish/cancel, fallback timers, and the
+single submit claim. A cancelled, failed, replaced, or stale generation cannot
+start late, feed a replacement provider, finalize a replacement turn, or submit.
+The native worker refuses replacement while an old worker is still stopping,
+and final cloud PCM is forwarded before the endpoint notification can commit the
+provider. Continuous Transcribe capture is isolated rather than sharing an
+utterance stream.
+
+Deterministic host fixtures cover quiet and ordinary speech, steady and rising
+background noise, speech over noise, natural pauses, onset spikes, sub-minimum
+speech, no-speech and maximum-duration endpoints, packet-gap invariance,
+one-shot/reset reuse, manual/automatic finish races, cancellation, provider
+failure, delayed permission completion, and stale new-turn events. `npm test`
+passes 268/268, `npm run typecheck` passes, and the JDK 21 / SDK 35 Android debug
+build passes. The resulting APK installed and launched on the USB Samsung A32;
+the phone showed `Connected.` and PID-filtered logs showed live G2
+GATT traffic. The application has no phone-microphone PCM route: `RECORD_AUDIO`
+is a consent gate while voice PCM comes from the G2 LC3 stream, so no phone-mic
+result can truthfully be claimed. A live reply/cancel/follow-up voice turn was
+not completed in this run because the installed wakeword action did not open
+voice capture; real G2 endpoint behavior therefore remains pending despite the
+connected transport. No pairing, ownership, firmware, reset, wipe, provisioning,
+NVM, or other destructive operation was performed.
 
 ## Current verified implementation
 
