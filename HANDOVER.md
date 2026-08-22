@@ -10,8 +10,11 @@ physical-screen calculations with page bounds, bounds phone content at 840dp,
 and enforces 48dp controls. It does not touch G2/R1 pairing, permissions,
 firmware, BLE ownership, or glasses compositor geometry. Focused tests were RED
 on the baseline and are GREEN after implementation. The candidate is version
-1000002 / 1.0.0-preview.2. The exact 195,137,995-byte debug APK with SHA-256
-`98512ea999701517a4de6c4f6b0bbdc99e89f3989c0daee5827e833f0518aa36`
+1000002 / 1.0.0-preview.2. Final lifecycle hardening coalesces live-resize
+callbacks, cancels queued callbacks on unload, ignores unchanged bounds, and
+releases each main-page dashboard subscription. The focused 8-test contract and
+full 291-test suite pass. The exact 195,664,377-byte debug APK with SHA-256
+`d26f01795863b6f4ab1fe0f6e7e3966a818e7b19c7f9c0a96bd57676e2a022f8`
 installed and launched on an authorised Galaxy Z Fold7 SM-F966B (`q7q`),
 Android 16 / SDK 36. Read-only package and process checks reported the expected
 version and a live `com.faceclaw.app` PID. The phone was locked/Dozing, so there
