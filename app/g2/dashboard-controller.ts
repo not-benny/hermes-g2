@@ -1,6 +1,6 @@
 import { Application, ImageSource } from "@nativescript/core";
 import { EvenAIStatus, EvenAIStatusName, EventSourceType, EventSourceTypeName, OsEventTypeList, OsEventTypeName } from "./events";
-import { loadDeviceAddresses } from "./device-addresses";
+import { isValidMacAddress, loadDeviceAddresses } from "./device-addresses";
 import { ensureBlePermissions, ensureVoicePermissions } from "./android-permissions";
 import { FaceclawCommunicatorBridge, type RawInputEvent, type RingConnectionState } from "../native/faceclaw-communicator";
 import * as frameTimings from "../native/frame-timings";
@@ -37,7 +37,7 @@ import { loadPersistedOpenApps, savePersistedOpenApps } from "../ui/shell/open-a
 import { loadHealthTabHidden, saveHealthTabHidden } from "../ui/shell/health-tab-persistence";
 import { appViewportRect, type WindowHeightMode } from "../ui/shell/geometry";
 import { type LayerActions } from "../ui/layers";
-import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
+import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, resolveAssistantBridgePort, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "../native/battery-optimization";
 import { shouldFinalizeCommunicatorClose, type DashboardConnectionPhase } from "./connection-state-lifecycle";
 import { notificationTriageController } from "../notifications/triage-controller";
@@ -93,6 +93,10 @@ const BRIGHTNESS_DEBOUNCE_MS = 200;
 const LOW_BATTERY_PERCENT = 5;
 const EVEN_APP_DETECTED_MESSAGE =
   "The Even Realities app appears to be running. If Hermes G2 has trouble connecting, open its app settings and force stop it.";
+
+function isSuccessfulFrameOutcome(outcome: string | null): boolean {
+  return outcome !== null && outcome.startsWith("sent");
+}
 
 // The launcher grid's app list; also fixes the app ids apps.launch accepts.
 const LAUNCHABLE_APPS = ALL_APPS.filter((app) => app.showInLauncher !== false);
@@ -360,7 +364,7 @@ class DashboardController {
     }
     assistantBridge.configure({
       host,
-      port: parseInt(assistantBridgePortSetting.get(), 10) || 8790,
+      port: resolveAssistantBridgePort(),
       token,
       deviceName: "hermes-g2",
       allowProactive: () => assistantAllowProactiveSetting.get(),
@@ -983,6 +987,7 @@ class DashboardController {
     if (this.phase !== "disconnected" || this.communicator !== null) return;
 
     const addresses = loadDeviceAddresses();
+    shell.setRingConfigured(isValidMacAddress(addresses.ring));
     if (!addresses.right || !addresses.left) {
       const message = "Configure both left and right arm MAC addresses before connecting.";
       this.setPhase("disconnected");
@@ -1094,6 +1099,9 @@ class DashboardController {
       });
       this.offBattery = communicator.onBatteryState((state) => {
         this.lastHeadsetBattery = state.battery >= 0 ? state.battery : null;
+        if (state.ringBattery >= 0) {
+          ringHealthStore.updateBatteryPercent(state.ringBattery);
+        }
         shell.setBatteryLevels({
           headset: state.battery,
           headsetCharging: state.chargingStatus > 0,
@@ -1839,7 +1847,11 @@ class DashboardController {
    * one queued.
    */
   requestShellRender(): Promise<void> {
-    return this.requestShellDelivery().then(() => undefined).catch(() => undefined);
+    if (this.shellRenderInProgress) {
+      this.shellRenderQueued = true;
+      return (this.shellRenderPromise ?? Promise.resolve()).catch(() => undefined);
+    }
+    return this.requestShellDelivery().catch(() => undefined);
   }
 
   /** Strict shell delivery used only by user-visible remote operations. */
@@ -1859,10 +1871,15 @@ class DashboardController {
     this.shellRenderPromise = (async () => {
       let receipt = { frameId: 0, outcome: "discarded: no render" };
       try {
-        do {
-          this.shellRenderQueued = false;
+        this.shellRenderQueued = false;
+        if (isAllowed) {
           receipt = await this.renderShell(isAllowed);
-        } while (this.shellRenderQueued);
+        } else {
+          do {
+            this.shellRenderQueued = false;
+            receipt = await this.renderShell();
+          } while (this.shellRenderQueued);
+        }
         return receipt;
       } catch (error) {
         this.appendLog(`shell render failed: ${this.formatError(error)}`);
@@ -1870,6 +1887,10 @@ class DashboardController {
       } finally {
         this.shellRenderInProgress = false;
         this.shellRenderPromise = null;
+        if (isAllowed && this.shellRenderQueued) {
+          this.shellRenderQueued = false;
+          void this.requestShellRender();
+        }
       }
     })();
     return this.shellRenderPromise;
@@ -1918,15 +1939,15 @@ class DashboardController {
     if (this.communicator !== communicator || this.phase !== "connected") {
       throw new Error("The glasses session changed while sending the alert frame.");
     }
-    const outcome = (await communicator.waitForFrameFinished(frameId, FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS)) ?? "";
-    if (requireSent && (!outcome || outcome.startsWith("discarded:"))) {
-      throw new Error("The shell frame was not acknowledged by the glasses transport.");
+    const outcome = await communicator.waitForFrameFinished(frameId, FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS);
+    if (requireSent && !isSuccessfulFrameOutcome(outcome)) {
+      throw new Error(`The alert frame was not delivered (${outcome ?? "receipt timeout"}).`);
     }
     if (this.communicator !== communicator || this.phase !== "connected") {
       throw new Error("The glasses session changed before the alert frame completed.");
     }
     this.updateCompositePreview();
-    return { frameId, outcome };
+    return { frameId, outcome: outcome ?? "" };
   }
 
   private async handleWakeWord(keyword: string): Promise<void> {

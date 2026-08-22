@@ -21,7 +21,52 @@ Current as of 22 August 2026. `main` is the canonical branch.
   through aggregate-only metadata. Final independent review, CI and remote PR
   read-back remain the delivery gates. See `docs/notification-triage.md`.
 
+### Renderer performance
+
+- **IMPLEMENTED / HARDWARE FLOOR MEASURED — renderer hot paths (22 August
+  2026).** Added a fixed 60-second, privacy-safe A32 benchmark and separated
+  paint, snapshot/bridge, composite, pack, compression/plan, Bluetooth send,
+  application ACK, phone framestats, GC, and PSS evidence. Ordinary redraws
+  coalesce, idle Java submission skips one measured timer hop, queued images
+  outrank redundant heartbeats, native typed-array copying replaces the slower
+  generic copy, and repetitive success logs leave the release hot path. Receipt
+  correctness is stronger: strict operations require a successful terminal
+  outcome, first-finish wins across Java/TS, and multi-message frames complete
+  only after every application ACK. Host tests pass 266/266, typecheck/build
+  pass, and an installed USB A32 candidate received both ACKs for a real
+  two-message G2 image before reporting `sent`. A clean fixed-duration candidate
+  percentile remains open because another concurrent device installer replaced
+  the package during the run; do not claim the target from contaminated or
+  zero-frame samples. No firmware/texture-cache device command was added.
+
 ### Repository and release
+
+- **DONE / PRIVATE DEPLOYMENT — sleep voice, HUD signal/R1, and WSS bridge (22 August 2026).**
+  A sleeping R1 long-press now wakes directly into assistant push-to-talk;
+  quick-close mode names its controls; the HUD adds phone signal and keeps a
+  configured R1 visible while battery is unknown. Battery requests precede rich
+  history and both standard-GATT/protocol values feed Health and HUD. The private
+  Hermes bridge now has a certificate-validated WSS deployment with its private
+  key outside the repository. Host tests, build, APK checks, independent review,
+  and a real WSS handshake pass. The exact APK installed/launched on the Fold7
+  and authenticated to Hermes with 33 phone tools. Both G2 arms then reached
+  session ready and direct R1 BLE reached MTU-247/notify readiness on the exact
+  candidate. The wearer confirmed signal bars, sleep long-press voice capture,
+  clear close-mode guidance, and a matching R1 battery percentage in HUD and
+  Health. The wearer verified Health is explicitly labelled as hideable rather
+  than closeable in quick-close mode and tap hides it; the launcher is labelled
+  pinned.
+
+- **IMPLEMENTED / FOLD7 VISUAL AND POSTURE VALIDATION BLOCKED — foldable phone UI (22 August 2026).**
+  Preview 2 removes the portrait lock, handles live cover/unfolded/rotation/
+  tabletop/multi-window bounds, bounds wide content, preserves platform font
+  scaling and 48dp controls, and retains the existing G2 compositor contract.
+  Host fixture, build, APK, ABI, signing, and 16 KiB evidence are required for
+  publication. The exact debug APK installed and ran as a live process on an
+  SM-F966B with Android 16. Both G2 arms later reached session ready and direct
+  R1 BLE connected, but no R1 HUD indicator was visible. Unlocked Hermes-phone
+  visual, physical fold-transition, rotation, tabletop, and multi-window proof
+  remains blocked.
 
 - **DONE — full audit remediation and release path (21 August 2026).** The
   merged PR #28 implementation removes private-data logging, encrypts credential
@@ -119,8 +164,9 @@ Current as of 22 August 2026. `main` is the canonical branch.
   restoration. All 281 host tests, typecheck, and Android build pass. The exact
   APK installed/launched on the A32 and established a live two-arm G2 session
   with ordinary shell-frame transport ACKs. Dynamic-view/HA scroll and reversible
-  toggle evidence is still blocked by the missing authenticated WSS peer and
-  unavailable private HA credentials; no such result is inferred. See
+  private WSS hello/ack is now verified; dynamic-view/HA scroll and reversible
+  toggle evidence remains blocked by unavailable private HA credentials and
+  missing exact-candidate hardware execution; no such result is inferred. See
   `docs/dynamic-glasses-apps.md`.
 - **BLOCKED — public MCP/skill publication.** No public skill or untrusted remote
   rendering until authenticated `wss://` server identity, compatible licensed

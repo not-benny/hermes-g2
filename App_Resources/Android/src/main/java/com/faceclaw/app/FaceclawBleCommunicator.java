@@ -886,7 +886,6 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             int paintMs,
             int frameId
     ) {
-        Log.i(TAG, "Received an updated frame for surface " + surfaceId);
         FrameTimings.getInstance().spanStart(frameId, "composite");
         SurfaceCompositor.Composite composite = compositor.applyAndComposite(
                 surfaceId, pixels8bpp, rectX, rectY, rectWidth, rectHeight, contentFingerprint);
@@ -2098,6 +2097,12 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             logLine("ring systemTime SET best-effort; write failures are logged; continuing health poll");
             if (!ringProbeGap(generation)) return;
         }
+        // Read battery before rich history traffic so it is not delayed behind
+        // multi-packet daily batches. module=system(1), cmd=system(0),
+        // subCmd=deviceStatus(1); status=3 response carries percent in data[0].
+        if (!sendRingCommandForGeneration(generation,
+                "deviceStatus GET (battery)", 0x01, 0x00, 0x01, 0x00, null)) return;
+        if (!ringProbeGap(generation)) return;
         // Health data GETs (re-fired every poll): module=health(2), subCmd=daily(1),
         // status=req, no payload. cmd: heartRate=1 spo2=2 hrv=4 activity=5 sleep=6.
         // Temperature (cmd 3) is RESERVED - the ring skips it - so it is not requested.
@@ -2115,11 +2120,6 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (!ringProbeGap(generation)) return;
         if (!sendRingCommandForGeneration(generation,
                 "sleep/daily GET", 0x02, 0x06, 0x01, 0x00, null)) return;
-        if (!ringProbeGap(generation)) return;
-        // deviceStatus GET: module=system(1), cmd=system(0), subCmd=deviceStatus(1).
-        // The status=3 response carries the ring battery percent in data[0].
-        if (!sendRingCommandForGeneration(generation,
-                "deviceStatus GET (battery)", 0x01, 0x00, 0x01, 0x00, null)) return;
         logLine("ring health poll SENT — watch bae80013 for decoded FRAME replies (raw= hex)");
     }
 
@@ -2627,14 +2627,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     boolean imageWaiting = !shutdownRequested && fixedLayoutCreated && warmedUp
                             && !hasPendingOrInflightKindLocked("heartbeat")
                             && now >= imageRetryAfterMs
-                            && !getDesiredFingerprint().equals(lastEnqueuedFingerprint);
+                            && (hasPendingImageLocked()
+                                || !getDesiredFingerprint().equals(lastEnqueuedFingerprint));
                     if (messageToPrewrite == null && handleHeartbeat(imageWaiting)) {
                         return ConnectionOptions.IDLE_SLEEP_MS;
                     }
 
                     if (messageToPrewrite == null && sessionReady && windowHasRoom && !pendingMessages.isEmpty()) {
                         messageToWrite = pendingMessages.removeFirst();
-                        Log.i(TAG, "sending pending message: " + messageToWrite.label);
                     } else if (messageToPrewrite == null && !shutdownRequested && fixedLayoutCreated && warmedUp
                             && windowHasRoom && !hasPendingImageLocked()
                             && now >= imageRetryAfterMs
@@ -2642,7 +2642,6 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                         // Enqueue the next frame's delta against lastEnqueuedPacked
                         // (what the shadow will be), so it can pipeline behind an
                         // image still awaiting its ack.
-                        Log.i(TAG, "Enqueued image update");
                         if (now - lastConnPriorityAssertAtMs >= ConnectionOptions.CONNECTION_PRIORITY_REASSERT_MS) {
                             lastConnPriorityAssertAtMs = now;
                             try {
@@ -2936,7 +2935,6 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private void resolveAckLocked(OutboundMessage message, byte[] pb) {
-        Log.i(TAG, "Got ACK for " + message.label + "(sid=" + message.sid + ", id=" + message.magic + ")");
         inFlightMessages.remove(message);
         message.ackPayload = pb == null ? new byte[0] : Arrays.copyOf(pb, pb.length);
         magicPool.release(message.sid, message.magic, message.label, "ack");
@@ -2957,28 +2955,30 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 stats.firstWriteStartedAtMs = message.writeStartedAtMs > 0 ? message.writeStartedAtMs : message.sentAtMs;
             }
             FrameTimings.getInstance().log(frameId, "first bluetooth packet sent");
-            logImageUpdateLandmarkLocked("first bluetooth message sent", message, message.sentAtMs);
         }
         if (message.imageMessageNumber == message.imageMessageCount) {
             FrameTimings.getInstance().log(frameId,
                 "last bluetooth packet sent (message " + message.imageMessageNumber + "/" + message.imageMessageCount + ")");
-            logImageUpdateLandmarkLocked("last bluetooth message sent", message, message.sentAtMs);
         }
     }
 
     private void logImageUpdateAckLandmarkLocked(OutboundMessage message) {
-        if (message.imageUpdateId <= 0 || message.imageMessageNumber != message.imageMessageCount) {
+        if (message.imageUpdateId <= 0) {
             return;
         }
         long ackedAtMs = SystemClock.elapsedRealtime();
-        BleImageOptimizer.ImageUpdateStats stats = imageUpdateStats.remove(message.imageUpdateId);
+        BleImageOptimizer.ImageUpdateStats stats = imageUpdateStats.get(message.imageUpdateId);
+        if (stats == null || !stats.recordMessageAck(message.imageMessageNumber)) {
+            return;
+        }
+        imageUpdateStats.remove(message.imageUpdateId);
         if (stats != null && stats.firstWriteStartedAtMs > 0) {
             emitFrameMetrics(stats.paintMs, (int) Math.max(0, ackedAtMs - stats.firstWriteStartedAtMs), stats.tileCount);
         }
         if (stats != null) {
             finishFrame(stats.frameId, "sent");
         }
-        logImageUpdateLandmarkLocked("last bluetooth message acked", message, ackedAtMs);
+
     }
 
     /** Remove the stats entry for an image update that will not complete, finishing its frame. */
@@ -2992,12 +2992,6 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
     }
 
-    private void logImageUpdateLandmarkLocked(String event, OutboundMessage message, long elapsedMs) {
-        logLine("image update#" + message.imageUpdateId + " " + event
-                + " at " + timestamp(elapsedMs)
-                + " message=" + message.imageMessageNumber + "/" + message.imageMessageCount
-                + " label=" + message.label);
-    }
 
     private void enqueueCreateLayoutLocked() {
         // New session/container: re-assert the firmware-debug-flags overlay once it's
@@ -3209,7 +3203,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
         int updateId = nextImageUpdateId++;
         int messageCount = plan.fragments.size();
-        imageUpdateStats.put(updateId, new BleImageOptimizer.ImageUpdateStats(paintMs, 1, frameId));
+        imageUpdateStats.put(updateId, new BleImageOptimizer.ImageUpdateStats(paintMs, 1, frameId, messageCount));
         for (int i = 0; i < plan.fragments.size(); i++) {
             BleProtocol.ImageFragment fragment = plan.fragments.get(i);
             enqueueImageFragmentLocked(plan, fragment, fingerprint, updateId, i + 1, messageCount, true);
@@ -3225,8 +3219,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
         FrameTimings.getInstance().log(frameId, "queued image update#" + updateId
                 + " messages=" + messageCount + " payload=" + plan.payload.length + "B");
-        logLine("queue image update#" + updateId + " fingerprint=" + fingerprint
-                + " messages=" + messageCount);
+
     }
 
     private void enqueueImageFragmentLocked(
@@ -3888,7 +3881,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (frameId <= 0) {
             return;
         }
-        FrameTimings.getInstance().finishFrame(frameId, outcome);
+        if (!FrameTimings.getInstance().finishFrame(frameId, outcome)) {
+            return;
+        }
         final FaceclawBleCommunicatorListener current = listener;
         if (current == null) {
             return;

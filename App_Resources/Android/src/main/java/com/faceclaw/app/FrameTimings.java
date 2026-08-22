@@ -170,19 +170,24 @@ public final class FrameTimings {
      * starting with "discarded", or "timeout". First finish wins; later calls for
      * the same frame are ignored, so racing completion paths are safe.
      */
-    public void finishFrame(int frameId, String outcome) {
+    public boolean finishFrame(int frameId, String outcome) {
         long now = SystemClock.elapsedRealtime();
         Frame finished;
         synchronized (lock) {
             Frame frame = activeFrames.remove(frameId);
             if (frame == null) {
-                return;
+                return false;
             }
             finishFrameLocked(frame, now, outcome == null ? "discarded: no outcome given" : outcome);
             finished = frame;
         }
-        Log.i(TAG, "frame#" + finished.id + " [" + finished.reason + "] -> " + finished.outcome
-                + " in " + finished.durationMs() + "ms");
+        // Successful frame details remain in the periodic file export. Avoid
+        // formatting/emitting a release log line on every display ACK.
+        if (!finished.wasSent() || finished.durationMs() >= 1_000) {
+            Log.w(TAG, "frame#" + finished.id + " [" + finished.reason + "] -> " + finished.outcome
+                    + " in " + finished.durationMs() + "ms");
+        }
+        return true;
     }
 
     /** One-line stats summary, e.g. for showing in the phone UI. */

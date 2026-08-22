@@ -3,14 +3,13 @@ package com.faceclaw.app;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.List;
 import java.util.zip.Deflater;
-import android.util.Log;
 
 public final class BleImageOptimizer {
     private BleImageOptimizer() {}
-    private static final String TAG = "BleImageOptimizer";
 
     /**
      * Split an image into fragments (packets), taking advantage of the fact that each packet can declare
@@ -51,7 +50,6 @@ public final class BleImageOptimizer {
                 bmp.length - bulkLength
             ));
         }
-        Log.i(TAG, "planImageFragments: fragments=" + fragments.size() + ", bmp.length=" + bmp.length + ", maxFragmentSize=" + maxFragmentSize);
         return fragments;
     }
 
@@ -508,11 +506,24 @@ public final class BleImageOptimizer {
         final int tileCount;
         final int frameId;
         long firstWriteStartedAtMs;
+        private final int messageCount;
+        private final BitSet ackedMessages;
 
-        ImageUpdateStats(int paintMs, int tileCount, int frameId) {
+        ImageUpdateStats(int paintMs, int tileCount, int frameId, int messageCount) {
             this.paintMs = Math.max(0, paintMs);
             this.tileCount = tileCount;
             this.frameId = frameId;
+            this.messageCount = Math.max(1, messageCount);
+            this.ackedMessages = new BitSet(this.messageCount);
+        }
+
+        /** Returns true once every distinct message in this update has ACKed. */
+        boolean recordMessageAck(int messageNumber) {
+            if (messageNumber <= 0 || messageNumber > messageCount) {
+                return false;
+            }
+            ackedMessages.set(messageNumber - 1);
+            return ackedMessages.cardinality() == messageCount;
         }
     }
 }

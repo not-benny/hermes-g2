@@ -261,7 +261,7 @@ export class GrayImage {
    * concerns stay on one side of the bridge.
    */
   to8bppBuffer(): Uint8Array {
-    return Uint8Array.from(this.pixels);
+    return this.pixels.slice();
   }
 
   private drawGlyph(font: BdfFont, glyph: Glyph, x: number, y: number, value: number): void {
