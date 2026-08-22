@@ -22,11 +22,16 @@ and APK verification passing. The exact 195,673,277-byte debug APK has SHA-256
 `1f1df51d8a93e6716eb4ab912fa14a0930d645a0a9b2b513a86033c502fbaa8f`.
 Independent adversarial review of the final app code candidate and bridge commit
 `fdd84de85c82706104428db3e7d0eacb91480b2a` returned static PASS and private,
-non-destructive deployment GO. Exact APK/Fold7/G2/R1 runtime verification is
-blocked by the currently unreachable Fold7 Teleport route. The preceding R1
-session accepted battery GET writes but emitted no notify frames during the
-observation window, so an actual battery percentage remains operationally
-unproved until the exact candidate reconnects with exclusive R1 access.
+non-destructive deployment GO. The exact APK upgrade-installed and launched on
+the authorised Fold7 with the expected version and a live process; no fatal,
+JavaScript, or TLS/certificate failure marker appeared. The exact legacy bridge
+port migrated to 8791, and the live Hermes gateway authenticated `hermes-g2` and
+listed 33 phone MCP tools. G2/R1 verification remains blocked: the glasses GATT
+attempts returned status 133, no two-arm session became ready, and therefore no
+optical HUD, sleep long-press, close guidance, signal-bar or exact-candidate R1
+battery evidence is claimed. The preceding R1 session accepted battery GET
+writes but emitted no notify frames, so an actual battery percentage remains
+operationally unproved until an exclusive R1 session responds.
 
 ## Fold7 development-preview candidate
 
