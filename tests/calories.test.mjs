@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import ts from "typescript";
 
-import { kcalPerMinute, estimateActiveCalories } from "../app/health/calories.ts";
+const source = readFileSync(new URL("../app/health/calories.ts", import.meta.url), "utf8");
+const js = ts.transpileModule(source, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+}).outputText;
+const { kcalPerMinute, estimateActiveCalories } = await import(
+  "data:text/javascript;base64," + Buffer.from(js).toString("base64")
+);
 
 const MALE = { weightKg: 75, ageYears: 30, sex: "male" };
 const FEMALE = { weightKg: 65, ageYears: 30, sex: "female" };

@@ -27,6 +27,7 @@ const PING_INTERVAL_MS = 20_000;
 /** No inbound traffic for this long => the link is dead (half-open TCP). */
 const LIVENESS_TIMEOUT_MS = 45_000;
 const AUTH_TIMEOUT_MS = 15_000;
+const MAX_BRIDGE_FRAME_BYTES = 64 * 1024;
 /** Backstop on a turn the bridge never finishes (server-side cap is 2 min). */
 const TURN_TIMEOUT_MS = 3 * 60 * 1000;
 
@@ -197,6 +198,11 @@ export class AssistantBridgeClient {
         send: (msg) => this.sendMcpForSocket(generation, socket, msg),
         isTurnActive: () => this.activeTurn !== null,
         getTurnGeneration: () => this.activeTurn?.turnId ?? null,
+        // The configured WSS endpoint has no repository-owned deployment or
+        // runtime server-proof evidence; sensitive health remains fail-closed.
+        isHealthCallerTrusted: () => false,
+        connectionGeneration: generation,
+        isConnectionGenerationActive: () => this.connectionGuard.isCurrent(generation),
         allowProactive: this.options!.allowProactive,
       });
     } catch (error) {
@@ -207,6 +213,12 @@ export class AssistantBridgeClient {
 
   private handleMessage(raw: string, generation: number): void {
     this.lastTrafficMs = Date.now();
+    if (raw.length > MAX_BRIDGE_FRAME_BYTES) {
+      const socket = this.ws;
+      this.handleConnectionLost("Bridge frame exceeded the bounded message limit", generation);
+      try { socket?.close(1009, "message too large"); } catch { /* already torn down */ }
+      return;
+    }
     let frame: any = null;
     try {
       frame = JSON.parse(raw);
@@ -230,7 +242,14 @@ export class AssistantBridgeClient {
         return;
       case "mcp":
         if (!this.requireAuthenticated(generation)) return;
-        this.mcpServer?.handleMessage(frame.msg);
+        this.mcpServer?.handleMessage(
+          frame.msg,
+          frame.proactive === true
+            ? { proactive: true }
+            : typeof frame.turnId === "string"
+              ? { turnGeneration: frame.turnId }
+              : undefined,
+        );
         return;
       default:
         return;

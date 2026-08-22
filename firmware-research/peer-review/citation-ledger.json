@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": 1,
+      "url": "https://github.com/jimrandomh/g2flash/blob/877c8d9490db0d3717ca012dd0f54556af3701bd/README.md",
+      "title": "g2flash README at reviewed commit",
+      "accessed": "2026-08-18",
+      "quotes": [
+        {
+          "text": "This repository contains patches applied to firmware, but does not contain the Even Realities firmware itself. The build_cfw.sh script will download the base firmware from Even's CDN, apply patches, and verify that the resulting firmware has the expected hash for you.",
+          "added": "2026-08-18"
+        },
+        {
+          "text": "WARNING — this voids your warranty and can brick the glasses.",
+          "added": "2026-08-18"
+        },
+        {
+          "text": "Installing an OTA update using the official Even app will fully remove the custom firmware and restore it to stock behavior.",
+          "added": "2026-08-18"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "url": "https://github.com/jimrandomh/g2flash/blob/877c8d9490db0d3717ca012dd0f54556af3701bd/patches/cfw_patches.json",
+      "title": "g2flash committed 2.2.6.10 patch set",
+      "accessed": "2026-08-18",
+      "quotes": [
+        {
+          "text": "\"base\": \"g2_2.2.6.10.bin\", \"base_sha256\": \"f4dfb0b49ad3de3c2daf17f8a27a157c3dc98411d6a0d3ab2cfd0918f41b9afa\", \"output_sha256\": \"20cba9377ea207c8c0a6fd936f32db9ecaf23da023cdf43a770b22b355107d1f\"",
+          "added": "2026-08-18"
+        }
+      ]
+    }
+  ]
+}

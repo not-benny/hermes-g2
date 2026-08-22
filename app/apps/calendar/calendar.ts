@@ -50,7 +50,13 @@ export class CalendarLayer implements Layer {
       return image;
     }
 
-    const events = readUpcomingEvents(MAX_EVENTS);
+    const result = readUpcomingEvents(MAX_EVENTS);
+    if (result.status !== "success") {
+      image.drawText(font, 24, 72, "Calendar unavailable.", 190);
+      image.drawText(font, 24, 90, calendarErrorLabel(result.status), 150);
+      return image;
+    }
+    const events = result.events;
     if (!events.length) {
       image.drawText(font, 24, 72, "No upcoming events.", 190);
       image.drawText(font, 24, height - 36, `${GESTURE_DOUBLE_CLICK} back`, 110);
@@ -81,7 +87,9 @@ export class CalendarLayer implements Layer {
       if (event.type === "click") this.requestPermission();
       return;
     }
-    const rows = buildEventRows(readUpcomingEvents(MAX_EVENTS));
+    const result = readUpcomingEvents(MAX_EVENTS);
+    if (result.status !== "success") return;
+    const rows = buildEventRows(result.events);
     if (!rows.length) return;
     if (event.type === "scroll-up") {
       this.selectedIndex = Math.max(0, this.selectedIndex - 1);
@@ -98,6 +106,12 @@ export class CalendarLayer implements Layer {
     }
     image.drawText(font, 24, height - 36, `${GESTURE_CLICK} request   ${GESTURE_DOUBLE_CLICK} back`, 110);
   }
+}
+
+function calendarErrorLabel(status: "permission_denied" | "provider_unavailable" | "query_failed"): string {
+  if (status === "permission_denied") return "Calendar permission is not granted.";
+  if (status === "provider_unavailable") return "Calendar provider is unavailable.";
+  return "Calendar query failed. Try again.";
 }
 
 function buildEventRows(events: CalendarEvent[]): EventRow[] {

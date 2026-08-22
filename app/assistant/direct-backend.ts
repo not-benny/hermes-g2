@@ -46,10 +46,14 @@ export type DirectTurnOptions = {
 };
 
 export class DirectAssistantBackend {
+  private turnSequence = 0;
+
   runTurn(options: DirectTurnOptions): AssistantTurnHandle {
     const startMs = Date.now();
     let cancelled = false;
     let streamHandle: LlmStreamHandle | null = null;
+    const turnGeneration = `direct-${++this.turnSequence}`;
+    const turnController = new AbortController();
 
     const finishError = (message: string) => {
       if (cancelled) return;
@@ -101,7 +105,7 @@ export class DirectAssistantBackend {
             options.callbacks.onTurnDone({ stopReason: result.stopReason });
             return;
           }
-          void this.runToolCalls(toolUses, options)
+          void this.runToolCalls(toolUses, options, turnGeneration, turnController.signal, () => !cancelled)
             .then((toolResults) => {
               // Always record the results, even if cancelled mid-flight: an
               // assistant tool_use with no matching tool_result would make the
@@ -132,6 +136,7 @@ export class DirectAssistantBackend {
     return {
       cancel: () => {
         cancelled = true;
+        turnController.abort();
         streamHandle?.cancel();
         streamHandle = null;
       },
@@ -141,12 +146,20 @@ export class DirectAssistantBackend {
   private async runToolCalls(
     toolUses: Array<Extract<LlmContentBlock, { type: "tool_use" }>>,
     options: DirectTurnOptions,
+    turnGeneration: string,
+    signal: AbortSignal,
+    isTurnActive: () => boolean,
   ): Promise<LlmContentBlock[]> {
     const results: LlmContentBlock[] = [];
     for (const toolUse of toolUses) {
       const canonicalName = options.resolveToolName(toolUse.name);
       options.callbacks.onToolActivity(canonicalName);
-      const result = await options.registry.callTool(canonicalName, toolUse.input);
+      const result = await options.registry.callTool(canonicalName, toolUse.input, {
+        turnGeneration,
+        isTurnGenerationActive: isTurnActive,
+        signal,
+        executionContext: { caller: "direct", turnGeneration },
+      });
       const content = result.ok ? result.content ?? "" : result.error ?? "Tool error";
       results.push({
         type: "tool_result",

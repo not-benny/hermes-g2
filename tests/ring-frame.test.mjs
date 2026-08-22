@@ -94,6 +94,47 @@ test("buildRingFrame reproduces the captured healthSettingsStatus GET byte-for-b
   assert.equal(toHex(frame), CAPTURES.healthSettingsGet);
 });
 
+test("an arm loss after prelude cannot resurrect readiness or start the ring", () => {
+  const src = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  // The production gate binds readiness and the initial ring side effect to
+  // the same attempt identity. These contracts fail on the old PR head.
+  assert.match(src, /glassesConnectionGeneration/);
+  assert.match(src, /attemptGeneration = advanceGlassesConnectionGeneration\(\)/);
+  assert.match(
+    src,
+    /attemptGeneration == currentGlassesConnectionGeneration\(\)[\s\S]*running[\s\S]*!userDisconnectRequested[\s\S]*rightConnected[\s\S]*leftConnected/,
+  );
+  assert.match(src, /tryConnectRing\("initial", attemptGeneration\)/);
+  assert.match(src, /!rightConnected \|\| !leftConnected[\s\S]*attemptGeneration >= 0/);
+
+  // Exercise the lifecycle boundary deterministically: arm loss after the
+  // prelude invalidates the attempt, so it cannot publish readiness or write
+  // an ACK-producing ring command before a fresh complete pair succeeds.
+  const lifecycle = { generation: 0, running: true, userDisconnect: false, right: false, left: false, ready: false, ringWrites: 0 };
+  const beginAttempt = () => ++lifecycle.generation;
+  const publish = (token) => {
+    lifecycle.ready = token === lifecycle.generation && lifecycle.running
+      && !lifecycle.userDisconnect && lifecycle.right && lifecycle.left;
+    if (lifecycle.ready) lifecycle.ringWrites++;
+    return lifecycle.ready;
+  };
+  const staleAttempt = beginAttempt();
+  lifecycle.right = true;
+  lifecycle.left = true;
+  ++lifecycle.generation; // arm loss after prelude, before publication
+  lifecycle.left = false;
+  assert.equal(publish(staleAttempt), false);
+  assert.equal(lifecycle.ready, false);
+  assert.equal(lifecycle.ringWrites, 0);
+  const freshAttempt = beginAttempt();
+  lifecycle.left = true;
+  assert.equal(publish(freshAttempt), true);
+  assert.equal(lifecycle.ringWrites, 1);
+});
+
 test("the Java encoder is the corrected one (CRC-32 over the inner frame, no random checksum)", () => {
   const src = readFileSync(
     new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
@@ -146,8 +187,8 @@ test("direct ring requests MTU 247 before subscribing and probing", () => {
     "utf8",
   );
   assert.match(options, /RING_DESIRED_MTU = 247/);
-  const start = src.indexOf("private void connectRing()");
-  const end = src.indexOf("private void refreshRingBattery()", start);
+  const start = src.indexOf("private int connectRing(long glassesAttemptGeneration)");
+  const end = src.indexOf("private boolean enableRingNotification", start);
   const body = src.slice(start, end);
   const discover = body.indexOf("discoverServices(ringAddress");
   const requestMtu = body.indexOf("requestMtu(");
@@ -167,9 +208,9 @@ test("worker refreshes current HR every 15 seconds without re-polling all metric
   assert.match(src, /RING_CURRENT_HR_POLL_INTERVAL_MS = 15_000L/);
   assert.match(src, /maybeReRingCurrentHrPoll\(\)/);
   const start = src.indexOf("private void maybeReRingCurrentHrPoll()");
-  const end = src.indexOf("private void probeRingHealth()", start);
+  const end = src.indexOf("private void probeRingHealth(int generation)", start);
   const body = src.slice(start, end);
-  assert.match(body, /sendRingCommand\("heartRate\/current-hour GET", 0x02, 0x01, 0x01, 0x00, null\)/);
+  assert.match(body, /sendRingCommandForGeneration\(generation,[\s\S]*"heartRate\/current-hour GET", 0x02, 0x01, 0x01, 0x00, null\)/);
   assert.doesNotMatch(body, /spo2\/daily|hrv\/daily|activity\/daily|sleep\/daily|deviceStatus GET/);
 });
 
@@ -178,19 +219,29 @@ test("health pushes queue packetAck cursors and the worker drains them safely", 
     new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
     "utf8",
   );
-  assert.match(src, /queueRingPacketAck\(data\)/);
+  assert.match(src, /queueRingPacketAck\(data, generation\)/);
   assert.match(src, /drainRingPacketAcks\(\)/);
   assert.match(src, /ringConnectionGeneration/);
   assert.match(src, /sendRingPacketAck\(cursor\)/);
   assert.match(src, /ringPacketAckQueue\.clear\(\)/);
+  const queueStart = src.indexOf("private void queueRingPacketAck(byte[] frame, int generation)");
+  const queueEnd = src.indexOf("/** Ring-worker drain", queueStart);
+  const queue = src.slice(queueStart, queueEnd);
+  assert.match(queue, /isRingOperationAllowedLocked\(generation\)/);
+  assert.match(queue, /ringPacketAckQueue\.size\(\) >= 16/);
+  assert.match(queue, /ringPacketAckQueue\.removeFirst\(\)/);
+  assert.match(queue, /ringPacketAckQueue\.addLast\(/);
+  const drainStart = src.indexOf("private void drainRingPacketAcks()");
+  const drainEnd = src.indexOf("/** Final lifecycle gate", drainStart);
+  const drain = src.slice(drainStart, drainEnd);
+  assert.match(drain, /!running.*!sessionReady.*!ringConnected.*!ringNotificationsReady/s);
   const guardedStart = src.indexOf("private void sendRingPacketAck(RingPacketAckCursor cursor)");
   const guardedEnd = src.indexOf("private void sendRingCommand(", guardedStart);
   const guarded = src.slice(guardedStart, guardedEnd);
-  assert.match(guarded, /synchronized \(lock\)/);
-  assert.ok(
-    guarded.indexOf("cursor.generation != ringConnectionGeneration") < guarded.indexOf('sendRingCommand("packetAck"'),
-    "generation must be revalidated under the lifecycle lock at the final write boundary",
-  );
+  assert.match(guarded, /synchronized \(ringLock\)/);
+  assert.match(guarded, /isRingOperationAllowedLocked\(cursor\.generation\)/);
+  const allowed = src.slice(src.indexOf("private boolean isRingOperationAllowedLocked"), src.indexOf("private boolean sendRingCommandForGeneration"));
+  assert.match(allowed, /!stopping[\s\S]*running[\s\S]*sessionReady[\s\S]*ringConnected[\s\S]*ringNotificationsReady[\s\S]*generation == ringConnectionGeneration/);
   assert.match(src, /payload\[0\] = frame\[6\]/); // module
   assert.match(src, /payload\[1\] = frame\[11\]/); // cmd
   assert.match(src, /payload\[2\] = frame\[12\]/); // subCmd
@@ -200,4 +251,67 @@ test("health pushes queue packetAck cursors and the worker drains them safely", 
     src,
     /sendRingCommand\("packetAck", 0x01, 0x00, 0x7e, 0x01, cursor\.payload\)/,
   );
+});
+
+test("packetAck generation invalidation covers every direct-ring reset boundary", () => {
+  const src = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  assert.match(src, /private void invalidateRingPacketAckStateLocked\(\)/);
+  assert.match(src, /invalidateRingPacketAckStateLocked\(\);[\s\S]*ringConnected = connected/);
+
+  const failedConnectStart = src.indexOf("private void handleRingFailure(String reason, Throwable failure)");
+  const failedConnectEnd = src.indexOf("private int connectRing(long glassesAttemptGeneration)", failedConnectStart);
+  const failedConnect = src.slice(failedConnectStart, failedConnectEnd);
+  assert.match(failedConnect, /invalidateRingPacketAckStateLocked\(\);/);
+
+  const hardFailureStart = src.indexOf("private void hardTransportFailure(String reason)");
+  const hardFailureEnd = src.indexOf("private void resetSessionStateLocked()", hardFailureStart);
+  const hardFailure = src.slice(hardFailureStart, hardFailureEnd);
+  assert.match(hardFailure, /ringNotificationsReady = false/);
+  assert.ok(
+    hardFailure.indexOf("ringNotificationsReady = false") < hardFailure.indexOf("invalidateRingPacketAckStateLocked"),
+    "hard transport failure must retire readiness before invalidating packetAck state",
+  );
+
+  const resetStart = src.indexOf("private void resetSessionStateLocked()");
+  const resetEnd = src.indexOf("private void emitRingEvent(", resetStart);
+  assert.match(src.slice(resetStart, resetEnd), /invalidateRingPacketAckStateLocked\(\);/);
+  assert.equal((src.match(/ringPacketAckQueue\.clear\(\)/g) || []).length, 2);
+});
+
+test("packetAck final side effect rejects poll-before-disconnect/reset interleavings", () => {
+  const src = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  const disconnectStart = src.indexOf("public boolean disconnect()");
+  const disconnectEnd = src.indexOf("private boolean awaitCleanup", disconnectStart);
+  const disconnect = src.slice(disconnectStart, disconnectEnd);
+  assert.ok(disconnect.indexOf("running = false") < disconnect.indexOf("scheduleDeferredCleanup"));
+  const sendStart = src.indexOf("private void sendRingPacketAck(RingPacketAckCursor cursor)");
+  const sendEnd = src.indexOf("/** Build and write", sendStart);
+  const send = src.slice(sendStart, sendEnd);
+  assert.ok(send.indexOf("synchronized (ringLock)") < send.indexOf('sendRingCommand("packetAck"'));
+  assert.ok(send.indexOf("isRingOperationAllowedLocked(cursor.generation)") < send.indexOf('sendRingCommand("packetAck"'));
+});
+
+test("packetAck arm-loss invalidation prevents old work after reconnect readiness", () => {
+  const src = readFileSync(
+    new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java", import.meta.url),
+    "utf8",
+  );
+  const stateChangeStart = src.indexOf("public void onConnectionStateChange(String address, boolean connected)");
+  const stateChangeEnd = src.indexOf("private void connectLoopOnce()", stateChangeStart);
+  const stateChange = src.slice(stateChangeStart, stateChangeEnd);
+  const armLoss = stateChange.slice(stateChange.indexOf("if (!connected) {"));
+  assert.match(armLoss, /sessionReady = false/);
+  assert.match(stateChange, /invalidateRingPacketAckStateLocked\(\)/);
+
+  const reconnectStart = src.indexOf("private void connectLoopOnce()");
+  const reconnectEnd = src.indexOf("private void", reconnectStart + 1);
+  const reconnect = src.slice(reconnectStart, reconnectEnd);
+  assert.ok(reconnect.indexOf("sessionReady = true") >= 0);
+  assert.match(reconnect, /attemptGeneration == currentGlassesConnectionGeneration\(\)/);
 });

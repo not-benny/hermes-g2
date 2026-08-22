@@ -157,8 +157,6 @@ export class FaceclawCommunicatorBridge {
   private readonly evenAppConflictListeners = new Set<(message: string) => void>();
   private readonly frameMetricsListeners = new Set<(metrics: FrameMetrics) => void>();
   private readonly firmwareInfoListeners = new Set<(info: FirmwareInfo) => void>();
-  private readonly wakeBarrierWaiters = new Map<number, Set<(success: boolean) => void>>();
-  private readonly wakeBarrierCompletions = new Map<number, boolean>();
 
   constructor(addresses: { right: string; left: string; ring?: string }) {
     const context = Utils.android.getApplicationContext();
@@ -242,9 +240,6 @@ export class FaceclawCommunicatorBridge {
       },
       onFrameFinished: (frameId: number, outcome: string) => {
         this.recordFrameFinished(Number(frameId), String(outcome));
-      },
-      onWakeBarrierComplete: (requestToken: number, success: boolean) => {
-        this.recordWakeBarrierComplete(Number(requestToken), Boolean(success));
       },
       onFirmwareInfo: (leftVersion: string, rightVersion: string, capabilities: string) => {
         const info = {
@@ -383,53 +378,7 @@ export class FaceclawCommunicatorBridge {
     }
   }
 
-  private recordWakeBarrierComplete(requestToken: number, success: boolean): void {
-    if (!Number.isFinite(requestToken) || requestToken <= 0) return;
-    const waiters = this.wakeBarrierWaiters.get(requestToken);
-    if (!waiters) {
-      this.wakeBarrierCompletions.set(requestToken, success);
-      while (this.wakeBarrierCompletions.size > 128) {
-        const oldest = this.wakeBarrierCompletions.keys().next().value;
-        if (oldest === undefined) break;
-        this.wakeBarrierCompletions.delete(oldest);
-      }
-      return;
-    }
-    this.wakeBarrierWaiters.delete(requestToken);
-    for (const waiter of waiters) setTimeout(() => waiter(success), 0);
-  }
 
-  private waitForWakeBarrier(requestToken: number, timeoutMs: number): Promise<boolean> {
-    if (!Number.isFinite(requestToken) || requestToken <= 0) return Promise.resolve(false);
-    const known = this.wakeBarrierCompletions.get(requestToken);
-    if (known !== undefined) {
-      this.wakeBarrierCompletions.delete(requestToken);
-      return Promise.resolve(known);
-    }
-    const delayMs = Math.max(1, Math.round(nonNegativeNumber(timeoutMs)));
-    return new Promise((resolve) => {
-      let settled = false;
-      let timeoutHandle: ReturnType<typeof setTimeout>;
-      const finish = (success: boolean) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeoutHandle);
-        const pending = this.wakeBarrierWaiters.get(requestToken);
-        if (pending) {
-          pending.delete(finish);
-          if (pending.size === 0) this.wakeBarrierWaiters.delete(requestToken);
-        }
-        resolve(success);
-      };
-      let waiters = this.wakeBarrierWaiters.get(requestToken);
-      if (!waiters) {
-        waiters = new Set();
-        this.wakeBarrierWaiters.set(requestToken, waiters);
-      }
-      waiters.add(finish);
-      timeoutHandle = setTimeout(() => finish(false), delayMs);
-    });
-  }
 
   /**
    * Resolve with the frame's outcome once the Java side finishes it (sent,
@@ -641,8 +590,8 @@ export class FaceclawCommunicatorBridge {
     });
   }
 
-  async disconnect(): Promise<void> {
-    await this.enqueueJavaCall(() => this.communicator.disconnect());
+  async disconnect(): Promise<boolean> {
+    return this.enqueueJavaCall(() => Boolean(this.communicator.disconnect()));
   }
 
   async sendShutdown(exitMode = 0): Promise<boolean> {
@@ -661,30 +610,22 @@ export class FaceclawCommunicatorBridge {
    * Re-enable the EvenHub page lifecycle. The retained compositor frame is
    * sent after the layout and image path have been recreated.
    */
-  async resumeEvenHubSession(timeoutMs = 1500): Promise<boolean> {
-    const token = await this.enqueueJavaCall(() => Number(this.communicator.resumeEvenHubSession()));
-    return this.waitForWakeBarrier(token, timeoutMs);
+  async resumeEvenHubSession(): Promise<boolean> {
+    return this.enqueueJavaCall(() => Boolean(this.communicator.resumeEvenHubSession()));
   }
 
-  /**
-   * Own CFW's fail-open stock-wake policy while Faceclaw handles wakewords or
-   * suspends EvenHub with the screen off. The Java call only registers the
-   * barrier; completion arrives asynchronously after both arm writes complete.
-   */
-  async setFaceclawWakeLeaseEnabled(enabled: boolean, timeoutMs = 1500): Promise<boolean> {
-    const token = await this.enqueueJavaCall(() => Number(this.communicator.setFaceclawWakeLeaseEnabled(enabled)));
-    return this.waitForWakeBarrier(token, timeoutMs);
-  }
-
-  /**
-   * Register a readiness barrier. The Java call returns promptly; completion is
-   * resolved after layout, warmup, retained frame, and deferred-dashboard READY.
-   */
-  async awaitEvenHubSessionReady(timeoutMs: number): Promise<boolean> {
-    const token = await this.enqueueJavaCall(() =>
-      Number(this.communicator.awaitEvenHubSessionReady(Math.round(nonNegativeNumber(timeoutMs)))),
+  /** Own CFW's fail-open stock-wake policy; resolves after both arm writes complete. */
+  async setFaceclawWakeLeaseEnabled(enabled: boolean): Promise<boolean> {
+    return this.enqueueJavaCall(() =>
+      Boolean(this.communicator.setFaceclawWakeLeaseEnabled(enabled)),
     );
-    return this.waitForWakeBarrier(token, timeoutMs);
+  }
+
+  /** Resolve after layout, warmup, retained frame, and deferred-dashboard READY. */
+  async awaitEvenHubSessionReady(timeoutMs: number): Promise<boolean> {
+    return this.enqueueJavaCall(() =>
+      Boolean(this.communicator.awaitEvenHubSessionReady(Math.round(nonNegativeNumber(timeoutMs)))),
+    );
   }
 
   /** Play a CFW mode-5 kind-4 tone sequence (complete wire payload). */
@@ -695,7 +636,7 @@ export class FaceclawCommunicatorBridge {
     });
   }
 
-  async close(): Promise<void> {
-    await this.enqueueJavaCall(() => this.communicator.close());
+  async close(): Promise<boolean> {
+    return this.enqueueJavaCall(() => Boolean(this.communicator.close()));
   }
 }

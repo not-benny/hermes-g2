@@ -20,11 +20,12 @@ import { getDefaultMediumFont } from "../graphics/bdffont";
 import { wrapText } from "../graphics/textwrap";
 import { rawInputEventToInputEvent, shell, type ShellInputOutcome } from "../ui/shell/shell";
 import { registerSystemTools } from "../assistant/system-tools";
+import { registerHealthTools } from "../assistant/health-tools";
 import { registerNavigateTools } from "../assistant/navigate-tools";
 import { registerRoamTools } from "../assistant/roam-tools";
 import { assistantBridge } from "../assistant/bridge-client";
 import { ringHealthStore } from "../health/ring-health-store";
-import { loadActivity, recordActivity } from "../native/health-export";
+import { loadActivity, recordActivity } from "../native/health-store";
 import { playEventBeep } from "../ui/event-beeps";
 import { registerWindowTools } from "../assistant/window-tools";
 import { registerTimerTools } from "../assistant/timer-tools";
@@ -38,8 +39,9 @@ import { appViewportRect, type WindowHeightMode } from "../ui/shell/geometry";
 import { type LayerActions } from "../ui/layers";
 import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "../native/battery-optimization";
+import { shouldFinalizeCommunicatorClose, type DashboardConnectionPhase } from "./connection-state-lifecycle";
 
-type ConnectionPhase = "disconnected" | "connecting" | "connected" | "charging" | "disconnecting";
+type ConnectionPhase = DashboardConnectionPhase;
 
 export type DashboardSnapshot = {
   phase: ConnectionPhase;
@@ -221,7 +223,7 @@ class DashboardController {
   private lastSys = "none yet";
   private shellRenderInProgress = false;
   private shellRenderQueued = false;
-  private shellRenderPromise: Promise<void> | null = null;
+  private shellRenderPromise: Promise<{ frameId: number; outcome: string }> | null = null;
   private nextShellRenderWantsFreshData = false;
   // One shared worker per app hosts all its windows; spawned on first launch.
   private readonly appHosts = new Map<string, WorkerAppHost>();
@@ -253,6 +255,7 @@ class DashboardController {
     // The always-available assistant tools (calendar, media, notifications,
     // glasses state) register once at startup, independent of any connection.
     registerSystemTools();
+    registerHealthTools();
     // nav.* tools launch the Navigate app on demand, so they need launchApp.
     registerNavigateTools((appId) => this.launchApp(appId));
     // roam.* tools launch the Roam app on demand likewise.
@@ -968,7 +971,9 @@ class DashboardController {
   }
 
   async connect(): Promise<void> {
-    if (this.phase !== "disconnected") return;
+    // Retained ownership is authoritative until Java positively completes
+    // deferred worker and BLE cleanup.
+    if (this.phase !== "disconnected" || this.communicator !== null) return;
 
     const addresses = loadDeviceAddresses();
     if (!addresses.right || !addresses.left) {
@@ -1049,6 +1054,9 @@ class DashboardController {
           // the transport comes back, so do not make lock decisions from a
           // stale pre-disconnect value in the meantime.
           this.glassesWorn = null;
+        }
+        if (shouldFinalizeCommunicatorClose(this.phase, mappedPhase, this.communicator === communicator)) {
+          this.completePendingCommunicatorClose(communicator);
         }
         this.setPhase(mappedPhase);
         this.setStatus(state.status);
@@ -1260,28 +1268,63 @@ class DashboardController {
       await mediaControllerBridge.stop().catch(() => {});
       await nightscoutBridge.stop().catch(() => {});
       voiceControlBridge.stop();
+      let closeComplete = true;
       if (communicator) {
         await communicator.setFaceclawWakeLeaseEnabled(false).catch(() => false);
-        await communicator.close().catch(() => {});
+        closeComplete = await communicator.close().catch(() => false);
+        if (!closeComplete) {
+          this.appendLog("connect cleanup is still in progress; retaining BLE ownership");
+        }
       }
-      this.communicator = null;
-      this.lockSurfaceConfigured = false;
-      this.wearNotifySupported = false;
-      this.faceclawWakeLeaseSupported = false;
-      this.faceclawWakeLeaseState = null;
-      this.evenHubResumePromise = null;
-      this.clearDashboardTimer();
-      stopForegroundNotification();
-      this.setPhase("disconnected");
-      this.setStatus(`Failed: ${message}`);
+      if (closeComplete && this.communicator === communicator) this.communicator = null;
+      if (closeComplete) {
+        this.lockSurfaceConfigured = false;
+        this.wearNotifySupported = false;
+        this.faceclawWakeLeaseSupported = false;
+        this.faceclawWakeLeaseState = null;
+        this.evenHubResumePromise = null;
+        this.clearDashboardTimer();
+        stopForegroundNotification();
+        this.setPhase("disconnected");
+        this.setStatus(`Failed: ${message}`);
+      } else {
+        this.setPhase("disconnecting");
+        this.setStatus("Disconnecting; waiting for BLE worker...");
+      }
       this.appendLog(`error: ${message}`);
       throw error;
     }
   }
 
+  private completePendingCommunicatorClose(communicator: FaceclawCommunicatorBridge): void {
+    if (this.communicator !== communicator) return;
+    this.offState?.(); this.offState = null;
+    this.offLog?.(); this.offLog = null;
+    this.offRing?.(); this.offRing = null;
+    this.offBattery?.(); this.offBattery = null;
+    this.offRingHealthFrame?.(); this.offRingHealthFrame = null;
+    this.offRingHealthChange?.(); this.offRingHealthChange = null;
+    this.offSilentMode?.(); this.offSilentMode = null;
+    this.offWearState?.(); this.offWearState = null;
+    this.offPhoneLockState?.(); this.offPhoneLockState = null;
+    this.offEvenAppConflict?.(); this.offEvenAppConflict = null;
+    this.offFrameMetrics?.(); this.offFrameMetrics = null;
+    this.offFirmwareInfo?.(); this.offFirmwareInfo = null;
+    this.offVoiceStatus?.(); this.offVoiceStatus = null;
+    this.offVoiceWakeWord?.(); this.offVoiceWakeWord = null;
+    this.communicator = null;
+    stopForegroundNotification();
+    this.faceclawWakeLeaseSupported = false;
+    this.faceclawWakeLeaseState = null;
+    this.wearNotifySupported = false;
+    this.setPhase("disconnected");
+    this.setStatus("Disconnected.");
+    this.appendLog("Disconnected from the glasses.");
+  }
+
   async disconnect(): Promise<void> {
     this.clearEvenAppReleasePoll();
-    if (this.phase === "disconnected" || this.phase === "disconnecting") return;
+    if (this.phase === "disconnected") return;
 
     // Beep while the transport is still up (phase is still "connected" here);
     // await it so the queued frame flushes before teardown. ~300ms on a manual
@@ -1292,37 +1335,24 @@ class DashboardController {
     this.setPhase("disconnecting");
     this.setStatus("Disconnecting...");
     this.clearDashboardTimer();
-    this.offState?.();
-    this.offState = null;
-    this.offLog?.();
-    this.offLog = null;
-    this.offRing?.();
-    this.offRing = null;
-    this.offBattery?.();
-    this.offBattery = null;
-    this.offRingHealthFrame?.();
-    this.offRingHealthFrame = null;
-    this.offRingHealthChange?.();
-    this.offRingHealthChange = null;
-    this.offSilentMode?.();
-    this.offSilentMode = null;
-    this.offWearState?.();
-    this.offWearState = null;
-    this.offPhoneLockState?.();
-    this.offPhoneLockState = null;
-    this.offEvenAppConflict?.();
-    this.offEvenAppConflict = null;
-    this.offFrameMetrics?.();
-    this.offFrameMetrics = null;
-    this.offFirmwareInfo?.();
-    this.offFirmwareInfo = null;
-    this.offVoiceStatus?.();
-    this.offVoiceStatus = null;
-    this.offVoiceWakeWord?.();
-    this.offVoiceWakeWord = null;
+    const clearCommunicatorSubscriptions = () => {
+      this.offState?.(); this.offState = null;
+      this.offLog?.(); this.offLog = null;
+      this.offRing?.(); this.offRing = null;
+      this.offBattery?.(); this.offBattery = null;
+      this.offRingHealthFrame?.(); this.offRingHealthFrame = null;
+      this.offRingHealthChange?.(); this.offRingHealthChange = null;
+      this.offSilentMode?.(); this.offSilentMode = null;
+      this.offWearState?.(); this.offWearState = null;
+      this.offPhoneLockState?.(); this.offPhoneLockState = null;
+      this.offEvenAppConflict?.(); this.offEvenAppConflict = null;
+      this.offFrameMetrics?.(); this.offFrameMetrics = null;
+      this.offFirmwareInfo?.(); this.offFirmwareInfo = null;
+      this.offVoiceStatus?.(); this.offVoiceStatus = null;
+      this.offVoiceWakeWord?.(); this.offVoiceWakeWord = null;
+    };
 
     const communicator = this.communicator;
-    this.communicator = null;
     this.lockSurfaceConfigured = false;
     this.evenHubSessionSuspended = false;
     this.evenHubResumePromise = null;
@@ -1359,15 +1389,26 @@ class DashboardController {
       await mediaControllerBridge.stop().catch(() => {});
       await nightscoutBridge.stop().catch(() => {});
       voiceControlBridge.stop();
-      await communicator?.close().catch(() => {});
+      const closed = await communicator?.close().catch((error) => {
+        this.appendLog(`BLE cleanup failed: ${this.formatError(error)}`);
+        return false;
+      });
+      if (closed !== true) {
+        this.appendLog("BLE worker is still stopping; retaining communicator ownership");
+        return;
+      }
+      clearCommunicatorSubscriptions();
+      if (this.communicator === communicator) this.communicator = null;
     } finally {
-      stopForegroundNotification();
-      this.faceclawWakeLeaseSupported = false;
-      this.faceclawWakeLeaseState = null;
-      this.wearNotifySupported = false;
-      this.setPhase("disconnected");
-      this.setStatus("Disconnected.");
-      this.appendLog("Disconnected from the glasses.");
+      if (this.communicator === null) {
+        stopForegroundNotification();
+        this.faceclawWakeLeaseSupported = false;
+        this.faceclawWakeLeaseState = null;
+        this.wearNotifySupported = false;
+        this.setPhase("disconnected");
+        this.setStatus("Disconnected.");
+        this.appendLog("Disconnected from the glasses.");
+      }
     }
   }
 
@@ -1791,17 +1832,17 @@ class DashboardController {
    * one queued.
    */
   requestShellRender(): Promise<void> {
-    return this.requestShellDelivery().catch(() => undefined);
+    return this.requestShellDelivery().then(() => undefined).catch(() => undefined);
   }
 
-  /** Strict shell delivery used only by user-visible alert operations. */
-  private requestShellDelivery(isAllowed?: () => boolean): Promise<void> {
+  /** Strict shell delivery used only by user-visible remote operations. */
+  private requestShellDelivery(isAllowed?: () => boolean): Promise<{ frameId: number; outcome: string }> {
     if (isAllowed && !isAllowed()) return Promise.reject(new Error("The shell operation is no longer current."));
     if (this.shellRenderInProgress) {
       // Strict alert owners cannot share the ordinary coalesced receipt: a
       // replacement must receive its own frame completion and must not inherit
       // the predecessor's success or failure.
-      const prior = this.shellRenderPromise ?? Promise.resolve();
+      const prior = this.shellRenderPromise ?? Promise.resolve({ frameId: 0, outcome: "discarded: no render" });
       return prior.catch(() => undefined).then(() => {
         if (isAllowed && !isAllowed()) throw new Error("The shell operation is no longer current.");
         return this.requestShellDelivery(isAllowed);
@@ -1809,11 +1850,13 @@ class DashboardController {
     }
     this.shellRenderInProgress = true;
     this.shellRenderPromise = (async () => {
+      let receipt = { frameId: 0, outcome: "discarded: no render" };
       try {
         do {
           this.shellRenderQueued = false;
-          await this.renderShell(isAllowed);
+          receipt = await this.renderShell(isAllowed);
         } while (this.shellRenderQueued);
+        return receipt;
       } catch (error) {
         this.appendLog(`shell render failed: ${this.formatError(error)}`);
         throw error;
@@ -1825,7 +1868,8 @@ class DashboardController {
     return this.shellRenderPromise;
   }
 
-  private async renderShell(isAllowed?: () => boolean): Promise<void> {
+  private async renderShell(isAllowed?: () => boolean): Promise<{ frameId: number; outcome: string }> {
+    const requireSent = Boolean(isAllowed);
     const frameId = frameTimings.startFrame("render:shell");
     const wantFreshData = this.nextShellRenderWantsFreshData;
     this.nextShellRenderWantsFreshData = false;
@@ -1867,11 +1911,15 @@ class DashboardController {
     if (this.communicator !== communicator || this.phase !== "connected") {
       throw new Error("The glasses session changed while sending the alert frame.");
     }
-    await communicator.waitForFrameFinished(frameId, FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS);
+    const outcome = (await communicator.waitForFrameFinished(frameId, FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS)) ?? "";
+    if (requireSent && (!outcome || outcome.startsWith("discarded:"))) {
+      throw new Error("The shell frame was not acknowledged by the glasses transport.");
+    }
     if (this.communicator !== communicator || this.phase !== "connected") {
       throw new Error("The glasses session changed before the alert frame completed.");
     }
     this.updateCompositePreview();
+    return { frameId, outcome };
   }
 
   private async handleWakeWord(keyword: string): Promise<void> {
@@ -2006,6 +2054,7 @@ class DashboardController {
 
   private setPhase(phase: ConnectionPhase): void {
     if (this.phase === phase) return;
+    if (phase === "disconnected") shell.closeDynamicApp();
     this.phase = phase;
     if (phase === "disconnected") {
       // Kept across "connecting": silent mode blocks app launches, so it can

@@ -282,9 +282,7 @@ public class FaceclawVoiceController {
                 fos.write(buildWavHeader(pcmBytes.length, SAMPLE_RATE, 1, 16));
                 fos.write(pcmBytes);
             }
-            Log.i(TAG, "saved voice recording " + file.getAbsolutePath()
-                    + " samples=" + (pcmBytes.length / 2)
-                    + " sec=" + String.format(java.util.Locale.US, "%.2f", pcmBytes.length / 2.0 / SAMPLE_RATE));
+            Log.i(TAG, "saved private voice recording");
         } catch (Throwable t) {
             Log.w(TAG, "failed to save voice recording", t);
         }
@@ -619,12 +617,10 @@ public class FaceclawVoiceController {
     private void logTranscriptDecode(boolean isFinal, int segmentSampleCount, String text) {
         double totalAudioSec =
                 (committedTranscriptSampleCount + transcriptSampleCount) / (double) SAMPLE_RATE;
-        String preview = text.length() <= TRANSCRIPT_LOG_PREVIEW_CHARS
-                ? text : text.substring(0, TRANSCRIPT_LOG_PREVIEW_CHARS) + "...";
         Log.i(TAG, "Moonshine decode final=" + isFinal
                 + " audioSec=" + String.format(java.util.Locale.US, "%.2f", totalAudioSec)
                 + " segmentAudioSec=" + String.format(java.util.Locale.US, "%.2f", segmentSampleCount / (double) SAMPLE_RATE)
-                + " textLen=" + text.length() + " text=\"" + preview + "\"");
+                + " result=" + (text.isEmpty() ? "empty" : "present"));
     }
 
     private static String joinTranscript(String prefix, String suffix) {

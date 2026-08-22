@@ -21,9 +21,15 @@ public class FaceclawForegroundService extends Service {
     public static final String ACTION_UPDATE = "com.faceclaw.app.action.UPDATE";
     public static final String ACTION_STOP = "com.faceclaw.app.action.STOP";
     public static final String EXTRA_TEXT = "text";
+    public static final String EXTRA_CONNECTED_DEVICE_ACTIVE = "connectedDeviceActive";
+    public static final String EXTRA_PHONE_MIC_ACTIVE = "phoneMicActive";
+    public static final String EXTRA_LOCATION_ACTIVE = "locationActive";
 
     private static final String CHANNEL_ID = "faceclaw-dashboard";
     private static final int NOTIFICATION_ID = 4201;
+    private boolean connectedDeviceActive;
+    private boolean phoneMicActive;
+    private boolean locationActive;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -32,10 +38,30 @@ public class FaceclawForegroundService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        String action = intent != null ? intent.getAction() : ACTION_START;
-        String text = intent != null ? intent.getStringExtra(EXTRA_TEXT) : null;
+        if (intent == null) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        String action = intent.getAction();
+        String text = intent.getStringExtra(EXTRA_TEXT);
 
         if (ACTION_STOP.equals(action)) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
+        if (intent.hasExtra(EXTRA_CONNECTED_DEVICE_ACTIVE)) {
+            connectedDeviceActive = intent.getBooleanExtra(EXTRA_CONNECTED_DEVICE_ACTIVE, false);
+        }
+        if (intent.hasExtra(EXTRA_PHONE_MIC_ACTIVE)) {
+            phoneMicActive = intent.getBooleanExtra(EXTRA_PHONE_MIC_ACTIVE, false);
+        }
+        if (intent.hasExtra(EXTRA_LOCATION_ACTIVE)) {
+            locationActive = intent.getBooleanExtra(EXTRA_LOCATION_ACTIVE, false);
+        }
+        if (!connectedDeviceActive && !phoneMicActive && !locationActive) {
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
             return START_NOT_STICKY;
@@ -47,7 +73,8 @@ public class FaceclawForegroundService extends Service {
         );
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, foregroundServiceType());
+            startForeground(NOTIFICATION_ID, notification,
+                    foregroundServiceType(connectedDeviceActive, phoneMicActive, locationActive));
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }
@@ -59,7 +86,7 @@ public class FaceclawForegroundService extends Service {
             }
         }
 
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     private void ensureNotificationChannel() {
@@ -105,17 +132,18 @@ public class FaceclawForegroundService extends Service {
                 .build();
     }
 
-    private int foregroundServiceType() {
-        int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
-        // TODO: Make this depend on which audio path (G2 vs phone) is selected
-        if (hasRecordAudioPermission()) {
+    private int foregroundServiceType(
+            boolean connectedDeviceActive,
+            boolean phoneMicActive,
+            boolean locationActive) {
+        int type = 0;
+        if (connectedDeviceActive) {
+            type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
+        }
+        if (phoneMicActive && hasRecordAudioPermission()) {
             type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
         }
-        // The location type keeps while-in-use location flowing to the
-        // Navigate app when the phone screen locks. Only claimed once the
-        // permission exists: on API 34+ claiming it without the permission
-        // makes startForeground throw.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && hasFineLocationPermission()) {
+        if (locationActive && hasFineLocationPermission()) {
             type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION;
         }
         return type;

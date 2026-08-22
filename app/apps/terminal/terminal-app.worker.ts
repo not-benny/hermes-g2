@@ -44,6 +44,7 @@ import {
 } from "../../native/g2mirror-client";
 import { onSettingsStoreChanged } from "../../native/settings-store";
 import { clamp } from "../../util/numeric-util";
+import { beginToolAuthorization, cancelToolAuthorization, isToolAuthorizationActive } from "../tool-authorization";
 import {
   terminalAutoReconnectSetting,
   terminalLaunchPresetsSetting,
@@ -52,6 +53,7 @@ import {
 } from "../../ui/dashboard-settings";
 import {
   connectionDisplayName,
+  connectionStringHostLabel,
   loadConnections,
   parseConnectionString,
   saveConnections,
@@ -360,17 +362,21 @@ global.onmessage = (event: { data: WorkerAppMessage }) => {
       break;
     case "tool-call": {
       const callId = message.callId;
-      Promise.resolve(handleTerminalTool(message.name, message.args))
-        .then((result) => post({ type: "tool-result", callId, result }))
+      beginToolAuthorization(message.authorizationId);
+      Promise.resolve(handleTerminalTool(message.name, message.args, () => isToolAuthorizationActive(message.authorizationId)))
+        .then((result) => { cancelToolAuthorization(message.authorizationId); post({ type: "tool-result", callId, result }); })
         .catch((error) =>
-          post({
+          (cancelToolAuthorization(message.authorizationId), post({
             type: "tool-result",
             callId,
             result: { ok: false, error: String((error as Error)?.message ?? error) },
-          }),
+          })),
         );
       break;
     }
+    case "cancel-tool-call":
+      cancelToolAuthorization(message.authorizationId);
+      break;
   }
 };
 
@@ -1360,9 +1366,15 @@ function launchPresetNames(): string[] {
 }
 
 /** Launch a preset on a host and open a view window on the new session. */
-async function launchAndOpenView(control: ControlConnection, preset: string): Promise<string> {
+async function launchAndOpenView(
+  control: ControlConnection,
+  preset: string,
+  isAllowed: () => boolean = () => true,
+): Promise<string> {
   if (!control.client) throw new Error("Not connected to the g2mirror server.");
+  if (!isAllowed()) throw new Error("Terminal launch authorization expired.");
   const socket = await control.client.launchSession(preset);
+  if (!isAllowed()) throw new Error("Terminal launch authorization expired before display handoff.");
   openViewWindow(control, socket, preset);
   return socket;
 }
@@ -1436,7 +1448,9 @@ function paintAddConnection(window: HubWindow): GrayImage {
   image.drawText(terminalFont, 24, 34, "Type the g2mirror://token@host string in the", 170);
   image.drawText(terminalFont, 24, 48, "phone app (or use voice input from the menu).", 170);
   const draft = terminalNewConnectionSetting.get();
-  image.drawText(terminalFont, 24, 76, truncateLabel(draft || "(empty)", 52), 220);
+  const hostLabel = draft ? connectionStringHostLabel(draft) : "";
+  const maskedConnectionLabel = draft ? `${hostLabel || "invalid connection"} (token hidden)` : "(empty)";
+  image.drawText(terminalFont, 24, 76, truncateLabel(maskedConnectionLabel, 52), 220);
   if (window.addError) {
     image.drawText(terminalFont, 24, 96, window.addError, 150);
   }
@@ -1581,18 +1595,18 @@ function sessionLabel(session: G2MirrorSession): string {
 }
 
 /** Dispatch an assistant tool-call (unprefixed name) to its handler. */
-function handleTerminalTool(name: string, args: any): ToolResult | Promise<ToolResult> {
+function handleTerminalTool(name: string, args: any, isAllowed: () => boolean): ToolResult | Promise<ToolResult> {
   switch (name) {
     case "list_sessions":
       return toolListSessions();
     case "send_input":
-      return toolSendInput(args);
+      return toolSendInput(args, isAllowed);
     case "read_screen":
       return toolReadScreen();
     case "list_launch_presets":
       return toolListLaunchPresets();
     case "launch_session":
-      return toolLaunchSession(args);
+      return toolLaunchSession(args, isAllowed);
     default:
       return { ok: false, error: `Unknown terminal tool: ${name}` };
   }
@@ -1633,12 +1647,12 @@ function resolveLaunchControl(host: string): ControlConnection | { error: string
   };
 }
 
-async function toolLaunchSession(args: any): Promise<ToolResult> {
+async function toolLaunchSession(args: any, isAllowed: () => boolean): Promise<ToolResult> {
   const preset = String(args?.preset ?? "").trim();
   if (!preset) return { ok: false, error: "launch_session requires a preset name." };
   const control = resolveLaunchControl(String(args?.host ?? "").trim());
   if ("error" in control) return { ok: false, error: control.error };
-  const socket = await launchAndOpenView(control, preset);
+  const socket = await launchAndOpenView(control, preset, isAllowed);
   return { ok: true, content: `Launched "${preset}" (session ${socket}) and opened a window viewing it.` };
 }
 
@@ -1665,11 +1679,12 @@ function toolListSessions(): ToolResult {
   return { ok: true, content: lines.join("\n") };
 }
 
-function toolSendInput(args: any): ToolResult {
+function toolSendInput(args: any, isAllowed: () => boolean): ToolResult {
   const text = String(args?.text ?? "");
   if (!text) return { ok: false, error: "send_input requires non-empty text." };
   const view = resolveActiveView();
   if (!view) return { ok: false, error: "No terminal session is open to send input to." };
+  if (!isAllowed()) return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
   view.client.submitInput(text);
   return { ok: true, content: `Sent to ${view.label}.` };
 }

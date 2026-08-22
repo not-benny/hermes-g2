@@ -14,6 +14,28 @@ let javaInstance: any = null;
 let retainedListenerProxy: any = null;
 const changeListeners = new Set<(key: string) => void>();
 
+const SECRET_SETTING_KEYS = new Set([
+  "assistant.bridgeToken",
+  "even.account.email",
+  "even.account.password",
+  "even.api.appId",
+  "even.api.accessKey",
+  "even.api.accessSecret",
+  "even.api.aesKey",
+  "even.api.aesIv",
+  "even.api.authToken",
+  "voice.deepgramApiKey",
+  "voice.elevenLabsApiKey",
+  "voice.openAiApiKey",
+  "voice.sonioxApiKey",
+  "llm.anthropicApiKey",
+  "maps.mapboxApiKey",
+  "integrations.roam.apiToken",
+  "integrations.nightscout.apiToken",
+  "terminal.newConnectionDraft",
+  "terminal.connections",
+]);
+
 function getJava(): any {
   if (javaInstance === null) {
     const context = Utils.android?.getApplicationContext?.();
@@ -25,11 +47,22 @@ function getJava(): any {
 }
 
 export function getStringSetting(key: string, defaultValue: string): string {
-  return String(getJava().getString(key, defaultValue));
+  return String(SECRET_SETTING_KEYS.has(key)
+    ? getJava().getSecret(key, defaultValue)
+    : getJava().getString(key, defaultValue));
 }
 
 export function setStringSetting(key: string, value: string): void {
-  getJava().setString(key, value);
+  if (SECRET_SETTING_KEYS.has(key)) {
+    if (!getJava().setSecret(key, value)) throw new Error("secure setting write failed");
+  } else {
+    getJava().setString(key, value);
+  }
+}
+
+export function removeSecretSetting(key: string): void {
+  if (!SECRET_SETTING_KEYS.has(key)) throw new Error("setting is not classified as secret");
+  if (!getJava().removeSecret(key)) throw new Error("secure setting removal failed");
 }
 
 export function getBooleanSetting(key: string, defaultValue: boolean): boolean {

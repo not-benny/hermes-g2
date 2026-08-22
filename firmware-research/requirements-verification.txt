@@ -1,0 +1,2 @@
+capstone==5.0.9 \
+    --hash=sha256:273fd8d747d2e35c88f91450be51a603ecfaafb00d96d9f315dcb8689c86193e

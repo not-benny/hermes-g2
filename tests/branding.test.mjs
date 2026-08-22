@@ -36,7 +36,7 @@ test("package and Android labels identify Hermes G2 without changing the interna
   assert.equal(pkg.description, "Hermes Agent interface for Even Realities G2 smart glasses");
   assert.equal(
     pkg.scripts.build,
-    "npm exec --yes --package=nativescript@9.0.7 -- ns build android",
+    "npx --no-install ns build android",
   );
 
   const config = read("nativescript.config.ts");
@@ -50,10 +50,11 @@ test("package and Android labels identify Hermes G2 without changing the interna
 test("Android builds pin the CLI version and use an audited serializer override", () => {
   const pkg = JSON.parse(read("package.json"));
   const lock = JSON.parse(read("package-lock.json"));
-  assert.equal(pkg.devDependencies.nativescript, undefined);
+  assert.equal(pkg.devDependencies.nativescript, "9.0.7");
   assert.equal(pkg.engines.node, ">=20.0.0");
   assert.equal(pkg.overrides["serialize-javascript"], "7.1.0");
-  assert.equal(lock.packages["node_modules/nativescript"], undefined);
+  assert.equal(lock.packages["node_modules/nativescript"].version, "9.0.7");
+  assert.match(lock.packages["node_modules/nativescript"].integrity, /^sha512-/);
   assert.equal(lock.packages["node_modules/serialize-javascript"].version, "7.1.0");
   assert.match(lock.packages["node_modules/serialize-javascript"].integrity, /^sha512-/);
 });

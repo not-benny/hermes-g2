@@ -1,7 +1,7 @@
-// In-app WhatsApp engine for Hermes G2. Runs on the embedded nodejs-mobile
-// runtime and links Ben's WhatsApp as a companion device ("Hermes G2") via the
-// multi-device pairing-code flow. Forked from the proven ~/.hermes whatsapp
-// bridge, adapted for in-app use: app-private session dir, 127.0.0.1 loopback
+// Experimental in-app WhatsApp engine for Hermes G2. Runs on the embedded
+// nodejs-mobile runtime and links an explicitly authorized disposable account
+// as a companion device via the multi-device pairing-code flow. Adapted for
+// app-private session storage, 127.0.0.1 loopback
 // bound + bearer-token guarded, pairing code instead of QR, SSE event stream.
 //
 // Args: node main.js --port <p> --token <t> --session <dir>
@@ -22,13 +22,9 @@ const TOKEN = getArg('token', '');
 const SESSION_DIR = getArg('session', path.join(process.env.HOME || '.', 'whatsapp', 'session'));
 fs.mkdirSync(SESSION_DIR, { recursive: true });
 
-// Route Baileys' own logs to logcat (via console.log -> stdout) at debug level.
-// The pairing handshake and its failures are logged by Baileys at info/debug,
-// so a quieter level hides exactly the errors we need when a link fails.
-const logger = pino(
-  { level: 'debug' },
-  { write: (s) => { try { console.log('[baileys] ' + String(s).trim()); } catch {} } },
-);
+// Third-party protocol records can contain account IDs, message bodies and
+// credentials. Release diagnostics therefore discard them entirely.
+const logger = pino({ level: 'silent' });
 
 let sock = null;
 let connectionState = 'idle';      // idle | connecting | connected | disconnected | logged_out
@@ -55,7 +51,7 @@ async function startSocket() {
     version = v.version;
     console.log('[wa] WA version ' + JSON.stringify(version) + ' (latest=' + v.isLatest + ')');
   } catch (e) {
-    console.log('[wa] fetchLatestBaileysVersion FAILED: ' + (e?.message || e) + ' - using Baileys default');
+    console.log('[wa] version lookup failed; using pinned library default');
   }
 
   connectionState = 'connecting';
@@ -76,10 +72,10 @@ async function startSocket() {
   try {
     if (sock.ws && typeof sock.ws.on === 'function') {
       sock.ws.on('open', () => console.log('[wa] ws open (+' + (Date.now() - socketOpenedAt) + 'ms)'));
-      sock.ws.on('close', (c, r) => console.log('[wa] ws close code=' + c + ' reason=' + (r || '?') + ' (+' + (Date.now() - socketOpenedAt) + 'ms)'));
-      sock.ws.on('error', (e) => console.log('[wa] ws error: ' + (e?.message || e)));
+      sock.ws.on('close', (c) => console.log('[wa] ws close code=' + c + ' (+' + (Date.now() - socketOpenedAt) + 'ms)'));
+      sock.ws.on('error', () => console.log('[wa] ws error'));
     }
-  } catch (e) { console.log('[wa] ws hook failed: ' + (e?.message || e)); }
+  } catch (e) { console.log('[wa] ws hook failed'); }
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, isNewLogin } = update;
@@ -93,15 +89,13 @@ async function startSocket() {
       connectedUser = sock?.user ? { id: sock.user.id || null, name: sock.user.name || sock.user.verifiedName || null } : null;
       pairing.code = null;
       emit({ event: 'connected', user: connectedUser });
-      console.log('[wa] CONNECTED as ' + (connectedUser?.id || '?') + ' newLogin=' + isNewLogin);
+      console.log('[wa] connected newLogin=' + Boolean(isNewLogin));
     } else if (connection === 'close') {
       const err = lastDisconnect?.error;
       const code = err?.output?.statusCode;
       const dt = socketOpenedAt ? (Date.now() - socketOpenedAt) : -1;
       console.log('[wa] close code=' + code + ' registered=' + registered +
-        ' pairingInFlight=' + pairingInFlight + ' aliveMs=' + dt +
-        ' msg=' + (err?.message || '?') +
-        ' data=' + JSON.stringify(err?.output?.payload || err?.data || {}));
+        ' pairingInFlight=' + pairingInFlight + ' aliveMs=' + dt);
       if (code === DisconnectReason.loggedOut) {
         // A real logout only makes sense once registered. During pairing an
         // unregistered 401 is a failed attempt - surface it, keep the session so
@@ -124,7 +118,7 @@ async function startSocket() {
         // (reconnecting abandons the pairing). Hold; the user still has the code.
         connectionState = 'pairing';
         emit({ event: 'pairing_wait', code });
-        console.log('[wa] holding pairing socket (code still valid): ' + (pairing.code || '?'));
+        console.log('[wa] holding pairing socket while authorization remains pending');
       }
     }
   });
@@ -135,7 +129,7 @@ async function startSocket() {
       const from = m.key?.remoteJid || '?';
       const text = m.message?.conversation || m.message?.extendedTextMessage?.text || '[non-text]';
       emit({ event: 'message', from, fromMe: !!m.key?.fromMe, text: String(text).slice(0, 200), ts: Number(m.messageTimestamp) || 0 });
-      console.log('[wa] msg from ' + from + ': ' + String(text).slice(0, 80));
+      console.log('[wa] message event received');
     }
   });
 
@@ -162,7 +156,7 @@ function clearSession() {
       fs.rmSync(path.join(SESSION_DIR, f), { recursive: true, force: true });
     }
     console.log('[wa] session cleared for fresh pairing');
-  } catch (e) { console.log('[wa] clearSession failed: ' + (e?.message || e)); }
+  } catch (e) { console.log('[wa] session cleanup failed'); }
 }
 
 async function requestPairing(phoneNumber) {
@@ -187,7 +181,7 @@ async function requestPairing(phoneNumber) {
       const code = await sock.requestPairingCode(digits);
       pairing = { phone: digits, code, at: Date.now() };
       emit({ event: 'pairing_code', code, phone: digits });
-      console.log('[wa] pairing code for ' + digits + ': ' + code);
+      console.log('[wa] pairing authorization generated');
       return code;
     } catch (e) {
       lastError = String(e?.message || e);
@@ -239,10 +233,10 @@ app.listen(PORT, '127.0.0.1', () => {
 // the next /pair to clear.
 if (isRegistered()) {
   console.log('[wa] registered session found, auto-connecting');
-  startSocket().catch((e) => { lastError = String(e); console.error('[wa] auto-connect failed: ' + e); });
+  startSocket().catch(() => { lastError = 'auto_connect_failed'; console.error('[wa] auto-connect failed'); });
 } else if (fs.existsSync(path.join(SESSION_DIR, 'creds.json'))) {
   console.log('[wa] stale unregistered session on boot, leaving for next /pair to clear');
 }
 
-process.on('uncaughtException', (e) => console.error('[wa] uncaught: ' + (e?.stack || e)));
-process.on('unhandledRejection', (e) => console.error('[wa] unhandled: ' + (e?.stack || e)));
+process.on('uncaughtException', () => console.error('[wa] uncaught exception'));
+process.on('unhandledRejection', () => console.error('[wa] unhandled rejection'));

@@ -1,5 +1,12 @@
 # MCP-driven glasses display threat model (2026-08-21)
 
+> **Historical threat-model snapshot, superseded for app implementation status.**
+> Exact-turn/connection binding, cancellation, authenticated app-side `wss://`,
+> duplicate rejection, and bounded inert `glasses.render_view` are implemented.
+> Preserve the external server, licensing, generic-client, privacy, and real-G2
+> publication gates below; those remain NO-GO. Current status is in
+> `docs/mcp-glasses-display.md` and `docs/audit-remediation-2026-08-21.md`.
+
 ## Decision and scope
 
 **Static review: FAIL for publication.**  **Operational authorization: NO-GO.**
@@ -188,14 +195,14 @@ Every proposed display operation must:
 | Gate | Status now | PASS evidence required |
 |---|---|---|
 | Least privilege | FAIL | Manifest/config review removes unnecessary access or documents a separately approved feature; denial paths pass. |
-| Explicit turn-bound intent | FAIL | Unique live turn generation is carried and revalidated immediately before side effects. |
+| Explicit turn-bound intent | PASS (app-side static) | External MCP frames must claim the originating turn; missing/delayed claims fail and the exact live turn plus connection are revalidated before effects. Compatible server evidence is still absent. |
 | Proactive opt-in default-off | PARTIAL (default false; unit policy evidence only) | Explicit setting/consent and bounded per-session policy tests. |
-| Untrusted-content handling | PARTIAL (`glasses.show_alert` plain-text policy covered by unit tests) | Full render schema allowlist and rejection tests for injection/URLs/scripts/markup/images. |
+| Untrusted-content handling | PASS (app-side static) | `render_view` imperative allowlist rejects controls, bidi, URLs, markup, unknown fields/primitives and oversized text before shell mutation. Real-lens evidence remains separate. |
 | Secret-safe storage/logs/errors | FAIL | Secure storage or documented containment, no token/PII in logs/errors/backup/ADB evidence. |
 | Data minimization/retention | FAIL | Field-level export policy, bounded transcript/session retention, deletion/disable behavior. |
-| Bounded HUD schema/output/update rate/TTL | FAIL | Static v1 schema with exact audit limits, fuzz tests, 2 updates/s and TTL tests. |
+| Bounded HUD schema/output/update rate/TTL | PARTIAL | Exact V1 limits, two accepted renders/s, revision CAS, operation idempotency and generation-bound TTL have focused tests; fuzz corpus, golden render and hardware TTL evidence remain missing. |
 | Secure authenticated transport/server proof | FAIL | WSS certificate validation or enforced authenticated tunnel plus proof the peer knows the secret. |
-| Replay/idempotency | FAIL | Duplicate IDs, stale revisions, cancellation, timeout, reconnect and late side-effect tests. |
+| Replay/idempotency | PARTIAL | MCP request tombstones, connection-owned cancellation and `render_view` operation IDs/revisions are tested; unrelated phone mutators and operational reconnect retries remain unresolved. |
 | Generic MCP + Hermes adapter interoperability | FAIL | Independent generic client and adapter tests against a versioned endpoint. |
 | Licensing | FAIL | License/provenance clearance for every shipped dependency, especially sibling bridge. |
 | Rollback/disable | PARTIAL | Disable bridge/proactive path without uninstalling; prove disconnect/close and recovery behavior. |
@@ -219,14 +226,13 @@ secret-safe failure behavior. Keep public scope empty while evidence is absent.
 
 ### P1 — bounded static `render_view` implementation and tests
 
-After P0, target the shell/registry integration (`app/ui/shell/`,
-`app/assistant/`), a dedicated schema/handler module, and
-`tests/in-process-surface.test.mjs` plus new render contract/fuzz/race tests.
-Implement only the existing audit design at
+The private implementation now targets shell/registry integration (`app/ui/shell/`,
+`app/assistant/`), a dedicated schema/handler module, and focused render tests.
+It implements the existing audit design at
 `notes/mcp-skill-publish-audit-2026-08-20.md:101-142`: singleton,
 replace-only, revisions, owner epoch, tombstones, exact size/text/action/TTL
-limits, no wake/focus, and safe result/error semantics. Do not add code in this
-documentation task; child `t_0c616231` owns that implementation phase.
+limits, no wake/focus, and safe result/error semantics. Remaining P1 evidence is
+fuzz/golden coverage plus A32+real-G2 create/update/TTL/no-wake/escape behavior.
 
 ### P2 — adapter/docs/skill
 
@@ -269,7 +275,7 @@ escape tests. Until then, retain `FAIL for publication` and `NO-GO`.
   `FaceclawBleCommunicator.java:700-801,1383-1434`.
 - Publication matrix and exact v1 limits:
   `notes/mcp-skill-publish-audit-2026-08-20.md:101-142,173-232`.
-- Sibling bridge evidence: `/home/benny/Documents/hermes-g2/hermes-faceclaw-agent-bridge/README.md:13-37,72-95,107-147,194-224`,
+- Sibling bridge evidence: `<sibling-bridge>/README.md:13-37,72-95,107-147,194-224`,
   `lib/bridge-service.js:24-57,93-280,282-358`,
   `lib/mcp-client.js:23-43,92-124`, `lib/tools.js:28-81`.
 

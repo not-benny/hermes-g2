@@ -15,10 +15,8 @@ import { ringHealthStore, type RingHealthSnapshot } from "../health/ring-health-
 import { dateKeyOf, type DailyHealthSummary } from "../health/health-history";
 import { type HourlyPoint } from "../health/health-hourly";
 import { isPreviewOnlyMode } from "../phone-ui/onboarding-state";
+import { clearHealthData, replaceHealthDocument } from "./health-store";
 
-const HOURLY_KEY = "health.hourly.v1";
-const HISTORY_KEY = "health.history.v1";
-const ACTIVITY_KEY = "health.activity.v1";
 const DEMO_FLAG = "preview.demoSeeded";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -61,9 +59,9 @@ function demoHistory(nowMs: number): DailyHealthSummary[] {
 }
 
 function demoSnapshot(nowMs: number): RingHealthSnapshot {
-  const series = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: h.avg, max: h.max, min: h.min }));
-  const spo2Series = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: 97, max: 99, min: 95 }));
-  const hrvSeries = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: 44 + (h.hourIdx % 5) * 3, max: 62, min: 38 }));
+  const series = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: h.avg, max: h.max, min: h.min, timestampSec: null, timezoneOffsetMinutes: null }));
+  const spo2Series = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: 97, max: 99, min: 95, timestampSec: null, timezoneOffsetMinutes: null }));
+  const hrvSeries = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: 44 + (h.hourIdx % 5) * 3, max: 62, min: 38, timestampSec: null, timezoneOffsetMinutes: null }));
   const newest = series[series.length - 1];
   return {
     heartRate: newest,
@@ -98,9 +96,8 @@ function demoSnapshot(nowMs: number): RingHealthSnapshot {
 export function seedPreviewDemo(nowMs: number = Date.now()): void {
   if (!isPreviewOnlyMode()) return;
   if (!ApplicationSettings.getBoolean(DEMO_FLAG, false)) {
-    ApplicationSettings.setString(HOURLY_KEY, JSON.stringify(demoHourly(nowMs)));
-    ApplicationSettings.setString(HISTORY_KEY, JSON.stringify(demoHistory(nowMs)));
-    ApplicationSettings.setBoolean(DEMO_FLAG, true);
+    const result = replaceHealthDocument({ history: demoHistory(nowMs), hourly: demoHourly(nowMs), activity: null });
+    if (result.ok) ApplicationSettings.setBoolean(DEMO_FLAG, true);
   }
   ringHealthStore.seedMock(demoSnapshot(nowMs));
 }
@@ -112,9 +109,8 @@ export function isPreviewDemoSeeded(): boolean {
 
 /** Delete every trace of the preview demo data (called on exiting preview). */
 export function clearPreviewDemo(): void {
-  ApplicationSettings.remove(HOURLY_KEY);
-  ApplicationSettings.remove(HISTORY_KEY);
-  ApplicationSettings.remove(ACTIVITY_KEY);
+  // Also removes leftover legacy fragments if this demo was already migrated.
+  clearHealthData();
   ApplicationSettings.remove(DEMO_FLAG);
   ringHealthStore.reset();
 }

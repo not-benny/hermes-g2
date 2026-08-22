@@ -87,7 +87,7 @@ followed by fixed-stride hourly records:
 ```
 [0]        count     u8       number of hourly records
 [1..6]     reserved  6 bytes
-[7..10]    base      u32 LE   base/timestamp; exact meaning still open
+[7..10]    base      u32 LE   opaque header word; timestamp meaning unproved
 [11..]     current            live current-hour reading: u8 (HR/SpO2), u16 LE (HRV)
 [then N records]
 ```
@@ -117,7 +117,7 @@ There is no per-beat or per-second stream.
 | temperature | 3 | rides the hourly layout; sparse and often absent |
 | HRV | 4 | confirmed, implemented |
 | activity (steps + calories) | 5 | confirmed, implemented (10-minute buckets) |
-| sleep | 6 | schema known, byte layout awaits an overnight capture |
+| sleep | 6 | type-2 relative interval confirmed; full decode gated |
 | battery | system | confirmed, implemented |
 
 - **Activity/steps/calories (cmd=5):** confirmed data header is
@@ -126,21 +126,23 @@ There is no per-beat or per-second stream.
   Resting kcal is `total-active`, and absolute time is `dayBase+slot*600`.
   The captured slot 71 reproduces the Even CSV's 11:50 row exactly: 0 steps and
   15 kcal = 12 resting + 3 active. Buckets persist locally and merge by day/slot.
-- **Sleep (cmd=6):** the output schema is known and verified (session start/end,
-  total/wake/REM/light/deep seconds, a hypnogram of `{type, half_minutes}` at
-  30-second epochs, and a nightly `body_temp_delta`). Stage map: `0=Wake, 1=REM,
-  2=Light, 3=Deep`. The on-wire byte layout awaits a real overnight capture to
-  correlate against a decoded session before it can be implemented.
+- **Sleep (cmd=6):** three CRC-valid type-2 frames carry relative start/end u32
+  endpoints at data offsets 12/16; all three spans match distinct interval-only
+  ring1Notify sessions and the firmware serializer independently confirms the
+  fields. Their absolute reference is absent. The known output schema and stage
+  map remain gated because no type-1 summary/stage frame matches the available
+  non-empty-stage row. See `notes/ring-sleep-frames-2026-08-20.md`.
 - **Temperature (cmd=3):** has no separate detail record; it rides the same
   hourly layout as HR/SpO2. Its data is sparse and frequently absent, so it is
   treated as best-effort and not depended on.
 
 ## Open items
 
-- Capture an overnight `cmd=6` sleep frame and decode its byte layout against a
-  known session (start/end, stage durations, hypnogram, body-temp delta).
-- Determine the meaning of the `base`/timestamp field at offset 7 so per-record
-  absolute timestamps can be reconstructed rather than inferred from `hourIdx`.
+- Capture a CRC-valid type-1 `cmd=6` frame matching a non-empty-stage
+  ring1Notify row and identify the absolute interval-base handoff.
+- Determine whether the opaque non-activity daily word at offset 7 has any time
+  semantics. It is distinct from activity's confirmed epoch base and cmd=6's
+  unresolved interval reference.
 - MTU 247 and packetAck are implemented: connect requests MTU after service
   discovery and before notify subscription/probing, with a logged safe fallback;
   only complete CRC-valid health pushes queue a bounded cursor, and the

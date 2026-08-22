@@ -53,9 +53,10 @@ the ring, put it into the far safer HEALTH read path, not firmware writes.
   `BleRing1Model`: a CRC-32-framed binary envelope over `bae80012` (write-no-response) /
   `bae80013` (notify).
 - **Firmware version** is read via the vendor `deviceInfo` frame (module=1 / cmd=0 /
-  subCmd `0x02`), a bare status=req GET whose ~32-byte ack carries the version string.
-  Observed ring version **2.2.8.0002**, MAC `DC:BE:DA:94:20:B8`, bonded, LE, MTU 247.
-  `deviceInfo(0x02)` is not currently read by Hermes but is **not** blocklisted.
+  subCmd `0x02`), a bare status=req GET whose ack carries the version string.
+  A provisioned ring answered this read over the existing bonded LE/MTU-247 link; its
+  device identifier remains private.
+  Hermes reads `deviceInfo(0x02)` for the version display; it is **not** blocklisted.
 - **The capture contains ZERO firmware/OTA/DFU/provisioning traffic.** It is a logcat TEXT
   log of a live health sync against an already-bonded, already-provisioned ring. grep counts:
   ota=0, dfu=0, bootloader=0, otaStart(0x09)=0, provision=0. The ring was already up-to-date,
@@ -90,21 +91,16 @@ the capture.
 
 ---
 
-## 4. SECURITY: close the sendRawRingFrame() bypass
+## 4. SECURITY: raw and built-frame gates are closed
 
-The blocklist (`isBlocklistedRingSubCmd()`, `FaceclawBleCommunicator.java` lines 1726-1736)
+The shared blocklist in `FaceclawBleCommunicator`
 refuses the six system mutators - otaStart `0x09`, advStart `0x0a`, setAlgoKey `0x0c`,
 nvRecover `0x11`, powerControl `0x12`, pairDelete `0x13` - by returning null from
 `buildRingFrame()`.
 
-**The blocklist is enforced only at frame-BUILD time.** The `sendRawRingFrame()` path
-(line 1650, used today only for the benign pairAuth golden frame) has **no** blocklist
-check and writes any bytes directly to `bae80012`. A raw captured otaStart frame could be
-replayed through it, bypassing `isBlocklistedRingSubCmd` entirely. This is a latent safety
-gap.
-
-**Action (safe, do now):** apply blocklist inspection to the raw path too, or otherwise
-ensure no captured otaStart/mutator frame can be replayed through `sendRawRingFrame()`.
+`sendRawRingFrame()` also validates the canonical envelope, exact inner length, transport
+CRC, and the same blocklist before the BLE write. A captured mutator cannot bypass the
+policy by using the raw path. Preserve both gates unchanged.
 
 ---
 
@@ -134,9 +130,9 @@ ensure no captured otaStart/mutator frame can be replayed through `sendRawRingFr
 
 ## 6. Safe near-term win
 
-- **Add a `deviceInfo(0x02)` version read.** It is not blocklisted, is read-only, and lets
-  Hermes display the ring firmware version (observed **2.2.8.0002**). Small, safe change.
-- **Close the `sendRawRingFrame()` blocklist gap** (see section 4).
+- **Retain the implemented `deviceInfo(0x02)` version read.** It is not blocklisted and is
+  non-mutating; do not extend it into firmware writes.
+- **Preserve the closed raw/built-frame blocklist gates** (see section 4).
 - **Redirect ring effort to the HEALTH read path,** not firmware writes.
 
 ---
@@ -151,21 +147,20 @@ independent recovery gates below remain separate prerequisites. The current cons
 **BLOCKED/UNSATISFIED** and the operational decision remains **NO-GO / DO NOT BUILD**.
 
 - **Phase 0 - Do not build (current recommendation).** Redirect ring effort to the safe
-  HEALTH read path. Optionally add the `deviceInfo(0x02)` version read. Close the
-  `sendRawRingFrame()` gap defensively.
-- **Phase 1 - Intelligence only (no writes).** Re-establish Even cloud auth from a fresh APK
-  pull; capture a genuine ring firmware update via Even-app logcat to observe the otaStart
-  payload and full DFU sequence; capture the `check_firmware` response to find the ring
-  image URL/format. **GATE:** if the captured package is ECDSA-signed against an Even key,
-  STOP. Custom firmware is impossible, and re-pushing Even's image is not worth the brick risk.
+  HEALTH read path. Retain the version read and raw/built-frame security gates.
+- **Phase 1 - Intelligence only (no device writes).** With Bluetooth denied and the official
+  app unable to reach update/DFU transitions, capture only the sanitized shape of the normal
+  `check_firmware` request. Capturing an actual OTA/DFU sequence is destructive/runtime work
+  outside this phase and requires separate authorization plus every image/recovery gate.
 - **Phase 2 - Pairing workstream (independent, safer, higher value).** Reverse
   `advStart(0x0a)` host-MAC bind and `setAlgoKey(0x0c)` provisioning to own the bond
-  standalone. Prerequisite for update AND independently useful for onboarding. Does not risk
-  bricking, so prioritize it over update regardless.
-- **Phase 3 - Recovery harness on a sacrificial ring.** Only with a genuine signed image in
-  hand: build and prove the Secure DFU client, shifted-address rediscovery, and
-  interrupted-transfer retry to completion. **GATE:** no recovery demonstrated, never ship
-  writes.
+  standalone. Prerequisite for update AND independently useful for onboarding. It has lower
+  DFU-brick risk but can still strand bond, host-identity, or provisioning state, so it remains
+  blocklisted and operationally NO-GO without recovery-backed authorization.
+- **Phase 3 - Recovery harness on sacrificial rings (BLOCKED/UNKNOWN).** The evidence gate is
+  defined in `notes/ring-sacrificial-recovery-gate-2026-08-21.md`; it requires an independent
+  proven recovery route, two authorized units, and per-scenario repeatability. **GATE:** no
+  independent recovery path is terminal FAIL; no recovery evidence means never ship writes.
 - **Phase 4 - Guarded replay feature (only if Phases 1-3 all pass).** Hash-pinned,
   consent-gated re-push of Even's genuine image, mirroring the glasses'
   `requireCanonicalImageDigest()` precheck. Accept that this delivers no CFW upside.

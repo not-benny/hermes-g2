@@ -82,3 +82,171 @@ test("in-process adapter registers, gates, invokes, notifies, and tears down too
   assert.match(window, /if \(closed\) return;\s*closed = true;\s*removeTools\(\);/);
   assert.match(window, /setForeground: \(foreground\) => \{[\s\S]*toolRegistry\.fireToolsChanged\(\);/);
 });
+
+test("worker host closes a same-ID replacement before it declares tools", async () => {
+  const registryUrl = dataUrl(transpile(read("app/assistant/tool-registry.ts")));
+  const workerSource = transpile(read("app/ui/shell/worker-window.ts"))
+    .replace('"../../graphics/image"', JSON.stringify(dataUrl("export class GrayImage {}")))
+    .replace('"./chrome-layer"', JSON.stringify(dataUrl("export const windowIcon = () => undefined;")))
+    .replace('"../../graphics/icons"', JSON.stringify(dataUrl("export {};")))
+    .replace('"../../assistant/tool-registry"', JSON.stringify(registryUrl))
+    .replace('"./geometry"', JSON.stringify(dataUrl("export const appViewportSize = () => ({ width: 1, height: 1 }); export const windowDefaultHeightMode = () => \"min\";")))
+    .replace('"./shell"', JSON.stringify(dataUrl("export const shell = { foregroundWindow: () => undefined, isScreenOn: () => true, focusWindow: () => {}, wake: () => {}, yieldFocusToSidebar: () => {}, setWindowAttention: () => {}, closeWindow: () => {}, beginReorderFromMenu: () => {}, startVoiceInput: () => {}, setTrayIcon: () => {}, isWindowFocused: () => false, registerWindow: () => {} };")));
+  const [{ WorkerAppHost }, { toolRegistry }] = await Promise.all([
+    import(dataUrl(workerSource)),
+    import(registryUrl),
+  ]);
+  const openSpec = { name: "open", description: "open", inputSchema: { type: "object" }, availability: "open" };
+  const worker = { postMessage: () => {}, onmessage: null, onerror: null };
+  let changes = 0;
+  toolRegistry.onToolsChanged(() => { changes++; });
+  const host = new WorkerAppHost({
+    appId: "demo",
+    worker,
+    configureSurface: async () => {},
+    setSurfaceVisible: () => {},
+    removeSurface: () => {},
+    requestShellRender: () => {},
+    openSettings: () => {},
+    startTextSettingEdit: () => {},
+    endTextSettingEdit: () => {},
+  });
+  const oldWindow = host.openWindow({ windowId: "reused", title: "old", iconLetter: "O" });
+  worker.onmessage({ data: { type: "set-tools", windowId: "reused", tools: [openSpec] } });
+  assert.deepEqual(toolRegistry.listTools().map((spec) => spec.name), ["app.demo.open"]);
+
+  const replacement = host.openWindow({ windowId: "reused", title: "new", iconLetter: "N" });
+  assert.deepEqual(toolRegistry.listTools(), []);
+  replacement.close();
+  assert.deepEqual(toolRegistry.listTools(), []);
+  assert.equal(changes, 2);
+
+  // Once the replacement owns a lease, the old ShellWindow's close must be a
+  // stale no-op and leave the replacement callable until it closes.
+  const currentWindow = host.openWindow({ windowId: "reused", title: "current", iconLetter: "C" });
+  worker.onmessage({ data: { type: "set-tools", windowId: "reused", tools: [openSpec] } });
+  assert.deepEqual(toolRegistry.listTools().map((spec) => spec.name), ["app.demo.open"]);
+  let call;
+  worker.postMessage = (message) => { if (message.type === "tool-call") call = message; };
+  const resultPromise = toolRegistry.callTool("app.demo.open", {});
+  assert.equal(call?.name, "open");
+  worker.onmessage({ data: { type: "tool-result", callId: call.callId, result: { ok: true, content: "current" } } });
+  assert.deepEqual(await resultPromise, { ok: true, content: "current" });
+  oldWindow.close();
+  assert.deepEqual(toolRegistry.listTools().map((spec) => spec.name), ["app.demo.open"]);
+  assert.equal(changes, 3);
+  currentWindow.close();
+  assert.deepEqual(toolRegistry.listTools(), []);
+  assert.equal(changes, 4);
+});
+
+test("closing a generation aborts its deferred call without authorizing a late side effect", async () => {
+  const registryUrl = dataUrl(transpile(read("app/assistant/tool-registry.ts")));
+  const adapterJs = transpile(read("app/assistant/in-process-tool-adapter.ts"))
+    .replace('"./tool-registry"', JSON.stringify(registryUrl));
+  const { ToolRegistry } = await import(registryUrl);
+  const { registerInProcessTools } = await import(dataUrl(adapterJs));
+  const registry = new ToolRegistry();
+  const spec = { name: "deferred", description: "deferred", inputSchema: { type: "object", properties: {}, additionalProperties: false }, availability: "open" };
+  let release;
+  let aborted = false;
+  let committedSideEffects = 0;
+  const deferred = new Promise((resolve) => { release = resolve; });
+  const remove = registerInProcessTools(registry, "window", "demo", {
+    specs: [spec],
+    invoke: async (_name, _args, signal, isSideEffectAllowed) => {
+      signal.addEventListener("abort", () => { aborted = true; }, { once: true });
+      await deferred;
+      if (isSideEffectAllowed()) committedSideEffects++;
+      return { ok: true, content: "late-success" };
+    },
+  }, () => true);
+
+  const call = registry.callTool("app.demo.deferred", {});
+  remove();
+  release();
+  const result = await call;
+  assert.equal(aborted, true);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /available|cancel/i);
+  assert.equal(committedSideEffects, 0);
+});
+
+test("stale cleanup cannot abort an in-flight replacement generation", async () => {
+  const registryUrl = dataUrl(transpile(read("app/assistant/tool-registry.ts")));
+  const adapterJs = transpile(read("app/assistant/in-process-tool-adapter.ts"))
+    .replace('"./tool-registry"', JSON.stringify(registryUrl));
+  const { ToolRegistry } = await import(registryUrl);
+  const { registerInProcessTools } = await import(dataUrl(adapterJs));
+  const registry = new ToolRegistry();
+  const spec = { name: "deferred", description: "deferred", inputSchema: { type: "object", properties: {}, additionalProperties: false }, availability: "open" };
+  let release;
+  let replacementAborted = false;
+  const deferred = new Promise((resolve) => { release = resolve; });
+  const removeOld = registerInProcessTools(registry, "reused", "demo", { specs: [spec], invoke: () => ({ ok: true, content: "old" }) }, () => true);
+  const removeNew = registerInProcessTools(registry, "reused", "demo", {
+    specs: [spec],
+    invoke: async (_name, _args, signal) => {
+      signal.addEventListener("abort", () => { replacementAborted = true; }, { once: true });
+      await deferred;
+      return { ok: true, content: "new" };
+    },
+  }, () => true);
+  const call = registry.callTool("app.demo.deferred", {});
+  removeOld();
+  assert.deepEqual(registry.listTools().map((tool) => tool.name), ["app.demo.deferred"]);
+  release();
+  assert.equal((await call).content, "new");
+  assert.equal(replacementAborted, false);
+  removeNew();
+});
+
+test("synchronous close cancels before timeout and completed calls release merged listeners", async () => {
+  const registryUrl = dataUrl(transpile(read("app/assistant/tool-registry.ts")));
+  const adapterJs = transpile(read("app/assistant/in-process-tool-adapter.ts"))
+    .replace('"./tool-registry"', JSON.stringify(registryUrl));
+  const { ToolRegistry } = await import(registryUrl);
+  const { registerInProcessTools } = await import(dataUrl(adapterJs));
+  const registry = new ToolRegistry();
+  const spec = { name: "setup", description: "setup", inputSchema: { type: "object", properties: {}, additionalProperties: false }, availability: "open" };
+  let remove;
+  let signal;
+  remove = registerInProcessTools(registry, "setup-window", "demo", {
+    specs: [spec],
+    invoke: (_name, _args, received) => {
+      signal = received;
+      remove();
+      return new Promise(() => {});
+    },
+  }, () => true);
+  const started = Date.now();
+  const result = await registry.callTool("app.demo.setup", {});
+  assert.ok(Date.now() - started < 1000);
+  assert.equal(signal.aborted, true);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /cancel|available/i);
+
+  let adds = 0;
+  let removes = 0;
+  const originalAdd = AbortSignal.prototype.addEventListener;
+  const originalRemove = AbortSignal.prototype.removeEventListener;
+  AbortSignal.prototype.addEventListener = function (...args) {
+    adds++;
+    return originalAdd.apply(this, args);
+  };
+  AbortSignal.prototype.removeEventListener = function (...args) {
+    removes++;
+    return originalRemove.apply(this, args);
+  };
+  try {
+    const secondRemove = registerInProcessTools(registry, "listener-window", "demo", {
+      specs: [spec], invoke: () => ({ ok: true, content: "done" }),
+    }, () => true);
+    for (let i = 0; i < 25; i++) assert.equal((await registry.callTool("app.demo.setup", {})).ok, true);
+    secondRemove();
+  } finally {
+    AbortSignal.prototype.addEventListener = originalAdd;
+    AbortSignal.prototype.removeEventListener = originalRemove;
+  }
+  assert.equal(adds, removes);
+});

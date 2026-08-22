@@ -1,7 +1,7 @@
 import { GrayImage } from "../../graphics/image";
 import { windowIcon } from "./chrome-layer";
 import { type IconName } from "../../graphics/icons";
-import { toolRegistry, type ToolResult, type ToolSpec } from "../../assistant/tool-registry";
+import { toolRegistry, type AppToolLease, type ToolResult, type ToolSpec } from "../../assistant/tool-registry";
 import { appViewportSize, windowDefaultHeightMode, type WindowHeightMode } from "./geometry";
 import { shell, type ShellWindow } from "./shell";
 
@@ -20,7 +20,8 @@ export type WorkerAppMessage =
   | { type: "foreground"; windowId: string; foreground: boolean; focused: boolean }
   | { type: "screen"; on: boolean }
   /** Assistant tool invocation aimed at a window; reply with tool-result. */
-  | { type: "tool-call"; callId: string; windowId: string; name: string; args: unknown };
+  | { type: "tool-call"; callId: string; windowId: string; name: string; args: unknown; authorizationId: string }
+  | { type: "cancel-tool-call"; callId: string; authorizationId: string };
 
 export type WorkerAppReply =
   | { type: "yield-focus"; windowId: string }
@@ -149,6 +150,8 @@ export type WorkerAppHostOptions = {
 /** A tool-call awaiting its worker reply; also its own leak-safety timeout. */
 type PendingToolCall = {
   windowId: string;
+  authorizationId: string;
+  cancel: () => void;
   resolve: (result: ToolResult) => void;
   timer: ReturnType<typeof setTimeout>;
 };
@@ -161,7 +164,7 @@ type PendingToolCall = {
 const TOOL_CALL_HOST_TIMEOUT_MS = 15_000;
 
 export class WorkerAppHost {
-  private readonly openWindows = new Set<string>();
+  private readonly openWindows = new Map<string, { lease?: AppToolLease }>();
   private readonly pendingToolCalls = new Map<string, PendingToolCall>();
   private nextCallSerial = 1;
 
@@ -247,13 +250,15 @@ export class WorkerAppHost {
         case "set-tools":
           // Only a window we actually have open may contribute tools.
           if (this.openWindows.has(message.windowId)) {
-            toolRegistry.setAppTools({
+            const lease = toolRegistry.setAppTools({
               windowId: message.windowId,
               appId: this.options.appId,
               specs: message.tools,
-              invoke: (toolName, args) => this.callWindowTool(message.windowId, toolName, args),
+              invoke: (toolName, args, signal, isSideEffectAllowed) =>
+                this.callWindowTool(message.windowId, toolName, args, signal, isSideEffectAllowed),
               isForeground: () => shell.foregroundWindow()?.windowId === message.windowId,
             });
+            this.openWindows.get(message.windowId)!.lease = lease;
           }
           break;
         case "tool-result": {
@@ -280,7 +285,15 @@ export class WorkerAppHost {
   openWindow(spec: WorkerWindowSpec): ShellWindow {
     const surfaceId = `window:${spec.windowId}`;
     const heightMode = spec.heightMode ?? windowDefaultHeightMode();
-    this.openWindows.add(spec.windowId);
+    // ShellWindow IDs may be reused. Release the replaced generation before
+    // replacing its lifecycle state, so a replacement that closes before it
+    // declares tools cannot leave the old window's tools callable.
+    const previousState = this.openWindows.get(spec.windowId);
+    if (previousState?.lease) {
+      toolRegistry.removeAppTools(spec.windowId, previousState.lease);
+    }
+    const windowState = { lease: undefined as AppToolLease | undefined };
+    this.openWindows.set(spec.windowId, windowState);
     this.post({
       type: "open-window",
       windowId: spec.windowId,
@@ -295,9 +308,10 @@ export class WorkerAppHost {
       closeable: true,
       heightMode,
       close: () => {
+        if (this.openWindows.get(spec.windowId) !== windowState) return;
         this.openWindows.delete(spec.windowId);
         // Withdraw this window's tools and fail any in-flight calls to it.
-        toolRegistry.removeAppTools(spec.windowId);
+        if (windowState.lease) toolRegistry.removeAppTools(spec.windowId, windowState.lease);
         this.failPendingToolCallsFor(spec.windowId);
         this.post({ type: "close-window", windowId: spec.windowId });
         this.options.removeSurface(surfaceId);
@@ -358,15 +372,42 @@ export class WorkerAppHost {
    * Resolves with a tool error on timeout so a hung worker yields a tool error
    * rather than a stuck assistant turn.
    */
-  private callWindowTool(windowId: string, toolName: string, args: unknown): Promise<ToolResult> {
+  private callWindowTool(
+    windowId: string,
+    toolName: string,
+    args: unknown,
+    signal?: AbortSignal,
+    isSideEffectAllowed?: () => boolean,
+  ): Promise<ToolResult> {
     return new Promise<ToolResult>((resolve) => {
+      const allowed = () => !signal?.aborted && (!isSideEffectAllowed || isSideEffectAllowed());
+      if (!allowed()) {
+        resolve({ ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." });
+        return;
+      }
       const callId = `${this.options.appId}:${this.nextCallSerial++}`;
+      const authorizationId = `${callId}:authorization`;
+      const cancel = () => this.post({ type: "cancel-tool-call", callId, authorizationId });
+      const onAbort = () => cancel();
+      signal?.addEventListener("abort", onAbort, { once: true });
       const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        cancel();
         this.pendingToolCalls.delete(callId);
         resolve({ ok: false, error: `App ${this.options.appId} did not respond to ${toolName}` });
       }, TOOL_CALL_HOST_TIMEOUT_MS);
-      this.pendingToolCalls.set(callId, { windowId, resolve, timer });
-      this.post({ type: "tool-call", callId, windowId, name: toolName, args });
+      this.pendingToolCalls.set(callId, { windowId, authorizationId, cancel, resolve: (result) => resolve(allowed() ? result : {
+        ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent.",
+      }), timer });
+      if (!allowed()) {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        cancel();
+        this.pendingToolCalls.delete(callId);
+        resolve({ ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." });
+        return;
+      }
+      this.post({ type: "tool-call", callId, windowId, name: toolName, args, authorizationId });
     });
   }
 
@@ -374,6 +415,7 @@ export class WorkerAppHost {
     for (const [callId, pending] of this.pendingToolCalls) {
       if (pending.windowId !== windowId) continue;
       clearTimeout(pending.timer);
+      pending.cancel();
       this.pendingToolCalls.delete(callId);
       pending.resolve({ ok: false, error: "The target window was closed" });
     }

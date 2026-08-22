@@ -46,7 +46,18 @@ export type ToolResult = {
   error?: string;
 };
 
-export type ToolHandler = (args: any, signal?: AbortSignal, isSideEffectAllowed?: () => boolean) => Promise<ToolResult> | ToolResult;
+export type ToolExecutionContext = {
+  caller: "direct" | "mcp";
+  connectionGeneration?: string | number | null;
+  turnGeneration: string | null;
+};
+
+export type ToolHandler = (
+  args: any,
+  signal?: AbortSignal,
+  isSideEffectAllowed?: () => boolean,
+  context?: ToolExecutionContext,
+) => Promise<ToolResult> | ToolResult;
 
 export type ToolRegistration = {
   spec: ToolSpec;
@@ -58,7 +69,7 @@ export type ToolRegistration = {
   isAvailable?: () => boolean;
 };
 
-type OwnedToolRegistration = ToolRegistration & { ownerWindowId?: string };
+type OwnedToolRegistration = ToolRegistration & { ownerWindowId?: string; ownerLease?: AppToolLease };
 
 export type ListToolsOptions = {
   /** Only tools flagged proactive (for calls outside an active turn). */
@@ -68,10 +79,16 @@ export type ListToolsOptions = {
 export type CallToolOptions = {
   /** The call is happening outside an active voice turn; enforce proactive gating. */
   proactive?: boolean;
+  /** Last-moment caller/policy gate, checked immediately before the handler. */
+  isCallAllowed?: () => string | null;
   /** Stable generation that authorized this side effect. */
   turnGeneration?: string | null;
   /** Revalidate the authorizing turn immediately before invocation. */
   isTurnGenerationActive?: () => boolean;
+  /** Abort owned work when its backend connection or turn closes. */
+  signal?: AbortSignal;
+  /** Caller identity carried to owner-sensitive handlers. */
+  executionContext?: ToolExecutionContext;
 };
 
 const DEFAULT_TOOL_TIMEOUT_MS = 10_000;
@@ -92,18 +109,29 @@ export type AppToolProvider = {
   /** The window's declared specs, with UNPREFIXED names (registry adds the prefix). */
   specs: ToolSpec[];
   /** Invoke a tool on the window by its unprefixed name. */
-  invoke: (toolName: string, args: unknown) => Promise<ToolResult> | ToolResult;
+  invoke: (toolName: string, args: unknown, signal: AbortSignal, isSideEffectAllowed: () => boolean) => Promise<ToolResult> | ToolResult;
   /** Whether the window currently owns the foreground (gates `foreground` tools). */
   isForeground: () => boolean;
+  /** Whether this registration generation is still live. */
+  isGenerationActive?: () => boolean;
+};
+
+/** Opaque identity for one installed generation of an app window's tools. */
+export type AppToolLease = {
+  readonly windowId: string;
+  readonly generation: symbol;
 };
 
 export class ToolRegistry {
   private readonly registrations = new Map<string, OwnedToolRegistration>();
   private readonly changeListeners = new Set<() => void>();
+  private readonly ownerCloseListeners = new Set<(owner: ToolExecutionContext) => void>();
   // windowId -> the canonical (prefixed) tool names it contributed, for bulk
   // removal when the window closes or re-declares.
   private readonly windowToolNames = new Map<string, string[]>();
   private readonly windowRegistrations = new Map<string, Map<string, OwnedToolRegistration>>();
+  private readonly windowLeases = new Map<string, AppToolLease>();
+  private readonly pendingCalls = new Map<AppToolLease, Set<AbortController>>();
 
   /** Register (or replace) a tool. Names are unique across all tiers. */
   register(registration: ToolRegistration): void {
@@ -131,8 +159,10 @@ export class ToolRegistry {
    * each other. `open` tools stay live while the window exists; `foreground`
    * tools are gated on `isForeground()` at both list and call time.
    */
-  setAppTools(provider: AppToolProvider): void {
+  setAppTools(provider: AppToolProvider): AppToolLease {
     this.clearWindowTools(provider.windowId, false);
+    const lease: AppToolLease = { windowId: provider.windowId, generation: Symbol(provider.windowId) };
+    this.windowLeases.set(provider.windowId, lease);
     const names: string[] = [];
     const owned = new Map<string, OwnedToolRegistration>();
     for (const spec of provider.specs) {
@@ -144,26 +174,38 @@ export class ToolRegistry {
       const toolName = spec.name;
       this.addRegistration({
         spec: { ...spec, name: canonical },
-        handler: (args) => provider.invoke(toolName, args),
-        isAvailable: spec.availability === "foreground" ? () => provider.isForeground() : undefined,
-      }, provider.windowId);
+        handler: (args, signal, isSideEffectAllowed) => provider.invoke(
+          toolName,
+          args,
+          signal!,
+          () => (provider.isGenerationActive?.() ?? true) && (isSideEffectAllowed?.() ?? true),
+        ),
+        isAvailable: () =>
+          (provider.isGenerationActive?.() ?? true) &&
+          (spec.availability !== "foreground" || provider.isForeground()),
+      }, provider.windowId, lease);
       owned.set(canonical, this.registrations.get(canonical)!);
       names.push(canonical);
     }
     this.windowToolNames.set(provider.windowId, names);
     this.windowRegistrations.set(provider.windowId, owned);
     this.fireToolsChanged();
+    return lease;
   }
 
-  /** Remove all tools contributed by a window (its worker closed or the window did). */
-  removeAppTools(windowId: string): void {
+  /** Remove one installed generation; stale or repeated releases are no-ops. */
+  removeAppTools(windowId: string, lease: AppToolLease): void {
+    if (this.windowLeases.get(windowId) !== lease) return;
     this.clearWindowTools(windowId, true);
   }
 
   private clearWindowTools(windowId: string, fire: boolean): void {
     const names = this.windowToolNames.get(windowId);
     if (!names) return;
+    const lease = this.windowLeases.get(windowId);
+    if (lease) this.abortPendingCalls(lease);
     this.windowRegistrations.delete(windowId);
+    this.windowLeases.delete(windowId);
     for (const name of names) {
       if (this.registrations.get(name)?.ownerWindowId !== windowId) continue;
       this.registrations.delete(name);
@@ -177,8 +219,8 @@ export class ToolRegistry {
     if (fire) this.fireToolsChanged();
   }
 
-  private addRegistration(registration: ToolRegistration, ownerWindowId?: string): void {
-    this.registrations.set(registration.spec.name, { ...registration, ownerWindowId });
+  private addRegistration(registration: ToolRegistration, ownerWindowId?: string, ownerLease?: AppToolLease): void {
+    this.registrations.set(registration.spec.name, { ...registration, ownerWindowId, ownerLease });
   }
 
   /** Specs for the tools callable right now, given the availability tiers. */
@@ -232,19 +274,50 @@ export class ToolRegistry {
     if (preflight) return preflight;
     const registration = this.registrations.get(name)!;
     const timeoutMs = registration.spec.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
+    const controller = new AbortController();
+    const abortFromOwner = () => controller.abort();
     try {
+      options.signal?.addEventListener("abort", abortFromOwner, { once: true });
+      if (options.signal?.aborted) controller.abort();
       if (options.turnGeneration && options.isTurnGenerationActive && !options.isTurnGenerationActive()) {
         return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
       }
-      const controller = new AbortController();
-      return await this.withTimeout(
-        registration.handler(args, controller.signal, options.isTurnGenerationActive),
+      const callDenied = options.isCallAllowed?.();
+      if (callDenied) return { ok: false, error: callDenied };
+      const ownerLease = registration.ownerLease;
+      if (ownerLease) {
+        let pending = this.pendingCalls.get(ownerLease);
+        if (!pending) {
+          pending = new Set();
+          this.pendingCalls.set(ownerLease, pending);
+        }
+        pending.add(controller);
+      }
+      const handlerResult = registration.handler(
+        args,
+        controller.signal,
+        options.isTurnGenerationActive,
+        options.executionContext,
+      );
+      // A handler can synchronously close its window during setup. The timeout
+      // wrapper has not subscribed yet, so cancel before installing it.
+      if (!this.isLive(registration)) controller.abort();
+      const result = await this.withTimeout(
+        handlerResult,
         timeoutMs,
         name,
         controller,
       );
+      if (ownerLease) this.pendingCalls.get(ownerLease)?.delete(controller);
+      if ((controller.signal.aborted || !this.isLive(registration)) && result.ok) {
+        return { ok: false, error: `Tool ${name} is no longer available; no late side effect was sent.` };
+      }
+      return result;
     } catch (error) {
+      if (registration.ownerLease) this.pendingCalls.get(registration.ownerLease)?.delete(controller);
       return { ok: false, error: `Tool ${name} failed: ${describeError(error)}` };
+    } finally {
+      options.signal?.removeEventListener("abort", abortFromOwner);
     }
   }
 
@@ -252,6 +325,21 @@ export class ToolRegistry {
   onToolsChanged(listener: () => void): () => void {
     this.changeListeners.add(listener);
     return () => this.changeListeners.delete(listener);
+  }
+
+  onExecutionOwnerClosed(listener: (owner: ToolExecutionContext) => void): () => void {
+    this.ownerCloseListeners.add(listener);
+    return () => this.ownerCloseListeners.delete(listener);
+  }
+
+  closeExecutionOwner(owner: ToolExecutionContext): void {
+    for (const listener of this.ownerCloseListeners) {
+      try {
+        listener(owner);
+      } catch {
+        // Owner cleanup must never break connection teardown.
+      }
+    }
   }
 
   /** App-tool phases call this after a foreground/window change re-gates tools. */
@@ -269,6 +357,13 @@ export class ToolRegistry {
     return registration.isAvailable ? registration.isAvailable() : true;
   }
 
+  private abortPendingCalls(lease: AppToolLease): void {
+    const pending = this.pendingCalls.get(lease);
+    if (!pending) return;
+    for (const controller of pending) controller.abort();
+    this.pendingCalls.delete(lease);
+  }
+
   private withTimeout(
     result: Promise<ToolResult> | ToolResult,
     timeoutMs: number,
@@ -278,23 +373,34 @@ export class ToolRegistry {
     if (!(result instanceof Promise)) return Promise.resolve(result);
     return new Promise<ToolResult>((resolve) => {
       let settled = false;
+      const abort = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ ok: false, error: `Tool ${name} was cancelled; no late side effect was sent.` });
+      };
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
         controller?.abort();
         resolve({ ok: false, error: `Tool ${name} timed out after ${timeoutMs}ms` });
       }, timeoutMs);
+      controller?.signal.addEventListener("abort", abort, { once: true });
+      if (controller?.signal.aborted) abort();
+      if (settled) return;
       result.then(
         (value) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
+          controller?.signal.removeEventListener("abort", abort);
           resolve(value);
         },
         (error) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
+          controller?.signal.removeEventListener("abort", abort);
           resolve({ ok: false, error: `Tool ${name} failed: ${describeError(error)}` });
         },
       );

@@ -305,6 +305,21 @@ public class FaceclawFlashPromptCommunicator implements FaceclawBleListener {
     }
 
     @Override
+    public void onNotification(BluetoothGatt gatt, String address, String characteristicUuid, byte[] data) {
+        onNotification(address, characteristicUuid, data);
+    }
+
+    @Override
+    public void onNotification(BluetoothGatt gatt, String address, String characteristicUuid, byte[] data,
+                               GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
+        synchronized (lock) {
+            lease.dispatchIfCurrent(ignored -> {
+                onNotification(address, characteristicUuid, data);
+            });
+        }
+    }
+
+    @Override
     public void onNotification(String address, String characteristicUuid, byte[] data) {
         if (!BleProtocol.NOTIFY_CHAR_UUID.equalsIgnoreCase(characteristicUuid)) {
             return;
@@ -348,6 +363,21 @@ public class FaceclawFlashPromptCommunicator implements FaceclawBleListener {
         }
         emitLog("selection: " + (yes ? "flash" : "cancel") + " (index " + selection.itemIndex + ")");
         selectionLatch.countDown();
+    }
+
+    @Override
+    public void onConnectionStateChange(BluetoothGatt gatt, String address, boolean connected) {
+        onConnectionStateChange(address, connected);
+    }
+
+    @Override
+    public void onConnectionStateChange(BluetoothGatt gatt, String address, boolean connected,
+                                        GattCallbackRegistry.DispatchLease<BluetoothGatt> lease) {
+        synchronized (lock) {
+            lease.dispatchIfCurrent(ignored -> {
+                onConnectionStateChange(address, connected);
+            });
+        }
     }
 
     @Override

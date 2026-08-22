@@ -4,7 +4,11 @@ import { dismissNotification, readActiveNotifications } from "../native/notifica
 import { shell } from "../ui/shell/shell";
 import { MAX_ALERT_TEXT_LENGTH } from "./display-policy";
 import { createShowAlertHandler } from "./display-alert-handler";
+import { RenderViewManager } from "./render-view";
+import { DYNAMIC_APP_CAPABILITIES, DynamicAppManager } from "./dynamic-app";
 import { toolRegistry, type ToolRegistry, type ToolResult } from "./tool-registry";
+
+declare const java: any;
 
 /**
  * Registers the always-available system tools into the registry. Called once at
@@ -53,8 +57,234 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
       // Preserve the registry-owned cancellation boundary all the way to the
       // shell. Dropping the signal here would let a timed-out MCP call send a
       // queued frame after its tool result had already failed.
-      showAlert: (text, signal) => shell.showAlert(text, signal),
+      showAlert: (text, signal, isSideEffectAllowed) => shell.showAlert(text, signal, isSideEffectAllowed),
     }),
+  );
+
+  let renderViewManager: RenderViewManager;
+  renderViewManager = new RenderViewManager({
+    isDisplayAvailable: () => shell.isScreenOn(),
+    createId: () => String(java.util.UUID.randomUUID()).replace(/-/g, ""),
+    render: (state, signal, isAllowed) => shell.showRemoteView(
+      state,
+      signal,
+      isAllowed,
+      (gesture, foreground) => renderViewManager.handleGesture(gesture, foreground),
+      () => renderViewManager.closeView(state.viewId, state.revision),
+    ),
+    clear: (identity) => shell.clearRemoteView(identity),
+  });
+  registry.onExecutionOwnerClosed((owner) => renderViewManager.closeOwner(owner));
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.render_view",
+      description: "Create or revision-replace one bounded, temporary shell-owned glasses view. Never wakes or focuses the display.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          operation_id: { type: "string", minLength: 1, maxLength: 64 },
+          spec: {
+            type: "object",
+            properties: {
+              version: { type: "integer", minimum: 1, maximum: 1 },
+              view_id: { type: "string", minLength: 16, maxLength: 128 },
+              expected_revision: { type: "integer", minimum: 1 },
+              title: { type: "string", minLength: 1, maxLength: 80 },
+              blocks: {
+                type: "array", maxItems: 32, items: {
+                  type: "object",
+                  properties: {
+                    type: { type: "string", enum: ["text", "key_value", "progress", "divider"] },
+                    text: { type: "string", maxLength: 1024 },
+                    emphasis: { type: "string", enum: ["normal", "strong"] },
+                    label: { type: "string", maxLength: 80 },
+                    value: {},
+                  },
+                  required: ["type"], additionalProperties: false,
+                },
+              },
+              actions: {
+                type: "array", maxItems: 8, items: {
+                  type: "object",
+                  properties: { id: { type: "string", minLength: 1, maxLength: 64 }, label: { type: "string", minLength: 1, maxLength: 40 } },
+                  required: ["id", "label"], additionalProperties: false,
+                },
+              },
+              ttl_seconds: { type: "integer", minimum: 30, maximum: 3600 },
+            },
+            required: ["version", "title", "blocks", "ttl_seconds"],
+            additionalProperties: false,
+          },
+        },
+        required: ["operation_id", "spec"],
+        additionalProperties: false,
+      },
+      timeoutMs: 15_000,
+    },
+    renderViewManager.handler,
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.read_view_events",
+      description: "Drain bounded user action events from the exact owned render_view revision.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          view_id: { type: "string", minLength: 16, maxLength: 128 },
+          revision: { type: "integer", minimum: 1 },
+        },
+        required: ["view_id", "revision"],
+        additionalProperties: false,
+      },
+    },
+    (args, _signal, _isAllowed, context) => renderViewManager.readEvents(context, String(args.view_id), Number(args.revision)),
+  );
+
+  let dynamicApps: DynamicAppManager;
+  dynamicApps = new DynamicAppManager({
+    isDisplayAvailable: () => shell.isScreenOn(),
+    createId: () => String(java.util.UUID.randomUUID()).replace(/-/g, ""),
+    deliver: (state, signal, isAllowed) => shell.showDynamicApp(
+      state,
+      signal,
+      isAllowed,
+      (input, foreground) => dynamicApps.handleInput(input, foreground),
+      () => dynamicApps.closeView(state.viewId, state.revision),
+    ),
+    clear: (identity) => shell.clearDynamicApp(identity),
+  });
+  registry.onExecutionOwnerClosed((owner) => dynamicApps.closeOwner(owner));
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.dynamic_apps.capabilities",
+      description: "Query the exact bounded dynamic-app protocol and G2 compositor capabilities.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      proactive: true,
+    },
+    () => ok(JSON.stringify(DYNAMIC_APP_CAPABILITIES)),
+  );
+
+  const dynamicSpecSchema = {
+    type: "object",
+    description: "A versioned inert dynamic-app view model. The runtime applies stricter discriminated validation and byte limits.",
+    properties: {
+      version: { type: "integer", minimum: 1, maximum: 1 },
+      title: { type: "string", minLength: 1, maxLength: 80 },
+      state: { type: "string", enum: ["loading", "ready", "empty", "error", "offline"] },
+      privacy: { type: "string", enum: ["public", "private", "sensitive"] },
+      components: { type: "array", maxItems: 64, items: {
+        type: "object",
+        description: "One inert discriminated component; the listed fields are type-specific and exact validation is applied at execution.",
+        properties: {
+          id: { type: "string", minLength: 1, maxLength: 64 },
+          type: { type: "string", enum: DYNAMIC_APP_CAPABILITIES.componentTypes },
+          text: { type: "string", minLength: 1, maxLength: 1024 },
+          label: { type: "string", minLength: 1, maxLength: 80 },
+          value: {},
+          tone: { type: "string", enum: ["neutral", "good", "warning", "critical"] },
+          title: { type: "string", minLength: 1, maxLength: 80 },
+          body: { type: "string", minLength: 1, maxLength: 1024 },
+          items: { type: "array", maxItems: 32, items: { type: "string", minLength: 1, maxLength: 160 } },
+          name: { type: "string", enum: ["info", "check", "warning", "error"] },
+          action_handle: { type: "string", minLength: 16, maxLength: 128 },
+          confirmation: { type: "string", minLength: 1, maxLength: 160 },
+          confirm_handle: { type: "string", minLength: 16, maxLength: 128 },
+          cancel_handle: { type: "string", minLength: 16, maxLength: 128 },
+        },
+        required: ["id", "type"],
+        additionalProperties: false,
+      } },
+      ttl_seconds: { type: "integer", minimum: 30, maximum: 3600 },
+    },
+    required: ["version", "title", "state", "privacy", "components", "ttl_seconds"],
+    additionalProperties: false,
+  };
+  const operationIdentitySchema = {
+    operation_id: { type: "string", minLength: 1, maxLength: 64 },
+    view_id: { type: "string", minLength: 16, maxLength: 128 },
+    expected_revision: { type: "integer", minimum: 1 },
+  };
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.dynamic_apps.create",
+      description: "Create one bounded dynamic glasses app for the exact authenticated socket and turn. Never wakes the display.",
+      inputSchema: { type: "object", properties: { operation_id: operationIdentitySchema.operation_id, spec: dynamicSpecSchema },
+        required: ["operation_id", "spec"], additionalProperties: false },
+      timeoutMs: 15_000,
+    },
+    (args, signal, isAllowed, context) => dynamicApps.create(args, signal, isAllowed, context),
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.dynamic_apps.update",
+      description: "CAS-replace the exact current dynamic app revision after acknowledged lens transport delivery.",
+      inputSchema: { type: "object", properties: { ...operationIdentitySchema, spec: dynamicSpecSchema },
+        required: ["operation_id", "view_id", "expected_revision", "spec"], additionalProperties: false },
+      timeoutMs: 15_000,
+    },
+    (args, signal, isAllowed, context) => dynamicApps.update(args, signal, isAllowed, context),
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.dynamic_apps.patch",
+      description: "CAS-patch components by stable component ID; unknown fields and duplicate IDs fail closed.",
+      inputSchema: {
+        type: "object",
+        properties: { ...operationIdentitySchema, patch: { type: "object", properties: {
+          upsert: { type: "array", maxItems: 64, items: dynamicSpecSchema.properties.components.items },
+          remove: { type: "array", maxItems: 64, items: { type: "string", maxLength: 64 } },
+        }, required: ["upsert", "remove"], additionalProperties: false } },
+        required: ["operation_id", "view_id", "expected_revision", "patch"], additionalProperties: false,
+      },
+      timeoutMs: 15_000,
+    },
+    (args, signal, isAllowed, context) => dynamicApps.patch(args, signal, isAllowed, context),
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.dynamic_apps.close",
+      description: "Close and tombstone the exact owned dynamic app revision.",
+      inputSchema: { type: "object", properties: operationIdentitySchema,
+        required: ["operation_id", "view_id", "expected_revision"], additionalProperties: false },
+    },
+    (args, _signal, _isAllowed, context) => dynamicApps.close(args, context),
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.dynamic_apps.read_events",
+      description: "Read bounded inert wearer intents after an optional acknowledged event cursor; events are not provider commands.",
+      inputSchema: { type: "object", properties: {
+        view_id: operationIdentitySchema.view_id,
+        revision: operationIdentitySchema.expected_revision,
+        after_event_id: { type: ["string", "null"], maxLength: 160 },
+      }, required: ["view_id", "revision"], additionalProperties: false },
+    },
+    (args, _signal, _isAllowed, context) => dynamicApps.readEvents(
+      context, String(args.view_id), Number(args.revision), typeof args.after_event_id === "string" ? args.after_event_id : null,
+    ),
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.dynamic_apps.ack_events",
+      description: "Acknowledge wearer intents through one exact event ID so retries never lose an unprocessed action.",
+      inputSchema: { type: "object", properties: {
+        view_id: operationIdentitySchema.view_id,
+        revision: operationIdentitySchema.expected_revision,
+        through_event_id: { type: "string", minLength: 1, maxLength: 160 },
+      }, required: ["view_id", "revision", "through_event_id"], additionalProperties: false },
+    },
+    (args, _signal, _isAllowed, context) => dynamicApps.ackEvents(
+      context, String(args.view_id), Number(args.revision), String(args.through_event_id),
+    ),
   );
 
   registry.registerSystemTool(
@@ -77,7 +307,11 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
     (args) => {
       const withinHours = clampNumber(args?.within_hours, 1, 24 * 60, 168);
       const maxEvents = clampNumber(args?.max_events, 1, 50, 10);
-      const events = readUpcomingEvents(maxEvents, withinHours * 60 * 60 * 1000);
+      const result = readUpcomingEvents(maxEvents, withinHours * 60 * 60 * 1000);
+      if (result.status === "permission_denied") return err("Calendar permission is not granted.");
+      if (result.status === "provider_unavailable") return err("Calendar provider is unavailable.");
+      if (result.status === "query_failed") return err("Calendar query failed.");
+      const events = result.events;
       if (!events.length) return ok("No upcoming events in that window.");
       return ok(events.map(formatEvent).join("\n"));
     },

@@ -1,0 +1,92 @@
+{
+ "container width": {
+  "old": 5095366,
+  "new": 5114498,
+  "delta": 19132
+ },
+ "container height movw": {
+  "old": 5095566,
+  "new": 5114698,
+  "delta": 19132
+ },
+ "container height cmp": {
+  "old": 5095570,
+  "new": 5114702,
+  "delta": 19132
+ },
+ "loadbmp bl": {
+  "old": 4811278,
+  "new": 4817282,
+  "delta": 6004
+ },
+ "snapshot single": {
+  "old": 5093736,
+  "new": 5112868,
+  "delta": 19132
+ },
+ "snapshot multi": {
+  "old": 5094748,
+  "new": 5113880,
+  "delta": 19132
+ },
+ "settings decode bl": {
+  "old": 4829800,
+  "new": 4835804,
+  "delta": 6004
+ },
+ "display_start A": {
+  "old": 4572762,
+  "new": 4573690,
+  "delta": 928
+ },
+ "display_start B": {
+  "old": 4572954,
+  "new": 4573882,
+  "delta": 928
+ },
+ "gesture longpress": {
+  "old": 4468370,
+  "new": 4468370,
+  "delta": 0
+ },
+ "gesture release": {
+  "old": 4469186,
+  "new": 4469186,
+  "delta": 0
+ },
+ "evenai entry": {
+  "old": 5119954,
+  "new": 5139086,
+  "delta": 19132
+ },
+ "display_copy A": {
+  "old": 4668558,
+  "new": 4670482,
+  "delta": 1924
+ },
+ "display_copy B": {
+  "old": 4668776,
+  "new": 4670798,
+  "delta": 2022
+ },
+ "wear on_head": {
+  "old": 4844604,
+  "new": 4850608,
+  "delta": 6004
+ },
+ "wear off_head": {
+  "old": 4844698,
+  "new": 4850702,
+  "delta": 6004
+ },
+ "settings send bl": {
+  "old": 4832104,
+  "new": 4838108,
+  "delta": 6004
+ },
+ "compass bl": {
+  "old": 4469384,
+  "new": 4469384,
+  "delta": 0
+ }
+}

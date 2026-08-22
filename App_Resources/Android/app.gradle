@@ -1,4 +1,7 @@
 import org.apache.tools.ant.taskdefs.condition.Os
+import java.security.MessageDigest
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 // You can add your native dependencies here
 dependencies {
@@ -12,20 +15,53 @@ def faceclawSherpaOnnxVersion = "1.13.0"
 def faceclawLibLc3Version = "1.1.3"
 def faceclawAsrModelName = "sherpa-onnx-moonshine-base-en-quantized-2026-02-27"
 def faceclawAbi = "arm64-v8a"
+def faceclawNdkVersion = "27.2.12479018"
+def faceclawCmakeVersion = "3.22.1"
+def faceclawArchiveSha256 = [
+  sherpa: "d2268fd5baf4cce691d0008a3dd8ed988b4375e3435e3af9eb2be372dffd9321",
+  model: "43232c1d13013d37317163baec3135bd771a186a4356f28c889bab453bb0e891",
+  lc3: "276752ff54ce6a77d54ec133397b9d7e71f90caf3d9afa32d8b0e891b8ecb8af",
+  llama: "9c089309493e3b214d9ba2b2636840c64e55bf0be567de3c05598c7b2a817d04",
+  node: "bd7321eaa1a7602fbe0bb87302df2d79d87835cf4363fbdd17c350dbb485c2af",
+]
 def faceclawJniLibsDir = file("$projectDir/src/main/jniLibs/$faceclawAbi")
 def faceclawAssetsDir = file("$projectDir/src/main/assets/faceclaw-voice-asr")
 def faceclawNativeBuildDir = file("$buildDir/faceclaw-native")
+def faceclawFilePrefixMap = "-ffile-prefix-map=${rootProject.projectDir.absolutePath}=."
 
-def faceclawDownload = { String url, File destination ->
-  if (destination.exists() && destination.length() > 0) {
-    return
+def faceclawSha256 = { File source ->
+  def digest = MessageDigest.getInstance("SHA-256")
+  source.withInputStream { input ->
+    byte[] buffer = new byte[1024 * 1024]
+    int count
+    while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count)
   }
+  return digest.digest().encodeHex().toString()
+}
+
+def faceclawDownload = { String url, File destination, String expectedSha256 ->
   destination.parentFile.mkdirs()
+  if (destination.exists()) {
+    if (faceclawSha256(destination) == expectedSha256) return
+    if (!destination.delete()) throw new GradleException("Could not remove invalid cached ${destination.name}")
+  }
+  def partial = new File(destination.parentFile, destination.name + ".part")
+  if (partial.exists() && !partial.delete()) throw new GradleException("Could not remove partial ${partial.name}")
   println "Downloading $url"
-  destination.withOutputStream { output ->
+  partial.withOutputStream { output ->
     new URL(url).withInputStream { input ->
       output << input
     }
+  }
+  def actualSha256 = faceclawSha256(partial)
+  if (actualSha256 != expectedSha256) {
+    partial.delete()
+    throw new GradleException("SHA-256 mismatch for ${destination.name}")
+  }
+  try {
+    Files.move(partial.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+  } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+    Files.move(partial.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
   }
 }
 
@@ -36,25 +72,24 @@ def faceclawNdkHostTag = {
 }
 
 def faceclawFindNdkRoot = {
-  def explicitNdk = System.getenv("ANDROID_NDK_HOME")
-  if (explicitNdk != null && file(explicitNdk).exists()) {
-    return file(explicitNdk)
-  }
   def sdkRoot = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
   if (sdkRoot != null) {
-    def ndkDir = file("$sdkRoot/ndk")
-    if (ndkDir.exists()) {
-      def installed = ndkDir.listFiles()?.findAll { it.isDirectory() }?.sort { a, b -> b.name <=> a.name }
-      if (installed && !installed.isEmpty()) {
-        return installed[0]
-      }
-    }
+    def pinnedNdk = file("$sdkRoot/ndk/$faceclawNdkVersion")
+    if (pinnedNdk.exists()) return pinnedNdk
+  }
+  def explicitNdk = System.getenv("ANDROID_NDK_HOME")
+  if (explicitNdk != null && file(explicitNdk).exists()
+      && file(explicitNdk).name == faceclawNdkVersion) {
+    return file(explicitNdk)
   }
   try {
-    return android.ndkDirectory
+    def gradleNdk = android.ndkDirectory
+    if (gradleNdk != null && gradleNdk.exists() && gradleNdk.name == faceclawNdkVersion) {
+      return gradleNdk
+    }
   } catch (Throwable ignored) {
-    return null
   }
+  return null
 }
 
 tasks.register("prepareFaceclawNativeLibs") {
@@ -75,7 +110,8 @@ tasks.register("prepareFaceclawNativeLibs") {
     def sherpaArchive = file("$downloadsDir/sherpa-onnx-v${faceclawSherpaOnnxVersion}-android.tar.bz2")
     faceclawDownload(
       "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${faceclawSherpaOnnxVersion}/sherpa-onnx-v${faceclawSherpaOnnxVersion}-android.tar.bz2",
-      sherpaArchive
+      sherpaArchive,
+      faceclawArchiveSha256.sherpa
     )
     copy {
       from tarTree(resources.bzip2(sherpaArchive))
@@ -89,7 +125,8 @@ tasks.register("prepareFaceclawNativeLibs") {
     def asrArchive = file("$downloadsDir/${faceclawAsrModelName}.tar.bz2")
     faceclawDownload(
       "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/${faceclawAsrModelName}.tar.bz2",
-      asrArchive
+      asrArchive,
+      faceclawArchiveSha256.model
     )
     copy {
       from tarTree(resources.bzip2(asrArchive))
@@ -103,7 +140,8 @@ tasks.register("prepareFaceclawNativeLibs") {
     def lc3Archive = file("$downloadsDir/liblc3-v${faceclawLibLc3Version}.tar.gz")
     faceclawDownload(
       "https://github.com/google/liblc3/archive/refs/tags/v${faceclawLibLc3Version}.tar.gz",
-      lc3Archive
+      lc3Archive,
+      faceclawArchiveSha256.lc3
     )
     def lc3ExtractDir = file("$faceclawNativeBuildDir/liblc3")
     if (!file("$lc3ExtractDir/liblc3-${faceclawLibLc3Version}/src/lc3.c").exists()) {
@@ -135,6 +173,7 @@ tasks.register("prepareFaceclawNativeLibs") {
         "-shared",
         "-fPIC",
         "-O3",
+        faceclawFilePrefixMap,
         "-DLC3_PLUS=0",
         "-DLC3_PLUS_HR=0",
         "-I${file("$lc3Root/include").absolutePath}",
@@ -161,8 +200,8 @@ def faceclawFindSdkCmakeDir = {
   if (sdkRoot == null) return null
   def cmakeRoot = file("$sdkRoot/cmake")
   if (!cmakeRoot.exists()) return null
-  def installed = cmakeRoot.listFiles()?.findAll { it.isDirectory() }?.sort { a, b -> b.name <=> a.name }
-  return (installed && !installed.isEmpty()) ? installed[0] : null
+  def pinnedCmake = file("$cmakeRoot/$faceclawCmakeVersion")
+  return pinnedCmake.exists() ? pinnedCmake : null
 }
 
 tasks.register("prepareFaceclawLlama") {
@@ -181,7 +220,8 @@ tasks.register("prepareFaceclawLlama") {
     def llamaArchive = file("$downloadsDir/llama.cpp-${faceclawLlamaCppTag}.tar.gz")
     faceclawDownload(
       "https://github.com/ggml-org/llama.cpp/archive/refs/tags/${faceclawLlamaCppTag}.tar.gz",
-      llamaArchive
+      llamaArchive,
+      faceclawArchiveSha256.llama
     )
     def llamaSourceDir = file("$faceclawNativeBuildDir/llama.cpp-${faceclawLlamaCppTag}")
     if (!file("$llamaSourceDir/CMakeLists.txt").exists()) {
@@ -218,8 +258,8 @@ tasks.register("prepareFaceclawLlama") {
           "-DANDROID_PLATFORM=android-24",
           "-DCMAKE_BUILD_TYPE=Release",
           "-DLLAMA_CPP_SOURCE_DIR=${llamaSourceDir.absolutePath}",
-          "-DCMAKE_C_FLAGS=$march",
-          "-DCMAKE_CXX_FLAGS=$march",
+          "-DCMAKE_C_FLAGS=$march $faceclawFilePrefixMap",
+          "-DCMAKE_CXX_FLAGS=$march $faceclawFilePrefixMap",
         ])
       }
     }
@@ -266,7 +306,8 @@ tasks.register("prepareFaceclawNode") {
     def nmZip = file("$downloadsDir/nodejs-mobile-v${faceclawNodejsMobileVersion}-android.zip")
     faceclawDownload(
       "https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v${faceclawNodejsMobileVersion}/nodejs-mobile-v${faceclawNodejsMobileVersion}-android.zip",
-      nmZip
+      nmZip,
+      faceclawArchiveSha256.node
     )
     def nmDir = file("$faceclawNativeBuildDir/nodejs-mobile")
     if (!file("$nmDir/include/node/node.h").exists()) {
@@ -345,10 +386,22 @@ tasks.register("prepareFaceclawNode") {
 android {
   compileSdkVersion 35
   buildToolsVersion "35"
-  // ndkVersion ""
+  ndkVersion "27.2.12479018"
 
   sourceSets.main {
     jniLibs.srcDirs += ["$projectDir/src/main/jniLibs"]
+  }
+
+  signingConfigs {
+    debug {
+      def protectedStore = System.getenv("ANDROID_SIGNING_STORE_FILE")
+      if (protectedStore != null && !protectedStore.isEmpty()) {
+        storeFile file(protectedStore)
+        storePassword System.getenv("ANDROID_SIGNING_STORE_PASSWORD")
+        keyAlias System.getenv("ANDROID_SIGNING_KEY_ALIAS")
+        keyPassword System.getenv("ANDROID_SIGNING_KEY_PASSWORD")
+      }
+    }
   }
 
   defaultConfig {
@@ -359,8 +412,8 @@ android {
     }
 
     // Version Information
-    versionCode 1
-    versionName "1.0.0"
+    versionCode 1000001
+    versionName "1.0.0-preview.1"
     
     generatedDensities = []
   }
@@ -373,11 +426,13 @@ android {
   // the first so packaging does not fail on the duplicate.
   packagingOptions {
     pickFirst "lib/arm64-v8a/libc++_shared.so"
+    exclude "lib/armeabi-v7a/**"
+    exclude "lib/x86/**"
+    exclude "lib/x86_64/**"
   }
 }
 
 tasks.matching { it.name == "preBuild" }.configureEach {
   dependsOn tasks.named("prepareFaceclawNativeLibs")
   dependsOn tasks.named("prepareFaceclawLlama")
-  dependsOn tasks.named("prepareFaceclawNode")
 }

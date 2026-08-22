@@ -23,6 +23,7 @@ import {
   GESTURE_SCROLL,
 } from "../../ui/gestures";
 import { clamp } from "../../util/numeric-util";
+import { beginToolAuthorization, cancelToolAuthorization, isToolAuthorizationActive } from "../tool-authorization";
 
 declare const global: any;
 declare const com: any;
@@ -181,13 +182,19 @@ global.onmessage = (event: { data: WorkerAppMessage }) => {
       for (const window of windows.values()) updateRenderTimer(window);
       break;
     case "tool-call": {
+      beginToolAuthorization(message.authorizationId);
       let result: ToolResult;
       try {
-        result = handleTimerTool(message.name, message.args);
+        result = handleTimerTool(message.name, message.args, () => isToolAuthorizationActive(message.authorizationId));
       } catch (error) {
         result = { ok: false, error: String((error as Error)?.message ?? error) };
       }
       post({ type: "tool-result", callId: message.callId, result });
+      cancelToolAuthorization(message.authorizationId);
+      break;
+    }
+    case "cancel-tool-call": {
+      cancelToolAuthorization(message.authorizationId);
       break;
     }
   }
@@ -196,7 +203,8 @@ global.onmessage = (event: { data: WorkerAppMessage }) => {
 // ---------------------------------------------------------------------------
 // Tools
 
-function handleTimerTool(name: string, args: any): ToolResult {
+function handleTimerTool(name: string, args: any, isAllowed: () => boolean): ToolResult {
+  if (!isAllowed()) return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
   syncExpiredTimers();
   switch (name) {
     case "set_timer": {
@@ -205,6 +213,7 @@ function handleTimerTool(name: string, args: any): ToolResult {
       const seconds = toolDurationField(args?.seconds, "seconds");
       const durationMs = Math.round(((hours * 60 + minutes) * 60 + seconds) * 1000);
       if (durationMs <= 0) return { ok: false, error: "set_timer requires a duration longer than zero" };
+      if (!isAllowed()) return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
       addTimer(durationMs);
       const timer = timers[timers.length - 1]!;
       refreshWindowsAfterToolChange();
@@ -222,8 +231,12 @@ function handleTimerTool(name: string, args: any): ToolResult {
     case "cancel_timer": {
       if (args?.all === true) {
         if (timers.length === 0) return { ok: true, content: "No timers are set." };
+        if (!isAllowed()) return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
         const count = timers.length;
-        for (const timer of [...timers]) removeTimer(timer);
+        for (const timer of [...timers]) {
+          if (!isAllowed()) return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
+          removeTimer(timer);
+        }
         refreshWindowsAfterToolChange();
         return { ok: true, content: count === 1 ? "Cleared the timer." : `Cleared ${count} timers.` };
       }
@@ -245,6 +258,7 @@ function handleTimerTool(name: string, args: any): ToolResult {
         timer = timers[index - 1]!;
       }
       const description = describeTimer(timer);
+      if (!isAllowed()) return { ok: false, error: "The authorizing assistant turn is no longer active; no side effect was sent." };
       removeTimer(timer);
       refreshWindowsAfterToolChange();
       return { ok: true, content: `${timer.expired ? "Dismissed" : "Canceled"}: ${description}` };

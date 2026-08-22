@@ -36,6 +36,10 @@ import { ToolDebugMenuLayer } from "./tool-debug-layer";
 import { playEventBeep } from "../event-beeps";
 import { MusicCardLayer } from "./music-card";
 import { toolRegistry } from "../../assistant/tool-registry";
+import type { RenderViewState } from "../../assistant/render-view";
+import type { DynamicAppState } from "../../assistant/dynamic-app";
+import { ShellRemoteViewLayer } from "./render-view-layer";
+import { ShellDynamicAppLayer } from "./dynamic-app-layer";
 import {
   MIN_WINDOW_HEIGHT,
   minWindowTop,
@@ -111,7 +115,7 @@ export type ShellConfig = {
   getScreenTimeoutMs: () => number | null;
   requestShellRender: () => void | Promise<void>;
   /** Awaited delivery path for operations that must prove lens transport success. */
-  requestShellDelivery?: (isAllowed?: () => boolean) => Promise<void>;
+  requestShellDelivery?: (isAllowed?: () => boolean) => Promise<{ frameId: number; outcome: string }>;
   /** True only while a real glasses transport/session can accept frames. */
   isDisplayAvailable?: () => boolean;
   /** Screen on/off changed: the controller blanks/unblanks the compositor. */
@@ -254,6 +258,8 @@ class Shell {
   private assistantLayer: AssistantLayer | null = null;
   private alertLayer: ShellAlertLayer | null = null;
   private alertRevision = 0;
+  private remoteViewLayer: ShellRemoteViewLayer | null = null;
+  private dynamicAppLayer: ShellDynamicAppLayer | null = null;
   private escapeMenuTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly actions: LayerActions = { ...noopActions };
   private config: ShellConfig = {
@@ -527,6 +533,10 @@ class Shell {
     if (!this.screenOn) return;
     this.cancelEscapeMenuTimer();
     this.closingActive = false;
+    // A remote MCP view is transient and must not survive a display-off
+    // transition in retained manager state or reappear after wake.
+    this.remoteViewLayer?.close();
+    this.dynamicAppLayer?.close();
     this.screenOn = false;
     this.stack.clearToBase();
     // clearToBase pops the card and fires its onRemoved (timers cleared); null
@@ -719,6 +729,20 @@ class Shell {
     // menu. The escape timer runs regardless of what the app does with it:
     // holding the press long enough opens the shell's own menu.
     if (event.type === "long-press") {
+      // Untrusted remote content must never trap shell input. A long press
+      // closes it before the normal escape countdown continues.
+      if (this.remoteViewLayer) {
+        const layer = this.remoteViewLayer;
+        layer.close();
+        this.startEscapeMenuTimer();
+        return { shell: true, window: false };
+      }
+      if (this.dynamicAppLayer) {
+        const layer = this.dynamicAppLayer;
+        layer.close();
+        this.startEscapeMenuTimer();
+        return { shell: true, window: false };
+      }
       // While reordering, swallow long-presses so the window menu can't open
       // over the grab; a tap (handled in the sidebar reorder branch) ends it.
       if (this.reorderingWindowId !== null) {
@@ -1254,9 +1278,9 @@ class Shell {
   }
 
   /** Show a brief text popup on the lenses (assistant show_alert / notices). */
-  async showAlert(text: string, signal?: AbortSignal): Promise<void> {
+  async showAlert(text: string, signal?: AbortSignal, isSideEffectAllowed?: () => boolean): Promise<void> {
     if (!this.screenOn) throw new Error("The glasses display is off; no alert was sent.");
-    if (signal?.aborted) throw new Error("The alert operation was cancelled; no alert was sent.");
+    if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) throw new Error("The alert operation was cancelled; no alert was sent.");
     if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
       throw new Error("The glasses are disconnected; no alert was sent.");
     }
@@ -1279,12 +1303,12 @@ class Shell {
     try {
       signal?.addEventListener("abort", onAbort, { once: true });
       if (signal?.aborted) onAbort();
-      if (signal?.aborted) throw new Error("The alert operation was cancelled; no alert was sent.");
+      if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) throw new Error("The alert operation was cancelled; no alert was sent.");
       const delivery = this.config.requestShellDelivery
-        ? this.config.requestShellDelivery(isOwner)
+        ? this.config.requestShellDelivery(() => isOwner() && !signal?.aborted && (!isSideEffectAllowed || isSideEffectAllowed()))
         : Promise.resolve(this.config.requestShellRender());
       await (abortPromise ? Promise.race([delivery, abortPromise]) : delivery);
-      if (!isOwner() || signal?.aborted) {
+      if (!isOwner() || signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
         throw new Error("The alert operation was superseded or cancelled; no alert was sent.");
       }
     } catch (error) {
@@ -1295,6 +1319,111 @@ class Shell {
     } finally {
       signal?.removeEventListener("abort", onAbort);
     }
+  }
+
+  /** Replace the one shell-owned MCP view without waking or changing focus. */
+  async showRemoteView(
+    state: RenderViewState,
+    signal: AbortSignal | undefined,
+    isSideEffectAllowed: (() => boolean) | undefined,
+    onGesture: (type: "scroll-up" | "scroll-down" | "click", foreground: boolean) => boolean,
+    onClose: () => void,
+  ): Promise<void> {
+    if (!this.screenOn) throw new Error("The glasses display is off; no view was sent.");
+    if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
+      throw new Error("The glasses are disconnected; no view was sent.");
+    }
+    if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
+      throw new Error("The view operation is no longer current.");
+    }
+    const prior = this.remoteViewLayer;
+    const layer = new ShellRemoteViewLayer(state, onGesture, onClose);
+    if (prior) this.stack.remove(prior);
+    this.remoteViewLayer = layer;
+    this.stack.push(layer);
+    const isOwner = () =>
+      this.remoteViewLayer === layer &&
+      !signal?.aborted &&
+      (!isSideEffectAllowed || isSideEffectAllowed());
+    try {
+      const delivery = this.config.requestShellDelivery
+        ? this.config.requestShellDelivery(isOwner)
+        : Promise.resolve(this.config.requestShellRender());
+      await delivery;
+      if (!isOwner()) throw new Error("The view operation was superseded before delivery completed.");
+    } catch (error) {
+      this.stack.remove(layer);
+      if (this.remoteViewLayer === layer) {
+        this.remoteViewLayer = prior;
+        if (prior) this.stack.push(prior);
+      }
+      try { await this.config.requestShellRender(); } catch { /* preserve delivery error */ }
+      throw error;
+    }
+  }
+
+  clearRemoteView(identity: { viewId: string; revision: number }): void {
+    const layer = this.remoteViewLayer;
+    if (!layer || layer.state.viewId !== identity.viewId || layer.state.revision !== identity.revision) return;
+    this.stack.remove(layer);
+    this.remoteViewLayer = null;
+    this.config.requestShellRender();
+  }
+
+  /** Deliver a provider-neutral dynamic app without waking or changing focus. */
+  async showDynamicApp(
+    state: DynamicAppState,
+    signal: AbortSignal | undefined,
+    isSideEffectAllowed: (() => boolean) | undefined,
+    onInput: (type: "scroll-up" | "scroll-down" | "click", foreground: boolean) => boolean,
+    onClose: () => void,
+  ): Promise<{ status: "acknowledged"; frameId: number }> {
+    if (!this.screenOn) throw new Error("The glasses display is off; no dynamic app was sent.");
+    if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
+      throw new Error("The glasses are disconnected; no dynamic app was sent.");
+    }
+    if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
+      throw new Error("The dynamic app operation is stale.");
+    }
+    const prior = this.dynamicAppLayer;
+    const layer = new ShellDynamicAppLayer(state, onInput, onClose);
+    if (prior) this.stack.remove(prior);
+    this.dynamicAppLayer = layer;
+    this.stack.push(layer);
+    const isOwner = () =>
+      this.dynamicAppLayer === layer &&
+      !signal?.aborted &&
+      (!isSideEffectAllowed || isSideEffectAllowed());
+    try {
+      const receipt = this.config.requestShellDelivery
+        ? await this.config.requestShellDelivery(isOwner)
+        : (() => { this.config.requestShellRender(); return { frameId: 0, outcome: "unverified" }; })();
+      if (!isOwner() || receipt.frameId <= 0 || receipt.outcome !== "sent") {
+        throw new Error("The dynamic app did not receive a current transport acknowledgement.");
+      }
+      return { status: "acknowledged", frameId: receipt.frameId };
+    } catch (error) {
+      this.stack.remove(layer);
+      if (this.dynamicAppLayer === layer) {
+        this.dynamicAppLayer = prior;
+        if (prior) this.stack.push(prior);
+      }
+      try { await this.config.requestShellRender(); } catch { /* preserve delivery error */ }
+      throw error;
+    }
+  }
+
+  clearDynamicApp(identity: { viewId: string; revision: number }): void {
+    const layer = this.dynamicAppLayer;
+    if (!layer || layer.state.viewId !== identity.viewId || layer.state.revision !== identity.revision) return;
+    this.stack.remove(layer);
+    this.dynamicAppLayer = null;
+    this.config.requestShellRender();
+  }
+
+  /** Physical transport loss tombstones remote authority before any reconnect. */
+  closeDynamicApp(): void {
+    this.dynamicAppLayer?.close();
   }
 
   private startEscapeMenuTimer(): void {

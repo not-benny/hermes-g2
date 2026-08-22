@@ -114,6 +114,7 @@
                 returnPress="{{ onTextSettingReturnPress }}"
                 autocorrect="false"
                 autocapitalizationType="none"
+                secure="{{ activeTextSettingSecure }}"
                 returnKeyType="done" />
         </StackLayout>
     </GridLayout>
