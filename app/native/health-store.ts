@@ -4,7 +4,7 @@
  * clearing because revocation is an access gate, not a delete operation.
  */
 import { ApplicationSettings } from "@nativescript/core";
-import { canonicalizeHealthDocument, parseLocalDateKey, type HealthStoreDocument, type RingBatterySnapshot } from "../health/health-store";
+import { BATTERY_FUTURE_SKEW_MS, canonicalizeHealthDocument, parseLocalDateKey, type HealthStoreDocument, type RingBatterySnapshot } from "../health/health-store";
 import { dateKeyOf, summarizeDay, type DailyHealthSummary, type DaySummaryInputs } from "../health/health-history";
 import { buildHourlyPoints, type HourlyPoint } from "../health/health-hourly";
 import type { RingActivitySnapshot } from "../health/ring-health-store";
@@ -15,6 +15,7 @@ export const LEGACY_HOURLY_KEY = "health.hourly.v1";
 export const LEGACY_ACTIVITY_KEY = "health.activity.v1";
 export const HERMES_CONSENT_KEY = "health.hermes.consent.v1";
 const LEGACY_KEYS = [LEGACY_HISTORY_KEY, LEGACY_HOURLY_KEY, LEGACY_ACTIVITY_KEY] as const;
+const BATTERY_PERSIST_INTERVAL_MS = 60 * 60 * 1000;
 type RingHour = { hourIdx: number; avg: number; max: number; min: number; timestampSec?: number | null; timezoneOffsetMinutes?: number | null };
 
 export interface HealthApplicationSettings {
@@ -37,8 +38,8 @@ export interface HealthPersistence {
   recordHourly(hr: RingHour[], spo2: RingHour[], hrv: RingHour[], nowMs: number): HourlyPoint[];
   loadActivity(nowMs?: number): RingActivitySnapshot | null;
   recordActivity(activity: RingActivitySnapshot | null): void;
-  loadBattery(): RingBatterySnapshot | null;
-  recordBattery(percent: number | null, updatedAtMs: number | null): void;
+  loadBattery(ringId: string): RingBatterySnapshot | null;
+  recordBattery(ringId: string, percent: number | null, updatedAtMs: number | null): void;
   getHermesConsent(): boolean;
   setHermesConsent(on: boolean): void;
   clearHealthData(): void;
@@ -52,6 +53,8 @@ const DAILY_FIELDS = ["restingHr", "hrMin", "hrMax", "hrvAvg", "spo2Avg", "steps
   "sleepScore", "sleepDurationMin", "sleepDeepMin", "sleepRemMin", "bodyTempC", "readinessScore"];
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const isDateKey = (value: unknown): value is string => parseLocalDateKey(value) !== null;
+const normalizeRingId = (value: string): string => value.trim().toUpperCase();
+const isValidRingId = (value: string): boolean => /^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$/.test(normalizeRingId(value));
 
 function isValidPersistedDocument(value: Record<string, unknown>, nowMs: number): boolean {
   if (value.version !== 1 || value.retentionDays !== 90 || !isFiniteNumber(value.updatedAtMs) ||
@@ -63,6 +66,11 @@ function isValidPersistedDocument(value: Record<string, unknown>, nowMs: number)
     if (!Number.isInteger(battery.percent) || (battery.percent as number) < 0 ||
       (battery.percent as number) > 100 || !isFiniteNumber(battery.updatedAtMs) ||
       (battery.updatedAtMs as number) < 0) return false;
+    // Briefly accept the unscoped field written by the pre-release candidate so
+    // canonicalization can discard it without invalidating the rest of health data.
+    if (battery.ringId !== undefined &&
+      (typeof battery.ringId !== "string" || !isValidRingId(battery.ringId) ||
+        (battery.updatedAtMs as number) > nowMs + BATTERY_FUTURE_SKEW_MS)) return false;
   }
   if (value.history.some((candidate) => {
     if (!candidate || typeof candidate !== "object") return true;
@@ -217,17 +225,28 @@ export function createHealthPersistence(settings: HealthApplicationSettings, now
     recordActivity(activity) {
       if (!activity) return;
       const loaded = loadHealthDocumentResult();
-      if (loaded.ok && loaded.document) replaceHealthDocument({ ...loaded.document, activity });
+      if (!loaded.ok || !loaded.document) return;
+      if (JSON.stringify(loaded.document.activity) === JSON.stringify(activity)) return;
+      replaceHealthDocument({ ...loaded.document, activity });
     },
-    loadBattery: () => loadHealthDocumentResult().document?.battery ?? null,
-    recordBattery(percent, updatedAtMs) {
-      if (!Number.isInteger(percent) || (percent as number) < 0 || (percent as number) > 100 ||
-        typeof updatedAtMs !== "number" || !Number.isFinite(updatedAtMs) || updatedAtMs < 0) return;
+    loadBattery(ringId) {
+      if (!isValidRingId(ringId)) return null;
+      const loaded = loadHealthDocumentResult();
+      const battery = loaded.document?.battery ?? null;
+      return battery?.ringId === normalizeRingId(ringId) ? battery : null;
+    },
+    recordBattery(ringId, percent, updatedAtMs) {
+      const nowMs = now();
+      if (!isValidRingId(ringId) || !Number.isInteger(percent) ||
+        (percent as number) < 0 || (percent as number) > 100 ||
+        typeof updatedAtMs !== "number" || !Number.isFinite(updatedAtMs) || updatedAtMs < 0 ||
+        updatedAtMs > nowMs + BATTERY_FUTURE_SKEW_MS) return;
       const loaded = loadHealthDocumentResult();
       if (!loaded.ok || !loaded.document) return;
-      const battery = { percent: percent as number, updatedAtMs };
-      if (loaded.document.battery?.percent === battery.percent &&
-        loaded.document.battery.updatedAtMs === battery.updatedAtMs) return;
+      const battery = { ringId: normalizeRingId(ringId), percent: percent as number, updatedAtMs };
+      const previous = loaded.document.battery;
+      if (previous?.ringId === battery.ringId && previous.percent === battery.percent &&
+        updatedAtMs - previous.updatedAtMs < BATTERY_PERSIST_INTERVAL_MS) return;
       replaceHealthDocument({ ...loaded.document, battery });
     },
     getHermesConsent: () => settings.getBoolean(HERMES_CONSENT_KEY, false),

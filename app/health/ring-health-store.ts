@@ -136,6 +136,7 @@ const MODULE_HEALTH = 2;
 const CMD_SYSTEM = 0;
 const SUBCMD_DEVICE_STATUS = 1;
 const SUBCMD_DEVICE_INFO = 2;
+const BATTERY_FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 export class RingHealthStore {
   private snapshotState: RingHealthSnapshot = { ...EMPTY };
@@ -166,13 +167,20 @@ export class RingHealthStore {
   /** Restore the last protocol-verified battery while awaiting a fresh poll. */
   restoreBattery(percent: number | null, updatedAtMs: number | null): void {
     if (!Number.isInteger(percent) || (percent as number) < 0 || (percent as number) > 100 ||
-      typeof updatedAtMs !== "number" || !Number.isFinite(updatedAtMs) || updatedAtMs < 0) return;
+      typeof updatedAtMs !== "number" || !Number.isFinite(updatedAtMs) || updatedAtMs < 0 ||
+      updatedAtMs > this.nowMs() + BATTERY_FUTURE_SKEW_MS) return;
     this.snapshotState = {
       ...this.snapshotState,
       batteryPercent: percent,
       batteryUpdatedAtMs: updatedAtMs,
-      updatedAtMs,
     };
+    this.emit();
+  }
+
+  /** Clear battery when the configured ring identity changes or is removed. */
+  clearBattery(): void {
+    if (this.snapshotState.batteryPercent === null && this.snapshotState.batteryUpdatedAtMs === null) return;
+    this.snapshotState = { ...this.snapshotState, batteryPercent: null, batteryUpdatedAtMs: null };
     this.emit();
   }
 
@@ -239,7 +247,7 @@ export class RingHealthStore {
   private applyInner(inner: Bytes): void {
     const parsed = parseInnerFrame(inner);
     if (parsed.module === MODULE_SYSTEM) {
-      if (parsed.cmd === CMD_SYSTEM && parsed.subCmd === SUBCMD_DEVICE_STATUS) {
+      if (parsed.cmd === CMD_SYSTEM && parsed.subCmd === SUBCMD_DEVICE_STATUS && parsed.status === 3) {
         const percent = decodeRingBattery(parsed.data);
         if (percent >= 0 && percent <= 100) {
           const updatedAtMs = this.nowMs();
@@ -247,7 +255,6 @@ export class RingHealthStore {
             ...this.snapshotState,
             batteryPercent: percent,
             batteryUpdatedAtMs: updatedAtMs,
-            updatedAtMs,
           };
           this.emit();
         }

@@ -8,8 +8,10 @@ import type { HourlyMetric, HourlyPoint } from "./health-hourly";
 import { canonicalizeActivitySnapshot, type RingActivitySnapshot } from "./ring-health-store";
 
 export const HEALTH_RETENTION_DAYS = 90;
+export const BATTERY_FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 export interface RingBatterySnapshot {
+  ringId: string;
   percent: number;
   updatedAtMs: number;
 }
@@ -175,12 +177,15 @@ function canonicalHourlyRows(value: unknown, cutoff: string, today: string, nowM
   );
 }
 
-function canonicalBattery(value: unknown): RingBatterySnapshot | null {
+function canonicalBattery(value: unknown, nowMs: number): RingBatterySnapshot | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
-  if (!Number.isInteger(raw.percent) || (raw.percent as number) < 0 || (raw.percent as number) > 100 ||
-    typeof raw.updatedAtMs !== "number" || !Number.isFinite(raw.updatedAtMs) || raw.updatedAtMs < 0) return null;
-  return { percent: raw.percent as number, updatedAtMs: raw.updatedAtMs };
+  const ringId = typeof raw.ringId === "string" ? raw.ringId.trim().toUpperCase() : "";
+  if (!/^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$/.test(ringId) ||
+    !Number.isInteger(raw.percent) || (raw.percent as number) < 0 || (raw.percent as number) > 100 ||
+    typeof raw.updatedAtMs !== "number" || !Number.isFinite(raw.updatedAtMs) || raw.updatedAtMs < 0 ||
+    raw.updatedAtMs > nowMs + BATTERY_FUTURE_SKEW_MS) return null;
+  return { ringId, percent: raw.percent as number, updatedAtMs: raw.updatedAtMs };
 }
 
 /** Normalize arbitrary persisted JSON into the exact v1 document contract. */
@@ -195,7 +200,7 @@ export function canonicalizeHealthDocument(value: unknown, nowMs = Date.now()): 
     history: canonicalHistory(raw.history, cutoff, today),
     hourly: canonicalHourlyRows(raw.hourly, cutoff, today, nowMs),
     activity: canonicalizeActivitySnapshot(raw.activity, nowMs),
-    battery: canonicalBattery(raw.battery),
+    battery: canonicalBattery(raw.battery, nowMs),
   };
 }
 

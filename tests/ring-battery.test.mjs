@@ -24,13 +24,29 @@ test("a worn ring requests deviceStatus before rich health pushes can interrupt 
 test("protocol battery is restored, persisted, and propagated to both battery UIs", () => {
   const store = read("app/health/ring-health-store.ts");
   const controller = read("app/g2/dashboard-controller.ts");
+  const config = read("app/phone-ui/config-view-model.ts");
   const phone = read("app/phone-ui/even-health-view-model.ts");
   const chrome = read("app/ui/shell/chrome-layer.ts");
 
   assert.match(store, /batteryPercent: percent/);
   assert.match(controller, /loadBattery/);
-  assert.match(controller, /ringHealthStore\.restoreBattery\(persistedBattery\?\.percent/);
-  assert.match(controller, /recordBattery\(snapshot\.batteryPercent, snapshot\.batteryUpdatedAtMs\)/);
+  assert.match(controller, /loadBattery\(ringIdentity\)/);
+  assert.match(controller, /ringHealthStore\.clearBattery\(\)/);
+  assert.match(controller, /ringHealthStore\.restoreBattery\(persistedBattery\.percent/);
+  assert.match(controller, /recordBattery\(ringIdentity, snapshot\.batteryPercent, snapshot\.batteryUpdatedAtMs\)/);
   assert.match(phone, /this\.health\.batteryPercent === null \? "--" : String\(this\.health\.batteryPercent\)/);
   assert.match(chrome, /kind: "ring", percent: state\.battery\.ring/);
+  assert.match(config, /previous\.ring !== ring/);
+  assert.match(config, /ringHealthStore\.clearBattery\(\)/);
+});
+
+test("packetAck wakeups drain and resume a generation-valid health poll", () => {
+  const communicator = read("App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java");
+  const start = communicator.indexOf("private boolean ringProbeGap(int generation)");
+  const end = communicator.indexOf("/**", start + 10);
+  const gap = communicator.slice(start, end);
+  assert.match(gap, /while \(true\)/);
+  assert.match(gap, /isRingOperationAllowedLocked\(generation\)/);
+  assert.match(gap, /drainRingPacketAcks\(\)/);
+  assert.doesNotMatch(gap, /if \(!ringInterruptibleSleep\.sleep\([^)]*\)\) \{\s*return false;/s);
 });

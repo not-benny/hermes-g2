@@ -243,7 +243,8 @@ export class EvenHealthViewModel extends Observable {
   // --- connection strip ------------------------------------------------------
   get ringStatusLabel(): string { return RING_STATUS_LABELS[this.ringState]; }
   get lastUpdatedLabel(): string {
-    if (this.health.updatedAtMs !== null) return `Updated ${relativeTime(this.health.updatedAtMs)}`;
+    const updatedAtMs = Math.max(this.health.updatedAtMs ?? -1, this.health.batteryUpdatedAtMs ?? -1);
+    if (updatedAtMs >= 0) return `Updated ${relativeTime(updatedAtMs)}`;
     return this.hourlyToday.length > 0 ? "Showing saved data" : "No ring data yet";
   }
   get ringDotClass(): string { return this.ringState === "ready" ? "dot-on" : "dot-off"; }
@@ -263,7 +264,7 @@ export class EvenHealthViewModel extends Observable {
     if (!queued) console.log("[health] R1 retry blocked until Even is stopped");
   }
   private get hasData(): boolean {
-    return this.health.updatedAtMs !== null || this.hourlyToday.length > 0;
+    return this.health.updatedAtMs !== null || this.health.batteryUpdatedAtMs !== null || this.hourlyToday.length > 0;
   }
   get emptyStateVisibility(): "visible" | "collapse" {
     return this.hasData ? "collapse" : "visible";

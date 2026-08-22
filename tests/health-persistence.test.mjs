@@ -204,6 +204,7 @@ test("structurally invalid canonical values are preserved byte-for-byte", () => 
       timezoneOffsetMinutes: 0, hr: { avg: 60, max: 70, min: 50 } }] },
     { activity: { slots: [], dayBaseSec: 0, timezoneOffsetMinutes: 0,
       totalSteps: "bad", activeCalories: 0, totalCalories: 0, restingCalories: 0 } },
+    { battery: { ringId: "AA:BB:CC:DD:EE:FF", percent: 50, updatedAtMs: NOW + 300_001 } },
   ];
   for (const fields of invalidValues) {
     const settings = new FakeSettings();
@@ -281,13 +282,32 @@ test("record operations update only the single canonical data key", () => {
 
 test("a verified ring battery survives an overnight app restart", () => {
   const settings = new FakeSettings();
+  const ringId = "AA:BB:CC:DD:EE:FF";
   const firstRun = createHealthPersistence(settings, () => NOW);
   firstRun.loadHealthDocument();
-  firstRun.recordBattery(97, NOW);
+  firstRun.recordBattery(ringId, 97, NOW);
 
   const nextMorning = NOW + 12 * 60 * 60 * 1000;
-  const restored = createHealthPersistence(settings, () => nextMorning).loadBattery();
-  assert.deepEqual(restored, { percent: 97, updatedAtMs: NOW });
+  const restarted = createHealthPersistence(settings, () => nextMorning);
+  assert.deepEqual(restarted.loadBattery(ringId), { ringId, percent: 97, updatedAtMs: NOW });
+  assert.equal(restarted.loadBattery("11:22:33:44:55:66"), null, "a replacement ring cannot inherit the old battery");
+  assert.equal(restarted.loadBattery(""), null, "removing the ring cannot expose its old battery");
+});
+
+test("unchanged battery polls persist at most hourly", () => {
+  const settings = new FakeSettings();
+  const ringId = "AA:BB:CC:DD:EE:FF";
+  let clock = NOW;
+  const store = createHealthPersistence(settings, () => clock);
+  store.loadHealthDocument();
+  settings.stringWrites = [];
+  store.recordBattery(ringId, 60, NOW);
+  clock = NOW + 60_000;
+  store.recordBattery(ringId, 60, NOW + 60_000);
+  assert.equal(settings.stringWrites.length, 1);
+  clock = NOW + 3_600_000;
+  store.recordBattery(ringId, 60, NOW + 3_600_000);
+  assert.equal(settings.stringWrites.length, 2);
 });
 
 test("optional anchored hourly timestamps survive canonical persistence while legacy rows remain valid", () => {

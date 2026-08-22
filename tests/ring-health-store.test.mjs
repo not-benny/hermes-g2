@@ -136,18 +136,26 @@ test("deviceStatus response populates the ring battery percent", () => {
   assert.equal(store.snapshot().batteryPercent, 97);
 });
 
+test("deviceStatus accepts only the verified ACK status", () => {
+  for (const status of [0, 1, 2, 4]) {
+    const store = new RingHealthStore();
+    for (const frame of fragments(buildInner(1, 0, 1, status, new Uint8Array([97])))) store.ingestFrame(frame);
+    assert.equal(store.snapshot().batteryPercent, null, `status ${status} must be rejected`);
+  }
+});
+
 test("a persisted battery is restored until deviceStatus replaces it", () => {
   const store = new RingHealthStore(() => 2_000);
   store.restoreBattery(81, 1_000);
   assert.equal(store.snapshot().batteryPercent, 81);
   assert.equal(store.snapshot().batteryUpdatedAtMs, 1_000);
-  assert.equal(store.snapshot().updatedAtMs, 1_000);
+  assert.equal(store.snapshot().updatedAtMs, null, "battery restore must not impersonate fresh rich health data");
 
   const inner = buildInner(1, 0, 1, 3, new Uint8Array([79, 0, 0]));
   for (const frame of fragments(inner)) store.ingestFrame(frame);
   assert.equal(store.snapshot().batteryPercent, 79);
   assert.equal(store.snapshot().batteryUpdatedAtMs, 2_000);
-  assert.equal(store.snapshot().updatedAtMs, 2_000);
+  assert.equal(store.snapshot().updatedAtMs, null);
 });
 
 test("deviceInfo response populates the read-only ring firmware version", () => {

@@ -83,10 +83,13 @@ Current as of 22 August 2026. `main` is the canonical branch.
   rich health GETs, so a worn ring's immediate multi-packet/packetAck wake cannot
   starve it. The last protocol-verified percent and its own update timestamp are
   stored in the app-private canonical health document and restored after process
-  restart until a fresh response replaces them. All 286 host tests, typecheck,
+  restart until a fresh response replaces them. Persistence is ring-identity
+  scoped, rejects future/malformed data, and rate-limits unchanged writes. All
+  289 host tests, typecheck,
   and the Android build pass. On the authorised A32, the exact APK upgrade,
-  launch, direct-R1 request order, decoded phone Health display (`60%`), live HR
-  (`93 bpm`), and G2 shell-frame ACKs were observed without pairing, ownership,
+  launch, direct-R1 request order, packetAck-resumed completion of every rich
+  health GET, decoded phone Health display (`60%`), live HR (`56 bpm`), and G2
+  shell-frame ACKs were observed without pairing, ownership,
   provisioning, reset, or firmware changes.
 - **RESEARCH — sleep.** Three CRC-valid type-2 frames establish ordered relative
   interval endpoints in seconds. Full decoding remains blocked until a matching

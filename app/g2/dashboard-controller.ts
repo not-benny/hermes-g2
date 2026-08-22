@@ -1102,18 +1102,26 @@ class DashboardController {
       });
       ringHealthStore.setLog((line) => this.appendLog(line));
       ringHealthStore.restoreActivity(loadActivity());
-      const persistedBattery = loadBattery();
-      ringHealthStore.restoreBattery(persistedBattery?.percent ?? null, persistedBattery?.updatedAtMs ?? null);
-      if (persistedBattery) shell.setBatteryLevels({ ring: persistedBattery.percent });
+      const ringIdentity = loadDeviceAddresses().ring;
+      const persistedBattery = loadBattery(ringIdentity);
+      if (!persistedBattery) {
+        ringHealthStore.clearBattery();
+        shell.setBatteryLevels({ ring: null });
+      } else if (ringHealthStore.snapshot().batteryPercent === null) {
+        ringHealthStore.restoreBattery(persistedBattery.percent, persistedBattery.updatedAtMs);
+        shell.setBatteryLevels({ ring: persistedBattery.percent });
+      }
       this.offRingHealthFrame = communicator.onRingHealthFrame((frame) => {
         ringHealthStore.ingestFrame(frame.data);
       });
       this.offRingHealthChange = ringHealthStore.onChange((snapshot) => {
         recordActivity(snapshot.activity);
-        recordBattery(snapshot.batteryPercent, snapshot.batteryUpdatedAtMs);
+        recordBattery(ringIdentity, snapshot.batteryPercent, snapshot.batteryUpdatedAtMs);
         shell.setRingHeartRate(snapshot.currentHr ?? snapshot.heartRate?.avg ?? null);
         if (snapshot.batteryPercent !== null) {
           shell.setBatteryLevels({ ring: snapshot.batteryPercent });
+        } else {
+          shell.setBatteryLevels({ ring: null });
         }
         if ((this.phase === "connected" || this.phase === "charging") && this.communicator) {
           this.requestShellRender();

@@ -66,9 +66,12 @@ runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
   before daily GETs and outside the recurring HR-only poll.
 - The recurring R1 `system/deviceStatus` battery request runs before rich health
   GETs, so an immediate worn-ring response cannot wake packetAck processing and
-  starve the battery request. The last protocol-verified percent and its dedicated
-  timestamp persist in the app-private canonical health document and restore on
-  process restart until a fresh response replaces them.
+  starve the battery request. PacketAck wakes are drained and the generation-valid
+  rich-health sequence resumes rather than aborting. The last exact-status-verified
+  percent and its dedicated timestamp persist under the configured ring identity
+  in the app-private canonical health document and restore on process restart
+  until a fresh response replaces them. Invalid/future values fail closed and
+  unchanged values write at most hourly.
 - The private-evaluation `glasses.render_view` implementation is owner,
   revision, operation-ID, TTL, rate, content, and compositor-receipt bounded.
   It never wakes or changes focus.
@@ -89,15 +92,16 @@ when no later human/automation revision intervened. See
 `docs/dynamic-glasses-apps.md` and
 `notes/dynamic-glasses-app-threat-model-2026-08-22.md`.
 
-The ring-battery fix passes all 286 host tests, TypeScript typechecking,
+The ring-battery fix passes all 289 host tests, TypeScript typechecking,
 `git diff --check`, and the JDK 21 / Android SDK 35 build. The resulting
-194,882,975-byte debug APK has SHA-256
-`9832ae034ab671aef3459a51766861d3f9b7e4c0b052de0754c1a9736ca26bd2`.
+195,410,289-byte debug APK has SHA-256
+`100be4cd20faba8436609e416c621890ac889ddb63e0f012276716b270f6a7ae`.
 That exact APK upgrade-installed and launched on the authorised Samsung A32 over
 USB. Both G2 arms and the direct R1 connected; PID-filtered logs showed
-`deviceStatus GET (battery)` complete before `heartRate/daily GET`, subsequent
-R1 notifications, and acknowledged shell frames. The phone Health screen showed
-`Ring: connected`, `60%`, `Updated just now`, and live `93 bpm`. This verifies
+`deviceStatus GET (battery)` complete before `heartRate/daily GET`; packetAck
+wakes then resumed and completed SpO2, HRV, activity, and sleep GETs rather than
+aborting the poll. The phone Health screen showed `Ring: connected`, `60%`,
+`Updated just now`, and live `56 bpm`; shell frames were acknowledged. This verifies
 the live worn-ring acquisition and phone display path; overnight continuity is
 covered deterministically by the restart persistence regression, not by a new
 overnight hardware observation. No pairing, ownership, provisioning, reset,
