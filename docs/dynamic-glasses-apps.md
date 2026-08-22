@@ -149,11 +149,21 @@ the same restoration path. Kill/crash recovery still requires the durable
 production ledger described below and is not authorised by this private harness.
 
 The atomic endpoint is an external Home Assistant peer contract, not arbitrary
-code delivered to the phone. It accepts only protocol version 1, exact area,
-one `light`/`switch` entity, expected revision, and `on`/`off`; it returns bounded
-before/after states plus `applied`, area, and provider context. It must perform
-membership/revision validation and the explicit service transition atomically.
-Without this peer, read-only discovery works and every mutation fails closed.
+code delivered to the phone. Its exact request is an object containing only
+`version: 1`, bounded `operation_id`, `area: "Living Room"`, one `entity_id`,
+`domain: "light"|"switch"`, `expected_revision`, and `target: "on"|"off"`.
+It must durably bind `operation_id` to that payload before mutation. Success is
+`{applied:true, area:"Living Room", before:<HA state>, after:<HA state>}`;
+fail-closed precondition responses are `{applied:false, code:"stale_scope"|
+"stale_revision"|"unavailable"}`. Unknown fields and other codes are errors.
+
+The revision is SHA-256, base64url without padding, over UTF-8 JSON for
+`{attributes, context, last_updated, state}` where `context` is the HA context
+ID and every object key (including nested attribute keys) is recursively sorted
+lexicographically before serialization; arrays preserve order. The endpoint
+must validate membership and this revision, execute one explicit service
+transition, and capture before/after states atomically. Without this peer,
+read-only discovery works and every mutation fails closed.
 
 ## Remaining gates
 

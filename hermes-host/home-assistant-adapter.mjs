@@ -64,13 +64,21 @@ function opaqueHandle() {
   return randomBytes(18).toString("base64url");
 }
 
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
+  }
+  return value;
+}
+
 function entityRevision(entity) {
-  const canonical = JSON.stringify({
+  const canonical = JSON.stringify(canonicalize({
     state: entity.state,
     last_updated: entity.last_updated,
     context: entity.context?.id ?? null,
     attributes: entity.attributes ?? {},
-  });
+  }));
   return createHash("sha256").update(canonical).digest("base64url");
 }
 
@@ -207,6 +215,7 @@ export class HomeAssistantAdapter {
     try {
       const result = await this.#transport.mutateBinaryCapability({
         version: 1,
+        operation_id: request.operationId,
         area: "Living Room",
         entity_id: capability.entityId,
         domain: capability.domain,

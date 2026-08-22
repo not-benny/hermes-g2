@@ -29,8 +29,8 @@ function fakeHa() {
   };
   transport.mutateBinaryCapability = async (request, signal) => {
     const before = structuredClone(lamp);
-    const revision = createHash("sha256").update(JSON.stringify({ state: before.state, last_updated: before.last_updated,
-      context: before.context.id, attributes: before.attributes })).digest("base64url");
+    const revision = createHash("sha256").update(JSON.stringify({ attributes: before.attributes, context: before.context.id,
+      last_updated: before.last_updated, state: before.state })).digest("base64url");
     if (!areaEntities.includes(request.entity_id)) return { applied: false, code: "stale_scope" };
     if (request.expected_revision !== revision) return { applied: false, code: "stale_revision" };
     const service = request.target === "on" ? "turn_on" : "turn_off";
@@ -285,6 +285,23 @@ test("runtime compensates a close racing phone create and permits a clean replac
   releaseCreate();
   await assert.rejects(() => first, /stale/i);
   assert.equal(calls.some((call) => call.name.endsWith(".close")), true);
+  assert.ok(calls.find((call) => call.name.endsWith(".close")).args.operation_id.length <= 64);
+
+  let releaseFailedCreate;
+  const failedPhone = { async callTool(name) {
+    if (name.endsWith(".create")) {
+      await new Promise((resolve) => { releaseFailedCreate = resolve; });
+      return { status: "acknowledged", view_id: "opaque_dynamic_view_0002", revision: 1, frame_id: 1 };
+    }
+    throw new Error("close unavailable");
+  } };
+  const failedRuntime = new DynamicGlassesRuntime({ adapter, phone: failedPhone, now: () => 1_000 });
+  const failed = failedRuntime.openLivingRoom(ownerA, { operationId: "x".repeat(64) });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  failedRuntime.close(ownerA);
+  releaseFailedCreate();
+  await assert.rejects(() => failed, /cleanup is unconfirmed/i);
+  await assert.rejects(() => failedRuntime.openLivingRoom(ownerB, { operationId: "blocked" }), /pending/i);
 });
 
 test("runtime retires expired sessions and serializes different action side effects", async () => {

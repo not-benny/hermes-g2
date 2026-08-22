@@ -362,6 +362,10 @@ export class DynamicAppManager {
     if (identity.revision === 1) {
       this.events.length = 0;
       this.acknowledgedEventIds.clear();
+    } else if (this.events.length > 1) {
+      // Preserve only the queue head being processed. Other intents were
+      // produced by the replaced revision and must not head-block the new view.
+      this.events.splice(1);
     }
     this.armTimer(candidate);
     const result: ToolResult = { ok: true, content: JSON.stringify({

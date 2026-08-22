@@ -75,9 +75,19 @@ export class DynamicGlassesRuntime {
     });
     if (pending.cancelled || this.#pendingOpen !== pending) {
       if (result?.status === "acknowledged" && result.view_id && result.revision === 1) {
-        await this.#phone.callTool("glasses.dynamic_apps.close", {
-          operation_id: `${operationId}.cancel`, view_id: result.view_id, expected_revision: result.revision,
-        }).catch(() => undefined);
+        let closeResult;
+        try {
+          closeResult = await this.#phone.callTool("glasses.dynamic_apps.close", {
+            operation_id: `cancel-${randomHandle()}`, view_id: result.view_id, expected_revision: result.revision,
+          });
+        } catch {
+          pending.cleanupFailed = true;
+          throw new Error("cancelled phone view cleanup is unconfirmed");
+        }
+        if (closeResult?.status !== "closed" && closeResult?.status !== "historical_acknowledgement") {
+          pending.cleanupFailed = true;
+          throw new Error("cancelled phone view cleanup is unconfirmed");
+        }
       }
       throw new Error("stale dynamic app open");
     }
@@ -86,7 +96,7 @@ export class DynamicGlassesRuntime {
     this.#pendingOpen = null;
     return { viewId: result.view_id, revision: result.revision };
     } catch (error) {
-      if (this.#pendingOpen === pending) {
+      if (this.#pendingOpen === pending && !pending.cleanupFailed) {
         this.#pendingOpen = null;
         if (!this.#session) this.#actions.clear();
       }
