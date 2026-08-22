@@ -73,12 +73,12 @@ debug APK is 194,871,195 bytes, versionCode 1000001 / versionName
 final SHA-256 is
 `03a82652986aff42ba70619eb87e28430fdce7fd55d1fbe6a384a54c5d9b8347`.
 
-The release-governance follow-up passes 260 host tests, TypeScript, the root
+The release-governance follow-up passes 261 host tests, TypeScript, the root
 high-severity and WhatsApp runtime audits, workflow `actionlint`, diff hygiene,
-and a clean isolated JDK 21 / SDK 35 Android build. Patched same-major lockfile
-overrides reduce the root audit from 2 critical / 7 high / 28 moderate to 28
-development-only moderate
-findings; the CI high-severity gate passes, and the incompatible residual Jimp,
+and a clean isolated JDK 21 / SDK 35 Android build. Patched lockfile overrides,
+including a loopback-tested ws 8 compatibility exception, reduce the root audit
+from 2 critical / 7 high / 28 moderate to 28 development-only moderate findings.
+The CI high-severity gate passes, and the incompatible residual Jimp,
 uuid, and yauzl tool paths remain documented rather than force-downgraded. The
 untrusted-validation APK is 194,871,195 bytes with
 SHA-256 `ebf4ab98d4b3dbf43e3e1f9c01ebf143db9c5b2e751f05221a2c09f33faeda7d`;

@@ -1,8 +1,43 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import test from "node:test";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+
+test("bundle analyzer server supports the patched ws 8 override", async () => {
+  const analyzerRequire = createRequire(
+    new URL("../node_modules/webpack-bundle-analyzer/package.json", import.meta.url),
+  );
+  assert.equal(analyzerRequire("ws/package.json").version, "8.21.3");
+  const { startServer } = analyzerRequire("webpack-bundle-analyzer/lib/viewer");
+  const bundleStats = {
+    assets: [{ name: "bundle.js", size: 1, chunks: [0] }],
+    chunks: [{ id: 0, names: ["main"], files: ["bundle.js"] }],
+    modules: [{ id: 0, name: "./x.js", identifier: "./x.js", size: 1, chunks: [0] }],
+    entrypoints: { main: { chunks: [0], assets: [{ name: "bundle.js" }] } },
+  };
+  const logger = { info() {}, warn() {}, error() {}, debug() {} };
+  const server = await startServer(bundleStats, {
+    port: 0,
+    host: "127.0.0.1",
+    openBrowser: false,
+    logger,
+    analyzerUrl: ({ boundAddress }) => `http://127.0.0.1:${boundAddress.port}`,
+  });
+  const port = server.http.address().port;
+  assert.ok(port > 0);
+  const WebSocket = analyzerRequire("ws");
+  const client = new WebSocket(`ws://127.0.0.1:${port}`);
+  await new Promise((resolve, reject) => {
+    client.once("open", resolve);
+    client.once("error", reject);
+  });
+  client.close();
+  await new Promise((resolve) => client.once("close", resolve));
+  await new Promise((resolve) => server.ws.close(resolve));
+  await new Promise((resolve) => server.http.close(resolve));
+});
 
 test("untrusted pull requests cannot publish an APK as release evidence", () => {
   const ci = read(".github/workflows/ci.yml");
@@ -91,5 +126,6 @@ test("Android native inputs and release metadata are pinned", () => {
   }
   assert.equal(packageJson.private, true);
   assert.equal(packageJson.devDependencies.nativescript, "9.0.7");
+  assert.equal(packageJson.overrides.ws, "8.21.3");
   assert.equal(packageJson.scripts.build, "npx --no-install ns build android");
 });
