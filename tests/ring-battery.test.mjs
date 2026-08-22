@@ -4,22 +4,33 @@ import test from "node:test";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("the status bar shows an R1 battery when the direct ring exposes the standard service", () => {
-  const manager = read("App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleManager.java");
+test("a worn ring requests deviceStatus before rich health pushes can interrupt the poll", () => {
   const communicator = read("App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java");
-  const listener = read("App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicatorListener.java");
-  const bridge = read("app/native/faceclaw-communicator.ts");
-  const controller = read("app/g2/dashboard-controller.ts");
-  const chrome = read("app/ui/shell/chrome-layer.ts");
-  const shell = read("app/ui/shell/shell.ts");
+  const start = communicator.indexOf("private void probeRingHealth(int generation)");
+  const end = communicator.indexOf("/** ~200ms spacing", start);
+  const poll = communicator.slice(start, end);
+  const battery = poll.indexOf("deviceStatus GET (battery)");
+  const firstRichHealthRequest = poll.indexOf("heartRate/daily GET");
 
-  assert.match(manager, /readCharacteristic\(/);
-  assert.match(manager, /onCharacteristicRead/);
-  assert.match(communicator, /RING_BATTERY_LEVEL_UUID/);
-  assert.match(communicator, /refreshRingBattery/);
-  assert.match(listener, /onBatteryState\(int headsetBattery, int headsetCharging, int ringBattery\)/);
-  assert.match(bridge, /ringBattery:/);
-  assert.match(controller, /ringBattery/);
-  assert.match(chrome, /kind: "ring"/);
-  assert.match(shell, /ring: null/);
+  assert.ok(start >= 0 && end > start, "ring health poll must exist");
+  assert.ok(battery >= 0, "verified proprietary battery request must remain in the poll");
+  assert.ok(firstRichHealthRequest >= 0, "rich health polling must remain enabled");
+  assert.ok(
+    battery < firstRichHealthRequest,
+    "battery must be requested before a worn ring's rich response wakes the packetAck worker",
+  );
+});
+
+test("protocol battery is restored, persisted, and propagated to both battery UIs", () => {
+  const store = read("app/health/ring-health-store.ts");
+  const controller = read("app/g2/dashboard-controller.ts");
+  const phone = read("app/phone-ui/even-health-view-model.ts");
+  const chrome = read("app/ui/shell/chrome-layer.ts");
+
+  assert.match(store, /batteryPercent: percent/);
+  assert.match(controller, /loadBattery/);
+  assert.match(controller, /ringHealthStore\.restoreBattery\(persistedBattery\?\.percent/);
+  assert.match(controller, /recordBattery\(snapshot\.batteryPercent, snapshot\.batteryUpdatedAtMs\)/);
+  assert.match(phone, /this\.health\.batteryPercent === null \? "--" : String\(this\.health\.batteryPercent\)/);
+  assert.match(chrome, /kind: "ring", percent: state\.battery\.ring/);
 });

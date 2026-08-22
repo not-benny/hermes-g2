@@ -9,6 +9,11 @@ import { canonicalizeActivitySnapshot, type RingActivitySnapshot } from "./ring-
 
 export const HEALTH_RETENTION_DAYS = 90;
 
+export interface RingBatterySnapshot {
+  percent: number;
+  updatedAtMs: number;
+}
+
 export interface HealthStoreDocument {
   version: 1;
   updatedAtMs: number;
@@ -16,6 +21,7 @@ export interface HealthStoreDocument {
   history: DailyHealthSummary[];
   hourly: HourlyPoint[];
   activity: RingActivitySnapshot | null;
+  battery: RingBatterySnapshot | null;
 }
 
 export interface HealthQueryArgs {
@@ -169,6 +175,14 @@ function canonicalHourlyRows(value: unknown, cutoff: string, today: string, nowM
   );
 }
 
+function canonicalBattery(value: unknown): RingBatterySnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  if (!Number.isInteger(raw.percent) || (raw.percent as number) < 0 || (raw.percent as number) > 100 ||
+    typeof raw.updatedAtMs !== "number" || !Number.isFinite(raw.updatedAtMs) || raw.updatedAtMs < 0) return null;
+  return { percent: raw.percent as number, updatedAtMs: raw.updatedAtMs };
+}
+
 /** Normalize arbitrary persisted JSON into the exact v1 document contract. */
 export function canonicalizeHealthDocument(value: unknown, nowMs = Date.now()): HealthStoreDocument {
   const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -181,6 +195,7 @@ export function canonicalizeHealthDocument(value: unknown, nowMs = Date.now()): 
     history: canonicalHistory(raw.history, cutoff, today),
     hourly: canonicalHourlyRows(raw.hourly, cutoff, today, nowMs),
     activity: canonicalizeActivitySnapshot(raw.activity, nowMs),
+    battery: canonicalBattery(raw.battery),
   };
 }
 

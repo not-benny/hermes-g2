@@ -136,6 +136,20 @@ test("deviceStatus response populates the ring battery percent", () => {
   assert.equal(store.snapshot().batteryPercent, 97);
 });
 
+test("a persisted battery is restored until deviceStatus replaces it", () => {
+  const store = new RingHealthStore(() => 2_000);
+  store.restoreBattery(81, 1_000);
+  assert.equal(store.snapshot().batteryPercent, 81);
+  assert.equal(store.snapshot().batteryUpdatedAtMs, 1_000);
+  assert.equal(store.snapshot().updatedAtMs, 1_000);
+
+  const inner = buildInner(1, 0, 1, 3, new Uint8Array([79, 0, 0]));
+  for (const frame of fragments(inner)) store.ingestFrame(frame);
+  assert.equal(store.snapshot().batteryPercent, 79);
+  assert.equal(store.snapshot().batteryUpdatedAtMs, 2_000);
+  assert.equal(store.snapshot().updatedAtMs, 2_000);
+});
+
 test("deviceInfo response populates the read-only ring firmware version", () => {
   const store = new RingHealthStore();
   const version = new TextEncoder().encode("2.2.8.0002");

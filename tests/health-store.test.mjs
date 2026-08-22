@@ -52,13 +52,14 @@ function dateDaysBefore(days) {
 
 test("canonical document has the exact v1 top-level shape", () => {
   const doc = canonicalizeHealthDocument({}, NOW);
-  assert.deepEqual(Object.keys(doc), ["version", "updatedAtMs", "retentionDays", "history", "hourly", "activity"]);
+  assert.deepEqual(Object.keys(doc), ["version", "updatedAtMs", "retentionDays", "history", "hourly", "activity", "battery"]);
   assert.equal(doc.version, 1);
   assert.equal(doc.updatedAtMs, NOW);
   assert.equal(doc.retentionDays, HEALTH_RETENTION_DAYS);
   assert.deepEqual(doc.history, []);
   assert.deepEqual(doc.hourly, []);
   assert.equal(doc.activity, null);
+  assert.equal(doc.battery, null);
 });
 
 test("retention is today plus exactly 89 previous local calendar dates", () => {

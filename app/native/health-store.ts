@@ -4,7 +4,7 @@
  * clearing because revocation is an access gate, not a delete operation.
  */
 import { ApplicationSettings } from "@nativescript/core";
-import { canonicalizeHealthDocument, parseLocalDateKey, type HealthStoreDocument } from "../health/health-store";
+import { canonicalizeHealthDocument, parseLocalDateKey, type HealthStoreDocument, type RingBatterySnapshot } from "../health/health-store";
 import { dateKeyOf, summarizeDay, type DailyHealthSummary, type DaySummaryInputs } from "../health/health-history";
 import { buildHourlyPoints, type HourlyPoint } from "../health/health-hourly";
 import type { RingActivitySnapshot } from "../health/ring-health-store";
@@ -37,6 +37,8 @@ export interface HealthPersistence {
   recordHourly(hr: RingHour[], spo2: RingHour[], hrv: RingHour[], nowMs: number): HourlyPoint[];
   loadActivity(nowMs?: number): RingActivitySnapshot | null;
   recordActivity(activity: RingActivitySnapshot | null): void;
+  loadBattery(): RingBatterySnapshot | null;
+  recordBattery(percent: number | null, updatedAtMs: number | null): void;
   getHermesConsent(): boolean;
   setHermesConsent(on: boolean): void;
   clearHealthData(): void;
@@ -55,6 +57,13 @@ function isValidPersistedDocument(value: Record<string, unknown>, nowMs: number)
   if (value.version !== 1 || value.retentionDays !== 90 || !isFiniteNumber(value.updatedAtMs) ||
     !Array.isArray(value.history) || !Array.isArray(value.hourly) ||
     (value.activity !== null && typeof value.activity !== "object")) return false;
+  if (value.battery !== undefined && value.battery !== null) {
+    if (typeof value.battery !== "object") return false;
+    const battery = value.battery as Record<string, unknown>;
+    if (!Number.isInteger(battery.percent) || (battery.percent as number) < 0 ||
+      (battery.percent as number) > 100 || !isFiniteNumber(battery.updatedAtMs) ||
+      (battery.updatedAtMs as number) < 0) return false;
+  }
   if (value.history.some((candidate) => {
     if (!candidate || typeof candidate !== "object") return true;
     const row = candidate as Record<string, unknown>;
@@ -210,6 +219,17 @@ export function createHealthPersistence(settings: HealthApplicationSettings, now
       const loaded = loadHealthDocumentResult();
       if (loaded.ok && loaded.document) replaceHealthDocument({ ...loaded.document, activity });
     },
+    loadBattery: () => loadHealthDocumentResult().document?.battery ?? null,
+    recordBattery(percent, updatedAtMs) {
+      if (!Number.isInteger(percent) || (percent as number) < 0 || (percent as number) > 100 ||
+        typeof updatedAtMs !== "number" || !Number.isFinite(updatedAtMs) || updatedAtMs < 0) return;
+      const loaded = loadHealthDocumentResult();
+      if (!loaded.ok || !loaded.document) return;
+      const battery = { percent: percent as number, updatedAtMs };
+      if (loaded.document.battery?.percent === battery.percent &&
+        loaded.document.battery.updatedAtMs === battery.updatedAtMs) return;
+      replaceHealthDocument({ ...loaded.document, battery });
+    },
     getHermesConsent: () => settings.getBoolean(HERMES_CONSENT_KEY, false),
     setHermesConsent: (on) => settings.setBoolean(HERMES_CONSENT_KEY, on),
     clearHealthData() { try { settings.remove(HEALTH_STORE_KEY); } catch {} removeLegacy(); },
@@ -225,6 +245,8 @@ export const loadHourly = healthPersistence.loadHourly;
 export const recordHourly = healthPersistence.recordHourly;
 export const loadActivity = healthPersistence.loadActivity;
 export const recordActivity = healthPersistence.recordActivity;
+export const loadBattery = healthPersistence.loadBattery;
+export const recordBattery = healthPersistence.recordBattery;
 export const getHermesConsent = healthPersistence.getHermesConsent;
 export const setHermesConsent = healthPersistence.setHermesConsent;
 export const clearHealthData = healthPersistence.clearHealthData;

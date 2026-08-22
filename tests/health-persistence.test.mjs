@@ -279,6 +279,17 @@ test("record operations update only the single canonical data key", () => {
   assert.equal(document.hourly.length, 1);
 });
 
+test("a verified ring battery survives an overnight app restart", () => {
+  const settings = new FakeSettings();
+  const firstRun = createHealthPersistence(settings, () => NOW);
+  firstRun.loadHealthDocument();
+  firstRun.recordBattery(97, NOW);
+
+  const nextMorning = NOW + 12 * 60 * 60 * 1000;
+  const restored = createHealthPersistence(settings, () => nextMorning).loadBattery();
+  assert.deepEqual(restored, { percent: 97, updatedAtMs: NOW });
+});
+
 test("optional anchored hourly timestamps survive canonical persistence while legacy rows remain valid", () => {
   const settings = new FakeSettings();
   const store = createHealthPersistence(settings, () => NOW);

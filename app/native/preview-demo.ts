@@ -78,6 +78,7 @@ function demoSnapshot(nowMs: number): RingHealthSnapshot {
       restingCalories: 1418,
     },
     batteryPercent: 84,
+    batteryUpdatedAtMs: nowMs,
     firmwareVersion: null,
     updatedAtMs: nowMs,
     heartRateSeries: series,

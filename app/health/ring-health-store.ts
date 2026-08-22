@@ -94,6 +94,8 @@ export interface RingHealthSnapshot {
   activity: RingActivitySnapshot | null;
   /** Ring battery percent from the deviceStatus response. */
   batteryPercent: number | null;
+  /** Wall-clock ms of the last deviceStatus battery response. */
+  batteryUpdatedAtMs: number | null;
   /** Read-only firmware version from the deviceInfo response. */
   firmwareVersion: string | null;
   /** Wall-clock ms of the last applied update, null before the first. */
@@ -115,6 +117,7 @@ const EMPTY: RingHealthSnapshot = {
   hrv: null,
   activity: null,
   batteryPercent: null,
+  batteryUpdatedAtMs: null,
   firmwareVersion: null,
   updatedAtMs: null,
   heartRateSeries: [],
@@ -157,6 +160,19 @@ export class RingHealthStore {
     const canonical = canonicalizeActivitySnapshot(activity, this.nowMs());
     if (!canonical) return;
     this.snapshotState = { ...this.snapshotState, activity: canonical };
+    this.emit();
+  }
+
+  /** Restore the last protocol-verified battery while awaiting a fresh poll. */
+  restoreBattery(percent: number | null, updatedAtMs: number | null): void {
+    if (!Number.isInteger(percent) || (percent as number) < 0 || (percent as number) > 100 ||
+      typeof updatedAtMs !== "number" || !Number.isFinite(updatedAtMs) || updatedAtMs < 0) return;
+    this.snapshotState = {
+      ...this.snapshotState,
+      batteryPercent: percent,
+      batteryUpdatedAtMs: updatedAtMs,
+      updatedAtMs,
+    };
     this.emit();
   }
 
@@ -226,10 +242,12 @@ export class RingHealthStore {
       if (parsed.cmd === CMD_SYSTEM && parsed.subCmd === SUBCMD_DEVICE_STATUS) {
         const percent = decodeRingBattery(parsed.data);
         if (percent >= 0 && percent <= 100) {
+          const updatedAtMs = this.nowMs();
           this.snapshotState = {
             ...this.snapshotState,
             batteryPercent: percent,
-            updatedAtMs: this.nowMs(),
+            batteryUpdatedAtMs: updatedAtMs,
+            updatedAtMs,
           };
           this.emit();
         }

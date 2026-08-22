@@ -78,6 +78,16 @@ Current as of 22 August 2026. `main` is the canonical branch.
 - **DONE — session clock and polling.** A one-shot best-effort `systemTime`
   command runs during session setup; HR-only refresh remains separate from the
   slower full-health poll.
+- **DONE — worn and overnight ring-battery availability (22 August 2026).** The
+  recurring proprietary `system/deviceStatus` battery request now runs before
+  rich health GETs, so a worn ring's immediate multi-packet/packetAck wake cannot
+  starve it. The last protocol-verified percent and its own update timestamp are
+  stored in the app-private canonical health document and restored after process
+  restart until a fresh response replaces them. All 286 host tests, typecheck,
+  and the Android build pass. On the authorised A32, the exact APK upgrade,
+  launch, direct-R1 request order, decoded phone Health display (`60%`), live HR
+  (`93 bpm`), and G2 shell-frame ACKs were observed without pairing, ownership,
+  provisioning, reset, or firmware changes.
 - **RESEARCH — sleep.** Three CRC-valid type-2 frames establish ordered relative
   interval endpoints in seconds. Full decoding remains blocked until a matching
   type-1 summary/stage frame and the absolute time-base handoff are proven.

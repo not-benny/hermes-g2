@@ -64,6 +64,11 @@ runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
   metadata validate; malformed and stale data fails closed.
 - A best-effort one-shot R1 system-time write runs during health-session setup,
   before daily GETs and outside the recurring HR-only poll.
+- The recurring R1 `system/deviceStatus` battery request runs before rich health
+  GETs, so an immediate worn-ring response cannot wake packetAck processing and
+  starve the battery request. The last protocol-verified percent and its dedicated
+  timestamp persist in the app-private canonical health document and restore on
+  process restart until a fresh response replaces them.
 - The private-evaluation `glasses.render_view` implementation is owner,
   revision, operation-ID, TTL, rate, content, and compositor-receipt bounded.
   It never wakes or changes focus.
@@ -84,7 +89,21 @@ when no later human/automation revision intervened. See
 `docs/dynamic-glasses-apps.md` and
 `notes/dynamic-glasses-app-threat-model-2026-08-22.md`.
 
-The final local source candidate passes all 281 host tests, TypeScript
+The ring-battery fix passes all 286 host tests, TypeScript typechecking,
+`git diff --check`, and the JDK 21 / Android SDK 35 build. The resulting
+194,882,975-byte debug APK has SHA-256
+`9832ae034ab671aef3459a51766861d3f9b7e4c0b052de0754c1a9736ca26bd2`.
+That exact APK upgrade-installed and launched on the authorised Samsung A32 over
+USB. Both G2 arms and the direct R1 connected; PID-filtered logs showed
+`deviceStatus GET (battery)` complete before `heartRate/daily GET`, subsequent
+R1 notifications, and acknowledged shell frames. The phone Health screen showed
+`Ring: connected`, `60%`, `Updated just now`, and live `93 bpm`. This verifies
+the live worn-ring acquisition and phone display path; overnight continuity is
+covered deterministically by the restart persistence regression, not by a new
+overnight hardware observation. No pairing, ownership, provisioning, reset,
+wipe, firmware, DFU, OTA, or destructive operation was performed.
+
+The earlier dynamic-app frozen candidate passed all 281 host tests, TypeScript
 typechecking, `git diff --check`, and the JDK 21 / Android SDK 35 build. Its
 195,407,092-byte debug APK has SHA-256
 `d6083a30344db8f03b16b38228da81622cd2effdb4f88256ed16a9ea4b0d87a7`.
@@ -210,8 +229,9 @@ unobserved hardware result from passing host tests.
 3. Validate the remaining private bridge lifecycle with certificate failure,
    cancellation, reconnect, stale-turn rejection, durable mutation replay, and
    a disposable generic client.
-4. Complete the deferred non-destructive G2/R1/Doze/calendar/mic matrix when the
-   live devices are available without contention; do not infer it from this APK.
+4. Complete the remaining non-destructive Doze/charging/calendar/mic matrix; the
+   live R1 battery/HR and G2 transport paths are now evidenced, but no unobserved
+   matrix result should be inferred from this APK.
 5. Obtain the missing type-1 R1 sleep evidence only under a separately reviewed,
    reversible, private capture plan.
 6. Keep firmware/recovery work blocked unless every independent provenance,
