@@ -84,7 +84,8 @@ export class DynamicGlassesRuntime {
           pending.cleanupFailed = true;
           throw new Error("cancelled phone view cleanup is unconfirmed");
         }
-        if (closeResult?.status !== "closed" && closeResult?.status !== "historical_acknowledgement") {
+        if ((closeResult?.status !== "closed" && closeResult?.status !== "historical_acknowledgement") ||
+            closeResult?.view_id !== result.view_id || closeResult?.revision !== result.revision) {
           pending.cleanupFailed = true;
           throw new Error("cancelled phone view cleanup is unconfirmed");
         }

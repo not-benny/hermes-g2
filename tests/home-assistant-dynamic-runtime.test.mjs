@@ -273,7 +273,7 @@ test("runtime compensates a close racing phone create and permits a clean replac
       await new Promise((resolve) => { releaseCreate = resolve; });
       return { status: "acknowledged", view_id: "opaque_dynamic_view_0001", revision: 1, frame_id: 1 };
     }
-    return { status: "closed" };
+    return { status: "closed", view_id: "opaque_dynamic_view_0001", revision: 1 };
   } };
   const runtime = new DynamicGlassesRuntime({ adapter, phone, now: () => 1_000 });
   const ownerA = { tenant: "a", device: "g2", connectionGeneration: "socket-a", turnGeneration: "turn-a" };
@@ -293,7 +293,7 @@ test("runtime compensates a close racing phone create and permits a clean replac
       await new Promise((resolve) => { releaseFailedCreate = resolve; });
       return { status: "acknowledged", view_id: "opaque_dynamic_view_0002", revision: 1, frame_id: 1 };
     }
-    throw new Error("close unavailable");
+    return { status: "closed", view_id: "different_live_view", revision: 999 };
   } };
   const failedRuntime = new DynamicGlassesRuntime({ adapter, phone: failedPhone, now: () => 1_000 });
   const failed = failedRuntime.openLivingRoom(ownerA, { operationId: "x".repeat(64) });
