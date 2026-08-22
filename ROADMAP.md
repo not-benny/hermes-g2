@@ -16,9 +16,11 @@ Current as of 22 August 2026. `main` is the canonical branch.
   Hermes bridge now has a certificate-validated WSS deployment with its private
   key outside the repository. Host tests, build, APK checks, independent review,
   and a real WSS handshake pass. The exact APK installed/launched on the Fold7
-  and authenticated to Hermes with 33 phone tools. Exact G2/R1 visual, gesture,
-  signal-level and battery-response evidence remains blocked because the glasses
-  GATT connection returned status 133 and no two-arm session became ready.
+  and authenticated to Hermes with 33 phone tools. Both G2 arms then reached
+  session ready and direct R1 BLE reached MTU-247/notify readiness on the exact
+  candidate. Wearer confirmation of signal bars, quick-close and sleep
+  long-press remains open; repeated R1 `deviceStatus` GETs still yield no decoded
+  battery percentage, so the honest HUD/Health value remains `--`.
 
 - **IMPLEMENTED / FOLD7 VISUAL AND POSTURE VALIDATION BLOCKED — foldable phone UI (22 August 2026).**
   Preview 2 removes the portrait lock, handles live cover/unfolded/rotation/

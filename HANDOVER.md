@@ -26,12 +26,15 @@ non-destructive deployment GO. The exact APK upgrade-installed and launched on
 the authorised Fold7 with the expected version and a live process; no fatal,
 JavaScript, or TLS/certificate failure marker appeared. The exact legacy bridge
 port migrated to 8791, and the live Hermes gateway authenticated `hermes-g2` and
-listed 33 phone MCP tools. G2/R1 verification remains blocked: the glasses GATT
-attempts returned status 133, no two-arm session became ready, and therefore no
-optical HUD, sleep long-press, close guidance, signal-bar or exact-candidate R1
-battery evidence is claimed. The preceding R1 session accepted battery GET
-writes but emitted no notify frames, so an actual battery percentage remains
-operationally unproved until an exclusive R1 session responds.
+listed 33 phone MCP tools. After both G2 arms were physically recycled, the exact
+candidate reached `session ready`; direct R1 BLE reached ready at MTU 247 with
+both notify channels active and emitted live data notifications. The duplicate
+bridge reconnect loop was traced to the A32 running the same identity; the A32
+was restored enabled with its assistant backend set to direct, leaving the Fold7
+as the single stable bridge owner. The ring lacks the standard battery service,
+and repeated protocol `deviceStatus` GET writes still produced no decoded
+battery value, so Health/HUD correctly remain `--`. Optical signal-bar,
+quick-close and sleep-long-press behavior still requires wearer confirmation.
 
 ## Fold7 development-preview candidate
 
