@@ -3,6 +3,7 @@
         <ActionItem text="{{ buttonLabel }}" tap="{{ onTap }}" isEnabled="{{ canRun }}" android.position="popup" />
         <ActionItem text="Take screenshot" tap="{{ onTakeScreenshotTap }}" android.position="popup" />
         <ActionItem text="Record screen" tap="{{ onRecordScreenTap }}" android.position="popup" />
+        <ActionItem text="Open local document" tap="{{ onOpenLocalReaderTap }}" android.position="popup" accessibilityLabel="Open local text or Markdown document in reader" />
         <ActionItem text="Uninstall custom firmware" tap="{{ onUninstallFirmwareTap }}" isEnabled="{{ canRun }}" android.position="popup" />
         <ActionItem text="{{ showLogMenuLabel }}" tap="{{ onToggleLogTap }}" android.position="popup" />
     </ActionBar>
@@ -44,6 +45,7 @@
                         <Button row="0" col="2" text="Microphone" tap="{{ onSyntheticMicTap }}" />
                         <Button row="2" col="1" text="Swipe down" tap="{{ onSyntheticDownTap }}" />
                     </GridLayout>
+                    <Button text="Open local document" tap="{{ onOpenLocalReaderTap }}" accessibilityLabel="Open local text or Markdown document in reader" />
                     <Button text="Stop recording" tap="{{ onStopRecordingTap }}" visibility="{{ stopRecordingButtonVisibility }}" />
                 </StackLayout>
                 <Label row="2" text="{{ status }}" class="m-t-16" textWrap="true" />
@@ -93,6 +95,7 @@
                         <Button row="0" col="2" text="Microphone" tap="{{ onSyntheticMicTap }}" />
                         <Button row="2" col="1" text="Swipe down" tap="{{ onSyntheticDownTap }}" />
                     </GridLayout>
+                    <Button text="Open local document" tap="{{ onOpenLocalReaderTap }}" accessibilityLabel="Open local text or Markdown document in reader" />
                     <Button text="Stop recording" tap="{{ onStopRecordingTap }}" visibility="{{ stopRecordingButtonVisibility }}" />
                 </StackLayout>
                 <Label row="1" col="0" colSpan="2" text="{{ status }}" class="m-t-16" textWrap="true" />

@@ -2,6 +2,7 @@ import { Application, Frame, ImageSource, Observable, Screen } from "@nativescri
 import { dashboardController } from "../g2/dashboard-controller";
 import { isValidMacAddress, loadDeviceAddresses } from "../g2/device-addresses";
 import { G2_LENS_HEIGHT, G2_LENS_WIDTH } from "../graphics/image";
+import { openLocalReaderDocument } from "../native/reader-import";
 
 const LENS_ASPECT_RATIO = G2_LENS_WIDTH / G2_LENS_HEIGHT;
 
@@ -291,6 +292,14 @@ export class MainViewModel extends Observable {
       dashboardController.saveScreenshot();
     } catch (error) {
       console.error("screenshot failed", error);
+    }
+  }
+
+  onOpenLocalReaderTap(): void {
+    try {
+      openLocalReaderDocument();
+    } catch (error) {
+      dashboardController.reportLocalReaderError(error);
     }
   }
 

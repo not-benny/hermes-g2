@@ -1,4 +1,34 @@
-# Hermes G2 handover — 21 August 2026
+# Hermes G2 handover — 22 August 2026
+
+## Local reader/teleprompter candidate
+
+Branch `feat/g2-reader-teleprompter` adds a native offline text/Markdown reader
+on the existing Files/document surface. Android's Storage Access Framework is
+the sole new import authority: strict UTF-8, text MIME types, one persistable
+read-only `content://` grant, a 512 KB stream cap, and no directory/broad-storage
+grant. Content remains inert and local. The shell title is always `Reader`, while
+the local surface may show the bounded filename.
+
+Reader windows support ring/arm page scrolling, click-to-pause/resume
+auto-scroll, bookmark/jump, three font sizes, three line spacings, and speed
+controls through the existing long-press menu. A generation-bound session owns
+at most one timer and cancels it on background, screen-off, EOF, replacement,
+or close. Close also clears the in-memory body and base-layer lifecycle now
+reaches every in-process window. Persisted state is limited to the approved URI,
+page/bookmark, typography, and speed; reopening restores paused. See
+`docs/local-reader.md`.
+
+Verification on the current candidate: focused reader tests pass 7/7; the full
+host suite passes 266/266; TypeScript typechecking passes; JDK 21 / SDK 35 Android
+build passes. The debug APK installed on the USB Samsung A32 and launched.
+Synthetic non-private text opened a reader window after one runtime null-restore
+bug was reproduced in PID-filtered logs, fixed with a failing regression
+contract, rebuilt, and reinstalled. With both G2 arms live, the corrected reader
+surface produced acknowledged compositor image updates. Host lifecycle tests
+prove scroll, bookmark, pause/resume, restart metadata, stale timer, foreground,
+screen, replacement, and close semantics. The phone SAF picker and direct
+ring/touch gestures still need a final interactive evidence pass before this
+candidate can claim the complete hardware acceptance matrix.
 
 ## Repository state
 

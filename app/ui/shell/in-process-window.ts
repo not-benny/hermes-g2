@@ -189,6 +189,7 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
       // Fire onRemoved for any pushed layers so they release resources (e.g. a
       // demo that enabled a hardware stream) even when closed from within.
       stack.clearToBase();
+      stack.notifyBaseRemoved();
       options.onClosed?.();
       options.removeSurface?.();
     },
@@ -208,9 +209,13 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
     markSurfaceReady,
     setForeground: (foreground) => {
       options.setSurfaceVisible(foreground);
+      stack.notifyForegroundChanged(foreground);
       // Foreground availability is dynamic; notify assistant clients whenever
       // the shell changes this window's focus so their tool list is refreshed.
       toolRegistry.fireToolsChanged();
+    },
+    setScreenOn: (screenOn) => {
+      stack.notifyScreenChanged(screenOn);
     },
   };
   return { window, stack, requestRender, markSurfaceReady };
@@ -242,5 +247,13 @@ export class YieldAtRootLayer implements Layer {
 
   onRemoved(): void {
     this.inner.onRemoved?.();
+  }
+
+  onForegroundChanged(foreground: boolean): void {
+    this.inner.onForegroundChanged?.(foreground);
+  }
+
+  onScreenChanged(screenOn: boolean): void {
+    this.inner.onScreenChanged?.(screenOn);
   }
 }

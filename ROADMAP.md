@@ -1,10 +1,21 @@
 # Hermes G2 roadmap
 
-Current as of 21 August 2026. `main` is the canonical branch.
+Current as of 22 August 2026. `main` is the canonical branch.
 
 **Status key:** DONE · IN PROGRESS · PARTIAL · TODO · RESEARCH · BLOCKED
 
 ## Now
+
+### Local reader and teleprompter
+
+- **IN PROGRESS — bounded offline reader.** The candidate reuses Files/document
+  windows and Android SAF for one user-selected UTF-8 text/Markdown URI. It adds
+  bounded inert layout, progress/bookmark, typography, ring/arm paging,
+  foreground-only auto-scroll, and synchronous close/replacement cancellation.
+  Host tests, typecheck, Android build, A32 install/launch, and a real-G2
+  compositor render pass. Final phone-picker plus direct ring/touch
+  pause/resume/bookmark/restore evidence and reviewed PR/green CI remain before
+  DONE. See `docs/local-reader.md`.
 
 ### Repository and release
 

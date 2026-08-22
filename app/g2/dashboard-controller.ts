@@ -1440,6 +1440,20 @@ class DashboardController {
     handler.openSharedText(this.buildAppContext(handler), "Shared text", text);
   }
 
+  /** A user-approved SAF document: open locally and retain only its URI grant and progress. */
+  async openLocalTextDocument(title: string, text: string, sourceUri: string): Promise<void> {
+    this.appendLog(`local reader document received (${text.length} chars)`);
+    if (!shell.isScreenOn()) shell.wake("sidebar");
+    const handler = ALL_APPS.find((app) => app.openSharedText);
+    if (!handler?.openSharedText) throw new Error("No local document reader is available");
+    handler.openSharedText(this.buildAppContext(handler), title, text, sourceUri);
+  }
+
+  reportLocalReaderError(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    this.appendLog(`local reader import failed: ${message}`);
+  }
+
   private startTextSettingEdit(setting: ConfigSettingString): void {
     this.activeTextSetting = setting;
     this.emit();
