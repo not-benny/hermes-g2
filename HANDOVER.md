@@ -55,7 +55,7 @@ LOAD alignment. The disabled WhatsApp/Node runtime is excluded. The arm64-only
 debug APK is 194,871,195 bytes, versionCode 1000001 / versionName
 1.0.0-preview.1, and its
 final SHA-256 is
-`ffe5a61c50f3b3abdc50aee92c9452e02bef4dff667ace03298fb123af7231ec`.
+`03a82652986aff42ba70619eb87e28430fdce7fd55d1fbe6a384a54c5d9b8347`.
 
 On the authorised Samsung A32, the existing and candidate APK certificates
 matched. Upgrade install, launch and resumed activity passed; package metadata

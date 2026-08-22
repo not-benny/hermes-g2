@@ -12,6 +12,8 @@ import android.util.Log;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import javax.crypto.Cipher;
@@ -45,6 +47,7 @@ public final class FaceclawSettings {
 
     private final SharedPreferences prefs;
     private final SharedPreferences securePrefs;
+    private final Set<String> pendingCleanupRequired = new HashSet<>();
     private final CopyOnWriteArrayList<ListenerEntry> listeners = new CopyOnWriteArrayList<>();
 
     private static final class ListenerEntry {
@@ -100,10 +103,13 @@ public final class FaceclawSettings {
      */
     public synchronized String getSecret(String key, String defaultValue) {
         String pendingKey = key + ".__pending";
-        if (securePrefs.contains(pendingKey)
-                && !securePrefs.edit().remove(pendingKey).commit()) {
-            Log.w(TAG, "pending encrypted-setting cleanup will retry");
-            return defaultValue;
+        if (pendingCleanupRequired.contains(key) || securePrefs.contains(pendingKey)) {
+            pendingCleanupRequired.add(key);
+            if (!securePrefs.edit().remove(pendingKey).commit()) {
+                Log.w(TAG, "pending encrypted-setting cleanup will retry");
+                return defaultValue;
+            }
+            pendingCleanupRequired.remove(key);
         }
         if (securePrefs.contains(key)) {
             try {
@@ -140,6 +146,7 @@ public final class FaceclawSettings {
                 .remove(key)
                 .remove(key + ".__pending")
                 .commit();
+        if (secureRemoved) pendingCleanupRequired.remove(key);
         boolean legacyRemoved = prefs.edit().remove(key).commit();
         if (secureRemoved && legacyRemoved) notifyChanged(key);
         return secureRemoved && legacyRemoved;
@@ -150,18 +157,21 @@ public final class FaceclawSettings {
         try {
             String encrypted = encrypt(value);
             if (!securePrefs.edit().putString(pendingKey, encrypted).commit()) return false;
+            pendingCleanupRequired.add(key);
             if (!value.equals(decrypt(securePrefs.getString(pendingKey, "")))) {
-                securePrefs.edit().remove(pendingKey).commit();
+                if (securePrefs.edit().remove(pendingKey).commit()) pendingCleanupRequired.remove(key);
                 return false;
             }
             if (!securePrefs.edit().putString(key, encrypted).commit()) {
-                securePrefs.edit().remove(pendingKey).commit();
+                if (securePrefs.edit().remove(pendingKey).commit()) pendingCleanupRequired.remove(key);
                 return false;
             }
-            return securePrefs.edit().remove(pendingKey).commit();
+            boolean cleaned = securePrefs.edit().remove(pendingKey).commit();
+            if (cleaned) pendingCleanupRequired.remove(key);
+            return cleaned;
         } catch (Exception e) {
             Log.w(TAG, "encrypted setting could not be written");
-            securePrefs.edit().remove(pendingKey).commit();
+            if (securePrefs.edit().remove(pendingKey).commit()) pendingCleanupRequired.remove(key);
             return false;
         }
     }
