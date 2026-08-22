@@ -1,0 +1,140 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { HomeAssistantAdapter, createHomeAssistantTransport } from "../hermes-host/home-assistant-adapter.mjs";
+import { DynamicGlassesRuntime } from "../hermes-host/dynamic-glasses-runtime.mjs";
+
+function fakeHa() {
+  const calls = [];
+  let lamp = { entity_id: "light.floor_lamp", state: "off", attributes: { friendly_name: "Floor lamp" }, last_updated: "2026-08-22T10:00:00Z", context: { id: "ctx-1" } };
+  let outside = { entity_id: "switch.garden", state: "on", attributes: { friendly_name: "Garden" }, last_updated: "2026-08-22T10:00:00Z", context: { id: "ctx-2" } };
+  const transport = {
+    async request(request) {
+      calls.push(structuredClone(request));
+      if (request.path === "/api/template") return ["light.floor_lamp", "sensor.secret", "switch.missing"];
+      if (request.path === "/api/states") return [lamp, outside,
+        { entity_id: "sensor.secret", state: "42", attributes: { friendly_name: "Secret" }, last_updated: "x", context: { id: "x" } }];
+      if (request.path === "/api/states/light.floor_lamp") return structuredClone(lamp);
+      if (request.path === "/api/services/light/turn_on") {
+        lamp = { ...lamp, state: "on", last_updated: "2026-08-22T10:00:01Z", context: { id: "ctx-3" } };
+        return [];
+      }
+      if (request.path === "/api/services/light/turn_off") {
+        lamp = { ...lamp, state: "off", last_updated: "2026-08-22T10:00:02Z", context: { id: "ctx-4" } };
+        return [];
+      }
+      throw new Error("unexpected request");
+    },
+  };
+  return { transport, calls, setLamp: (value) => { lamp = value; } };
+}
+
+test("Home Assistant discovers the actual area at runtime and exposes only fresh opaque safe binary capabilities", async () => {
+  const { transport, calls } = fakeHa();
+  let handleN = 0;
+  const adapter = new HomeAssistantAdapter({ transport, createHandle: () => `opaque_entity_handle_${String(++handleN).padStart(4, "0")}`, now: () => 1_000 });
+  const devices = await adapter.discover({ kind: "area", label: "Living Room" });
+  assert.deepEqual(devices.map(({ label, kind, value }) => ({ label, kind, value })), [
+    { label: "Floor lamp", kind: "light", value: "off" },
+  ]);
+  assert.equal(devices[0].handle, "opaque_entity_handle_0001");
+  assert.ok(!JSON.stringify(devices).includes("light.floor_lamp"));
+  assert.deepEqual(calls.slice(0, 2).map((call) => call.path), ["/api/template", "/api/states"]);
+  assert.equal(calls[0].body.variables.area, "Living Room");
+
+  await adapter.discover({ kind: "area", label: "Living Room" });
+  await assert.rejects(() => adapter.read("opaque_entity_handle_0001"), /stale capability/i);
+});
+
+test("Home Assistant explicit set is revision checked, idempotent, reauthorized immediately before side effect, and verified", async () => {
+  const { transport, calls } = fakeHa();
+  const adapter = new HomeAssistantAdapter({ transport, createHandle: () => "opaque_entity_handle_0001", now: () => 1_000 });
+  const [device] = await adapter.discover({ kind: "area", label: "Living Room" });
+  await assert.rejects(() => adapter.setPower({ operationId: "op-stale", handle: device.handle, value: "on", expectedRevision: "wrong" },
+    { isAuthorized: () => true }), /revision/i);
+  assert.equal(calls.filter((call) => call.path.includes("/api/services/")).length, 0);
+
+  let authorized = true;
+  const receipt = await adapter.setPower({ operationId: "op-1", handle: device.handle, value: "on", expectedRevision: device.revision },
+    { isAuthorized: () => authorized });
+  assert.equal(receipt.after.value, "on");
+  assert.equal(calls.filter((call) => call.path === "/api/services/light/turn_on").length, 1);
+  assert.equal(calls.some((call) => call.path.includes("toggle")), false);
+  assert.deepEqual(await adapter.setPower({ operationId: "op-1", handle: device.handle, value: "on", expectedRevision: device.revision },
+    { isAuthorized: () => authorized }), receipt);
+  assert.equal(calls.filter((call) => call.path === "/api/services/light/turn_on").length, 1);
+  await assert.rejects(() => adapter.setPower({ operationId: "op-1", handle: device.handle, value: "off", expectedRevision: receipt.after.revision },
+    { isAuthorized: () => true }), /different mutation/i);
+
+  const current = await adapter.read(device.handle);
+  authorized = false;
+  await assert.rejects(() => adapter.setPower({ operationId: "op-denied", handle: device.handle, value: "off", expectedRevision: current.revision },
+    { isAuthorized: () => authorized }), /no longer authorized/i);
+  assert.equal(calls.filter((call) => call.path === "/api/services/light/turn_off").length, 0);
+});
+
+test("restore is conservative and refuses to overwrite a later human or automation change", async () => {
+  const { transport, setLamp } = fakeHa();
+  const adapter = new HomeAssistantAdapter({ transport, createHandle: () => "opaque_entity_handle_0001", now: () => 1_000 });
+  const [device] = await adapter.discover({ kind: "area", label: "Living Room" });
+  const receipt = await adapter.setPower({ operationId: "op-1", handle: device.handle, value: "on", expectedRevision: device.revision },
+    { isAuthorized: () => true });
+  setLamp({ entity_id: "light.floor_lamp", state: "on", attributes: { friendly_name: "Floor lamp", brightness: 1 },
+    last_updated: "2026-08-22T10:00:03Z", context: { id: "human-change" } });
+  assert.deepEqual(await adapter.restore(receipt, { operationId: "restore-1", isAuthorized: () => true }),
+    { restored: false, reason: "state-changed" });
+});
+
+test("fetch transport keeps credentials server-side, requires HTTPS, blocks redirects, and redacts failures", async () => {
+  assert.throws(() => createHomeAssistantTransport({ baseUrl: "http://ha.local", getToken: () => "sentinel-token" }), /https/i);
+  const seen = [];
+  const transport = createHomeAssistantTransport({
+    baseUrl: "https://private-ha.invalid",
+    getToken: () => "sentinel-token",
+    fetchImpl: async (url, options) => {
+      seen.push({ url, options });
+      return { ok: false, status: 500, json: async () => ({ secret: "sentinel-body" }), text: async () => "sentinel-body" };
+    },
+  });
+  await assert.rejects(() => transport.request({ method: "GET", path: "/api/states" }), (error) => {
+    assert.equal(JSON.stringify(error).includes("sentinel"), false);
+    assert.equal(String(error).includes("private-ha"), false);
+    return true;
+  });
+  assert.equal(seen[0].options.redirect, "error");
+  assert.equal(seen[0].options.headers.Authorization, "Bearer sentinel-token");
+});
+
+test("runtime renders a provider-neutral living-room app and executes only exact current opaque actions once", async () => {
+  const { transport, calls } = fakeHa();
+  let handleN = 0;
+  const adapter = new HomeAssistantAdapter({ transport, createHandle: () => `opaque_entity_handle_${String(++handleN).padStart(4, "0")}`, now: () => 1_000 });
+  const phoneCalls = [];
+  const phone = {
+    async callTool(name, args) {
+      phoneCalls.push({ name, args: structuredClone(args) });
+      if (name.endsWith(".create")) return { status: "acknowledged", view_id: "opaque_dynamic_view_0001", revision: 1, frame_id: 7 };
+      if (name.endsWith(".patch")) return { status: "acknowledged", view_id: args.view_id, revision: args.expected_revision + 1, frame_id: 8 };
+      if (name.endsWith(".ack_events")) return { status: "acknowledged" };
+      throw new Error(`unexpected tool ${name}`);
+    },
+  };
+  let actionN = 0;
+  const runtime = new DynamicGlassesRuntime({ adapter, phone,
+    createHandle: () => `opaque_action_handle_${String(++actionN).padStart(4, "0")}`, now: () => 1_000 });
+  const identity = { tenant: "owner", device: "g2", connectionGeneration: "socket-1", turnGeneration: "turn-1" };
+  const opened = await runtime.openLivingRoom(identity, { operationId: "open-1" });
+  assert.equal(opened.revision, 1);
+  const create = phoneCalls[0];
+  assert.equal(create.name, "glasses.dynamic_apps.create");
+  assert.equal(create.args.spec.components.some((item) => item.type === "toggle"), true);
+  assert.equal(JSON.stringify(create.args).includes("light.floor_lamp"), false);
+
+  const event = { event_id: "event-1", view_id: opened.viewId, revision: 1, action_handle: "opaque_action_handle_0001", kind: "activate" };
+  const acted = await runtime.deliverInput(identity, event, { operationId: "event-op-1" });
+  assert.equal(acted.state, "on");
+  assert.equal(phoneCalls.some((call) => call.name.endsWith(".patch")), true);
+  assert.equal(phoneCalls.at(-1).name, "glasses.dynamic_apps.ack_events");
+  assert.deepEqual(await runtime.deliverInput(identity, event, { operationId: "event-op-1" }), acted);
+  assert.equal(calls.filter((call) => call.path === "/api/services/light/turn_on").length, 1);
+  await assert.rejects(() => runtime.deliverInput({ ...identity, turnGeneration: "turn-2" }, event, { operationId: "event-op-2" }), /stale/i);
+});
