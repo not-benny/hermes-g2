@@ -66,7 +66,8 @@ runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
 Current reliability-candidate verification uses deterministic Java harnesses:
 the R1 state snapshot completes below 100 ms while synthetic BLE work is blocked,
 retirement rejects that completion, and the display worker source contract has no
-R1 connect call. The complete host suite passes 266/266, TypeScript typechecking
+R1 connect call. After merging current canonical `main`, the complete host suite
+passes 288/288, TypeScript typechecking
 passes, and the JDK 21 / SDK 35 Android debug build passes. Two stale
 source-contract expectations that required the old blocking monitor design were
 replaced with generation-token and non-blocking-monitor assertions.
@@ -133,6 +134,12 @@ The third review found one final callback-order race; R1 connect publication now
 captures and revalidates the pre-connect R1 generation, while a delayed connected
 callback preserves already-published notification readiness. A disconnect racing
 setup therefore cancels publication instead of resurrecting a retired session.
+Final independent adversarial review passed frozen reliability source commit
+`16881e50b39d37d21b8952cb35201b9807ada327`. Operational GO is limited to
+non-destructive app delivery; every pairing, firmware, reset, wipe, provisioning,
+NVM, power-control, and ownership gate remains NO-GO. Current `main` was then
+merged without rebasing; the only manual conflict was this handover, and the
+post-merge 288-test/typecheck/build matrix passed.
 
 The debug APK installed/launched over USB on the authorised Samsung A32
 `RFCR707RQGV`. PID-filtered runtime evidence (PID 27349) shows a live two-arm G2
