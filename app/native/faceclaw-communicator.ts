@@ -20,6 +20,26 @@ export type CommunicatorState = {
 
 export type RingConnectionState = "not-configured" | "idle" | "retrying" | "subscribing" | "ready";
 
+export type ConnectionHealthSnapshot = {
+  g2State: string;
+  r1State: string;
+  failure: "none" | "timeout" | "unavailable" | "contention" | "transport" | "protocol";
+  r1RetryInMs: number;
+  g2Reconnects: number;
+  r1Reconnects: number;
+  acks: number;
+  ackTimeouts: number;
+  staleWork: number;
+  lockLatencyLatestMs: number;
+  lockLatencyMaxMs: number;
+};
+
+const EMPTY_CONNECTION_HEALTH: ConnectionHealthSnapshot = {
+  g2State: "disconnected", r1State: "idle", failure: "none", r1RetryInMs: 0,
+  g2Reconnects: 0, r1Reconnects: 0, acks: 0, ackTimeouts: 0, staleWork: 0,
+  lockLatencyLatestMs: 0, lockLatencyMaxMs: 0,
+};
+
 /** One raw frame from the ring's health/command notify characteristic. */
 export type RingHealthFrame = {
   /** Short characteristic uuid, e.g. "bae80013". */
@@ -45,6 +65,9 @@ export type FirmwareInfo = {
   rightVersion: string;
   capabilities: string;
 };
+
+export type ImuReading = { x: number; y: number; z: number; source: number };
+export type CompassEvent = { command: number; headingDegrees: number };
 
 export type WakeBarrierCompletion = {
   requestToken: number;
@@ -123,6 +146,24 @@ function nonNegativeNumber(value: number): number {
   return Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
 }
 
+function parseConnectionHealthWire(wire: string): ConnectionHealthSnapshot {
+  const parts = wire.split("|");
+  if (parts.length !== 11) return { ...EMPTY_CONNECTION_HEALTH };
+  const failures = new Set(["none", "timeout", "unavailable", "contention", "transport", "protocol"]);
+  const safeFailure = failures.has(parts[2])
+    ? (parts[2] as ConnectionHealthSnapshot["failure"])
+    : "transport";
+  const count = (index: number) => Math.min(2_147_483_647, Math.round(nonNegativeNumber(Number(parts[index]))));
+  return {
+    g2State: /^[a-z-]{2,16}$/.test(parts[0]) ? parts[0] : "disconnected",
+    r1State: /^[a-z-]{2,16}$/.test(parts[1]) ? parts[1] : "idle",
+    failure: safeFailure,
+    r1RetryInMs: count(3), g2Reconnects: count(4), r1Reconnects: count(5),
+    acks: count(6), ackTimeouts: count(7), staleWork: count(8),
+    lockLatencyLatestMs: count(9), lockLatencyMaxMs: count(10),
+  };
+}
+
 /** Decode the Java side's continuous lowercase-hex encoding; null if invalid. */
 function bytesFromHex(hexData: string): Uint8Array | null {
   if (hexData.length === 0 || hexData.length % 2 !== 0) return null;
@@ -159,6 +200,12 @@ export class FaceclawCommunicatorBridge {
   private readonly evenAppConflictListeners = new Set<(message: string) => void>();
   private readonly frameMetricsListeners = new Set<(metrics: FrameMetrics) => void>();
   private readonly firmwareInfoListeners = new Set<(info: FirmwareInfo) => void>();
+  private readonly imuListeners = new Set<(reading: ImuReading) => void>();
+  private readonly compassListeners = new Set<(event: CompassEvent) => void>();
+  private readonly imuProxy: any;
+  private readonly compassProxy: any;
+  private imuControlRevision = 0;
+  private compassControlRevision = 0;
 
   constructor(addresses: { right: string; left: string; ring?: string }) {
     const context = Utils.android.getApplicationContext();
@@ -253,6 +300,26 @@ export class FaceclawCommunicatorBridge {
       },
     });
     this.communicator.setListener(this.listenerProxy);
+    this.imuProxy = new com.faceclaw.app.FaceclawImuListener({
+      onImuData: (x: number, y: number, z: number, source: number) => {
+        this.emitAsync(this.imuListeners, {
+          x: Number(x),
+          y: Number(y),
+          z: Number(z),
+          source: Number(source),
+        });
+      },
+    });
+    this.compassProxy = new com.faceclaw.app.FaceclawCompassListener({
+      onCompassEvent: (command: number, headingDegrees: number) => {
+        this.emitAsync(this.compassListeners, {
+          command: Number(command),
+          headingDegrees: Number(headingDegrees),
+        });
+      },
+    });
+    this.communicator.addImuListener(this.imuProxy);
+    this.communicator.addCompassListener(this.compassProxy);
   }
 
   private emitAsync<T>(listeners: Set<(value: T) => void>, value: T): void {
@@ -372,6 +439,34 @@ export class FaceclawCommunicatorBridge {
     return () => this.firmwareInfoListeners.delete(listener);
   }
 
+  onImu(listener: (reading: ImuReading) => void): () => void {
+    this.imuListeners.add(listener);
+    return () => this.imuListeners.delete(listener);
+  }
+
+  onCompass(listener: (event: CompassEvent) => void): () => void {
+    this.compassListeners.add(listener);
+    return () => this.compassListeners.delete(listener);
+  }
+
+  /** Coalesced exact-instance control: stale queued revisions never reach Java. */
+  setImuEnabled(enabled: boolean, paceCode: number): void {
+    const revision = ++this.imuControlRevision;
+    void this.enqueueJavaCall(() => {
+      if (revision !== this.imuControlRevision) return;
+      this.communicator.setImuReportEnabled(Boolean(enabled), Math.max(0, Math.round(paceCode)));
+    }).catch((error) => console.warn(`IMU control failed: ${error}`));
+  }
+
+  /** Coalesced exact-instance control: stale queued revisions never reach Java. */
+  setCompassEnabled(enabled: boolean): void {
+    const revision = ++this.compassControlRevision;
+    void this.enqueueJavaCall(() => {
+      if (revision !== this.compassControlRevision) return;
+      this.communicator.setCompassEnabled(Boolean(enabled));
+    }).catch((error) => console.warn(`compass control failed: ${error}`));
+  }
+
   getNativeCommunicator(): any {
     return this.communicator;
   }
@@ -465,6 +560,11 @@ export class FaceclawCommunicatorBridge {
   getRingConnectionState(): RingConnectionState {
     if (!global.isAndroid) return "not-configured";
     return String(this.communicator.getRingConnectionState()) as RingConnectionState;
+  }
+
+  getConnectionHealthSnapshot(): ConnectionHealthSnapshot {
+    if (!global.isAndroid) return { ...EMPTY_CONNECTION_HEALTH };
+    return parseConnectionHealthWire(String(this.communicator.getConnectionHealthSnapshot()));
   }
 
   async requestRingReconnect(): Promise<boolean> {
@@ -657,6 +757,12 @@ export class FaceclawCommunicatorBridge {
   }
 
   async close(): Promise<boolean> {
+    ++this.imuControlRevision;
+    ++this.compassControlRevision;
+    this.imuListeners.clear();
+    this.compassListeners.clear();
+    try { this.communicator.removeImuListener(this.imuProxy); } catch {}
+    try { this.communicator.removeCompassListener(this.compassProxy); } catch {}
     return this.enqueueJavaCall(() => Boolean(this.communicator.close()));
   }
 }

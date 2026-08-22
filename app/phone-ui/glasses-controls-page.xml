@@ -46,6 +46,9 @@
                 <Button col="1" text="Open compass" tap="{{ onOpenCompassTap }}" isEnabled="{{ canControl }}" />
             </GridLayout>
             <Label text="{{ ringStatus }}" textWrap="true" class="m-t-12" />
+            <Label text="{{ g2HealthStatus }}" textWrap="true" class="m-t-4" />
+            <Label text="{{ r1HealthStatus }}" textWrap="true" class="m-t-4" />
+            <Label text="{{ connectionDiagnostics }}" textWrap="true" class="muted m-t-4" fontSize="11" />
             <Label text="{{ ringFirmwareVersion }}" textWrap="true" class="m-t-4" />
             <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="m-t-8">
                 <Label text="{{ evenAppConflictMessage }}" textWrap="true" />

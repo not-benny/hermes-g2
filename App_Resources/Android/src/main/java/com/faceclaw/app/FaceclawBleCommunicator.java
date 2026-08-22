@@ -67,6 +67,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private final Object lifecycleLock = new Object();
     private final Object lock = new Object();
     private final Object ringLock = new Object();
+    private final GenerationBoundOperationGate ringOperationGate = new GenerationBoundOperationGate();
+    private final ConnectionHealthTracker connectionHealth =
+        new ConnectionHealthTracker(SystemClock::elapsedRealtime);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final String rightAddress;
     private final String leftAddress;
@@ -118,6 +121,13 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private interface RingManagerOperation<T> {
         T run();
     }
+    private static final class RingFailureException extends IllegalStateException {
+        final ConnectionHealthTracker.Failure failure;
+        RingFailureException(ConnectionHealthTracker.Failure failure) {
+            super(failure == null ? "transport" : failure.wire);
+            this.failure = failure == null ? ConnectionHealthTracker.Failure.TRANSPORT : failure;
+        }
+    }
     private final ArrayDeque<RingPacketAckCursor> ringPacketAckQueue = new ArrayDeque<>();
     // Written under ringLock. Volatile lets post-lock callback dispatch reject a
     // retired ring session without acquiring ringLock while it takes display state.
@@ -126,6 +136,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     /** Retire queued work captured by the previous direct-ring lifecycle. ringLock required. */
     private void invalidateRingPacketAckStateLocked() {
         ringConnectionGeneration++;
+        ringOperationGate.retire();
         ringPacketAckQueue.clear();
     }
     // Identity of the current two-arm connection attempt. Arm callbacks and
@@ -165,6 +176,12 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     // overlay state is re-asserted on every reconnect and whenever the value changes.
     private volatile boolean firmwareDebugFlagsEnabled;
     private int firmwareDebugFlagsLastSent = -1;
+    // Desired IMU state and last ACKed/enqueued state survive page lifecycles.
+    // imuMaybeOn is cleared only by a disable ACK or dead transport.
+    private boolean imuEnabled;
+    private int imuReportFrequency = 200;
+    private int imuControlLastSent = -1;
+    private boolean imuMaybeOn;
     // Desired CFW mode-10 compass state. It survives reconnects; lastSent is
     // reset with each session so an open Compass window is re-asserted.
     private boolean compassEnabled;
@@ -286,6 +303,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         this.rightAddress = requireAddress("rightAddress", rightAddress);
         this.leftAddress = requireAddress("leftAddress", leftAddress);
         this.ringAddress = ringAddress == null ? "" : ringAddress.trim();
+        connectionHealth.setR1State(hasRingAddress() ? "idle" : "not-configured");
         IntentFilter phoneLockFilter = new IntentFilter();
         phoneLockFilter.addAction(Intent.ACTION_SCREEN_ON);
         phoneLockFilter.addAction(Intent.ACTION_SCREEN_OFF);
@@ -468,6 +486,11 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
     }
 
+    /** Bounded redacted health snapshot: no addresses, UUIDs, payloads, or exception text. */
+    public String getConnectionHealthSnapshot() {
+        return connectionHealth.snapshot().toWire();
+    }
+
     /** Request the dedicated R1 worker to retry the optional direct link. */
     public boolean requestRingReconnect() {
         if (!hasRingAddress() || stopping || !running || !sessionReady) {
@@ -483,6 +506,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             // Manual reconnect clears the backoff so it retries immediately.
             ringConsecutiveFailures = 0;
             ringReconnectAfterMs = 0;
+            connectionHealth.requestR1Retry();
         }
         ringInterruptibleSleep.interrupt();
         return true;
@@ -623,15 +647,15 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
      */
     public void setImuReportEnabled(boolean enable, int reportFrq) {
         synchronized (lock) {
-            if (!running || !sessionReady) {
-                logLine("skip IMU " + (enable ? "enable" : "disable") + "; session not ready");
-                return;
-            }
+            imuEnabled = enable;
+            if (enable) imuReportFrequency = reportFrq;
+            imuControlLastSent = -1;
             clearMessagesOfKindLocked("imu-control");
-            OutboundMessage message = messageBuilder.enableOrDisableImu(enable, reportFrq);
-            message.onTimeout = () -> logLine("IMU control ack timeout");
-            pendingMessages.addFirst(message);
-            logLine("queue IMU " + (enable ? "enable freq=" + reportFrq : "disable"));
+            if (running && sessionReady && !shutdownRequested) {
+                enqueueImuControlLocked(true, enable, imuReportFrequency);
+            } else {
+                logLine("defer IMU " + (enable ? "enable" : "disable") + "; session not ready");
+            }
         }
         interruptibleSleep.interrupt();
     }
@@ -1092,6 +1116,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             if (compassMaybeOn && fixedLayoutCreated && warmedUp) {
                 enqueueCompassControlLocked(true, false);
             }
+            if (imuMaybeOn && sessionReady) {
+                enqueueImuControlLocked(true, false, imuReportFrequency);
+            }
         }
         interruptibleSleep.interrupt();
 
@@ -1206,6 +1233,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     continue;
                 }
                 if (shouldAttemptRingConnect()) {
+                    connectionHealth.recordR1Attempt();
+                    connectionHealth.setR1State("retrying");
                     tryConnectRing("retry");
                     // The connection callback wakes this worker while connectGatt
                     // is still completing. Consume that now-stale wake before the
@@ -1599,6 +1628,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 chargingMode = false;
                 audioCaptureActive = false;
                 audioPacketListener = null;
+                connectionHealth.recordStaleWork(imageUpdateStats.size());
                 clearAllMessagesLocked("connection lost");
                 displayedFingerprint = "";
                 reconnectAfterMs = SystemClock.elapsedRealtime() + ConnectionOptions.RECONNECT_DELAY_MS;
@@ -1606,8 +1636,16 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
         if (armDisconnected) {
             synchronized (ringLock) {
+                ringConnected = false;
+                ringNotificationsReady = false;
+                ringBattery = -1;
+                ringHealthProbeSent = false;
+                connectionHealth.setR1State(hasRingAddress() ? "idle" : "not-configured");
                 invalidateRingPacketAckStateLocked();
+                ringReconnectAfterMs = SystemClock.elapsedRealtime()
+                    + ConnectionOptions.RING_RECONNECT_DELAY_MS;
             }
+            if (hasRingAddress()) bleManager.disconnect(ringAddress);
         }
         interruptibleSleep.interrupt();
         ringInterruptibleSleep.interrupt();
@@ -1622,6 +1660,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private int updateDirectRingConnectionStateLocked(boolean connected) {
+        if (connected && ringNotificationsReady) {
+            ringConnected = true;
+            return ringConnectionGeneration;
+        }
         ringConnected = connected;
         ringNotificationsReady = false;
         if (!connected) {
@@ -1632,6 +1674,12 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             invalidateRingPacketAckStateLocked();
             ringReconnectAfterMs = Math.max(ringReconnectAfterMs,
                 SystemClock.elapsedRealtime() + ConnectionOptions.RING_RECONNECT_DELAY_MS);
+            if (hasRingAddress()) {
+                connectionHealth.setR1Backoff(ConnectionHealthTracker.Failure.TRANSPORT,
+                    ConnectionOptions.RING_RECONNECT_DELAY_MS);
+            } else {
+                connectionHealth.setR1State("not-configured");
+            }
         }
         return ringConnectionGeneration;
     }
@@ -1650,6 +1698,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private void connectLoopOnce() throws InterruptedException {
+        connectionHealth.recordG2Attempt();
         setStateDisplay("connecting", "Connecting to the glasses...");
         final long attemptGeneration;
         synchronized (lock) {
@@ -1734,7 +1783,6 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     logLine("queue settings query for firmware info");
                 }
             }
-            tryConnectRing("initial", attemptGeneration);
         } catch (Throwable t) {
             logLine("connect failed: " + safeMessage(t));
             handleTransportFailure("connect failed");
@@ -1865,6 +1913,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     (long) ConnectionOptions.RING_RECONNECT_DELAY_MS << Math.min(attempt - 1, 8),
                     ConnectionOptions.RING_RECONNECT_MAX_DELAY_MS);
             ringReconnectAfterMs = SystemClock.elapsedRealtime() + backoffMs;
+            connectionHealth.setR1Backoff(classifyRingFailure(failure), backoffMs);
         }
         synchronized (lock) {
             maybeEmitEvenAppConflictLocked("ring connect failed");
@@ -1878,11 +1927,15 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (stopping) {
             throw new IllegalStateException("ring connect cancelled");
         }
+        final int ringAttemptGeneration;
+        synchronized (ringLock) {
+            ringAttemptGeneration = ringConnectionGeneration;
+        }
         logLine("connecting configured direct ring");
         // Ring-specific SHORT timeouts limit retry latency on the optional worker.
         if (!withRingManagerOperation(RING_CONNECT_OPERATION,
                 () -> bleManager.connect(ringAddress, ConnectionOptions.RING_CONNECT_TIMEOUT_MS))) {
-            throw new IllegalStateException("connect failed: " + ringAddress);
+            throw new RingFailureException(ConnectionHealthTracker.Failure.TIMEOUT);
         }
 
         // Discover services FIRST (the step that fails for an absent ring). Only
@@ -1890,7 +1943,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         // attempt does not churn the arm connection interval on every retry.
         if (!withRingManagerOperation(RING_CONNECT_OPERATION,
                 () -> bleManager.discoverServices(ringAddress, ConnectionOptions.RING_SERVICES_TIMEOUT_MS))) {
-            throw new IllegalStateException("discoverServices failed: " + ringAddress);
+            throw new RingFailureException(ConnectionHealthTracker.Failure.TIMEOUT);
         }
 
         withRingManagerOperation(RING_CONNECT_OPERATION,
@@ -1905,22 +1958,25 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         boolean phoneNotify = enableRingNotification(BleProtocol.R1_PHONE_NOTIFY_CHAR_UUID);
         boolean dataNotify = enableRingNotification(BleProtocol.R1_NOTIFY_CHAR_UUID);
         if (!phoneNotify && !dataNotify) {
-            throw new IllegalStateException("no R1 notify characteristic subscribed");
+            throw new RingFailureException(ConnectionHealthTracker.Failure.PROTOCOL);
         }
 
         int generation;
         synchronized (ringLock) {
             synchronized (glassesGenerationLock) {
                 if (stopping || !running || !sessionReady
-                        || glassesAttemptGeneration != glassesConnectionGeneration) {
+                        || glassesAttemptGeneration != glassesConnectionGeneration
+                        || ringAttemptGeneration != ringConnectionGeneration) {
                     throw new IllegalStateException("ring connect cancelled");
                 }
                 invalidateRingPacketAckStateLocked();
                 generation = ringConnectionGeneration;
                 ringConnected = true;
                 ringNotificationsReady = true;
+                ringOperationGate.publishReady();
                 ringReconnectAfterMs = 0;
                 ringConsecutiveFailures = 0;
+                connectionHealth.setR1State("ready");
             }
         }
         logLine("direct ring ready mtu247Request=" + (mtu247Requested ? "ok" : "fallback")
@@ -1929,15 +1985,40 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         return generation;
     }
 
-    /** Hold the teardown/generation barrier through every direct-R1 manager operation. */
+    /** Run blocking BLE work outside the lifecycle monitor and reject retired completion. */
     private <T> T withRingManagerOperation(int generation, RingManagerOperation<T> operation) {
+        GenerationBoundOperationGate.Token token = null;
+        long startedAtMs = SystemClock.elapsedRealtime();
         synchronized (ringLock) {
             if (stopping || !running || !sessionReady
                     || (generation != RING_CONNECT_OPERATION && !isRingOperationAllowedLocked(generation))) {
                 throw new IllegalStateException("ring operation cancelled");
             }
-            return operation.run();
+            if (generation != RING_CONNECT_OPERATION) {
+                token = ringOperationGate.begin(generation);
+                if (token == null) throw new IllegalStateException("ring operation stale");
+            }
         }
+        connectionHealth.recordLockLatency(SystemClock.elapsedRealtime() - startedAtMs);
+        T result = operation.run();
+        if (generation == RING_CONNECT_OPERATION) {
+            if (stopping || !running || !sessionReady) throw new IllegalStateException("ring connect retired");
+            return result;
+        }
+        if (!ringOperationGate.finish(token)) {
+            connectionHealth.recordStaleWork();
+            throw new IllegalStateException("ring operation retired");
+        }
+        return result;
+    }
+
+    private ConnectionHealthTracker.Failure classifyRingFailure(Throwable failure) {
+        if (failure instanceof RingFailureException) return ((RingFailureException) failure).failure;
+        String type = failure == null ? "" : failure.getClass().getSimpleName().toLowerCase(Locale.US);
+        if (type.contains("timeout")) return ConnectionHealthTracker.Failure.TIMEOUT;
+        if (type.contains("busy")) return ConnectionHealthTracker.Failure.CONTENTION;
+        if (type.contains("illegalstate")) return ConnectionHealthTracker.Failure.UNAVAILABLE;
+        return ConnectionHealthTracker.Failure.TRANSPORT;
     }
 
     /** Best-effort standard BLE battery read; absence is not a ring failure. */
@@ -2177,12 +2258,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         }
     }
 
-    /** Final lifecycle gate is held through the packetAck BLE side effect. */
+    /** packetAck is generation-bound without holding the state monitor through BLE I/O. */
     private void sendRingPacketAck(RingPacketAckCursor cursor) {
-        synchronized (ringLock) {
-            if (!isRingOperationAllowedLocked(cursor.generation)) return;
-            sendRingCommand("packetAck", 0x01, 0x00, 0x7e, 0x01, cursor.payload);
-        }
+        sendRingCommandForGeneration(cursor.generation,
+            "packetAck", 0x01, 0x00, 0x7e, 0x01, cursor.payload);
     }
 
     private boolean isRingOperationAllowedLocked(int generation) {
@@ -2203,13 +2282,12 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             int status,
             byte[] payload
     ) {
-        synchronized (ringLock) {
-            if (!isRingOperationAllowedLocked(generation)) {
-                return false;
-            }
-            sendRingCommand(label, module, cmd, subCmd, status, payload);
-            return true;
+        byte[] frame = buildRingFrame(module, cmd, subCmd, status, payload);
+        if (frame == null) {
+            logLine("direct ring " + label + " REFUSED (blocklisted or non-health command)");
+            return false;
         }
+        return sendRawRingFrameForGeneration(generation, label, frame);
     }
 
     private boolean sendRawRingFrameForGeneration(int generation, String label, byte[] frame) {
@@ -2217,50 +2295,26 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             if (!isRingOperationAllowedLocked(generation)) {
                 return false;
             }
-            sendRawRingFrame(label, frame);
-            return true;
         }
-    }
-
-    /** Build and write one R1 binary command frame to the ring's write channel. */
-    /** Send a ring command frame built to the verified BleRing1Model layout. */
-    private void sendRingCommand(String label, int module, int cmd, int subCmd, int status, byte[] payload) {
-        byte[] frame = buildRingFrame(module, cmd, subCmd, status, payload);
-        if (frame == null) {
-            logLine("direct ring " + label + " REFUSED (blocklisted subCmd; would risk pairing/host state)");
-            return;
+        String refusalReason = rawRingFrameRefusalReason(frame);
+        if (refusalReason != null) {
+            logLine("direct ring " + label + " REFUSED (" + refusalReason + ")");
+            return false;
         }
-        sendRawRingFrame(label, frame);
-    }
-
-    /**
-     * Write an exact, pre-built ring frame verbatim (used to replay captured frames).
-     * Raw replays are still subject to the same command blocklist as built frames;
-     * otherwise a captured pairing/firmware command could bypass buildRingFrame().
-     */
-    private void sendRawRingFrame(String label, byte[] frame) {
-        synchronized (ringLock) {
-            if (stopping || !running || !sessionReady || !ringConnected || !ringNotificationsReady) {
-                return;
-            }
-            String refusalReason = rawRingFrameRefusalReason(frame);
-            if (refusalReason != null) {
-                logLine("direct ring " + label + " REFUSED (" + refusalReason + ")");
-                return;
-            }
-            try {
-                boolean ok = withRingManagerOperation(ringConnectionGeneration,
-                    () -> bleManager.writeFrames(
-                        ringAddress,
-                        BleProtocol.R1_WRITE_CHAR_UUID,
-                        Collections.singletonList(frame),
-                        ConnectionOptions.WRITE_TYPE,
-                        ConnectionOptions.WRITE_TIMEOUT_MS
-                    ));
-                logLine("direct ring " + label + " write " + (ok ? "ok" : "failed"));
-            } catch (Throwable t) {
-                logLine("direct ring " + label + " write error");
-            }
+        try {
+            boolean ok = withRingManagerOperation(generation,
+                () -> bleManager.writeFrames(
+                    ringAddress,
+                    BleProtocol.R1_WRITE_CHAR_UUID,
+                    Collections.singletonList(frame),
+                    ConnectionOptions.WRITE_TYPE,
+                    ConnectionOptions.WRITE_TIMEOUT_MS
+                ));
+            logLine("direct ring " + label + " write " + (ok ? "ok" : "failed"));
+            return ok;
+        } catch (Throwable t) {
+            logLine("direct ring " + label + " write error");
+            return false;
         }
     }
 
@@ -2611,6 +2665,13 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     }
 
                     if (messageToPrewrite == null && !shutdownRequested && fixedLayoutCreated && warmedUp
+                            && (imuEnabled ? imuReportFrequency : 0) != imuControlLastSent
+                            && pendingMessages.isEmpty() && inFlightMessages.isEmpty()) {
+                        Log.i(TAG, "enqueueing IMU " + (imuEnabled ? "enable" : "disable"));
+                        enqueueImuControlLocked(false, imuEnabled, imuReportFrequency);
+                    }
+
+                    if (messageToPrewrite == null && !shutdownRequested && fixedLayoutCreated && warmedUp
                             && (compassEnabled ? 1 : 0) != compassControlLastSent
                             && pendingMessages.isEmpty() && inFlightMessages.isEmpty()) {
                         Log.i(TAG, "enqueueing compass " + (compassEnabled ? "enable" : "disable"));
@@ -2941,6 +3002,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (message.onAck != null) {
             message.onAck.run();
         }
+        connectionHealth.recordAck();
         consecutiveAckTimeouts = 0;
     }
 
@@ -3099,6 +3161,26 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         pendingMessages.addLast(message);
         firmwareDebugFlagsLastSent = sub;
         logLine("queue firmware debug flags " + (show ? "show" : "hide"));
+    }
+
+    /** Queue the stock EvenHub IMU control with retained desired/ACK state. */
+    private void enqueueImuControlLocked(boolean priority, boolean enable, int reportFrequency) {
+        int sentState = enable ? reportFrequency : 0;
+        OutboundMessage message = messageBuilder.enableOrDisableImu(enable, reportFrequency);
+        message.onTimeout = () -> {
+            imuControlLastSent = -1;
+            logLine("IMU control ack timeout");
+            if (!enable) hardTransportFailure("IMU disable ack timeout");
+        };
+        if (enable) {
+            imuMaybeOn = true;
+        } else {
+            message.onAck = () -> imuMaybeOn = false;
+        }
+        if (priority) pendingMessages.addFirst(message);
+        else pendingMessages.addLast(message);
+        imuControlLastSent = sentState;
+        logLine("queue IMU " + (enable ? "enable freq=" + reportFrequency : "disable"));
     }
 
     /** Send CFW image-handler mode 10: [10][1] start, [10][0] stop. */
@@ -3420,6 +3502,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     private void handleAckTimeoutLocked(OutboundMessage message) {
         consecutiveAckTimeouts += 1;
+        connectionHealth.recordAckTimeout();
 
         if (message.onTimeout != null) {
             message.onTimeout.run();
@@ -3760,12 +3843,18 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             reconnectAfterMs = SystemClock.elapsedRealtime() + ConnectionOptions.RECONNECT_DELAY_MS;
         }
         synchronized (ringLock) {
+            ringConnected = false;
             ringNotificationsReady = false;
+            ringBattery = -1;
+            connectionHealth.setR1State(hasRingAddress() ? "idle" : "not-configured");
             invalidateRingPacketAckStateLocked();
+            ringReconnectAfterMs = SystemClock.elapsedRealtime()
+                + ConnectionOptions.RING_RECONNECT_DELAY_MS;
         }
         // Avoid communicator-lock -> manager-lock inversion during callback dispatch.
         bleManager.disconnect(rightAddress);
         bleManager.disconnect(leftAddress);
+        if (hasRingAddress()) bleManager.disconnect(ringAddress);
         if (!userDisconnectRequested) {
             setStateDisplay("retrying", reason == null || reason.isEmpty() ? "Reconnecting..." : "Reconnecting after " + reason);
         }
@@ -3801,6 +3890,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         lastAudioControlAckMagic = 0;
         audioCaptureActive = false;
         audioPacketListener = null;
+        imuControlLastSent = -1;
+        // A dead transport orphans any glasses-side IMU stream. A fresh session
+        // reasserts imuEnabled from retained desired state.
+        imuMaybeOn = false;
         compassControlLastSent = -1;
         // A dead transport orphans any glasses-side compass state; the fresh
         // session re-asserts the desired state after warmup (lastSent = -1).
@@ -3826,6 +3919,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         invalidateRingPacketAckStateLocked();
         ringReconnectAfterMs = 0;
         ringConsecutiveFailures = 0;
+        connectionHealth.setR1State(hasRingAddress() ? "idle" : "not-configured");
     }
 
     private void emitRingEvent(String kind, String containerName, int eventType, int eventSource, int systemExitReasonCode, int frameId) {
@@ -3901,8 +3995,17 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (imuListeners.isEmpty()) {
             return;
         }
+        final FaceclawImuListener[] currentListeners =
+            imuListeners.toArray(new FaceclawImuListener[0]);
+        final long deliveryGeneration = currentGlassesConnectionGeneration();
         mainHandler.post(() -> {
-            for (FaceclawImuListener imuListener : imuListeners) {
+            synchronized (lock) {
+                if (deliveryGeneration != currentGlassesConnectionGeneration()
+                        || !sessionReady || shutdownRequested || !fixedLayoutCreated || !warmedUp) {
+                    return;
+                }
+            }
+            for (FaceclawImuListener imuListener : currentListeners) {
                 try {
                     imuListener.onImuData(x, y, z, eventSource);
                 } catch (Throwable t) {
@@ -3916,8 +4019,17 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (compassListeners.isEmpty()) {
             return;
         }
+        final FaceclawCompassListener[] currentListeners =
+            compassListeners.toArray(new FaceclawCompassListener[0]);
+        final long deliveryGeneration = currentGlassesConnectionGeneration();
         mainHandler.post(() -> {
-            for (FaceclawCompassListener compassListener : compassListeners) {
+            synchronized (lock) {
+                if (deliveryGeneration != currentGlassesConnectionGeneration()
+                        || !sessionReady || shutdownRequested || !fixedLayoutCreated || !warmedUp) {
+                    return;
+                }
+            }
+            for (FaceclawCompassListener compassListener : currentListeners) {
                 try {
                     compassListener.onCompassEvent(command, headingDegrees);
                 } catch (Throwable t) {
@@ -4112,6 +4224,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     }
 
     private void setStateDisplay(String nextPhase, String nextStatus) {
+        connectionHealth.setG2(nextPhase, ConnectionHealthTracker.Failure.NONE, 0);
         synchronized (lock) {
             phase = nextPhase;
             status = nextStatus;

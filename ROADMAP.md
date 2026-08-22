@@ -80,8 +80,8 @@ Current as of 22 August 2026. `main` is the canonical branch.
   `docs/audit-remediation-2026-08-21.md` and
   `docs/release-security.md`.
 
-- **IN PROGRESS — enforced release governance (22 August 2026).** The follow-up
-  candidate removes signing secrets and APK publication from PR jobs, gives
+- **DONE — enforced release governance (22 August 2026).** The merged PR #40
+  follow-up removes signing secrets and APK publication from PR jobs, gives
   untrusted builds an isolated debug identity, and separates secret-free `main`
   validation from a source-free protected signing job. Vulnerability alerts and
   automated security fixes are enabled. GitHub still returned the private-plan
@@ -108,6 +108,25 @@ Current as of 22 August 2026. `main` is the canonical branch.
 
 ### Connection and lifecycle reliability
 
+- **PARTIAL — shared IMU/compass calibration service (22 August 2026).** One
+  generation-bound owner now arbitrates multi-app sensor demand/rate, stops on
+  screen-off/final release, rejects stale/outlier/interference-like samples,
+  derives bounded level/posture state, and persists only versioned
+  opaque-device-bound calibration quality/neutral metadata. Compass and accelerometer UI expire
+  stale values and label uncertain results. All 303 tests, typecheck and Android
+  build pass. USB A32/G2 evidence proves warmed-session IMU/compass enable ACKs,
+  eight accepted motion samples, prompt dual disable ACKs, and no continuing
+  repaint stream after stop. The resting/off-head G2 emitted no heading or
+  calibration-complete event. A follow-up worn run then proved live `188° S`,
+  level and 54 accepted samples but still no firmware calibration events. Compass
+  now exposes a bounded local start/cancel workflow that sends no BLE command,
+  requires filtered heading coverage plus level-neutral IMU evidence, persists
+  only `poor` summary quality, and fails closed across timeout/session/restart;
+  firmware start/complete remains a separate at-most-`fair` path. Host lifecycle
+  and 576×288 viewport coverage pass, but exact-candidate hardware validation and
+  a meaningful battery delta remain unproven. Repeat the local flow while
+  worn/moving in a serialized hardware window before marking DONE.
+
 - **DONE — startup connection race.** A delayed constructor-time disconnected
   snapshot can no longer release a newly connecting communicator. Retained
   ownership remains authoritative until exact teardown completion.
@@ -117,15 +136,23 @@ Current as of 22 August 2026. `main` is the canonical branch.
 - **DONE — worker isolation and bounded teardown.** Display and R1 workers have
   separate lifecycle ownership, generation-bound packet acknowledgements, and
   deferred exact-once cleanup.
+- **DONE — truthful independent connection health (22 August 2026).** Optional
+  R1 connect and health work stays off the display worker, and blocking BLE work
+  runs outside its short state monitor under generation ownership. Deterministic
+  blocked-work reads stay below 100 ms. Controls distinguishes G2 from R1 and
+  shows a safe failure class, retry countdown/action, and bounded redacted
+  reconnect/ACK/stale-work/lock-latency counters. USB A32 evidence proves live G2
+  ACK traffic and independent R1 health/packetAck traffic.
 - **TODO — broader device matrix.** Repeat non-destructive startup, reconnect,
   charging, screen-off, and wearer-input checks on additional supported phones
   and G2 firmware revisions without weakening the existing safety gates.
-- **PARTIAL — audit device matrix (21 August 2026).** Same-certificate upgrade,
-  launch, Keystore migration, settings redaction, and log sentinels passed on the
-  authorised Samsung A32. Both G2 arms were visible at the GATT boundary, but the
-  live session was still reconnecting during this run; no wearer/render, Doze,
-  charging, phone-mic, calendar, or R1 value claim is inferred. No pairing,
-  provisioning, reset, wipe, firmware, or permission-dialog action was taken.
+- **PARTIAL — audit device matrix (updated 22 August 2026).** Same-certificate
+  upgrade, launch, Keystore migration, settings redaction, and log sentinels
+  passed on the authorised Samsung A32. A later non-destructive run proves a live
+  two-arm G2 render/ACK session and independent R1 session-open, device-info,
+  health notify and packetAck traffic. Doze, charging, phone-mic, calendar, and
+  additional phone/firmware variants remain open. No pairing, provisioning,
+  reset, wipe, firmware, permission-dialog, or Even-app Bluetooth action occurred.
 
 ## R1 health
 
