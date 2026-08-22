@@ -71,6 +71,53 @@ passes, and the JDK 21 / SDK 35 Android debug build passes. Two stale
 source-contract expectations that required the old blocking monitor design were
 replaced with generation-token and non-blocking-monitor assertions.
 
+The dynamic-glasses-app candidate is based directly on canonical `main`
+`f02d8f88bb44e147dad213e36a2ab16ad304aebe`. It adds a versioned generic
+`glasses.dynamic_apps.*` lifecycle with exact socket/turn ownership, stable view
+and component IDs, CAS full/patch updates, TTL/close/cancellation tombstones,
+acknowledged input cursors, bounded rich components, deterministic scrolling and
+focus, and success only for a current `sent` frame completion. Hermes-hosted
+provider code keeps credentials and provider IDs off the phone. The Home
+Assistant reference adapter discovers the actual Living Room membership at
+runtime, permits only available lights/switches, uses fresh opaque handles and
+explicit revision-checked target states, verifies the result, and restores only
+when no later human/automation revision intervened. See
+`docs/dynamic-glasses-apps.md` and
+`notes/dynamic-glasses-app-threat-model-2026-08-22.md`.
+
+The final local source candidate passes all 281 host tests, TypeScript
+typechecking, `git diff --check`, and the JDK 21 / Android SDK 35 build. Its
+195,407,092-byte debug APK has SHA-256
+`d6083a30344db8f03b16b38228da81622cd2effdb4f88256ed16a9ea4b0d87a7`.
+That exact APK upgrade-installed and launched on the authorised Samsung A32 over
+USB. Both G2 arms reached session-ready on firmware 2.2.8.4, wear state was
+not re-proven in this final install, and ordinary shell frames 11, 12, and 13
+completed with transport outcome `sent`. The PID-filtered final log
+contained no fatal/TypeScript/dynamic
+app errors and no token/password/API-key/HA sentinel pattern. No private log was
+retained in the repository.
+
+Independent adversarial review iterated over frozen candidates until final
+source SHA `08020fc890bc6cb771cd8a75c9a2de23de4b9584` received static PASS. The
+review re-probed close/update races, pending create cleanup, exact ACK identity,
+event ordering, physical disconnect, concurrent provider operations, stale area
+scope, outcome-unknown replay, restoration causality, and cross-owner replay.
+Operational authorization remains NO-GO for the missing external/runtime evidence
+listed below; static approval is not permission to publish or operate HA control.
+
+PR [#41](https://github.com/not-benny/hermes-g2/pull/41) passed the permanent
+`release-gate`, `codeql-javascript`, `codeql-java`, and aggregate `codeql`
+checks, then squash-merged to canonical `main` as
+`544a5d60176f64ea6cdda8271894a95a32a00c7b`.
+
+This is not Home Assistant or dynamic-view lens evidence: the environment had
+no HA URL/token, and the configured bridge peer is not the authenticated Hermes
+WSS/generic MCP peer required to invoke the new tools. Therefore no living-room
+render, scroll, toggle, restoration, per-lens applied ACK, or optical visibility
+claim is made. The private read-only/default and explicitly gated reversible
+harness is runnable at `hermes-host/private-evaluation.mjs`; the exact missing
+peer contract and remaining gates are documented in the developer guide.
+
 The first frozen adversarial review found and blocked two issues: a G2 arm loss
 retired the R1 generation without retiring its ready flags/GATT, and diagnostics
 counted initial attempts as reconnects while mixing packetAck writes into the G2
@@ -99,6 +146,9 @@ Bluetooth state was changed.
 ## Deliberately blocked
 
 - Public MCP/skill publication and untrusted external `glasses.render_view`
+- Public dynamic-app publication and production HA control until authenticated
+  WSS identity, durable cross-process idempotency, generic-client compatibility,
+  private credential custody, licensing, and real dynamic-view G2 evidence pass
 - WhatsApp production pairing/startup and stock Node 16 KiB compatibility
 - Stable signing and public-store release until signing custody and permission
   minimisation are approved
@@ -139,11 +189,16 @@ unobserved hardware result from passing host tests.
    resolution, and blocked force-push/deletion; read the effective rules back
    through the API. Until then, treat direct `main` pushes as administratively
    prohibited even though GitHub cannot enforce that policy.
-2. Validate the private bridge end to end with an authenticated `wss://` server,
-   exact-turn envelopes, credentials, and a disposable generic client.
-3. Complete the deferred non-destructive G2/R1/Doze/calendar/mic matrix when the
+2. Supply an authenticated private Hermes WSS/generic MCP peer and private HA
+   credentials, then run the documented living-room harness end to end: render,
+   scroll, exact safe reversible state change, verified update, restore, and
+   sentinel-clean log review. Do not publish or broaden authority.
+3. Validate the remaining private bridge lifecycle with certificate failure,
+   cancellation, reconnect, stale-turn rejection, durable mutation replay, and
+   a disposable generic client.
+4. Complete the deferred non-destructive G2/R1/Doze/calendar/mic matrix when the
    live devices are available without contention; do not infer it from this APK.
-4. Obtain the missing type-1 R1 sleep evidence only under a separately reviewed,
+5. Obtain the missing type-1 R1 sleep evidence only under a separately reviewed,
    reversible, private capture plan.
-5. Keep firmware/recovery work blocked unless every independent provenance,
+6. Keep firmware/recovery work blocked unless every independent provenance,
    authority, recovery, privacy, power, and per-run consent gate passes.
