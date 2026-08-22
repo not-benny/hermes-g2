@@ -27,3 +27,15 @@ export function classifyPhoneWindow(width: number, height: number): PhoneWindowL
     orientation: width > height ? "landscape" : "portrait",
   };
 }
+
+/**
+ * NativeScript can report a transient 0×0 page while constructing a fragment.
+ * Defer layout work until real bounds arrive without weakening the strict
+ * classifier used by callers that require valid geometry.
+ */
+export function tryClassifyPhoneWindow(width: number, height: number): PhoneWindowLayout | null {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return classifyPhoneWindow(width, height);
+}

@@ -2,7 +2,7 @@ import { Frame, ImageSource, Observable } from "@nativescript/core";
 import { dashboardController } from "../g2/dashboard-controller";
 import { isValidMacAddress, loadDeviceAddresses } from "../g2/device-addresses";
 import { G2_LENS_HEIGHT, G2_LENS_WIDTH } from "../graphics/image";
-import { classifyPhoneWindow, WindowOrientation } from "./window-layout";
+import { tryClassifyPhoneWindow, WindowOrientation } from "./window-layout";
 
 const LENS_ASPECT_RATIO = G2_LENS_WIDTH / G2_LENS_HEIGHT;
 
@@ -142,7 +142,8 @@ export class MainViewModel extends Observable {
   }
 
   refreshLayoutMetrics(width: number, height: number): void {
-    const layout = classifyPhoneWindow(width, height);
+    const layout = tryClassifyPhoneWindow(width, height);
+    if (!layout) return;
     if (this._windowWidth === layout.width && this._windowHeight === layout.height) return;
     this._windowWidth = layout.width;
     this._windowHeight = layout.height;

@@ -27,11 +27,13 @@ test("Fold7 cover, unfolded, rotated, tabletop, and split windows classify by li
   }
 });
 
-test("layout contract rejects invalid or stale zero-sized bounds", async () => {
-  const { classifyPhoneWindow } = await loadLayoutContract();
+test("layout contract rejects invalid bounds but safely defers transient zero-sized views", async () => {
+  const { classifyPhoneWindow, tryClassifyPhoneWindow } = await loadLayoutContract();
   for (const [width, height] of [[0, 800], [360, 0], [-1, 800], [NaN, 800]]) {
     assert.throws(() => classifyPhoneWindow(width, height), /positive finite/);
+    assert.equal(tryClassifyPhoneWindow(width, height), null);
   }
+  assert.deepEqual(tryClassifyPhoneWindow(360, 800), classifyPhoneWindow(360, 800));
 });
 
 test("Android activity is resizable and does not depend on a portrait lock", () => {
