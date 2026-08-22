@@ -130,7 +130,10 @@ public final class FaceclawSettings {
     }
 
     public synchronized boolean removeSecret(String key) {
-        boolean secureRemoved = securePrefs.edit().remove(key).commit();
+        boolean secureRemoved = securePrefs.edit()
+                .remove(key)
+                .remove(key + ".__pending")
+                .commit();
         boolean legacyRemoved = prefs.edit().remove(key).commit();
         if (secureRemoved && legacyRemoved) notifyChanged(key);
         return secureRemoved && legacyRemoved;
@@ -141,10 +144,15 @@ public final class FaceclawSettings {
         try {
             String encrypted = encrypt(value);
             if (!securePrefs.edit().putString(pendingKey, encrypted).commit()) return false;
-            if (!value.equals(decrypt(securePrefs.getString(pendingKey, "")))) return false;
-            if (!securePrefs.edit().putString(key, encrypted).commit()) return false;
-            securePrefs.edit().remove(pendingKey).commit();
-            return true;
+            if (!value.equals(decrypt(securePrefs.getString(pendingKey, "")))) {
+                securePrefs.edit().remove(pendingKey).commit();
+                return false;
+            }
+            if (!securePrefs.edit().putString(key, encrypted).commit()) {
+                securePrefs.edit().remove(pendingKey).commit();
+                return false;
+            }
+            return securePrefs.edit().remove(pendingKey).commit();
         } catch (Exception e) {
             Log.w(TAG, "encrypted setting could not be written");
             securePrefs.edit().remove(pendingKey).commit();
