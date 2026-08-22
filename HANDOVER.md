@@ -1,5 +1,42 @@
 # Hermes G2 handover — 22 August 2026
 
+## Fold7 development-preview candidate
+
+Work on `feat/fold7-compat` from canonical baseline
+`c4e512509d30a587f511896b87415b8d29f7b4f8` adds a pure live-window size-class
+contract and Fold7-like cover/unfolded/landscape/tabletop/split fixtures, removes
+the portrait lock, marks the activity resizable with IME resize, replaces
+physical-screen calculations with page bounds, bounds phone content at 840dp,
+and enforces 48dp controls. It does not touch G2/R1 pairing, permissions,
+firmware, BLE ownership, or glasses compositor geometry. Focused tests were RED
+on the baseline and are GREEN after implementation. The candidate is version
+1000002 / 1.0.0-preview.2. Final lifecycle hardening coalesces live-resize
+callbacks, cancels queued callbacks on unload, ignores unchanged bounds, and
+releases each main-page dashboard subscription. The focused 8-test contract and
+full 291-test suite pass. The final 195,664,501-byte debug APK built from
+`444e4032b3d630962047f6d3a2ef4e472164bff0` has SHA-256
+`1d61d96548ed721c5c84ec36b738e92435bada0179d9c4eba03a9145b678f067`.
+The immediate predecessor (`d26f01795863b6f4ab1fe0f6e7e3966a818e7b19c7f9c0a96bd57676e2a022f8`)
+reproduced a launch crash when NativeScript reported a transient 0×0 page during
+fragment construction. A focused regression was observed RED, the strict
+classifier gained a non-throwing deferred-layout wrapper, and the focused/full
+suites returned GREEN. The exact final APK then upgrade-installed and launched
+on an authorised Galaxy Z Fold7 SM-F966B (`q7q`), Android 16 / SDK 36. Package
+metadata reported the expected version, the process remained live, and the
+PID-filtered post-launch log contained no `FATAL EXCEPTION`, zero-size-bounds,
+or `onCreateView` failure marker. The phone was locked/Dozing, so there is no
+unlocked Hermes-phone visual, physical fold-posture transition, rotation,
+tabletop, or multi-window evidence; none may be inferred from install/process
+proof. After Bluetooth was enabled, the app connected both G2
+arms and logged `session ready`; the direct R1 BLE session also connected. Benny
+observed that the ring was not shown on the glasses HUD, so no R1-HUD success is
+claimed. No pairing, provisioning, permission, firmware, wake, or unlock action
+was performed. After merging canonical `main` at
+`18f99767bd6336e0fc5106d5cf4342ff2bae4ba5`, the combined tree passes 298 host
+tests, TypeScript, diff hygiene and the JDK 21 / SDK 35 Android build. Its exact
+195,701,531-byte debug APK has SHA-256
+`d04fc94fa07281a414241d904bcc99309e3bd77b49f71d46b47d5719fe77116e`.
+
 ## Renderer-jank candidate
 
 The `perf/glasses-renderer-jank` candidate starts from canonical `main` at

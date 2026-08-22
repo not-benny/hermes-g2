@@ -65,6 +65,7 @@ Button {
   border-width: 1;
   border-radius: 8;
   padding: 10;
+  min-height: 48;
   font-family: "Saira", "Roboto", sans-serif;
 }
 
@@ -89,6 +90,8 @@ ListView ListViewItem {
 
 Switch {
   color: #57D8A6;
+  min-width: 48;
+  min-height: 48;
 }
 
 Slider {
@@ -247,6 +250,17 @@ SegmentedBar {
   selected-background-color: #57D8A6;
   background-color: #1E2A22;
   font-size: 14;
+  min-height: 48;
+}
+
+/* Bound phone forms on unfolded/desktop windows while retaining full-width
+   cover-screen layouts. NativeScript reports these values in DIPs, so font
+   and display density scaling remain platform-controlled. */
+.phone-content,
+.p-20 {
+  width: 100%;
+  max-width: 840;
+  horizontal-align: center;
 }
 
 /* --- Even Health: metric tiles (direct-BLE ring dashboard) --------------- */

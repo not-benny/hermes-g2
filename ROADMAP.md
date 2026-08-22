@@ -26,6 +26,17 @@ Current as of 22 August 2026. `main` is the canonical branch.
 
 ### Repository and release
 
+- **IMPLEMENTED / FOLD7 VISUAL AND POSTURE VALIDATION BLOCKED — foldable phone UI (22 August 2026).**
+  Preview 2 removes the portrait lock, handles live cover/unfolded/rotation/
+  tabletop/multi-window bounds, bounds wide content, preserves platform font
+  scaling and 48dp controls, and retains the existing G2 compositor contract.
+  Host fixture, build, APK, ABI, signing, and 16 KiB evidence are required for
+  publication. The exact debug APK installed and ran as a live process on an
+  SM-F966B with Android 16. Both G2 arms later reached session ready and direct
+  R1 BLE connected, but no R1 HUD indicator was visible. Unlocked Hermes-phone
+  visual, physical fold-transition, rotation, tabletop, and multi-window proof
+  remains blocked.
+
 - **DONE — full audit remediation and release path (21 August 2026).** The
   merged PR #28 implementation removes private-data logging, encrypts credential
   and token-bearing settings with verified Keystore migration/clear, makes calendar

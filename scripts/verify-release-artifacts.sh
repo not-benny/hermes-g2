@@ -65,7 +65,7 @@ case "${HERMES_SIGNING_MODE:-protected}" in
     ;;
 esac
 badging=$($AAPT dump badging "$APK")
-if [[ "$badging" != *"package: name='com.faceclaw.app' versionCode='1000001' versionName='1.0.0-preview.1'"* ]]; then
+if [[ "$badging" != *"package: name='com.faceclaw.app' versionCode='1000002' versionName='1.0.0-preview.2'"* ]]; then
   printf 'unexpected APK package identity or version\n' >&2
   exit 1
 fi
