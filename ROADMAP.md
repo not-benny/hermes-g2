@@ -103,6 +103,17 @@ session-open frame is hardcoded/universal (not per-device).
   the captured response was CRC-valid and no firmware-write behavior was added.
 
 ### Platform / vision groundwork
+- **RESEARCH DONE** (2026-08-22) — Modern glasses UI solutions were evaluated
+  against the current 640 x 480, 4 bpp grayscale renderer, standard 568 x 260
+  content band, four-gesture navigation model, delta transport, accessibility,
+  situational awareness, privacy, and implementation feasibility. Recommended
+  direction: a quiet glance-first language using replace-only glance cards,
+  shallow linear lists with progressive disclosure, confirmable action sheets,
+  tiered/no-wake interruptions, reviewed multimodal input, and phone handoff for
+  complex work. Avoid dense dashboards, color/translucency-led styling,
+  unsupported spatial/gaze/air interactions, instant-wrap consequential actions,
+  and decorative full-screen motion. Investigation, evidence boundaries,
+  comparison, gates, and prototype order: `notes/glasses-ui-modern-design-2026-08-22.md`.
 - **AUDIT DONE / PUBLICATION BLOCKED** (2026-08-20) — **MCP / skill review** inventoried 24 phone-served
   tools and designed a bounded shell-owned `glasses.render_view` v1. Publication is NO-GO until the external
   bridge has authenticated transport/peer proof, per-turn generation authorization, and cancellation/idempotency

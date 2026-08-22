@@ -1,4 +1,24 @@
-# Hermes G2 handover (2026-08-21)
+# Hermes G2 handover (2026-08-22)
+
+## Glasses UI modern-design investigation (2026-08-22)
+
+Added `notes/glasses-ui-modern-design-2026-08-22.md`, a source-backed audit of
+the current 640 x 480, 4 bpp grayscale, standard-band layout and
+scroll/click/double-click/long-press interaction model. It compares practical
+wearable patterns and recommends a quiet glance-first language built from
+replace-only glance cards, shallow progressive-disclosure lists, confirmable
+action sheets, tiered interruptions, reviewed voice input, and phone handoff.
+It also records anti-patterns, accessibility/privacy/error-recovery gates, an
+adversarial test matrix, and an ordered prototype/hardware-validation path.
+
+This was research-only: no UI, display constraint, hardware state, pairing,
+firmware, or BLE behavior changed, and no measured or validated optical or
+usability claim was made.
+Repository references were checked at `b7db32e`; external source URLs were
+checked on 2026-08-22 (12 opened, while three valid DOI publisher endpoints
+denied the automated fetch with HTTP 403). Markdown/link/source checks,
+`git diff --check`, and the final repository verification state are recorded in
+the task delivery.
 
 ## WhatsApp pairing options evaluation (2026-08-21)
 
