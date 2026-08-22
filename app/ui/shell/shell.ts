@@ -1421,6 +1421,11 @@ class Shell {
     this.config.requestShellRender();
   }
 
+  /** Physical transport loss tombstones remote authority before any reconnect. */
+  closeDynamicApp(): void {
+    this.dynamicAppLayer?.close();
+  }
+
   private startEscapeMenuTimer(): void {
     this.cancelEscapeMenuTimer();
     this.escapeMenuTimer = setTimeout(() => {

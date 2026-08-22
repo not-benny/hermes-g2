@@ -69,14 +69,15 @@ when no later human/automation revision intervened. See
 `docs/dynamic-glasses-apps.md` and
 `notes/dynamic-glasses-app-threat-model-2026-08-22.md`.
 
-The final local source candidate passes all 273 host tests, TypeScript
+The final local source candidate passes all 279 host tests, TypeScript
 typechecking, `git diff --check`, and the JDK 21 / Android SDK 35 build. Its
-195,406,145-byte debug APK has SHA-256
-`6e0e832295e2a350d047960e1534c1a5d4c4292f9dd85e7277bcfb7f21aa578a`.
+195,406,895-byte debug APK has SHA-256
+`06982beb56fb711ee7c0a71678f5580315f52b9c365a426c4d91a6d253ca766f`.
 That exact APK upgrade-installed and launched on the authorised Samsung A32 over
 USB. Both G2 arms reached session-ready on firmware 2.2.8.4, wear state was
-ON_HEAD, and ordinary shell frames 10, 11, 16, and 17 completed with transport
-outcome `sent`. The PID-filtered final log contained no fatal/TypeScript/dynamic
+not re-proven in this final install, and ordinary shell frames 10, 11, 15, 16,
+and 17 completed with transport outcome `sent`. The PID-filtered final log
+contained no fatal/TypeScript/dynamic
 app errors and no token/password/API-key/HA sentinel pattern. No private log was
 retained in the repository.
 

@@ -2054,6 +2054,7 @@ class DashboardController {
 
   private setPhase(phase: ConnectionPhase): void {
     if (this.phase === phase) return;
+    if (phase === "disconnected") shell.closeDynamicApp();
     this.phase = phase;
     if (phase === "disconnected") {
       // Kept across "connecting": silent mode blocks app launches, so it can

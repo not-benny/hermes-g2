@@ -216,6 +216,7 @@ export class DynamicAppManager {
   private pending: (Identity & { ownerKey: string; cancelled: boolean }) | null = null;
   private readonly operations = new Map<string, OperationRecord>();
   private readonly events: DynamicAppEvent[] = [];
+  private readonly acknowledgedEventIds = new Set<string>();
   private eventSequence = 0;
   private readonly now: () => number;
   private readonly setTimer: (callback: () => void, delayMs: number) => TimerHandle;
@@ -358,7 +359,10 @@ export class DynamicAppManager {
       return { ok: false, error: "dynamic app became stale before acknowledged delivery" };
     }
     this.current = candidate;
-    if (identity.revision === 1) this.events.length = 0;
+    if (identity.revision === 1) {
+      this.events.length = 0;
+      this.acknowledgedEventIds.clear();
+    }
     this.armTimer(candidate);
     const result: ToolResult = { ok: true, content: JSON.stringify({
       status: "acknowledged", view_id: identity.viewId, revision: identity.revision, frame_id: receipt.frameId,
@@ -386,9 +390,10 @@ export class DynamicAppManager {
   readEvents(context: ToolExecutionContext | undefined, viewId: string, revision: number, afterEventId: string | null): ToolResult {
     const owner = ownerKey(context);
     if (!owner || !this.matches(owner, viewId, revision)) return { ok: false, error: "view owner, turn, identity, or revision is stale" };
-    const index = afterEventId ? this.events.findIndex((event) => event.event_id === afterEventId) : -1;
-    if (afterEventId && index < 0 && this.events.length) return { ok: false, error: "event cursor is stale" };
-    return { ok: true, content: JSON.stringify({ view_id: viewId, revision, events: this.events.slice(index + 1) }) };
+    if (afterEventId && !this.acknowledgedEventIds.has(afterEventId)) return { ok: false, error: "event cursor is not acknowledged" };
+    // Expose only the queue head. A later event must never execute before an
+    // earlier event and then cumulatively acknowledge/discard it.
+    return { ok: true, content: JSON.stringify({ view_id: viewId, revision, events: this.events.slice(0, 1) }) };
   }
 
   ackEvents(context: ToolExecutionContext | undefined, viewId: string, revision: number, throughEventId: string): ToolResult {
@@ -396,27 +401,38 @@ export class DynamicAppManager {
     if (!owner || !this.current || this.current.ownerKey !== owner || this.current.viewId !== viewId ||
         revision > this.current.revision || revision < 1) return { ok: false, error: "view owner, turn, identity, or revision is stale" };
     const index = this.events.findIndex((event) => event.event_id === throughEventId);
-    if (index >= 0) this.events.splice(0, index + 1);
+    if (index < 0) {
+      if (this.acknowledgedEventIds.has(throughEventId)) {
+        return { ok: true, content: JSON.stringify({ status: "historical_acknowledgement", through_event_id: throughEventId }) };
+      }
+      return { ok: false, error: "event acknowledgement identity is unknown or stale" };
+    }
+    if (index !== 0) return { ok: false, error: "events must be acknowledged in queue order" };
+    for (const event of this.events.splice(0, index + 1)) this.acknowledgedEventIds.add(event.event_id);
+    while (this.acknowledgedEventIds.size > 64) this.acknowledgedEventIds.delete(this.acknowledgedEventIds.values().next().value!);
     return { ok: true, content: JSON.stringify({ status: "acknowledged", through_event_id: throughEventId }) };
   }
 
   handleInput(type: "scroll-up" | "scroll-down" | "click" | "double-click" | "long-press", foreground: boolean): boolean {
     if (!foreground || !this.current || type === "double-click" || type === "long-press") return false;
-    const handles = this.current.components.flatMap(actionHandles);
-    if (!handles.length) {
+    const targets = this.current.components.flatMap((component, componentIndex) =>
+      actionHandles(component).map((handle) => ({ handle, componentIndex })),
+    );
+    if (!targets.length) {
       if (type === "scroll-up") this.current.scrollOffset = Math.max(0, this.current.scrollOffset - 1);
       if (type === "scroll-down") this.current.scrollOffset = Math.min(Math.max(0, this.current.components.length - 1), this.current.scrollOffset + 1);
       return type !== "click";
     }
-    if (type === "scroll-up") this.current.selectedAction = (this.current.selectedAction + handles.length - 1) % handles.length;
-    else if (type === "scroll-down") this.current.selectedAction = (this.current.selectedAction + 1) % handles.length;
+    if (type === "scroll-up") this.current.selectedAction = (this.current.selectedAction + targets.length - 1) % targets.length;
+    else if (type === "scroll-down") this.current.selectedAction = (this.current.selectedAction + 1) % targets.length;
     else {
-      const handle = handles[this.current.selectedAction];
-      if (!handle) return false;
+      const target = targets[this.current.selectedAction];
+      if (!target) return false;
       if (this.events.length >= DYNAMIC_APP_CAPABILITIES.maxEvents) return false;
       this.events.push({ version: 1, event_id: `${this.current.viewId}.${this.current.revision}.${++this.eventSequence}`,
-        view_id: this.current.viewId, revision: this.current.revision, action_handle: handle, kind: "activate" });
+        view_id: this.current.viewId, revision: this.current.revision, action_handle: target.handle, kind: "activate" });
     }
+    this.current.scrollOffset = targets[this.current.selectedAction]?.componentIndex ?? this.current.scrollOffset;
     return true;
   }
 
@@ -456,8 +472,13 @@ export class DynamicAppManager {
 
   private closeExact(viewId: string, revision: number): void {
     if (!this.current || this.current.viewId !== viewId || this.current.revision !== revision) return;
+    if (this.pending && this.pending.viewId === viewId && this.pending.ownerKey === this.current.ownerKey) {
+      this.pending.cancelled = true;
+      this.deps.clear({ viewId: this.pending.viewId, revision: this.pending.revision });
+    }
     this.current = null;
     this.events.length = 0;
+    this.acknowledgedEventIds.clear();
     if (this.timer !== null) { this.clearTimer(this.timer); this.timer = null; }
     this.deps.clear({ viewId, revision });
   }

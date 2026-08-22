@@ -22,6 +22,7 @@ export class DynamicGlassesRuntime {
   #createHandle;
   #now;
   #session = null;
+  #pendingOpen = null;
   #actions = new Map();
   #operations = new Map();
 
@@ -35,15 +36,20 @@ export class DynamicGlassesRuntime {
 
   async openLivingRoom(identity, { operationId }) {
     const owner = identityKey(identity);
-    if (this.#session) throw new Error("a dynamic app session is already open");
-    const devices = await this.#adapter.discover({ kind: "area", label: "Living Room" });
+    if (this.#session || this.#pendingOpen) throw new Error("a dynamic app session is already open or pending");
+    const pending = { owner, cancelled: false };
+    this.#pendingOpen = pending;
+    try {
+    const devices = (await this.#adapter.discover({ kind: "area", label: "Living Room" })).slice(0, 63);
+    if (pending.cancelled || this.#pendingOpen !== pending) throw new Error("stale dynamic app open");
     const components = [{ id: "title", type: "heading", text: "Living room" }];
     this.#actions.clear();
     for (let index = 0; index < devices.length; index++) {
       const device = devices[index];
-      const actionHandle = this.#mintAction({ owner, capabilityHandle: device.handle, expectedRevision: device.revision });
+      const componentId = `device-${index + 1}`;
+      const actionHandle = this.#mintAction({ owner, capabilityHandle: device.handle, expectedRevision: device.revision, componentId });
       components.push({
-        id: `device-${index + 1}`,
+        id: componentId,
         type: "toggle",
         label: sanitizeLabel(device.label),
         value: device.value === "on",
@@ -62,24 +68,44 @@ export class DynamicGlassesRuntime {
         ttl_seconds: 300,
       },
     });
+    if (pending.cancelled || this.#pendingOpen !== pending) throw new Error("stale dynamic app open");
     if (result?.status !== "acknowledged" || !result.view_id || result.revision !== 1) throw new Error("phone did not acknowledge dynamic app delivery");
     this.#session = { owner, viewId: result.view_id, revision: result.revision, expiresAtMs: this.#now() + 300_000 };
+    this.#pendingOpen = null;
     return { viewId: result.view_id, revision: result.revision };
+    } catch (error) {
+      if (this.#pendingOpen === pending) this.#pendingOpen = null;
+      if (!this.#session) this.#actions.clear();
+      throw error;
+    }
   }
 
-  async deliverInput(identity, event, { operationId }) {
-    const prior = this.#operations.get(operationId);
-    if (prior) {
-      if (prior.eventId !== event?.event_id) throw new Error("operation was reused for a different event");
-      return prior.result;
-    }
-    const owner = identityKey(identity);
+  deliverInput(identity, event, { operationId, signal } = {}) {
+    let owner;
+    try { owner = identityKey(identity); } catch (error) { return Promise.reject(error); }
     const session = this.#session;
-    if (!session || session.owner !== owner || session.viewId !== event?.view_id || session.revision !== event?.revision ||
-        session.expiresAtMs <= this.#now()) throw new Error("stale dynamic app event");
+    if (!session || session.owner !== owner || session.viewId !== event?.view_id || session.expiresAtMs <= this.#now()) {
+      return Promise.reject(new Error("stale dynamic app event"));
+    }
+    const operationKey = `${owner}:${operationId}`;
+    const eventFingerprint = JSON.stringify(event);
+    const prior = this.#operations.get(operationKey);
+    if (prior) {
+      if (prior.eventFingerprint !== eventFingerprint) return Promise.reject(new Error("operation was reused for a different event"));
+      return prior.promise;
+    }
+    if (session.revision !== event?.revision || event?.kind !== "activate") return Promise.reject(new Error("stale dynamic app event"));
     const action = this.#actions.get(event.action_handle);
-    if (!action || action.owner !== owner || action.viewRevision !== session.revision || action.used) throw new Error("stale action capability");
+    if (!action || action.owner !== owner || action.viewRevision !== session.revision || action.used) {
+      return Promise.reject(new Error("stale action capability"));
+    }
+    action.used = true;
+    const promise = this.#deliverInputOnce(owner, session, action, event, operationId, signal);
+    this.#operations.set(operationKey, { eventFingerprint, promise });
+    return promise;
+  }
 
+  async #deliverInputOnce(owner, session, action, event, operationId, signal) {
     const current = await this.#adapter.read(action.capabilityHandle);
     if (current.revision !== action.expectedRevision) throw new Error("provider state changed; refresh required");
     const desired = current.value === "on" ? "off" : "on";
@@ -88,17 +114,17 @@ export class DynamicGlassesRuntime {
       handle: action.capabilityHandle,
       value: desired,
       expectedRevision: current.revision,
-    }, { isAuthorized: () => this.#isCurrent(owner, event), signal: undefined });
+    }, { isAuthorized: () => this.#isCurrent(owner, event), signal });
     if (!this.#isCurrent(owner, event)) throw new Error("stale dynamic app event after provider mutation");
 
     const nextActionHandle = this.#mintAction({ owner, capabilityHandle: action.capabilityHandle,
-      expectedRevision: receipt.after.revision, viewRevision: session.revision + 1 });
+      expectedRevision: receipt.after.revision, viewRevision: session.revision + 1, componentId: action.componentId });
     const patched = await this.#phone.callTool("glasses.dynamic_apps.patch", {
       operation_id: `${operationId}.view`,
       view_id: session.viewId,
       expected_revision: session.revision,
       patch: {
-        upsert: [{ id: this.#componentIdFor(action.capabilityHandle), type: "toggle", label: sanitizeLabel(receipt.after.label),
+        upsert: [{ id: action.componentId, type: "toggle", label: sanitizeLabel(receipt.after.label),
           value: receipt.after.value === "on", action_handle: nextActionHandle }],
         remove: [],
       },
@@ -106,20 +132,28 @@ export class DynamicGlassesRuntime {
     if (patched?.status !== "acknowledged" || patched.revision !== session.revision + 1) {
       throw new Error("provider changed but refreshed glasses state was not acknowledged");
     }
-    action.used = true;
     session.revision = patched.revision;
-    await this.#phone.callTool("glasses.dynamic_apps.ack_events", {
+    for (const candidate of this.#actions.values()) {
+      if (!candidate.used && candidate.owner === owner) candidate.viewRevision = session.revision;
+    }
+    const acknowledgement = await this.#phone.callTool("glasses.dynamic_apps.ack_events", {
       view_id: session.viewId,
       revision: event.revision,
       through_event_id: event.event_id,
     });
+    if (acknowledgement?.status !== "acknowledged" && acknowledgement?.status !== "historical_acknowledgement") {
+      throw new Error("phone did not acknowledge the processed input event");
+    }
     const result = { state: receipt.after.value, viewId: session.viewId, revision: session.revision, changed: receipt.changed };
-    this.#operations.set(operationId, { eventId: event.event_id, result });
     return result;
   }
 
   close(identity) {
     const owner = identityKey(identity);
+    if (this.#pendingOpen?.owner === owner) {
+      this.#pendingOpen.cancelled = true;
+      this.#pendingOpen = null;
+    }
     if (!this.#session || this.#session.owner !== owner) return;
     this.#session = null;
     this.#actions.clear();
@@ -130,19 +164,12 @@ export class DynamicGlassesRuntime {
       this.#session.revision === event.revision && this.#session.expiresAtMs > this.#now());
   }
 
-  #mintAction({ owner, capabilityHandle, expectedRevision, viewRevision = 1 }) {
+  #mintAction({ owner, capabilityHandle, expectedRevision, componentId, viewRevision = 1 }) {
     const handle = this.#createHandle();
     if (typeof handle !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(handle) || this.#actions.has(handle)) {
       throw new Error("secure action handle generation failed");
     }
-    this.#actions.set(handle, { owner, capabilityHandle, expectedRevision, viewRevision, used: false });
+    this.#actions.set(handle, { owner, capabilityHandle, expectedRevision, componentId, viewRevision, used: false });
     return handle;
-  }
-
-  #componentIdFor(capabilityHandle) {
-    const action = [...this.#actions.values()].find((candidate) => candidate.capabilityHandle === capabilityHandle);
-    if (!action) throw new Error("stale action capability");
-    const devices = [...new Set([...this.#actions.values()].map((candidate) => candidate.capabilityHandle))];
-    return `device-${devices.indexOf(capabilityHandle) + 1}`;
   }
 }

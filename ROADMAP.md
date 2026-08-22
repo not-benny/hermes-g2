@@ -93,7 +93,7 @@ Current as of 22 August 2026. `main` is the canonical branch.
   Hermes-hosted reference runtime keeps Home Assistant credentials and entity
   IDs server-side, discovers the Living Room at runtime, and permits only
   revision-checked explicit light/switch target states with conservative
-  restoration. All 273 host tests, typecheck, and Android build pass. The exact
+  restoration. All 279 host tests, typecheck, and Android build pass. The exact
   APK installed/launched on the A32 and established a live two-arm G2 session
   with ordinary shell-frame transport ACKs. Dynamic-view/HA scroll and reversible
   toggle evidence is still blocked by the missing authenticated WSS peer and

@@ -43,7 +43,6 @@ export class ShellDynamicAppLayer implements Layer {
     image.drawText(font, X + WIDTH - PAD - font.measureText(this.state.state), top + 9, this.state.state, this.state.state === "ready" ? 160 : 210);
 
     const actionHandles = this.state.components.flatMap(componentHandles);
-    let actionIndex = 0;
     const selectedHandle = actionHandles[this.state.selectedAction] ?? null;
     const start = Math.max(0, Math.min(this.state.scrollOffset, Math.max(0, this.state.components.length - 1)));
     let y = top + BODY_TOP;
@@ -58,8 +57,7 @@ export class ShellDynamicAppLayer implements Layer {
       const handles = componentHandles(component);
       const selected = selectedHandle !== null && handles.includes(selectedHandle);
       if (selected) drawSelectionHighlight(image, X + PAD - 5, y - 3, WIDTH - PAD * 2 + 10, estimate, true, 5);
-      y = paintComponent(image, component, X + PAD, y, WIDTH - PAD * 2, font, selected);
-      actionIndex += handles.length;
+      y = paintComponent(image, component, X + PAD, y, WIDTH - PAD * 2, font, selected ? selectedHandle : null);
     }
     if (omitted > 0) {
       const label = `… ${omitted} more — scroll`;
@@ -94,7 +92,8 @@ function componentHeight(component: DynamicAppComponent, lineHeight: number): nu
 }
 
 function paintComponent(image: GrayImage, component: DynamicAppComponent, x: number, y: number, width: number,
-    font: ReturnType<typeof getDefaultSmallFont>, selected: boolean): number {
+    font: ReturnType<typeof getDefaultSmallFont>, selectedHandle: string | null): number {
+  const selected = selectedHandle !== null;
   if (component.type === "divider") {
     image.drawLine(x, y + 3, x + width, y + 3, 75);
     return y + 10;
@@ -146,7 +145,9 @@ function paintComponent(image: GrayImage, component: DynamicAppComponent, x: num
     image.drawText(font, x, y, truncateText(font, `› ${component.label}`, width), selected ? 255 : 190);
     return y + font.lineHeight + 6;
   }
+  if (component.type !== "confirmation") return y;
   image.drawText(font, x, y, truncateText(font, component.text, width), 210);
-  image.drawText(font, x, y + font.lineHeight, selected ? "Click to confirm" : "Confirm / cancel", 150);
+  const choice = selectedHandle === component.confirm_handle ? "CONFIRM" : selectedHandle === component.cancel_handle ? "CANCEL" : "Confirm / cancel";
+  image.drawText(font, x, y + font.lineHeight, selected ? `${choice} — click` : choice, selected ? 240 : 150);
   return y + font.lineHeight * 3 + 8;
 }

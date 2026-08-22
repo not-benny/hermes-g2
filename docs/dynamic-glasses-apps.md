@@ -18,7 +18,9 @@ connected session. A timeout, disconnect, supersession, cancellation, or any
 transport acknowledgement available to the app; it does not by itself prove
 that both lenses visibly applied the pixels.
 
-Wearer input produces inert opaque action handles. Hermes resolves a handle to a
+Wearer input produces inert opaque action handles. The phone exposes only the
+oldest unacknowledged event, so a later intent cannot execute and cumulatively
+discard an earlier one. Hermes resolves a handle to a
 provider capability and immediately revalidates the exact tenant, device,
 connection generation, turn generation, view ID/revision, action generation,
 provider discovery generation, authorization, entity availability, and current
@@ -87,9 +89,15 @@ replacement.
    provider `toggle` and never an area-wide target;
 7. checks the exact provider revision and authorization immediately before the
    service call, then re-reads state before reporting success;
-8. binds idempotency keys to canonical mutations; and
-9. restores a reversible proof mutation only when the post-mutation revision is
-   still exact, refusing to overwrite a later human/automation change.
+8. atomically reserves in-flight idempotency keys before asynchronous work and
+   retains outcome-unknown failures so retries cannot redispatch;
+9. rechecks current Living Room membership, capability generation, entity
+   availability, provider revision, and authorization immediately before the
+   service call; and
+10. restores only an adapter-issued receipt whose service response context and
+   verified post-read context match, then refuses to overwrite any later
+   human/automation revision. A provider response without causal context is
+   explicitly non-restorable.
 
 ## Adding another provider
 
@@ -132,7 +140,10 @@ node hermes-host/private-evaluation.mjs \
 The token must be supplied through the server environment, not command-line
 arguments. The harness prints only bounded labels and state. It requires one
 exact unique label, verifies the explicit target, and restores in `finally`; a
-revision conflict leaves the newer state untouched.
+revision conflict leaves the newer state untouched. SIGINT/SIGTERM does not exit
+while a mutation is in flight; it waits for a verifiable receipt and then enters
+the same restoration path. Kill/crash recovery still requires the durable
+production ledger described below and is not authorised by this private harness.
 
 ## Remaining gates
 

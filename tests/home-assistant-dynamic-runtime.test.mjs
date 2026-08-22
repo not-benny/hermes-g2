@@ -5,27 +5,28 @@ import { DynamicGlassesRuntime } from "../hermes-host/dynamic-glasses-runtime.mj
 
 function fakeHa() {
   const calls = [];
+  let areaEntities = ["light.floor_lamp", "sensor.secret", "switch.missing"];
   let lamp = { entity_id: "light.floor_lamp", state: "off", attributes: { friendly_name: "Floor lamp" }, last_updated: "2026-08-22T10:00:00Z", context: { id: "ctx-1" } };
   let outside = { entity_id: "switch.garden", state: "on", attributes: { friendly_name: "Garden" }, last_updated: "2026-08-22T10:00:00Z", context: { id: "ctx-2" } };
   const transport = {
     async request(request) {
       calls.push(structuredClone(request));
-      if (request.path === "/api/template") return ["light.floor_lamp", "sensor.secret", "switch.missing"];
+      if (request.path === "/api/template") return [...areaEntities];
       if (request.path === "/api/states") return [lamp, outside,
         { entity_id: "sensor.secret", state: "42", attributes: { friendly_name: "Secret" }, last_updated: "x", context: { id: "x" } }];
       if (request.path === "/api/states/light.floor_lamp") return structuredClone(lamp);
       if (request.path === "/api/services/light/turn_on") {
         lamp = { ...lamp, state: "on", last_updated: "2026-08-22T10:00:01Z", context: { id: "ctx-3" } };
-        return [];
+        return [structuredClone(lamp)];
       }
       if (request.path === "/api/services/light/turn_off") {
         lamp = { ...lamp, state: "off", last_updated: "2026-08-22T10:00:02Z", context: { id: "ctx-4" } };
-        return [];
+        return [structuredClone(lamp)];
       }
       throw new Error("unexpected request");
     },
   };
-  return { transport, calls, setLamp: (value) => { lamp = value; } };
+  return { transport, calls, setLamp: (value) => { lamp = value; }, setAreaEntities: (value) => { areaEntities = value; } };
 }
 
 test("Home Assistant discovers the actual area at runtime and exposes only fresh opaque safe binary capabilities", async () => {
@@ -70,6 +71,52 @@ test("Home Assistant explicit set is revision checked, idempotent, reauthorized 
   await assert.rejects(() => adapter.setPower({ operationId: "op-denied", handle: device.handle, value: "off", expectedRevision: current.revision },
     { isAuthorized: () => authorized }), /no longer authorized/i);
   assert.equal(calls.filter((call) => call.path === "/api/services/light/turn_off").length, 0);
+});
+
+test("Home Assistant reserves concurrent operation IDs and revalidates area membership at dispatch", async () => {
+  const base = fakeHa();
+  let releaseService;
+  const serviceGate = new Promise((resolve) => { releaseService = resolve; });
+  let serviceAttempts = 0;
+  const transport = { request: async (request) => {
+    if (request.path.startsWith("/api/services/")) { serviceAttempts++; await serviceGate; }
+    return base.transport.request(request);
+  } };
+  const adapter = new HomeAssistantAdapter({ transport, createHandle: () => "opaque_entity_handle_0001", now: () => 1_000 });
+  const [device] = await adapter.discover({ kind: "area", label: "Living Room" });
+  const request = { operationId: "same-op", handle: device.handle, value: "on", expectedRevision: device.revision };
+  const first = adapter.setPower(request, { isAuthorized: () => true });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const second = adapter.setPower(request, { isAuthorized: () => true });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(serviceAttempts, 1);
+  releaseService();
+  assert.deepEqual(await second, await first);
+
+  const moved = fakeHa();
+  const movedAdapter = new HomeAssistantAdapter({ transport: moved.transport, createHandle: () => "opaque_entity_handle_0002", now: () => 1_000 });
+  const [movedDevice] = await movedAdapter.discover({ kind: "area", label: "Living Room" });
+  moved.setAreaEntities([]);
+  await assert.rejects(() => movedAdapter.setPower({ operationId: "moved", handle: movedDevice.handle, value: "on", expectedRevision: movedDevice.revision },
+    { isAuthorized: () => true }), /scope|area|stale/i);
+  assert.equal(moved.calls.filter((call) => call.path.startsWith("/api/services/")).length, 0);
+});
+
+test("a post-dispatch failure is outcome-unknown and retry never redispatches", async () => {
+  const base = fakeHa();
+  let dispatched = false;
+  let serviceCalls = 0;
+  const transport = { request: async (request) => {
+    if (request.path.startsWith("/api/services/")) { dispatched = true; serviceCalls++; return base.transport.request(request); }
+    if (dispatched && request.path.startsWith("/api/states/")) throw new Error("private provider failure");
+    return base.transport.request(request);
+  } };
+  const adapter = new HomeAssistantAdapter({ transport, createHandle: () => "opaque_entity_handle_0001", now: () => 1_000 });
+  const [device] = await adapter.discover({ kind: "area", label: "Living Room" });
+  const request = { operationId: "unknown-op", handle: device.handle, value: "on", expectedRevision: device.revision };
+  await assert.rejects(() => adapter.setPower(request, { isAuthorized: () => true }), /outcome unknown/i);
+  await assert.rejects(() => adapter.setPower(request, { isAuthorized: () => true }), /outcome unknown/i);
+  assert.equal(serviceCalls, 1);
 });
 
 test("restore is conservative and refuses to overwrite a later human or automation change", async () => {
@@ -137,4 +184,63 @@ test("runtime renders a provider-neutral living-room app and executes only exact
   assert.deepEqual(await runtime.deliverInput(identity, event, { operationId: "event-op-1" }), acted);
   assert.equal(calls.filter((call) => call.path === "/api/services/light/turn_on").length, 1);
   await assert.rejects(() => runtime.deliverInput({ ...identity, turnGeneration: "turn-2" }, event, { operationId: "event-op-2" }), /stale/i);
+  await assert.rejects(() => runtime.deliverInput({ ...identity, tenant: "other" }, event, { operationId: "event-op-1" }), /stale|owner|identity/i);
+});
+
+test("runtime keeps untouched multi-device actions current and bounds a 64-device provider to the phone limit", async () => {
+  const snapshots = new Map([
+    ["entity-handle-0001", { handle: "entity-handle-0001", label: "Lamp A", value: "off", revision: "a1" }],
+    ["entity-handle-0002", { handle: "entity-handle-0002", label: "Lamp B", value: "off", revision: "b1" }],
+  ]);
+  const adapter = {
+    async discover() { return [...snapshots.values()]; },
+    async read(handle) { return structuredClone(snapshots.get(handle)); },
+    async setPower(request) {
+      const before = structuredClone(snapshots.get(request.handle));
+      const after = { ...before, value: request.value, revision: `${before.revision}-next` };
+      snapshots.set(request.handle, after);
+      return { operationId: request.operationId, changed: true, before, after };
+    },
+  };
+  let revision = 0;
+  const phone = { async callTool(name, args) {
+    if (name.endsWith(".create")) return { status: "acknowledged", view_id: "opaque_dynamic_view_0001", revision: ++revision, frame_id: revision };
+    if (name.endsWith(".patch")) return { status: "acknowledged", view_id: args.view_id, revision: ++revision, frame_id: revision };
+    return { status: "acknowledged" };
+  } };
+  let actionN = 0;
+  const runtime = new DynamicGlassesRuntime({ adapter, phone, createHandle: () => `opaque_action_handle_${String(++actionN).padStart(4, "0")}`, now: () => 1_000 });
+  const identity = { tenant: "owner", device: "g2", connectionGeneration: "socket-1", turnGeneration: "turn-1" };
+  await runtime.openLivingRoom(identity, { operationId: "open" });
+  await runtime.deliverInput(identity, { event_id: "e1", view_id: "opaque_dynamic_view_0001", revision: 1,
+    action_handle: "opaque_action_handle_0001", kind: "activate" }, { operationId: "op1" });
+  await runtime.deliverInput(identity, { event_id: "e2", view_id: "opaque_dynamic_view_0001", revision: 2,
+    action_handle: "opaque_action_handle_0002", kind: "activate" }, { operationId: "op2" });
+  assert.equal(snapshots.get("entity-handle-0002").value, "on");
+
+  const manyAdapter = { ...adapter, async discover() { return Array.from({ length: 64 }, (_, i) => ({
+    handle: `entity-handle-${String(i).padStart(4, "0")}`, label: `Device ${i}`, value: "off", revision: `r${i}`,
+  })); } };
+  const manyCalls = [];
+  const manyPhone = { async callTool(name, args) { manyCalls.push({ name, args }); return { status: "acknowledged", view_id: "opaque_dynamic_view_0002", revision: 1, frame_id: 1 }; } };
+  let manyN = 0;
+  const manyRuntime = new DynamicGlassesRuntime({ adapter: manyAdapter, phone: manyPhone,
+    createHandle: () => `opaque_many_action_${String(++manyN).padStart(4, "0")}`, now: () => 1_000 });
+  await manyRuntime.openLivingRoom(identity, { operationId: "many" });
+  assert.equal(manyCalls[0].args.spec.components.length, 64);
+});
+
+test("runtime rejects concurrent opens and close tombstones an in-flight discovery", async () => {
+  let release;
+  const adapter = { discover: () => new Promise((resolve) => { release = resolve; }) };
+  const phoneCalls = [];
+  const phone = { async callTool(name, args) { phoneCalls.push({ name, args }); return { status: "acknowledged" }; } };
+  const runtime = new DynamicGlassesRuntime({ adapter, phone, now: () => 1_000 });
+  const identity = { tenant: "owner", device: "g2", connectionGeneration: "socket-1", turnGeneration: "turn-1" };
+  const first = runtime.openLivingRoom(identity, { operationId: "open-1" });
+  await assert.rejects(() => runtime.openLivingRoom(identity, { operationId: "open-2" }), /pending/i);
+  runtime.close(identity);
+  release([]);
+  await assert.rejects(() => first, /stale/i);
+  assert.equal(phoneCalls.length, 0);
 });

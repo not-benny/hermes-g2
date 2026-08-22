@@ -58,6 +58,7 @@ async function main() {
   const device = matches[0];
   const operationId = `private-${randomBytes(12).toString("hex")}`;
   let receipt = null;
+  let interrupted = false;
   const authorized = () => process.env.HA_ALLOW_MUTATION === "I_UNDERSTAND";
   const restoreNow = async () => {
     if (!receipt) return;
@@ -65,12 +66,16 @@ async function main() {
     process.stdout.write(`${JSON.stringify({ restoration: result.restored ? "restored" : result.reason })}\n`);
     receipt = null;
   };
-  const onSignal = () => { void restoreNow().finally(() => process.exit(130)); };
+  // Do not exit while the provider mutation is in flight: its outcome may land
+  // after the signal. Let it resolve to a receipt, then the normal finally path
+  // performs the only causality-checked restoration available.
+  const onSignal = () => { interrupted = true; process.exitCode = 130; };
   process.once("SIGINT", onSignal);
   process.once("SIGTERM", onSignal);
   try {
     receipt = await adapter.setPower({ operationId, handle: device.handle, value: target, expectedRevision: device.revision }, { isAuthorized: authorized });
     process.stdout.write(`${JSON.stringify({ mutation: receipt.changed ? "verified" : "already-set", label: device.label, value: receipt.after.value })}\n`);
+    if (interrupted) process.stdout.write(`${JSON.stringify({ interruption: "restoration pending" })}\n`);
   } finally {
     await restoreNow();
     process.removeListener("SIGINT", onSignal);

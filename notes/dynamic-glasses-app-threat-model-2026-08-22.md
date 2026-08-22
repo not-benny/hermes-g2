@@ -50,11 +50,15 @@ not instructions.
 Permanent tests cover malformed/unsupported/oversized models, deep expansion by
 bounded flat component shapes, duplicate IDs, URL/markup rejection, non-finite
 progress, stale socket/turn/view/revision/action, operation conflicts,
-historical create replay, delivery failure, close/TTL races, acknowledged event
-cursors, stale provider generations, excluded HA entities, unavailable domains,
-revision races, lost authorization before service dispatch, explicit service
-allowlisting, mutation idempotency, conservative restoration, HTTPS/redirect
-handling, sanitized transport errors, and end-to-end opaque runtime projection.
+historical create replay, delivery failure, close-vs-pending-update/TTL races,
+physical disconnect tombstones, queue-head-only acknowledged event cursors,
+off-screen action focus and distinct confirmation choices, stale provider
+generations, area-membership revocation, excluded/unavailable HA entities,
+revision races, concurrent operation reservation, lost authorization before
+service dispatch, explicit service allowlisting, retained outcome-unknown
+failures, causality-proven conservative restoration, HTTPS/redirect handling,
+sanitized transport errors, cross-owner replay rejection, concurrent open/close,
+multi-device action generations, and bounded end-to-end opaque projection.
 
 Before publication, extend the external server suite with concurrent duplicate
 mutations across sockets, crash-after-reservation reconciliation, credential

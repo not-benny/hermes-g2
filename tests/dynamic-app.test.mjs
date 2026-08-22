@@ -110,6 +110,7 @@ test("events remain until acknowledged and stale or duplicate actions cannot exe
   assert.equal(manager.ackEvents(owner, "opaque_dynamic_view_0001", 1, event.event_id).ok, true);
   assert.deepEqual(JSON.parse(manager.readEvents(owner, "opaque_dynamic_view_0001", 1, event.event_id).content).events, []);
   assert.equal(manager.ackEvents(owner, "opaque_dynamic_view_0001", 1, event.event_id).ok, true);
+  assert.equal(manager.ackEvents(owner, "opaque_dynamic_view_0001", 1, "unknown-event").ok, false);
 });
 
 test("an old-revision input can be acknowledged after its resulting state patch", async () => {
@@ -143,6 +144,53 @@ test("cancel, close, expiry, owner replacement, and disconnected display fail cl
   assert.equal((await denied.create({ operation_id: "create", spec }, undefined, () => true, owner)).ok, false);
 });
 
+test("close racing an acknowledged update delivery cannot resurrect the view", async () => {
+  let release;
+  let manager;
+  let deliveries = 0;
+  const clears = [];
+  manager = new DynamicAppManager({
+    isDisplayAvailable: () => true,
+    createId: () => "opaque_dynamic_view_0001",
+    deliver: async () => {
+      deliveries++;
+      if (deliveries === 2) await new Promise((resolve) => { release = resolve; });
+      return { status: "acknowledged", frameId: deliveries };
+    },
+    clear: (identity) => clears.push(identity),
+    setTimer: () => 1,
+    clearTimer: () => {},
+  });
+  await manager.create({ operation_id: "create", spec }, undefined, () => true, owner);
+  const update = manager.update({ operation_id: "update", view_id: "opaque_dynamic_view_0001", expected_revision: 1, spec },
+    undefined, () => true, owner);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  manager.close({ operation_id: "close", view_id: "opaque_dynamic_view_0001", expected_revision: 1 }, owner);
+  release();
+  assert.equal((await update).ok, false);
+  assert.equal(manager.snapshot(), null);
+  assert.deepEqual(clears, [{ viewId: "opaque_dynamic_view_0001", revision: 2 }, { viewId: "opaque_dynamic_view_0001", revision: 1 }]);
+});
+
+test("scroll keeps the selected action visible and confirmation choices are distinct", async () => {
+  const { manager } = setup();
+  const longSpec = { ...spec, components: [
+    ...Array.from({ length: 8 }, (_, i) => ({ id: `row-${i}`, type: "status", label: `Row ${i}`, value: "ok" })),
+    { id: "confirm", type: "confirmation", text: "Turn everything off?", confirm_handle: "opaque_confirm_handle_0001", cancel_handle: "opaque_cancel_handle_0001" },
+  ] };
+  await manager.create({ operation_id: "create", spec: longSpec }, undefined, () => true, owner);
+  manager.handleInput("scroll-down", true);
+  assert.equal(manager.snapshot().scrollOffset, 8);
+  manager.handleInput("click", true);
+  let event = JSON.parse(manager.readEvents(owner, "opaque_dynamic_view_0001", 1, null).content).events[0];
+  assert.equal(event.action_handle, "opaque_cancel_handle_0001");
+  manager.ackEvents(owner, "opaque_dynamic_view_0001", 1, event.event_id);
+  manager.handleInput("scroll-up", true);
+  manager.handleInput("click", true);
+  event = JSON.parse(manager.readEvents(owner, "opaque_dynamic_view_0001", 1, null).content).events[0];
+  assert.equal(event.action_handle, "opaque_confirm_handle_0001");
+});
+
 test("operation IDs are payload-bound tombstones and historical results never claim a closed view is current", async () => {
   const { manager } = setup();
   const args = { operation_id: "create", spec };
@@ -169,6 +217,7 @@ test("system tools expose the complete lifecycle and shell delivery rejects time
   ]) assert.ok(tools.includes(`name: "${name}"`), name);
   assert.match(shell, /showDynamicApp\(/);
   assert.match(shell, /ShellDynamicAppLayer/);
+  assert.match(controller, /shell\.closeDynamicApp\(\)/);
   assert.match(controller, /const requireSent = Boolean\(isAllowed\)/);
   assert.match(controller, /if \(requireSent && \(!outcome \|\| outcome\.startsWith\("discarded:"\)\)\)/);
   assert.match(controller, /return \{ frameId, outcome \}/);
