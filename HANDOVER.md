@@ -67,6 +67,15 @@ or ReferenceError match. Screenshots, UI dumps, installed APK copy, and logs wer
 kept in `/tmp` and are not repository artifacts. No pairing, ownership,
 permission, firmware, provisioning, reset, wipe, or credential action was taken.
 
+PR [#53](https://github.com/not-benny/hermes-g2/pull/53) carries this design
+foundation from canonical `main`. Its first remote head was
+`fdd27a6a00fc7ba19b12343b250e2a93c58af18e`; the PR is open and mergeable.
+GitHub marked `release-gate`, `codeql-javascript`, `codeql-java`, and aggregate
+`codeql` failed before any step started. The check annotations state that recent
+account payments failed or the Actions spending limit must be increased. This is
+an external billing gate, not a source/test failure; rerun the exact checks after
+the account issue is corrected. No green-CI or merged claim is made.
+
 The audit remediation delivered from canonical `main` baseline
 `f37168cf007450cb2a58513b1f2624aee0b6d6af` adds permanent PR/main CI,
 CodeQL, Dependabot, SBOM/provenance and APK checks; Keystore AES-GCM credential
