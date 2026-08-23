@@ -13,6 +13,7 @@ async function loadTs(path) {
 
 const captions = await loadTs("app/captions/caption-session.ts");
 const settings = await loadTs("app/captions/caption-settings.ts");
+const accumulator = await loadTs("app/captions/transcript-accumulator.ts");
 const { CaptionSession, wrapCaptionText, bottomAnchoredLines } = captions;
 
 async function loadSonioxClient() {
@@ -233,6 +234,23 @@ test("Soniox token fixtures preserve repeated speaker labels, split translation 
   } finally {
     globalThis.com = previousCom;
   }
+});
+
+test("voice transcript accumulation preserves Soniox final deltas through stream finish", () => {
+  let state = { finalizedText: "", liveText: "hel" };
+  state = accumulator.applyTranscriptText(state, {
+    text: "",
+    isFinal: false,
+    sourceFinalDelta: "hello ",
+    sourceRevisionPresent: true,
+  });
+  assert.deepEqual(state, { finalizedText: "hello", liveText: "" });
+  state = accumulator.applyTranscriptText(state, {
+    text: "",
+    isFinal: true,
+    sourceRevisionPresent: false,
+  });
+  assert.deepEqual(state, { finalizedText: "hello", liveText: "" });
 });
 
 test("caption wrapping bounds long words without splitting grapheme clusters", () => {

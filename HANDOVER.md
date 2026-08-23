@@ -22,11 +22,11 @@ Keystore-backed replace-only settings and never enter glasses payloads or logs.
 See `docs/live-captions.md` and `PRIVACY`.
 
 Verification on the current source: focused caption/provider/phone/security
-tests pass 24/24; the full host suite passes 356/356; TypeScript passes; and the
+tests pass 25/25; the full host suite passes 357/357; TypeScript passes; and the
 JDK 21 / Android SDK 35 debug build and release-artifact verifier pass. The
-exact 195,740,384-byte debug APK at
+exact 195,740,952-byte debug APK at
 `platforms/android/app/build/outputs/apk/debug/app-debug.apk` has SHA-256
-`53a6578c0a5ac3f813db18af0f938d1b4e0bbc9d68f77234de7a508f5c2ed437`.
+`491e8f53cd24754aeeae4427ed6d8209dc3b3e1250549c64694d70ae2eda9979`.
 `adb devices -l` returned no attached device, so there is no A32 install/launch,
 scripted fixture, live microphone, optical readability, disconnect,
 background-stop or privacy-safe logcat evidence yet. No pairing, permission
@@ -45,6 +45,14 @@ changes with effective-provider disclosure, emits incremental final token
 deltas, measures matching-revision lag, falls back to current source, derives
 partial labels without mutating committed state, truncates fixed chrome, and
 adds executable mock-Soniox fixtures. Final re-review remains required.
+
+Later re-review also found and the current source closes failed Soniox
+end-of-audio retry, stale generation rollback in the lens layer, missing
+assistant-follow-up preemption, stale live translation after a newer source
+revision, and Soniox final-token loss in ordinary assistant/voice input. The
+last fix introduces one provider-neutral transcript accumulator shared by voice
+input and an executable final-delta/stream-finish regression. A final static
+pass over this exact source remains required before push.
 
 ## Gesture, HUD, R1 battery, and Hermes bridge follow-up
 
