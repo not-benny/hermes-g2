@@ -64,21 +64,54 @@ is in `notes/dynamic-glasses-app-threat-model-2026-08-22.md`.
 ## Current candidate verification
 
 Baseline for the candidate is exact `origin/main@712cb644d9dd017158a6359ea494ec2ab6beb9b1`.
-After a clean `npm ci` using the locked dependency graph:
+The final source head is `99756224d7ebc33ed1adba83c806029831177ccd`.
+Using the locked dependency graph, JDK 21 and Android SDK 35:
 
-- focused contextual-dashboard tests pass 15/15;
-- full host suite passes 359/359;
+- focused Fold7 layout tests pass 9/9;
+- full host suite passes 360/360;
 - TypeScript `tsc --noEmit` passes;
 - `git diff --check` passes;
 - added-line credential/private-key/bearer scan has zero matches; and
-- the JDK 21 / Android SDK 35 debug build passes.
+- the Android debug build passes.
 
-The resulting debug APK is 195,505,702 bytes with SHA-256
-`61ff6f7e90ad6d3483c16b7efd7fac4803b2532ea7b346745a886346991db8f9`.
-At verification time `adb devices -l` returned no attached device, so this exact
-APK was not installed or launched and there is no exact-candidate A32/G2 lens,
-latency, scroll, refresh, pin/reopen, contextual-voice, reconnect or optical
-evidence. Do not infer any of those from host tests or build success.
+The exact final debug APK is 195,506,503 bytes with SHA-256
+`cce8110d5d45915ffd596d2531fc1ba61ddfb7f6c0a4eae9aad5a1a13252cabc`.
+It upgrade-installed on the authorised Fold7; pulling the installed base APK
+reproduced the same digest. The process launched, both G2 arms reached
+`session ready`, and the independent direct R1 session reached MTU-247 with
+both notify channels active. No fatal marker appeared.
+
+The connected Fold7 cover layout rendered normally. A forced landscape run
+found that the wide synthetic-gesture grid omitted the existing compact
+`gesture-grid` style, wrapping labels mid-word. A focused regression was
+observed RED (1 vs 2 styled grids), the wide grid now uses the same bounded
+style, focused/full tests returned GREEN, and the rebuilt exact APK shows all
+six gesture labels on one readable line in landscape.
+
+A 60-second connected warm renderer run recorded 43 valid phone frames, one
+janky frame (2.326%), p90 15.547 ms and p99/max 19.547 ms, with 13 PSS samples
+and no GC lines. One distinct G2 frame reached final application ACK; its total
+latency was 819 ms, dominated by 771 ms waiting before 17 ms compression/plan,
+then 27 ms to final ACK. This closes the phone-jank percentile target but does
+not close the G2 radio/scheduling latency target.
+
+Non-destructive runtime checks also proved Fold7 cover rotation, inactive/idle
+Doze state, charging presentation, microphone capture reaching Deepgram's
+bounded no-speech state, and one synthetic digest moving aggregate queue count
+1 -> 0 without reading or persisting notification content. The original
+notification filter/app-tier settings were restored and the synthetic item was
+snoozed specifically.
+
+The deployment-local bridge at commit
+`0b3743cf00dcfdf7e180ed5d46ccb581694cf560` now returns a bounded configured
+`hello_profile`, default-denies every phone tool outside an exact global
+allowlist, distinguishes exact turn authority from explicit proactive calls,
+revalidates event/turn generation under the final websocket send lock, rejects
+malformed JSON-RPC IDs, and omits peer identifiers from logs. Its 29-test suite,
+compile check, static scan and final independent security review pass for the
+read-only contextual-dashboard scope. The live certificate-validated WSS/MCP
+path returned the V2 640x480/4-bit capability and correctly rejected
+`context_dashboard.begin` outside a conversation.
 
 The first frozen adversarial review correctly blocked profile/pin authorization,
 pending-delivery resurrection, stale-turn publication, shared-surface ownership,
@@ -90,9 +123,10 @@ pending close, crash replay, end-to-end deadline, station-timezone, focus/action
 operation-identity and cancellation races. Final frozen SHA
 `d4925fe319b46a849232fc60cccf68accf996890` received static PASS, including a
 successful adversarial cancellation-during-projection probe. PR/CI/remote
-read-back remain required. Operational authorization remains NO-GO because the
-deployment-local gateway/rail reader and exact-candidate A32/G2 evidence are
-absent.
+read-back remain required. The deployment-local bridge and exact Fold7/G2/R1
+candidate are now live, but useful-dashboard operational authorization remains
+NO-GO until an exact G2 turn exercises the deployment-local reader and the
+remaining wearer actions below.
 Public MCP/skill publication remains NO-GO.
 
 ## Safety and private data
@@ -108,9 +142,10 @@ Static review is not hardware or operational authorization.
 
 ## Remaining exact blockers and evidence gaps
 
-1. **Contextual dashboard:** attach the authorized A32/G2 and deploy the final
-   reviewed SHA through the authenticated `even-g2` bridge. Prove loading ACK
-   under one second, first useful or honest terminal state under five seconds,
+1. **Contextual dashboard:** the authenticated profile/tool boundary and live
+   capabilities call pass, including proactive denial of `begin`. Still prove
+   loading ACK under one second and useful/terminal state under five seconds in
+   an exact G2 conversation using the deployment-local rail reader, then exercise
    the Liverpool all-destination board, scroll/focus, local refresh, pin/reopen,
    contextual voice, double-click close, reconnect/process restart, and
    sentinel-clean host/phone/logcat/storage. Obtain wearer/optical evidence when
@@ -118,18 +153,18 @@ Static review is not hardware or operational authorization.
 2. **Public MCP/skill:** remains blocked until authenticated generic-client
    interoperability, credential/retry behavior, licensing and the real-G2 proof
    above pass. No public skill is part of this candidate.
-3. **Renderer performance:** the prior candidate proved all-message application
-   ACK semantics but measured a connected hardware floor around 371–374 ms; a
-   fixed-duration post-change percentile run was contaminated by another A32
-   installer. The below-10% jank / p99-under-50-ms target is not proven.
-4. **Fold7 preview:** install/process and two-arm session readiness passed, but
-   unlocked phone visuals, physical fold transitions, rotation, tabletop and
-   multi-window remain unproven; R1 HUD visibility was not observed in that run.
+3. **Renderer performance:** the clean fixed-duration Fold7 run proves the
+   below-10% phone-jank and p99-under-50-ms target. The only sent G2 frame still
+   took 819 ms, so the radio/scheduling latency target remains open.
+4. **Fold7 preview:** exact install/process, cover visuals, forced rotation,
+   landscape readability, two-arm readiness and direct R1 operation pass.
+   Physical unfold transitions, tabletop and true multi-window remain unproven.
 5. **Motion calibration:** source/build and bounded off-head/resting transport
    evidence pass, but exact-candidate worn/moving local calibration completion,
    heading quality and meaningful battery delta remain open.
-6. **Notification triage:** aggregate-only synthetic A32 listener transitions
-   passed; real-G2 digest rendering remains unverified.
+6. **Notification triage:** the exact Fold7 candidate queued one synthetic digest
+   and later drained aggregate queue count 1 -> 0 while the G2 session was live.
+   Wearer/optical confirmation of the digest remains unverified.
 7. **R1 sleep:** decoding remains fail-closed until a CRC-valid type-1
    stage-bearing frame and matching absolute time-base/ground truth exist.
 8. **Firmware and ownership:** G2 recovery assurance, R1 provisioning/ownership,

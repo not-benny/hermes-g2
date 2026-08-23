@@ -34,10 +34,11 @@ Current as of 22 August 2026. `main` is the canonical branch.
   outcome, first-finish wins across Java/TS, and multi-message frames complete
   only after every application ACK. Host tests pass 266/266, typecheck/build
   pass, and an installed USB A32 candidate received both ACKs for a real
-  two-message G2 image before reporting `sent`. A clean fixed-duration candidate
-  percentile remains open because another concurrent device installer replaced
-  the package during the run; do not claim the target from contaminated or
-  zero-frame samples. No firmware/texture-cache device command was added.
+  two-message G2 image before reporting `sent`. A later clean 60-second Fold7
+  run recorded 43 valid phone frames, 2.326% jank and p99/max 19.547 ms, closing
+  the phone-jank percentile target. Its only changed G2 frame still took 819 ms,
+  dominated by worker scheduling before compression, so end-to-end G2 latency
+  remains open. No firmware/texture-cache device command was added.
 
 ### Repository and release
 
@@ -57,16 +58,17 @@ Current as of 22 August 2026. `main` is the canonical branch.
   than closeable in quick-close mode and tap hides it; the launcher is labelled
   pinned.
 
-- **IMPLEMENTED / FOLD7 VISUAL AND POSTURE VALIDATION BLOCKED — foldable phone UI (22 August 2026).**
+- **PARTIAL — Fold7 cover/rotation validated; posture matrix open (23 August 2026).**
   Preview 2 removes the portrait lock, handles live cover/unfolded/rotation/
   tabletop/multi-window bounds, bounds wide content, preserves platform font
   scaling and 48dp controls, and retains the existing G2 compositor contract.
   Host fixture, build, APK, ABI, signing, and 16 KiB evidence are required for
   publication. The exact debug APK installed and ran as a live process on an
-  SM-F966B with Android 16. Both G2 arms later reached session ready and direct
-  R1 BLE connected, but no R1 HUD indicator was visible. Unlocked Hermes-phone
-  visual, physical fold-transition, rotation, tabletop, and multi-window proof
-  remains blocked.
+  SM-F966B with Android 16. The exact contextual-dashboard candidate later
+  passed unlocked cover visuals, forced landscape/rotation, two-arm session
+  readiness and direct R1 operation. That run found and fixed a wide-layout
+  gesture-label wrapping defect under focused RED/GREEN coverage. Physical
+  unfold transitions, tabletop and true multi-window proof remain blocked.
 
 - **DONE — full audit remediation and release path (21 August 2026).** The
   merged PR #28 implementation removes private-data logging, encrypts credential
@@ -183,7 +185,7 @@ Current as of 22 August 2026. `main` is the canonical branch.
 - **DONE — turn and connection binding.** External calls require a live
   connection and exact claimed originating turn, or an explicitly gated
   proactive call. Disconnect and cancellation retire owned work.
-- **PARTIAL / STATIC PASS — dedicated read-only contextual dashboards (23 August 2026).**
+- **PARTIAL / DEPLOYED BOUNDARY PASS — dedicated read-only contextual dashboards (23 August 2026).**
   The superseding V2 outcome is restricted to the dedicated `even-g2` profile.
   It opens an ACK-backed loading view before direct read-only gathering, streams
   bounded summary-first sections with typed source/freshness/uncertainty, and
@@ -192,17 +194,22 @@ Current as of 22 August 2026. `main` is the canonical branch.
   mutation or remote action handle is accepted. Up to five encrypted pins retain
   bounded intent and refresh policy but no responses or rendered values. The
   permanent Liverpool Lime Street projector renders all destinations ordered by
-  expected departure. The final 359-test/typecheck/Android-build matrix and
-  independent adversarial static review pass at `d4925fe`; PR/CI and the
-  deployment-local gateway/rail reader plus exact-candidate A32/G2 timing,
-  visual and input proof remain gates. See `docs/dynamic-glasses-apps.md`.
+  expected departure. The final 360-test/typecheck/Android-build matrix passes;
+  the exact APK is installed on Fold7 with live G2/R1 sessions. The deployment-
+  local bridge at `0b3743c` adds exact turn/proactive authorization, final-lock
+  generation checks, bounded profile claims, malformed-ID rejection, peer-safe
+  logs and a default-deny tool allowlist; 29 bridge tests and independent review
+  pass. Live WSS/MCP capabilities succeed and proactive `begin` is denied.
+  Exact-turn loading/useful latency, rail data, wearer controls and optical proof
+  remain gates. See `docs/dynamic-glasses-apps.md`.
 - **BLOCKED — public MCP/skill publication.** No public skill or untrusted remote
   rendering until authenticated `wss://` server identity, compatible licensed
   generic client, credential/retry/privacy gates, and real-G2 contextual-
   dashboard evidence all pass. Smart-home mutations are a later project.
-- **TODO — private end-to-end bridge validation.** Exercise wakeword → bridge →
-  agent → bounded tool → reply on a disposable private deployment, including
-  cancellation, reconnect, stale-turn rejection, and certificate failure.
+- **PARTIAL — private end-to-end bridge validation.** Certificate failure,
+  authenticated capabilities, reconnect, profile isolation, stale/proactive
+  rejection and exact phone/G2 transport pass. Exercise one exact G2 utterance
+  through loading → read-only gather → useful publish → wearer actions/reply.
 
 ## Firmware
 
