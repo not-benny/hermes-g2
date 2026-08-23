@@ -112,10 +112,18 @@ if (!validRequest(raw)) {
         if (sent.error || sent.status !== 0 || typeof sent.stdout !== "string") {
           output({ ok: false, code: "adb-failed" }, 4);
         } else {
-          const match = sent.stdout.match(/(?:^|\n)Broadcast completed: result=-?\d+, data=("(?:[^"\\]|\\.)*")\s*(?:\n|$)/);
+          const match = sent.stdout.match(/(?:^|\n)Broadcast completed: result=-?\d+, data=([^\r\n]*)\s*(?:\r?\n|$)/);
           let receipt;
           try {
-            const encoded = match ? JSON.parse(match[1]) : "";
+            const wire = match?.[1]?.trim() ?? "";
+            if (wire.length === 0 || wire.length > MAX_RECEIPT_CHARS + 2) throw new Error("invalid receipt");
+            let encoded;
+            try {
+              encoded = JSON.parse(wire);
+            } catch {
+              encoded = wire.startsWith('"') && wire.endsWith('"') ? wire.slice(1, -1) : "";
+            }
+            if (typeof encoded !== "string") encoded = wire;
             if (encoded.length === 0 || encoded.length > MAX_RECEIPT_CHARS) throw new Error("invalid receipt");
             receipt = JSON.parse(encoded);
             if (!receipt || typeof receipt !== "object" || Array.isArray(receipt) || typeof receipt.ok !== "boolean") throw new Error("invalid receipt");

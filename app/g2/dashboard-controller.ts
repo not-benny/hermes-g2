@@ -48,7 +48,9 @@ import {
   retireGlassesMotionSession,
 } from "../native/glasses-motion-service";
 import { effectiveCaptionProvider } from "../captions/caption-settings";
-import { registerDebugControl } from "../debug/control-runtime";
+
+declare const __HERMES_DEBUG_CONTROL__: boolean;
+declare function require(id: string): typeof import("../../debug-control/control-runtime");
 
 type ConnectionPhase = DashboardConnectionPhase;
 
@@ -342,7 +344,9 @@ class DashboardController {
     // connection stays up (with re-dial) so proactive tool calls work
     // outside voice turns.
     this.syncAssistantBridge();
-    registerDebugControl(this);
+    if (__HERMES_DEBUG_CONTROL__) {
+      require("../../debug-control/control-runtime").registerDebugControl(this);
+    }
   }
 
   /** A local shell flag is not device availability; require the live session. */

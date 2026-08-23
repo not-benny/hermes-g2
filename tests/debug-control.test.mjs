@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 
-const source = readFileSync(new URL("../app/debug/control-protocol.ts", import.meta.url), "utf8");
+const source = readFileSync(new URL("../debug-control/control-protocol.ts", import.meta.url), "utf8");
 const js = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
 }).outputText;
@@ -125,6 +125,23 @@ test("teardown clears replay and owned capture state through the dependency clea
   await harness.cleanup();
   assert.deepEqual(calls.at(-1), ["voiceStop"]);
   assert.equal(harness.replaySize(), 0);
+});
+
+test("failed teardown retains mutation tombstones while owned capture remains active", async () => {
+  const state = { online: true, screenOn: true, windowId: "launcher:main", processGeneration: "p-test", sessionGeneration: 7, windowGeneration: 3, captureGeneration: 1, voiceTest: true };
+  const harness = new DebugControlHarness({
+    state: () => ({ ...state }),
+    wake: async () => {}, blank: async () => {}, open: async () => {},
+    voiceStart: async () => {},
+    voiceStop: async () => { throw new Error("synthetic teardown failure"); },
+    fixture: async () => ({ endpoint: false, transcript: "empty" }),
+  });
+  const capture = { ...binding, captureGeneration: 1 };
+  assert.equal((await harness.dispatch(request("failed-stop", "voice.stop", {}, capture))).code, "failed");
+  await harness.cleanup();
+  assert.equal(state.voiceTest, true);
+  assert.equal(harness.replaySize(), 1);
+  assert.equal((await harness.dispatch(request("failed-stop", "voice.stop", {}, capture))).code, "replay");
 });
 
 test("concurrent commands are serialized so generation changes make queued work stale", async () => {

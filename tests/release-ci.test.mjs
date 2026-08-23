@@ -74,8 +74,15 @@ test("untrusted pull requests cannot publish an APK as release evidence", () => 
   assert.match(release, /name: Upload protected release evidence[\s\S]*hermes-g2-release\.apk/);
   assert.doesNotMatch(signingJob, /app-debug\.apk/);
   assert.match(signingJob, /verify_release_surface/);
+  assert.match(signingJob, /verify_unsigned_container/);
+  assert.match(signingJob, /pre-central-directory signing material/);
+  assert.match(signingJob, /META-INF\/MANIFEST\.MF/);
+  assert.match(signingJob, /--debuggable-apk-permitted false/);
   assert.match(signingJob, /FaceclawDebugControlReceiver/);
   assert.match(signingJob, /DEBUG_CONTROL_V1/);
+  assert.match(signingJob, /HERMES_DEBUG_CONTROL_RUNTIME_V1/);
+  assert.match(signingJob, /voice\.fixture/);
+  assert.match(signingJob, /capture-offline/);
 
   const verifier = read("scripts/verify-release-artifacts.sh");
   assert.match(verifier, /HERMES_SIGNING_MODE/);
@@ -84,6 +91,10 @@ test("untrusted pull requests cannot publish an APK as release evidence", () => 
   assert.match(verifier, /HERMES_ARTIFACT_VARIANT/);
   assert.match(verifier, /FaceclawDebugControlReceiver/);
   assert.match(verifier, /DEBUG_CONTROL_V1/);
+  assert.match(verifier, /HERMES_DEBUG_CONTROL_RUNTIME_V1/);
+  assert.match(verifier, /DebugControlHarness/);
+  assert.match(verifier, /pre-central-directory signing material/);
+  assert.match(verifier, /META-INF\/MANIFEST\.MF/);
   assert.match(verifier, /must not use the protected signing certificate/);
 });
 

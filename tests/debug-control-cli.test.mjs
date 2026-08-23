@@ -7,11 +7,13 @@ import test from "node:test";
 
 const script = new URL("../scripts/hermes-g2-debug-control.mjs", import.meta.url);
 
-function fakeAdb(devices, receipt = { ok: true, command: "state", state: { online: true } }) {
+function fakeAdb(devices, receipt = { ok: true, command: "state", state: { online: true } }, options = {}) {
   const dir = mkdtempSync(join(tmpdir(), "g2-adb-test-"));
   const log = join(dir, "argv.jsonl");
   const adb = join(dir, "adb");
-  writeFileSync(adb, `#!/usr/bin/env node\nimport { appendFileSync } from "node:fs";\nconst args=process.argv.slice(2); appendFileSync(${JSON.stringify(log)}, JSON.stringify(args)+"\\n");\nif(args[0]==="devices") process.stdout.write(${JSON.stringify(`List of devices attached\n${devices}\n`)});\nelse process.stdout.write(${JSON.stringify(`Broadcasting: Intent { act=com.faceclaw.app.DEBUG_CONTROL_V1 }\nBroadcast completed: result=0, data=${JSON.stringify(JSON.stringify(receipt))}\n`)});\n`);
+  const receiptJson = JSON.stringify(receipt);
+  const wireReceipt = options.rawAndroidData ? `"${receiptJson}"` : JSON.stringify(receiptJson);
+  writeFileSync(adb, `#!/usr/bin/env node\nimport { appendFileSync } from "node:fs";\nconst args=process.argv.slice(2); appendFileSync(${JSON.stringify(log)}, JSON.stringify(args)+"\\n");\nif(args[0]==="devices") process.stdout.write(${JSON.stringify(`List of devices attached\n${devices}\n`)});\nelse process.stdout.write(${JSON.stringify(`Broadcasting: Intent { act=com.faceclaw.app.DEBUG_CONTROL_V1 }\nBroadcast completed: result=0, data=${wireReceipt}\n`)});\n`);
   chmodSync(adb, 0o755);
   return { adb, log };
 }
@@ -46,6 +48,15 @@ test("wireless serial override targets only that exact online device", () => {
   assert.equal(result.status, 0, result.stdout);
   const calls = readFileSync(fake.log, "utf8").trim().split("\n").map(JSON.parse);
   assert.equal(calls[1][1], "192.0.2.10:37123");
+});
+
+test("CLI parses the raw quoted JSON format emitted by Android am broadcast", () => {
+  const receipt = { ok: false, code: "offline" };
+  const fake = fakeAdb("USB123\tdevice", receipt, { rawAndroidData: true });
+  const result = run(query, { adb: fake.adb });
+  assert.equal(result.status, 5);
+  assert.deepEqual(JSON.parse(result.stdout), receipt);
+  assert.equal(result.stderr, "");
 });
 
 test("malformed input, ambiguous targets, stale/offline receipts, and adb failure fail closed", () => {

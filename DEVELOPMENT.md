@@ -130,7 +130,7 @@ debug APK, and repeats the manifest, debuggable, and DEX surface checks both
 before and after signing without checking out repository code beside secrets.
 
 TDD evidence for this feature: the protocol/source-set tests were first recorded
-RED with missing `app/debug/control-protocol.ts`; the CLI suite was recorded RED
+RED with the debug-control protocol module missing; the CLI suite was recorded RED
 with `MODULE_NOT_FOUND` for `scripts/hermes-g2-debug-control.mjs`; and the
 concurrency regression was recorded RED when a queued old-generation command
 executed instead of returning `stale`. The implementation then produced GREEN

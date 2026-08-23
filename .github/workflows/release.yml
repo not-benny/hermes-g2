@@ -117,12 +117,53 @@ jobs:
             printf 'Pinned Android artifact tools are unavailable.\n' >&2
             exit 1
           fi
-          if "$APKSIGNER" verify "$input" >/dev/null 2>&1; then
-            printf 'Signing input must be the verified unsigned release artifact.\n' >&2
-            exit 1
-          fi
+          verify_unsigned_container() {
+            local candidate=$1
+            python3 - "$candidate" <<'PY'
+          import struct, sys, zipfile
+          path = sys.argv[1]
+          with zipfile.ZipFile(path) as archive:
+              entries = archive.infolist()
+              for name in archive.namelist():
+                  upper = name.upper()
+                  if upper.startswith("META-INF/") and (
+                      upper == "META-INF/MANIFEST.MF" or upper.endswith((".SF", ".RSA", ".DSA", ".EC"))
+                  ):
+                      raise SystemExit("Signing input contains a v1 signature entry")
+          with open(path, "rb") as source:
+              source.seek(0, 2)
+              size = source.tell()
+              start = max(0, size - 65557)
+              source.seek(start)
+              tail = source.read()
+              index = tail.rfind(b"PK\x05\x06")
+              if index < 0 or index + 20 > len(tail):
+                  raise SystemExit("Signing input has no APK end-of-central-directory record")
+              central_offset = struct.unpack_from("<I", tail, index + 16)[0]
+              if not entries:
+                  raise SystemExit("Signing input is empty")
+              last = max(entries, key=lambda entry: entry.header_offset)
+              source.seek(last.header_offset)
+              header = source.read(30)
+              if len(header) != 30 or header[:4] != b"PK\x03\x04":
+                  raise SystemExit("Signing input has an invalid local header")
+              name_length, extra_length = struct.unpack_from("<HH", header, 26)
+              data_end = last.header_offset + 30 + name_length + extra_length + last.compress_size
+              if last.flag_bits & 0x08:
+                  source.seek(data_end)
+                  descriptor_signature = source.read(4)
+                  zip64 = last.compress_size > 0xFFFFFFFF or last.file_size > 0xFFFFFFFF
+                  data_end += (24 if zip64 else 16) if descriptor_signature == b"PK\x07\x08" else (20 if zip64 else 12)
+              if data_end != central_offset:
+                  raise SystemExit("Signing input has pre-central-directory signing material")
+          PY
+            if "$APKSIGNER" verify "$candidate" >/dev/null 2>&1; then
+              printf 'Signing input must be the verified unsigned release artifact.\n' >&2
+              return 1
+            fi
+          }
           verify_release_surface() {
-            local candidate=$1 manifest
+            local candidate=$1 manifest badging
             manifest=$($AAPT dump xmltree "$candidate" AndroidManifest.xml)
             for marker in FaceclawDebugControlReceiver com.faceclaw.app.DEBUG_CONTROL_V1 android.permission.DUMP; do
               if [[ "$manifest" == *"$marker"* ]]; then
@@ -130,21 +171,28 @@ jobs:
                 return 1
               fi
             done
-            if $AAPT dump badging "$candidate" | grep -F 'application-debuggable' >/dev/null; then
+            badging=$($AAPT dump badging "$candidate")
+            if [[ "$badging" == *"application-debuggable"* ]]; then
               printf 'Release artifact is debuggable.\n' >&2
               return 1
             fi
             python3 - "$candidate" <<'PY'
           import sys, zipfile
-          blocked = (b"FaceclawDebugControlReceiver", b"com.faceclaw.app.DEBUG_CONTROL_V1")
+          blocked_dex = (b"FaceclawDebugControlReceiver", b"com.faceclaw.app.DEBUG_CONTROL_V1")
+          blocked_js = (b"HERMES_DEBUG_CONTROL_RUNTIME_V1", b"voice.fixture", b"capture-offline", b"DebugControlHarness")
           with zipfile.ZipFile(sys.argv[1]) as archive:
               for name in archive.namelist():
                   if name.startswith("classes") and name.endswith(".dex"):
                       data = archive.read(name)
-                      if any(marker in data for marker in blocked):
+                      if any(marker in data for marker in blocked_dex):
                           raise SystemExit("Release artifact contains debug-only code surface")
+                  if name.startswith("assets/app/") and name.endswith(".mjs"):
+                      data = archive.read(name)
+                      if any(marker in data for marker in blocked_js):
+                          raise SystemExit("Release artifact contains debug-control JavaScript")
           PY
           }
+          verify_unsigned_container "$input"
           verify_release_surface "$input"
           cp "$input" "$apk"
           umask 077
@@ -156,7 +204,7 @@ jobs:
             exit 1
           fi
           mv "$partial" "$keystore"
-          "$APKSIGNER" sign --ks "$keystore" --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD "$apk"
+          "$APKSIGNER" sign --debuggable-apk-permitted false --ks "$keystore" --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD "$apk"
           "$APKSIGNER" verify --verbose "$apk" >/dev/null
           verify_release_surface "$apk"
           expected=f64ccdb8d462b42c6d143cb1323350b052acebc0a5023e14d05fea86ef7766d4

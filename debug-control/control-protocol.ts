@@ -1,3 +1,5 @@
+// Kept outside app/ so NativeScript's recursive production context cannot
+// package the ADB-only protocol module.
 export type DebugControlState = {
   online: boolean;
   screenOn: boolean;
@@ -76,6 +78,7 @@ export class DebugControlHarness {
     if (this.deps.state().voiceTest) {
       try { await this.deps.voiceStop(); } catch { /* fail closed during teardown */ }
     }
+    if (this.deps.state().voiceTest) return;
     this.mutationSeen.clear();
     this.querySeen.clear();
     this.querySeenOrder.length = 0;

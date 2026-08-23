@@ -23,27 +23,35 @@ test("ADB control receiver is confined to the debug source set and protected by 
   assert.match(gradle, /signingConfig null/);
   assert.match(gradle, /requestedTasks != \["assembleRelease"\]/);
   assert.equal(packageJson.scripts["verify:release-unsigned"],
-    "npx --no-install ns prepare android && cd platforms/android && ./gradlew clean && ./gradlew assembleRelease -Prelease -PhermesUnsignedReleaseVerification=true");
+    "npx --no-install ns prepare android --env.production && cd platforms/android && ./gradlew clean && ./gradlew assembleRelease -Prelease -PhermesUnsignedReleaseVerification=true");
   assert.match(receiver, /extras\.keySet\(\).*size\(\) != 1|keySet\(\)\.size\(\) != 1/);
   assert.doesNotMatch(receiver, /startActivity|startService|Runtime\.getRuntime|ProcessBuilder|File|Uri/);
   assert.equal(existsSync(new URL("../App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawDebugControlReceiver.java", import.meta.url)), false);
 });
 
 test("debug runtime exposes only the versioned JSON envelope and bounded content-free receipts", () => {
-  const runtime = read("app/debug/control-runtime.ts");
-  const protocol = read("app/debug/control-protocol.ts");
+  const runtime = read("debug-control/control-runtime.ts");
+  const protocol = read("debug-control/control-protocol.ts");
   const dashboard = read("app/g2/dashboard-controller.ts");
   assert.match(runtime, /debugReceiver\(\)/);
   assert.match(runtime, /receiver\.register/);
   assert.doesNotMatch(runtime, /FaceclawDebugControlReceiver/);
   assert.match(runtime, /BuildConfig\.DEBUG/);
   assert.match(runtime, /JSON\.stringify/);
+  assert.match(runtime, /HERMES_DEBUG_CONTROL_RUNTIME_V1/);
+  assert.match(runtime, /const owned = fixtureController;[\s\S]*fixtureController = null;[\s\S]*voiceTest = false;[\s\S]*owned\.stopDebugFixtureTest/);
   assert.doesNotMatch(runtime, /console\.|transcriptText|audioPath|credential|token/);
   assert.doesNotMatch(protocol, /intent|shell|https?:|file:|password|secret/i);
   assert.doesNotMatch(protocol, /input\.inject|wakeword|long-press/);
   assert.doesNotMatch(runtime, /injectSyntheticRingInput/);
   assert.match(protocol, /MAX_MUTATION_REPLAY_IDS/);
+  assert.match(dashboard, /__HERMES_DEBUG_CONTROL__[\s\S]*require\("\.\.\/\.\.\/debug-control\/control-runtime"\)/);
   assert.match(dashboard, /launchDebugAllowlistedApp[\s\S]*ALL_APPS\.some/);
+  const webpack = read("webpack.config.js");
+  assert.match(webpack, /DefinePlugin/);
+  assert.match(webpack, /IgnorePlugin/);
+  assert.match(webpack, /__HERMES_DEBUG_CONTROL__/);
+  assert.match(webpack, /env\?\.production/);
 });
 
 test("procedural fixtures enter the same endpoint detector and Moonshine recognizer path", () => {
@@ -60,7 +68,7 @@ test("procedural fixtures enter the same endpoint detector and Moonshine recogni
 });
 
 test("lifecycle transitions unregister the endpoint and clean up owned fixture capture", () => {
-  const runtime = read("app/debug/control-runtime.ts");
+  const runtime = read("debug-control/control-runtime.ts");
   assert.match(runtime, /Application\.exitEvent/);
   assert.match(runtime, /harness\?\.cleanup\(\)/);
   assert.match(runtime, /receiver\.unregister/);

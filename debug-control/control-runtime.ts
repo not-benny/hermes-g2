@@ -1,7 +1,10 @@
 import { Application, Utils } from "@nativescript/core";
-import type { DashboardSnapshot } from "../g2/dashboard-controller";
-import { shell } from "../ui/shell/shell";
+import type { DashboardSnapshot } from "../app/g2/dashboard-controller";
+import { shell } from "../app/ui/shell/shell";
 import { DebugControlHarness, type DebugFixtureResult } from "./control-protocol";
+
+const DEBUG_CONTROL_BUNDLE_MARKER = "HERMES_DEBUG_CONTROL_RUNTIME_V1";
+void DEBUG_CONTROL_BUNDLE_MARKER;
 
 declare const com: any;
 declare const android: any;
@@ -45,10 +48,11 @@ export function registerDebugControl(controller: Controller): void {
   };
 
   const stopFixture = async (): Promise<void> => {
-    if (fixtureController) fixtureController.stopDebugFixtureTest();
+    const owned = fixtureController;
     fixtureController = null;
     if (voiceTest) captureGeneration++;
     voiceTest = false;
+    if (owned) owned.stopDebugFixtureTest();
   };
 
   harness = new DebugControlHarness({
