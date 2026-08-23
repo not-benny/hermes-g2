@@ -310,19 +310,20 @@ test("capture permission requests and provider callbacks are generation bound", 
   const bridge = readFileSync(new URL("../app/native/voice-control.ts", import.meta.url), "utf8");
   const soniox = readFileSync(new URL("../app/native/soniox-stt.ts", import.meta.url), "utf8");
   const shell = readFileSync(new URL("../app/ui/shell/shell.ts", import.meta.url), "utf8");
-  assert.match(controller, /voiceCaptureRequestEpoch/);
-  assert.match(controller, /requestEpoch !== this\.voiceCaptureRequestEpoch\[kind\]/);
+  assert.match(controller, /reserveContinuousCapture\(\)/);
+  assert.match(controller, /startContinuousCapture\(generation, options\)/);
+  assert.match(controller, /failCaptureRequest\(generation/);
   assert.doesNotMatch(controller, /restartContinuousCaptureAfterSettingsChange\(\): void \{[\s\S]*this\.stopContinuousVoiceCapture\(\);[\s\S]*this\.startContinuousVoiceCapture\(\);/);
   assert.match(controller, /Caption settings will apply to the next capture session/);
-  assert.match(bridge, /generation !== this\.activeGeneration/);
+  assert.match(bridge, /private readonly turnGate = new VoiceTurnGate\(\)/);
   const transcribe = readFileSync(new URL("../app/apps/transcribe/transcribe.ts", import.meta.url), "utf8");
   assert.match(transcribe, /private captureGeneration: number \| null = null/);
   assert.match(transcribe, /event\.generation !== this\.captureGeneration/);
   assert.match(transcribe, /state\.generation !== this\.captureGeneration/);
   assert.doesNotMatch(transcribe, /event\.generation > currentGeneration/);
-  assert.match(bridge, /startContinuousCapture\(options: PushToTalkOptions\): number \| null/);
-  assert.match(bridge, /this\.cloudClient !== exactClient/);
-  assert.match(bridge, /Voice capture busy; stop the active capture first/);
+  assert.match(bridge, /startContinuousCapture\(generation: number, options: PushToTalkOptions\)/);
+  assert.match(bridge, /capture\.cloudClient !== exactClient/);
+  assert.match(bridge, /reserveContinuousCapture\(\): number/);
   assert.doesNotMatch(bridge, /still finish a dangling cloud commit/);
   assert.match(soniox, /translation_status === "translation"/);
   assert.match(soniox, /enable_speaker_diarization/);
@@ -332,4 +333,9 @@ test("capture permission requests and provider callbacks are generation bound", 
     assert.match(source, /MAX_PENDING_PCM_CHUNKS/);
     assert.match(source, /pending(?:Pcm|Chunks)\.length = 0/);
   }
+  const elevenLabs = readFileSync(new URL("../app/native/elevenlabs-stt.ts", import.meta.url), "utf8");
+  const openAi = readFileSync(new URL("../app/native/openai-stt.ts", import.meta.url), "utf8");
+  assert.match(elevenLabs, /private finalDelivered = false/);
+  assert.match(elevenLabs, /if \(this\.closed \|\| this\.finalDelivered\) return/);
+  assert.match(openAi, /private handleMessage\(text: string\): void \{\s*if \(this\.closed\) return/);
 });

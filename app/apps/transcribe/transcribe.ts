@@ -25,8 +25,8 @@ import { Layer, type DashboardInputEvent, type LayerContext } from "../../ui/lay
 import { truncateText } from "../../graphics/textwrap";
 
 export type TranscribeLayerOptions = {
-  startCapture: () => Promise<number | null>;
-  stopCapture: () => void;
+  startCapture: () => number;
+  stopCapture: (generation: number) => void;
 };
 
 /**
@@ -42,7 +42,7 @@ export class TranscribeLayer implements Layer {
   private voiceInputActive = false;
   private captureRequested = false;
   private captureGeneration: number | null = null;
-  private captureRequestId = 0;
+
   private historyOffset = 0;
   private status = "[STOPPED]";
   private requestRender: () => void = () => {};
@@ -183,19 +183,16 @@ export class TranscribeLayer implements Layer {
       this.captureRequested = true;
       this.captureGeneration = null;
       this.status = "[STARTING]";
-      const requestId = ++this.captureRequestId;
-      void this.options.startCapture().then((generation) => {
-        if (requestId !== this.captureRequestId || !this.captureRequested) return;
-        if (generation === null) {
-          this.captureRequested = false;
-          this.status = "[MIC ERROR] Capture unavailable";
-          this.requestRender();
-          return;
-        }
-        this.captureGeneration = generation;
-        this.captions.begin(generation, Date.now());
+      const generation = this.options.startCapture();
+      if (generation <= 0) {
+        this.captureRequested = false;
+        this.status = "[MIC ERROR] Capture unavailable";
         this.requestRender();
-      });
+        return;
+      }
+      this.captureGeneration = generation;
+      this.captions.begin(generation, Date.now());
+      this.requestRender();
     } else if (!shouldCapture && this.captureRequested) {
       this.stopCapture();
     }
@@ -204,11 +201,10 @@ export class TranscribeLayer implements Layer {
   private stopCapture(): void {
     if (!this.captureRequested) return;
     const generation = this.captureGeneration;
-    this.captureRequestId++;
     this.captureRequested = false;
     this.captureGeneration = null;
-    this.options.stopCapture();
-    if (generation !== null) {
+    if (generation !== null && generation > 0) {
+      this.options.stopCapture(generation);
       if (this.userPaused) this.captions.pause(generation);
       else this.captions.stop(generation);
     }

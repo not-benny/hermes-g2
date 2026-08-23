@@ -264,9 +264,9 @@ class DashboardController {
       startTextSettingEdit: (setting: ConfigSettingString) => this.startTextSettingEdit(setting),
       endTextSettingEdit: () => this.endTextSettingEdit(),
       startVoiceCapture: (endpointing?: boolean) => this.startVoiceCapture(endpointing),
-      stopVoiceCapture: () => this.stopVoiceCapture(),
+      stopVoiceCapture: (generation: number, commit: boolean) => this.stopVoiceCapture(generation, commit),
       startContinuousVoiceCapture: () => this.startContinuousVoiceCapture(),
-      stopContinuousVoiceCapture: () => this.stopContinuousVoiceCapture(),
+      stopContinuousVoiceCapture: (generation: number) => this.stopContinuousVoiceCapture(generation),
       playBuzzerSequence: (payload: Uint8Array) => this.playBuzzerSequence(payload),
     };
     this.sharedActions = sharedActions;
@@ -1095,6 +1095,7 @@ class DashboardController {
           this.pushBrightness(true);
         }
         if (mappedPhase !== "connected") {
+          voiceControlBridge.failActiveCapture("Glasses disconnected; voice capture stopped.");
           if (this.phase === "connected") retireGlassesMotionSession(communicator);
           this.motionSessionNeedsWarmReassert = false;
           // A wear snapshot is session-scoped. CFW reports a fresh value when
@@ -1387,6 +1388,9 @@ class DashboardController {
     ++this.connectAttemptGeneration;
     this.clearEvenAppReleasePoll();
     if (this.phase === "disconnected") return;
+    // Revoke microphone/provider authority before any awaited UX or transport
+    // teardown work so explicit disconnect cannot keep recording in the gap.
+    voiceControlBridge.failActiveCapture("Glasses disconnected; voice capture stopped.");
 
     // Beep while the transport is still up (phase is still "connected" here);
     // await it so the queued frame flushes before teardown. ~300ms on a manual
@@ -1527,38 +1531,41 @@ class DashboardController {
    * push-to-talk and the Transcribe app. Android mic permission is the consent
    * gate even though the audio source is the G2 mic over BLE.
    */
-  private startVoiceCapture(endpointing = false): void {
-    void this.beginVoiceCapture("ptt", endpointing);
+  private startVoiceCapture(endpointing = false): number {
+    if (this.phase !== "connected" || !this.communicator) return 0;
+    const generation = voiceControlBridge.reservePushToTalk();
+    if (generation > 0) this.beginVoiceCapture("ptt", endpointing, generation);
+    return generation;
   }
 
-  private stopVoiceCapture(): void {
-    this.voiceCaptureRequestEpoch.ptt++;
-    voiceControlBridge.stopPushToTalk();
+  private stopVoiceCapture(generation: number, commit: boolean): void {
+    if (commit) voiceControlBridge.finishPushToTalk(generation);
+    else voiceControlBridge.cancelPushToTalk(generation);
   }
 
-  private startContinuousVoiceCapture(): Promise<number | null> {
-    return this.beginVoiceCapture("continuous");
+  private startContinuousVoiceCapture(): number {
+    if (this.phase !== "connected" || !this.communicator) return 0;
+    const generation = voiceControlBridge.reserveContinuousCapture();
+    if (generation > 0) this.beginVoiceCapture("continuous", false, generation);
+    return generation;
   }
 
-  private stopContinuousVoiceCapture(): void {
-    this.voiceCaptureRequestEpoch.continuous++;
-    voiceControlBridge.stopContinuousCapture();
+  private stopContinuousVoiceCapture(generation: number): void {
+    voiceControlBridge.stopContinuousCapture(generation);
   }
 
-  private async beginVoiceCapture(kind: "ptt" | "continuous", endpointing = false): Promise<number | null> {
-    const requestEpoch = ++this.voiceCaptureRequestEpoch[kind];
+  private beginVoiceCapture(kind: "ptt" | "continuous", endpointing = false, generation = 0): void {
     if (this.phase !== "connected" || !this.communicator) {
-      voiceControlBridge.reportStatus("Captions unavailable: glasses disconnected.");
-      return null;
+      voiceControlBridge.failCaptureRequest(generation, "Glasses disconnected before voice capture started.");
+      return;
     }
     const communicator = this.communicator;
-    try {
-      await ensureVoicePermissions();
-        if (
-          requestEpoch !== this.voiceCaptureRequestEpoch[kind] ||
-          this.phase !== "connected" ||
-          this.communicator !== communicator
-        ) return null;
+    void ensureVoicePermissions()
+      .then(() => {
+        if (this.phase !== "connected" || this.communicator !== communicator) {
+          voiceControlBridge.failCaptureRequest(generation, "Glasses disconnected before voice capture started.");
+          return;
+        }
         const targetLanguage = captionTargetLanguageSetting.get();
         const provider = effectiveCaptionProvider(voiceProviderSetting.get(), {
           deepgram: deepgramApiKeySetting.get().trim().length > 0,
@@ -1580,17 +1587,15 @@ class DashboardController {
           endpointing,
         };
         if (kind === "ptt") {
-          voiceControlBridge.startPushToTalk(options);
-          return null;
+          voiceControlBridge.startPushToTalk(generation, options);
         } else {
-          return voiceControlBridge.startContinuousCapture(options);
+          voiceControlBridge.startContinuousCapture(generation, options);
         }
-    } catch (error) {
-        if (requestEpoch !== this.voiceCaptureRequestEpoch[kind]) return null;
+      })
+      .catch((error) => {
+        voiceControlBridge.failCaptureRequest(generation, "Microphone permission was not granted.");
         this.appendLog(`voice permission failed: ${this.formatError(error)}`);
-        voiceControlBridge.reportStatus("Microphone permission unavailable.");
-        return null;
-    }
+      });
   }
 
   private restartContinuousCaptureAfterSettingsChange(): void {

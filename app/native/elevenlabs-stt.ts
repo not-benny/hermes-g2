@@ -41,20 +41,26 @@ export class ElevenLabsSttClient {
   private readonly pendingChunks: string[] = [];
   private droppedAudioFrames = 0;
   private latestText = "";
+  private finalDelivered = false;
 
   constructor(private readonly options: ElevenLabsSttOptions) {}
 
   start(): void {
     if (this.ws) return;
     const url = `${WS_URL}?model_id=${MODEL_ID}&audio_format=pcm_${SAMPLE_RATE}&commit_strategy=manual`;
+    let exactSocket: any = null;
     this.listenerProxy = new com.faceclaw.app.FaceclawWebSocketListener({
       onOpen: () => {
+        if (this.closed || this.ws !== exactSocket) return;
         this.open = true;
         for (const chunk of this.pendingChunks.splice(0)) {
           this.sendChunk(chunk);
         }
       },
-      onTextMessage: (message: string) => this.handleMessage(String(message)),
+      onTextMessage: (message: string) => {
+        if (this.closed || this.ws !== exactSocket) return;
+        this.handleMessage(String(message));
+      },
       onClosed: () => {
         this.open = false;
       },
@@ -67,7 +73,8 @@ export class ElevenLabsSttClient {
       // The API key rides an xi-api-key header, added by FaceclawWebSocket.
       const key = this.options.apiKey;
       console.log("[elevenlabs] connecting with authentication configured");
-      this.ws = new com.faceclaw.app.FaceclawWebSocket(url, this.listenerProxy, "xi-api-key", key);
+      exactSocket = new com.faceclaw.app.FaceclawWebSocket(url, this.listenerProxy, "xi-api-key", key);
+      this.ws = exactSocket;
       this.options.onStatus("Connecting to ElevenLabs...");
     } catch (error) {
       this.options.onError(`ElevenLabs connection failed: ${String((error as Error)?.message ?? error)}`);
@@ -147,6 +154,7 @@ export class ElevenLabsSttClient {
   }
 
   private handleMessage(text: string): void {
+    if (this.closed) return;
     let message: any;
     try {
       message = JSON.parse(text);
@@ -158,13 +166,17 @@ export class ElevenLabsSttClient {
         this.options.onStatus("Listening (ElevenLabs)...");
         return;
       case "partial_transcript":
+        if (this.finalDelivered) return;
         this.latestText = String(message.text ?? "");
         this.options.onTranscript({ text: this.latestText, isFinal: false, droppedAudioFrames: this.droppedAudioFrames });
         return;
       case "committed_transcript":
       case "committed_transcript_with_timestamps":
+        if (this.closed || this.finalDelivered) return;
+        this.finalDelivered = true;
         this.latestText = String(message.text ?? this.latestText);
         this.options.onTranscript({ text: this.latestText, isFinal: true, droppedAudioFrames: this.droppedAudioFrames });
+        this.stop();
         return;
       case "error":
       case "auth_error":

@@ -39,15 +39,20 @@ export class OpenAiRealtimeSttClient implements CloudSttClient {
 
   start(): void {
     if (this.ws) return;
+    let exactSocket: any = null;
     this.listenerProxy = new com.faceclaw.app.FaceclawWebSocketListener({
       onOpen: () => {
+        if (this.closed || this.ws !== exactSocket) return;
         this.open = true;
         this.trySend(JSON.stringify(sessionConfig()));
         for (const chunk of this.pendingChunks.splice(0)) {
           this.sendChunk(chunk);
         }
       },
-      onTextMessage: (message: string) => this.handleMessage(String(message)),
+      onTextMessage: (message: string) => {
+        if (this.closed || this.ws !== exactSocket) return;
+        this.handleMessage(String(message));
+      },
       onClosed: () => {
         this.open = false;
       },
@@ -57,12 +62,13 @@ export class OpenAiRealtimeSttClient implements CloudSttClient {
       },
     });
     try {
-      this.ws = new com.faceclaw.app.FaceclawWebSocket(
+      exactSocket = new com.faceclaw.app.FaceclawWebSocket(
         WS_URL,
         this.listenerProxy,
         "Authorization",
         `Bearer ${this.options.apiKey}`,
       );
+      this.ws = exactSocket;
       this.options.onStatus("Connecting to OpenAI...");
     } catch (error) {
       this.options.onError(`OpenAI connection failed: ${String((error as Error)?.message ?? error)}`);
@@ -132,6 +138,7 @@ export class OpenAiRealtimeSttClient implements CloudSttClient {
   }
 
   private handleMessage(text: string): void {
+    if (this.closed) return;
     let message: any;
     try {
       message = JSON.parse(text);

@@ -37,24 +37,23 @@ const MIC_ICON = imageFromAsciiArt(
 
 export type TranscribeAppOptions = InProcessAppOptions & {
   /** Begin continuous mic capture (kept on while the window is open). */
-  startContinuousVoiceCapture: () => Promise<number | null>;
-  stopContinuousVoiceCapture: () => void;
+  startContinuousVoiceCapture: () => number;
+  stopContinuousVoiceCapture: (generation: number) => void;
 };
 
 /**
  * The Transcribe app: live speech-to-text in its own window. While open it
- * holds continuous mic capture (so push-to-talk can share the stream) and
+ * owns an isolated continuous mic generation and
  * shows a microphone tray icon in the top bar.
  */
 export function createTranscribeAppWindow(options: TranscribeAppOptions): InProcessWindow {
-  const startCapture = async () => {
-    const generation = await options.startContinuousVoiceCapture();
-    if (generation === null) return null;
-    shell.setTrayIcon(TRAY_ICON_ID, MIC_ICON);
+  const startCapture = () => {
+    const generation = options.startContinuousVoiceCapture();
+    if (generation > 0) shell.setTrayIcon(TRAY_ICON_ID, MIC_ICON);
     return generation;
   };
-  const stopCapture = () => {
-    options.stopContinuousVoiceCapture();
+  const stopCapture = (generation: number) => {
+    options.stopContinuousVoiceCapture(generation);
     shell.setTrayIcon(TRAY_ICON_ID, null);
   };
   const layer = new TranscribeLayer({ startCapture, stopCapture });
