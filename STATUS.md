@@ -11,10 +11,12 @@ descriptions, and notes are not alternative roadmaps.
 ## Product decision
 
 Hermes G2 is an **owner-only internal preview** for one authorised setup: an
-Android Fold7, an already-provisioned Even Realities G2, an optional paired R1,
-and one authenticated private Hermes gateway. Its job is to provide a dependable
-voice-first Hermes loop on the glasses, with truthful status and control on the
-phone.
+Android Fold7, an already-provisioned Even Realities G2 already running the
+reviewed owner custom firmware, an optional paired R1, and one authenticated
+private Hermes gateway. Its job is to provide a dependable voice-first Hermes
+loop on the glasses, with truthful status and control on the phone. Stock G2
+firmware is limited to phone-preview mode; Preview 3 authorises no firmware
+flash or recovery action.
 
 This phase is about proving that loop in daily use. It is not a public Android
 release, a generic MCP platform, a firmware product, or a mandate to finish every
@@ -36,19 +38,23 @@ experimental feature in the repository.
 
 - Fold7 on Android 16, arm64, using upgrade-in-place with the existing owner
   certificate.
-- An already-provisioned two-arm G2 session, phone preview, glasses rendering,
-  and bounded wearer input.
+- An already-provisioned two-arm G2 session. The existing reviewed owner custom
+  firmware is required for the full 640×480 glasses runtime; stock firmware is
+  limited to phone preview. No flash or recovery is in scope.
 - Authenticated private `wss://` transport and fail-closed connection ownership.
-- Direct R1 battery, firmware-version, heart-rate, SpO2, HRV, activity, and
-  calorie polling. The official Even app must release its R1 connection first.
-- Notification mirroring, core voice capture, media/navigation/tools, and the
-  existing glasses shell within the single owner setup.
+- When the optional R1 is connected: direct battery, firmware-version,
+  heart-rate, SpO2, HRV, activity, and calorie polling. The official Even app
+  must release its R1 connection first.
+- Phone settings, notification mirroring, glasses shell lifecycle, bounded
+  rendering, and bounded wearer input within the single owner setup.
 
 ## Implemented but not yet accepted
 
 - The real licensed-provider path for the phone Hermes companion and glasses
   cockpit. Local TLS-WSS and adversarial fake-gateway tests pass; live provider
   evidence is still missing.
+- The complete provider-backed voice loop, background tool work, and
+  media/navigation/tool workflows on the exact Preview 3 artifact.
 - Captions and translation, universal search, notification digests, contextual
   dashboards, motion calibration, and longer-running background assistant work.
 - Fold7 unfolded, tabletop, split-screen, and TalkBack operation as a complete
@@ -80,14 +86,16 @@ The protected workflow must remain unable to publish while
 signed with it may be used only for controlled same-owner upgrade validation and
 must be labelled internal-only.
 
-Production signing and app-data migration are deferred. They become active work
-only if the owner explicitly chooses public or production distribution after the
-owner-preview milestone. The permanent technical contract is in
+Production signing and app-data migration are deferred in
+[issue #69](https://github.com/not-benny/hermes-g2/issues/69). They become active
+work only if the owner explicitly chooses public or production distribution
+after the owner-preview milestone. The permanent technical contract is in
 [`docs/release-security.md`](docs/release-security.md).
 
 ## Immediate next action
 
 Do not add another feature. Configure one licensed private Hermes gateway and
-execute the acceptance checklist in [`ROADMAP.md`](ROADMAP.md) against the
-Fold7/G2/R1 setup. Record all results on issue #59; fix only blockers found by
-that run.
+execute the authorization gate and acceptance checklist in
+[`ROADMAP.md`](ROADMAP.md) against the Fold7/G2 setup and, if explicitly
+authorised, the optional R1. Record all results on issue #59; fix only blockers
+found by that run.

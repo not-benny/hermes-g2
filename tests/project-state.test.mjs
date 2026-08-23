@@ -13,12 +13,15 @@ test("the repository has one current-state authority and one active milestone", 
   assert.match(readme, /\[`STATUS\.md`\]\(STATUS\.md\)/);
   assert.match(status, /only document that defines the project's current product and\s+operational state/i);
   assert.match(status, /owner-only internal preview/i);
+  assert.match(status, /reviewed owner custom firmware/i);
   assert.match(status, /Issue #59/i);
   assert.match(status, /PROTECTED_RELEASE_ENABLED.*false/s);
 
   assert.equal((roadmap.match(/^### /gm) ?? []).length, 1);
   assert.match(roadmap, /^### v1\.0\.0-preview\.3 — Owner Hermes Loop$/m);
   assert.match(roadmap, /Issue #59.*sole tracker/s);
+  assert.match(roadmap, /two-stage\s+authorization gate/i);
+  assert.match(roadmap, /explicit owner approval for microphone, optional R1\s+health, and evidence capture/i);
   assert.doesNotMatch(roadmap, /Ultra completion|candidate verification|508\/508/);
 });
 

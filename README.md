@@ -1,9 +1,10 @@
 # Hermes G2 — Hermes Agent for Even Realities G2 glasses
 
-Hermes G2 is an unofficial, owner-only Android companion and glasses runtime for
-an already-provisioned Even Realities G2. It provides a private, voice-first
-Hermes Agent interface on the glasses and a bounded control/status surface on the
-phone, with optional direct R1 health data.
+Hermes G2 is an unofficial, owner-only Android companion for an
+already-provisioned Even Realities G2. It provides a bounded phone surface and,
+on the owner's device already running the reviewed custom firmware, a
+voice-first Hermes Agent runtime on the glasses. Stock-firmware use is limited
+to phone-preview mode. Optional direct R1 health data is also available.
 
 This project is not created, endorsed, or supported by Even Realities. It is
 development software with no warranty. Custom firmware can void the hardware
@@ -12,59 +13,30 @@ warranty and can permanently damage a device.
 ## What it is
 
 The current target is deliberately narrow: one authorised Fold7, one
-already-provisioned G2, an optional paired R1, and one authenticated private
-Hermes gateway. The project is proving a dependable owner loop on that setup;
-it is not pursuing public distribution or a broad feature backlog.
+already-provisioned G2 already running the reviewed owner custom firmware, an
+optional paired R1, and one authenticated private Hermes gateway. Preview 3
+authorises no firmware flash or recovery action. The project is proving a
+dependable owner loop on that setup; it is not pursuing public distribution or
+a broad feature backlog.
 
 `main` is the only canonical development branch. The exact current support and
 release posture is in [`STATUS.md`](STATUS.md). The only active milestone is
 [`v1.0.0-preview.3 — Owner Hermes Loop`](ROADMAP.md);
 [issue #59](https://github.com/not-benny/hermes-g2/issues/59) is its sole tracker.
 
-## Verified in the owner envelope
+## Product surfaces
 
-- Upgrade/install/launch on an arm64 Fold7 running Android 16.
-- Two-arm G2 connection, bounded rendering and wearer input.
-- Authenticated private `wss://` transport with exact connection and operation
-  ownership.
-- Phone-side status and settings, notification mirroring, core voice capture,
-  media/navigation/tools, and the multitasking glasses shell.
-- R1 battery, read-only firmware version, live/current-hour heart rate, hourly
-  heart-rate/SpO2/HRV history, and confirmed 10-minute activity/calorie buckets.
-- Host tests, TypeScript typechecking, Android builds, release-surface checks,
-  16 KiB alignment checks, and debug-control exclusion on the reviewed main
-  baseline.
+The implementation contains the phone companion, glasses shell and cockpit,
+assistant/voice path, notifications, optional read-only R1 health path, and
+several experimental applications. Their evidence and acceptance levels are
+intentionally not repeated here: [`STATUS.md`](STATUS.md) is the sole current
+authority, while component contracts live under [`docs/`](docs) and dated
+research under [`notes/`](notes).
 
-These claims apply only to the evidenced owner setup and source revision. They
-are not general device, firmware, recovery, or support guarantees.
-
-## Implemented but experimental
-
-- The phone Hermes companion and native glasses cockpit. Their local TLS-WSS and
-  adversarial gateway tests pass, but the real licensed-provider deployment is
-  the remaining Preview 3 acceptance gate.
-- Background assistant tasks, captions and translation, universal search,
-  notification digests, contextual dashboards, motion calibration, terminal
-  mirroring, weather/calendar/timers, games, screenshots, and recording.
-- Fold7 unfolded/tabletop/split-screen and TalkBack operation as a complete
-  physical matrix.
-- Direct Anthropic/OpenAI and downloaded on-phone model fallback.
-
-Implemented does not mean accepted for daily use. Component contracts and honest
-remaining limits live under [`docs/`](docs); dated investigation and protocol
-evidence under [`notes/`](notes) does not redefine project status.
-
-## Not supported
-
-- First-time G2 or R1 pairing, provisioning, ownership transfer, or recovery.
-- R1 sleep decoding, R1 DFU/OTA, reset, wipe, NVM mutation, host rebinding, or
-  power control.
-- Release-build G2 firmware flashing or recovery assurance.
-- Public MCP/skill publication, untrusted remote rendering, arbitrary remote
-  control, production Home Assistant mutation, or live WhatsApp pairing.
-- Play Store/public release or a production signing identity. Protected
-  publication is disabled and the owner install still uses a development
-  certificate.
+Hermes does not perform first-time pairing, provisioning, ownership transfer,
+firmware/recovery, reset, wipe, or destructive R1 operations. Public
+distribution and production signing are also blocked. See `STATUS.md` for the
+complete current boundary.
 
 ## Before you start
 
@@ -88,9 +60,13 @@ standalone R1 firmware maintenance.
 ## Hermes gateway
 
 Configure the Hermes Agent bridge under **Settings > Assistant** with a reachable
-certificate-validated `wss://` endpoint and shared token. The bridge exposes
-bounded, provider-neutral projections; it does not return credentials, prompts,
-reasoning, raw tool arguments/results, or unshared work.
+certificate-validated `wss://` endpoint and shared token. The phone companion
+and glasses cockpit receive bounded, provider-neutral session projections; those
+projection channels do not expose credentials, provider prompts/reasoning, raw
+tool arguments/results, or unshared work. This is not a claim about the
+assistant data plane: fulfilling an authorised request necessarily transmits the
+current utterance, requested context, and authorised MCP call arguments/results
+between the app and the private gateway.
 
 Direct-provider mode remains available as a fallback and uses its own provider
 credentials. Those credentials are not used by the bridge. Public deployment
