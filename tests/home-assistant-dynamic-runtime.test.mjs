@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { DurableMutationLedger } from "../hermes-host/durable-mutation-ledger.mjs";
 import { HomeAssistantAdapter, createHomeAssistantTransport } from "../hermes-host/home-assistant-adapter.mjs";
 import { DynamicGlassesRuntime } from "../hermes-host/dynamic-glasses-runtime.mjs";
 
@@ -137,6 +141,137 @@ test("a post-dispatch failure is outcome-unknown and retry never redispatches", 
   assert.equal(serviceCalls, 1);
 });
 
+test("a completed provider mutation replays from the durable ledger after process restart without redispatch", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "hermes-g2-adapter-ledger-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, "mutations.json");
+  const base = fakeHa();
+  let dispatches = 0;
+  const transport = {
+    request: (request) => base.transport.request(request),
+    mutateBinaryCapability: async (request, signal) => {
+      dispatches++;
+      return base.transport.mutateBinaryCapability(request, signal);
+    },
+  };
+  const first = new HomeAssistantAdapter({ transport, ledger: new DurableMutationLedger({ path }),
+    createHandle: () => "opaque_entity_handle_0001", now: () => 1_000 });
+  const [firstDevice] = await first.discover({ kind: "area", label: "Living Room" });
+  const receipt = await first.setPower({ operationId: "durable-op", handle: firstDevice.handle, value: "on", expectedRevision: firstDevice.revision },
+    { isAuthorized: () => true });
+  assert.equal(dispatches, 1);
+
+  const restarted = new HomeAssistantAdapter({ transport, ledger: new DurableMutationLedger({ path }),
+    createHandle: () => "opaque_entity_handle_0002", now: () => 2_000 });
+  const [currentDevice] = await restarted.discover({ kind: "area", label: "Living Room" });
+  const replay = await restarted.setPower({ operationId: "durable-op", handle: currentDevice.handle, value: "on", expectedRevision: firstDevice.revision },
+    { isAuthorized: () => true });
+  assert.equal(dispatches, 1);
+  assert.equal(replay.after.value, receipt.after.value);
+  assert.equal(replay.after.handle, currentDevice.handle);
+});
+
+test("durable ledger is not left pending when a mutation is already at its explicit target", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "hermes-g2-adapter-noop-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const ledger = new DurableMutationLedger({ path: join(directory, "mutations.json") });
+  const { transport } = fakeHa();
+  const adapter = new HomeAssistantAdapter({ transport, ledger, createHandle: () => "opaque_entity_handle_0001", now: () => 1_000 });
+  const [device] = await adapter.discover({ kind: "area", label: "Living Room" });
+  const receipt = await adapter.setPower({ operationId: "noop-op", handle: device.handle, value: "off", expectedRevision: device.revision },
+    { isAuthorized: () => true });
+  assert.equal(receipt.changed, false);
+  assert.equal(await ledger.get("noop-op"), null);
+});
+
+test("startup recovery replays a completed mutation into a trusted receipt, restores it once, and records the parent", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "hermes-g2-adapter-recovery-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, "mutations.json");
+  const base = fakeHa();
+  let dispatches = 0;
+  const transport = { request: (request) => base.transport.request(request), mutateBinaryCapability: async (request, signal) => {
+    dispatches++; return base.transport.mutateBinaryCapability(request, signal);
+  } };
+  const first = new HomeAssistantAdapter({ transport, ledger: new DurableMutationLedger({ path }),
+    createHandle: () => "opaque_entity_handle_0001", now: () => 1_000 });
+  const [device] = await first.discover({ kind: "area", label: "Living Room" });
+  await first.setPower({ operationId: "recover-op", handle: device.handle, value: "on", expectedRevision: device.revision },
+    { isAuthorized: () => true });
+  assert.equal(dispatches, 1);
+
+  const restartedLedger = new DurableMutationLedger({ path });
+  const restarted = new HomeAssistantAdapter({ transport, ledger: restartedLedger,
+    createHandle: () => "opaque_entity_handle_0002", now: () => 2_000 });
+  await restarted.discover({ kind: "area", label: "Living Room" });
+  const [receipt] = await restarted.recoverUnrestoredMutations({ isAuthorized: () => true });
+  assert.equal(receipt.operationId, "recover-op");
+  assert.equal(dispatches, 1);
+  assert.equal((await restarted.restore(receipt, { operationId: "recover-op.recovery", isAuthorized: () => true })).restored, true);
+  assert.equal(dispatches, 2);
+  const restoreRecord = (await restartedLedger.list()).find((record) => record.purpose === "restore");
+  assert.equal(restoreRecord.parentOperationId, "recover-op");
+
+  const final = new HomeAssistantAdapter({ transport, ledger: new DurableMutationLedger({ path }),
+    createHandle: () => "opaque_entity_handle_0003", now: () => 3_000 });
+  await final.discover({ kind: "area", label: "Living Room" });
+  assert.deepEqual(await final.recoverUnrestoredMutations({ isAuthorized: () => true }), []);
+  assert.equal(dispatches, 2);
+});
+
+test("startup recovery reconciles a crash-after-reservation through the provider idempotency endpoint", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "hermes-g2-adapter-pending-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, "mutations.json");
+  const base = fakeHa();
+  let dispatches = 0;
+  const transport = { request: (request) => base.transport.request(request), mutateBinaryCapability: async (request, signal) => {
+    dispatches++; return base.transport.mutateBinaryCapability(request, signal);
+  } };
+  const discovery = new HomeAssistantAdapter({ transport, createHandle: () => "opaque_entity_handle_0001", now: () => 1_000 });
+  const [device] = await discovery.discover({ kind: "area", label: "Living Room" });
+  const ledger = new DurableMutationLedger({ path });
+  await ledger.reserve("pending-op", { version: 1, operation_id: "pending-op", area: "Living Room",
+    entity_id: "light.floor_lamp", domain: "light", expected_revision: device.revision, target: "on" });
+
+  const restarted = new HomeAssistantAdapter({ transport, ledger,
+    createHandle: () => "opaque_entity_handle_0002", now: () => 2_000 });
+  await restarted.discover({ kind: "area", label: "Living Room" });
+  const [receipt] = await restarted.recoverUnrestoredMutations({ isAuthorized: () => true });
+  assert.equal(receipt.after.value, "on");
+  assert.equal(dispatches, 1);
+  assert.equal((await ledger.get("pending-op")).state, "completed");
+});
+
+test("same-process reconnect drops the rejected handle cache and reconciles an outcome-unknown mutation", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "hermes-g2-adapter-reconnect-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, "mutations.json");
+  const base = fakeHa();
+  let providerCalls = 0;
+  let durableOutcome;
+  const transport = { request: (request) => base.transport.request(request), mutateBinaryCapability: async (request, signal) => {
+    providerCalls++;
+    if (!durableOutcome) {
+      durableOutcome = await base.transport.mutateBinaryCapability(request, signal);
+      throw new Error("response lost after provider commit");
+    }
+    return structuredClone(durableOutcome);
+  } };
+  let handleN = 0;
+  const adapter = new HomeAssistantAdapter({ transport, ledger: new DurableMutationLedger({ path }),
+    createHandle: () => `opaque_entity_handle_${String(++handleN).padStart(4, "0")}`, now: () => 1_000 });
+  const [device] = await adapter.discover({ kind: "area", label: "Living Room" });
+  await assert.rejects(() => adapter.setPower({ operationId: "lost-op", handle: device.handle, value: "on", expectedRevision: device.revision },
+    { isAuthorized: () => true }), /outcome unknown/i);
+  await adapter.discover({ kind: "area", label: "Living Room" });
+  const [receipt] = await adapter.recoverUnrestoredMutations({ isAuthorized: () => true });
+  assert.equal(receipt.operationId, "lost-op");
+  assert.equal(receipt.after.value, "on");
+  assert.equal(providerCalls, 2);
+  assert.equal(base.calls.filter((call) => call.path === "/api/services/light/turn_on").length, 1);
+});
+
 test("restore is conservative and refuses to overwrite a later human or automation change", async () => {
   const { transport, setLamp } = fakeHa();
   const adapter = new HomeAssistantAdapter({ transport, createHandle: () => "opaque_entity_handle_0001", now: () => 1_000 });
@@ -147,6 +282,25 @@ test("restore is conservative and refuses to overwrite a later human or automati
     last_updated: "2026-08-22T10:00:03Z", context: { id: "human-change" } });
   assert.deepEqual(await adapter.restore(receipt, { operationId: "restore-1", isAuthorized: () => true }),
     { restored: false, reason: "state-changed" });
+});
+
+test("durable restore records a later human change as a resolved causal conflict", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "hermes-g2-restore-conflict-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const ledger = new DurableMutationLedger({ path: join(directory, "mutations.json") });
+  const { transport, setLamp } = fakeHa();
+  const adapter = new HomeAssistantAdapter({ transport, ledger,
+    createHandle: () => "opaque_entity_handle_0001", now: () => 1_000 });
+  const [device] = await adapter.discover({ kind: "area", label: "Living Room" });
+  const receipt = await adapter.setPower({ operationId: "conflict-op", handle: device.handle, value: "on", expectedRevision: device.revision },
+    { isAuthorized: () => true });
+  setLamp({ entity_id: "light.floor_lamp", state: "on", attributes: { friendly_name: "Floor lamp", brightness: 1 },
+    last_updated: "2026-08-22T10:00:03Z", context: { id: "human-change" } });
+  assert.equal((await adapter.restore(receipt, { operationId: "conflict-restore", isAuthorized: () => true })).restored, false);
+  const resolution = await ledger.get("conflict-restore");
+  assert.equal(resolution.purpose, "restore");
+  assert.equal(resolution.parentOperationId, "conflict-op");
+  assert.equal(resolution.code, "stale_revision");
 });
 
 test("fetch transport keeps credentials server-side, requires HTTPS, blocks redirects, and redacts failures", async () => {
@@ -167,6 +321,43 @@ test("fetch transport keeps credentials server-side, requires HTTPS, blocks redi
   });
   assert.equal(seen[0].options.redirect, "error");
   assert.equal(seen[0].options.headers.Authorization, "Bearer sentinel-token");
+});
+
+test("Home Assistant transport bounds a non-cooperative request independently of turn cancellation", async () => {
+  const transport = createHomeAssistantTransport({
+    baseUrl: "https://ha.invalid", getToken: () => "private-token", requestTimeoutMs: 10,
+    fetchImpl: async () => new Promise(() => {}),
+  });
+  await assert.rejects(() => transport.request({ method: "GET", path: "/api/states" }), /timeout/i);
+});
+
+test("Home Assistant transport bounds response bodies and aborts immediately with its turn", async () => {
+  const bodyTransport = createHomeAssistantTransport({
+    baseUrl: "https://ha.invalid", getToken: () => "private-token", requestTimeoutMs: 10,
+    fetchImpl: async () => ({ ok: true, json: async () => new Promise(() => {}) }),
+  });
+  await assert.rejects(() => bodyTransport.request({ method: "GET", path: "/api/states" }), /timeout/i);
+
+  const controller = new AbortController();
+  const cancelledTransport = createHomeAssistantTransport({
+    baseUrl: "https://ha.invalid", getToken: () => "private-token", requestTimeoutMs: 1_000,
+    fetchImpl: async () => new Promise(() => {}),
+  });
+  const pending = cancelledTransport.request({ method: "GET", path: "/api/states", signal: controller.signal });
+  controller.abort();
+  await assert.rejects(() => pending, /cancelled/i);
+});
+
+test("Home Assistant cancellation reason wins the race against a cooperative fetch abort", async () => {
+  const controller = new AbortController();
+  const transport = createHomeAssistantTransport({
+    baseUrl: "https://ha.invalid", getToken: () => "private-token", requestTimeoutMs: 1_000,
+    fetchImpl: async (_url, options) => new Promise((_, reject) =>
+      options.signal.addEventListener("abort", () => reject(new Error("fetch aborted")), { once: true })),
+  });
+  const pending = transport.request({ method: "GET", path: "/api/states", signal: controller.signal });
+  controller.abort();
+  await assert.rejects(() => pending, /cancelled/i);
 });
 
 test("runtime renders a provider-neutral living-room app and executes only exact current opaque actions once", async () => {
@@ -203,6 +394,63 @@ test("runtime renders a provider-neutral living-room app and executes only exact
   assert.equal(calls.filter((call) => call.path === "/api/services/light/turn_on").length, 1);
   await assert.rejects(() => runtime.deliverInput({ ...identity, turnGeneration: "turn-2" }, event, { operationId: "event-op-2" }), /stale/i);
   await assert.rejects(() => runtime.deliverInput({ ...identity, tenant: "other" }, event, { operationId: "event-op-1" }), /stale|owner|identity/i);
+});
+
+test("runtime retains mutation receipts and restores before closing the exact phone view", async () => {
+  const snapshot = { handle: "entity-handle-0001", label: "Lamp", value: "off", revision: "r1" };
+  const receipt = { changed: true, before: snapshot, after: { ...snapshot, value: "on", revision: "r2" } };
+  const calls = [];
+  const adapter = {
+    async discover() { return [snapshot]; },
+    async read() { return snapshot; },
+    async setPower() { return receipt; },
+    async restore(value, context) { calls.push({ kind: "restore", value, context }); return { restored: true, snapshot }; },
+  };
+  const phone = { async callTool(name, args) {
+    calls.push({ kind: "phone", name, args });
+    if (name.endsWith(".create")) return { status: "acknowledged", view_id: "opaque_dynamic_view_0001", revision: 1 };
+    if (name.endsWith(".patch")) return { status: "acknowledged", view_id: args.view_id, revision: 2 };
+    if (name.endsWith(".close")) return { status: "closed", view_id: args.view_id, revision: args.expected_revision };
+    return { status: "acknowledged" };
+  } };
+  let actionN = 0;
+  const runtime = new DynamicGlassesRuntime({ adapter, phone,
+    createHandle: () => `opaque_action_handle_${String(++actionN).padStart(4, "0")}`, now: () => 1_000 });
+  const identity = { tenant: "owner", device: "g2", connectionGeneration: "socket", turnGeneration: "turn" };
+  const opened = await runtime.openLivingRoom(identity, { operationId: "open" });
+  await runtime.deliverInput(identity, { event_id: "event", view_id: opened.viewId, revision: 1,
+    action_handle: "opaque_action_handle_0001", kind: "activate" }, { operationId: "mutation" });
+  const result = await runtime.restoreAndClose(identity, { operationId: "finish" });
+  assert.deepEqual(result.restorations, [{ restored: true, snapshot }]);
+  assert.equal(calls.findIndex((call) => call.kind === "restore") < calls.findIndex((call) => call.name?.endsWith(".close")), true);
+  await assert.rejects(() => runtime.deliverInput(identity, { view_id: opened.viewId }, { operationId: "late" }), /stale/i);
+});
+
+test("runtime closes but fails the turn when conservative restoration cannot restore", async () => {
+  const snapshot = { handle: "entity-handle-0001", label: "Lamp", value: "off", revision: "r1" };
+  const calls = [];
+  const adapter = {
+    async discover() { return [snapshot]; }, async read() { return snapshot; },
+    async setPower() { return { operationId: "mutation", changed: true, before: snapshot,
+      after: { ...snapshot, value: "on", revision: "r2" } }; },
+    async restore() { calls.push("restore"); return { restored: false, reason: "state-changed" }; },
+  };
+  const phone = { async callTool(name, args) {
+    calls.push(name);
+    if (name.endsWith(".create")) return { status: "acknowledged", view_id: "opaque_dynamic_view_0001", revision: 1 };
+    if (name.endsWith(".patch")) return { status: "acknowledged", view_id: args.view_id, revision: 2 };
+    if (name.endsWith(".close")) return { status: "closed", view_id: args.view_id, revision: args.expected_revision };
+    return { status: "acknowledged" };
+  } };
+  let actionN = 0;
+  const runtime = new DynamicGlassesRuntime({ adapter, phone,
+    createHandle: () => `opaque_action_handle_${String(++actionN).padStart(4, "0")}`, now: () => 1_000 });
+  const identity = { tenant: "owner", device: "g2", connectionGeneration: "socket", turnGeneration: "turn" };
+  const opened = await runtime.openLivingRoom(identity, { operationId: "open" });
+  await runtime.deliverInput(identity, { event_id: "event", view_id: opened.viewId, revision: 1,
+    action_handle: "opaque_action_handle_0001", kind: "activate" }, { operationId: "mutation" });
+  await assert.rejects(() => runtime.restoreAndClose(identity, { operationId: "finish" }), /restoration/i);
+  assert.equal(calls.some((call) => call.endsWith?.(".close")), true);
 });
 
 test("runtime keeps untouched multi-device actions current and bounds a 64-device provider to the phone limit", async () => {
