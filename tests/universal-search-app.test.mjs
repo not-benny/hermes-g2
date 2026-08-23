@@ -28,6 +28,7 @@ test("safe opens use exact notification, file, calendar-event, and Hermes-sessio
   assert.doesNotMatch(windowSource, /SingleNotificationLayer/);
   assert.match(windowSource, /entry\.modifiedMs !== modifiedMs/);
   assert.match(windowSource, /canonicalPath\(rootPath\)/);
+  assert.match(windowSource, /rootEntry\.isSymbolicLink/);
   assert.match(windowSource, /entry\.isSymbolicLink/);
   assert.match(windowSource, /event\.id === eventId && event\.startMs === startMs/);
   assert.match(windowSource, /session\.session_id === sessionId && session\.generation === generation/);

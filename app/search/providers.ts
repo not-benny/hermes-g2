@@ -139,7 +139,7 @@ function filesProvider(deps: SearchProviderDependencies): SearchProvider {
       const results: SearchResult[] = [];
       for (const bookmark of deps.bookmarkedPaths().slice(0, 20)) {
         const root = deps.statPath(bookmark);
-        if (!root) continue;
+        if (!root || root.isSymbolicLink) continue;
         const entries = root.isDirectory ? deps.listDirectory(root.path) : [root];
         if (entries === null) throw new SearchProviderFailure("error");
         for (const entry of entries.filter((entry) => !entry.isSymbolicLink).slice(0, MAX_PROVIDER_RESULTS - results.length)) {

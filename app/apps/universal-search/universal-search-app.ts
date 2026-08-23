@@ -124,6 +124,8 @@ class UniversalSearchLayer implements Layer {
       listDirectory,
       openFile: async (path, rootPath, modifiedMs, signal) => {
         if (signal.aborted || !hasAllFilesAccess() || !getBookmarkedPaths().includes(rootPath)) return false;
+        const rootEntry = statPath(rootPath);
+        if (!rootEntry || rootEntry.isSymbolicLink) return false;
         const canonicalRoot = canonicalPath(rootPath);
         const canonicalEntry = canonicalPath(path);
         const inScope = canonicalRoot !== null && canonicalEntry !== null &&

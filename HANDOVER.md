@@ -30,7 +30,7 @@ No query, result, filter or recent history is persisted. Clear, window close and
 process replacement revoke pending providers and action handles. Search content
 is not logged; file-access failure logs were reduced to content-free event text
 so paths and exception bodies cannot leak through the new metadata adapter.
-Focused synthetic coverage passes 19/19 for Unicode and duplicate
+Focused synthetic coverage passes 20/20 for Unicode and duplicate
 ranking, provider timeout/error/permission/offline/unavailable isolation,
 non-cooperative stale generations, provider-timeout abort, malformed throwing
 and mutating-proxy results, one-shot replay/in-flight revocation, exact
@@ -44,11 +44,15 @@ bound to key + post time; file results exclude symlinks and revalidate exact
 bookmark root, canonical confinement, path and modified time before showing
 metadata only; timeout/clear/replacement/close abort provider and action signals;
 descriptors are single-read snapshots; and each result renders freshness.
+The second frozen review passed UI/spec scope but found one remaining file gate:
+a bookmarked root could itself be a symlink. The final rework rejects symbolic
+bookmark roots both while collecting results and immediately before opening;
+the synthetic regression proves neither symbolic roots nor entries publish.
 
-After a clean `npm ci`, the full host suite passes 395/395; NativeScript Android
+After a clean `npm ci`, the full host suite passes 396/396; NativeScript Android
 preparation, TypeScript, and the JDK 21 / SDK 35 build pass. The
-195,753,297-byte debug APK has SHA-256
-`0e249bc9e9fb7f1b0f4f2e61a6c3d4e571ff0dc109e67eb4563c6d6029f54f3e` and
+195,753,317-byte debug APK has SHA-256
+`1ebcd9e469341fbf7e8edd2726da9dcee9d1bcba9866d6b710ecde6fe6cbb82a` and
 package metadata `com.faceclaw.app`, version code 1000002 / version
 `1.0.0-preview.2`, min SDK 24, target/compile SDK 35. It upgrade-installed and
 launched on the authorised A32 over its existing wireless ADB transport; the

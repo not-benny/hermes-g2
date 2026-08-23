@@ -133,3 +133,21 @@ test("notification open binds the exact observed post time and rejects same-key 
   assert.equal(await controller.executeAction(state.results[0].actionHandle), "stale");
   assert.deepEqual(calls, [["notification", "notif-1", 15]]);
 });
+
+test("symbolic-link bookmark roots and entries never publish file results", async () => {
+  const calls = [];
+  const dependencies = fixtureDependencies(calls);
+  dependencies.statPath = () => ({
+    name: "link", path: "/safe", isDirectory: true, isSymbolicLink: true,
+    sizeBytes: 0, modifiedMs: 10,
+  });
+  dependencies.listDirectory = () => [{
+    name: "plan.md", path: "/safe/plan.md", isDirectory: false,
+    isSymbolicLink: false, sizeBytes: 20, modifiedMs: 11,
+  }];
+  const controller = new SearchController(createSearchProviders(dependencies), { providerTimeoutMs: 50, resultLimit: 20 });
+  const state = await controller.search("plan", new Set(["files"]));
+  assert.deepEqual(state.results, []);
+  assert.equal(state.sources[0].state, "ready");
+  assert.deepEqual(calls, []);
+});

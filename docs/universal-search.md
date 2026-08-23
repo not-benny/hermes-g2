@@ -47,7 +47,7 @@ The compact layout is bounded to four selectable rows in the minimum G2 app view
 
 Search never requests Android permissions, executes a URL or shell command, issues a terminal command, mutates Roam, changes media, reads health history, sends a cockpit command, or invokes notification actions. File failures use content-free log messages rather than paths or exception bodies. Provider exceptions are converted to coarse source state and are never interpolated into logs or UI.
 
-The fixture tests contain synthetic data only. Coverage includes Unicode ranking, duplicate identities, empty/disabled filters, pagination, stale non-cooperative providers, provider-timeout abort, permission/offline/unavailable state, malformed throwing/proxy objects, exact-generation one-shot action and in-flight-action revocation, exact notification/file/session replacement, clear/restart-like revocation and source-registration/privacy contracts.
+The fixture tests contain synthetic data only. Coverage includes Unicode ranking, duplicate identities, empty/disabled filters, pagination, stale non-cooperative providers, provider-timeout abort, permission/offline/unavailable state, malformed throwing/proxy objects, exact-generation one-shot action and in-flight-action revocation, exact notification/file/session replacement, symbolic bookmark root/entry rejection, clear/restart-like revocation and source-registration/privacy contracts.
 
 ## Verification and rollback
 

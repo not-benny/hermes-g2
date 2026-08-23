@@ -22,7 +22,7 @@ Current as of 23 August 2026. `main` is the canonical branch.
   health remain visibly unavailable because safe bounded search/exact-action
   identities do not yet exist; no shell, URL, notification mutation, Roam write,
   cockpit command, media control or health-history read is exposed. Focused
-  synthetic coverage passes 19/19; the full host suite passes 395/395,
+  synthetic coverage passes 20/20; the full host suite passes 396/396,
   prepared-platform typecheck and the JDK 21 / SDK 35 Android build pass. The
   exact candidate installed and launched as a live process on the A32, but its
   G2 transport had no active connection, so glasses navigation/open/back/filter
