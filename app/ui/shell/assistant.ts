@@ -86,6 +86,10 @@ export class AssistantLayer implements Layer {
     this.actions.requestRender();
   }
 
+  getReplyText(): string {
+    return this.replyText;
+  }
+
   paint(_ctx: LayerContext, paintBelow: () => GrayImage): GrayImage {
     const font = getDefaultSmallFont();
     const image = paintBelow();

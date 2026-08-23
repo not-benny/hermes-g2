@@ -6,6 +6,7 @@ import { DashboardInputEvent, Layer, LayerActions, LayerContext, LayerStack, noo
 import { MenuLayer, type MenuItem } from "../menu";
 import { VoiceInputLayer, type VoiceSendTarget } from "./voice-input";
 import { AssistantLayer } from "./assistant";
+import { assistantReplyNeedsOverlay } from "./assistant-routing";
 import { AssistantSession, type AssistantBackendConfig } from "../../assistant/session";
 import { resolveAssistantModel } from "../../assistant/models";
 import type { AssistantContext } from "../../assistant/types";
@@ -119,6 +120,8 @@ export type ShellConfig = {
   requestShellRender: () => void | Promise<void>;
   /** Awaited delivery path for operations that must prove lens transport success. */
   requestShellDelivery?: (isAllowed?: () => boolean) => Promise<{ frameId: number; outcome: string }>;
+  /** Drain ordinary/coalesced shell work before a strict layer becomes visible. */
+  waitForShellRenderIdle?: () => Promise<void>;
   /** True only while a real glasses transport/session can accept frames. */
   isDisplayAvailable?: () => boolean;
   /** Screen on/off changed: the controller blanks/unblanks the compositor. */
@@ -257,6 +260,10 @@ class Shell {
   // notification icons and the battery indicators.
   private readonly trayIcons = new Map<string, GrayImage>();
   private activeVoiceLayer: VoiceInputLayer | null = null;
+  private assistantTurnBackgrounded = false;
+  private assistantOverlayRestorePending = false;
+  private pendingAssistantResult: string | null = null;
+  private pendingAssistantResultDelivery = false;
   private assistantSession: AssistantSession | null = null;
   private musicCard: MusicCardLayer | null = null;
   private musicCardWokeScreen = false;
@@ -334,6 +341,7 @@ class Shell {
       if (state.phase === this.bridgePhase) return;
       this.bridgePhase = state.phase;
       this.config.requestShellRender();
+      if (state.phase === "connected") this.flushPendingAssistantResult();
     });
   }
 
@@ -507,6 +515,11 @@ class Shell {
     return this.screenOn;
   }
 
+  /** Retry a retained short assistant result after the real G2 session returns. */
+  retryPendingAssistantResult(): void {
+    this.flushPendingAssistantResult();
+  }
+
   /** Current headset battery levels (for the assistant's get_state tool). */
   getBatteryLevels(): ShellChromeState["battery"] {
     return this.battery;
@@ -536,6 +549,7 @@ class Shell {
     for (const window of this.windows) {
       window.setScreenOn?.(true);
     }
+    this.flushDeferredAssistantUi();
     // Refresh the foreground window; the compositor restored its retained
     // frame, but its content may be stale (e.g. a running stopwatch).
     this.foregroundWindow()?.requestRender();
@@ -751,7 +765,9 @@ class Shell {
 
       this.lastInputAtMs = Date.now();
       const wokeScreen = !this.screenOn && this.wake("sidebar");
-      if (action === "voice-input" && !this.activeVoiceLayer) {
+      if (action === "voice-input" && this.assistantSession?.isTurnActive()) {
+        if (this.assistantLayer) this.restoreBackgroundAssistantLayer(this.assistantLayer);
+      } else if (action === "voice-input" && !this.activeVoiceLayer) {
         if (this.assistantLayer) {
           // The assistant overlay is up; a wakeword continues that conversation.
           this.startAssistantFollowUp(true);
@@ -764,6 +780,7 @@ class Shell {
     }
 
     this.lastInputAtMs = Date.now();
+    this.flushDeferredAssistantUi();
 
     // Anything but the long-press itself means the press ended (or the event
     // stream moved on), so the escape countdown stops.
@@ -776,7 +793,9 @@ class Shell {
     // capture. The master voice switch remains authoritative.
     if (!this.screenOn && event.type === "long-press" && voiceControlEnabledSetting.get()) {
       this.wake("sidebar");
-      if (!this.activeVoiceLayer) {
+      if (this.assistantSession?.isTurnActive()) {
+        if (this.assistantLayer) this.restoreBackgroundAssistantLayer(this.assistantLayer);
+      } else if (!this.assistantSession?.isTurnActive() && !this.activeVoiceLayer) {
         this.openVoiceDialog({ defaultTarget: "assistant" });
       }
       return { shell: true, window: false };
@@ -1144,6 +1163,7 @@ class Shell {
         if (this.activeVoiceLayer === layer) {
           this.activeVoiceLayer = null;
           voiceOwner?.setVoiceInputActive?.(false);
+          this.flushDeferredAssistantUi();
           // The idle countdown restarts in full once voice input ends.
           this.noteUserActivity();
         }
@@ -1169,7 +1189,7 @@ class Shell {
    */
   private buildVoiceSendTargets(): VoiceSendTarget[] {
     const targets: VoiceSendTarget[] = [];
-    if (this.isAssistantAvailable()) {
+    if (this.isAssistantAvailable() && !this.assistantSession?.isTurnActive()) {
       targets.push({
         id: "assistant",
         label: "Send to Assistant",
@@ -1209,6 +1229,10 @@ class Shell {
    */
   startVoiceInput(): void {
     if (!this.screenOn || this.activeVoiceLayer || !this.stack.isAtBase()) return;
+    if (this.assistantSession?.isTurnActive()) {
+      if (this.assistantLayer) this.restoreBackgroundAssistantLayer(this.assistantLayer);
+      return;
+    }
     // The transcript is aimed at the window whose menu requested it; the menu
     // entry point defaults the highlight to Type Into App.
     this.focus = "window";
@@ -1276,6 +1300,10 @@ class Shell {
       return;
     }
     if (!this.screenOn) this.wake("sidebar");
+    if (session.isTurnActive()) {
+      if (this.assistantLayer) this.restoreBackgroundAssistantLayer(this.assistantLayer);
+      return;
+    }
     let layer = this.assistantLayer;
     if (!layer) {
       const detached = this.detachedAssistantLayer;
@@ -1301,24 +1329,102 @@ class Shell {
   }
 
   private runAssistantTurn(session: AssistantSession, layer: AssistantLayer, text: string): void {
+    if (session.isTurnActive()) {
+      this.restoreBackgroundAssistantLayer(layer);
+      return;
+    }
+    if (this.assistantTurnBackgrounded) this.restoreBackgroundAssistantLayer(layer);
     layer.startTurn();
     session.sendUtterance(text, this.buildAssistantContext(), {
       onTextDelta: (delta, textSoFar) => layer.onTextDelta(delta, textSoFar),
       onToolActivity: (label) => {
         void playEventBeep("assistantTool", this.config.actions.playBuzzerSequence);
         layer.onToolActivity(label);
+        this.backgroundAssistantLayer(layer);
       },
       onTurnDone: () => {
         void playEventBeep("assistantReply", this.config.actions.playBuzzerSequence);
         layer.onTurnDone();
         if (this.detachedAssistantLayer === layer) this.detachedAssistantLayer = null;
+        this.finishBackgroundAssistantTurn(layer);
       },
       onError: (message) => {
         void playEventBeep("assistantError", this.config.actions.playBuzzerSequence);
+        this.restoreBackgroundAssistantLayer(layer);
         layer.onError(message);
         if (this.detachedAssistantLayer === layer) this.detachedAssistantLayer = null;
       },
     });
+  }
+
+  private backgroundAssistantLayer(layer: AssistantLayer): void {
+    if (this.assistantLayer !== layer || this.assistantTurnBackgrounded) return;
+    this.assistantTurnBackgrounded = true;
+    // The turn still owns this layer while it is hidden. Detach without firing
+    // onRemoved so cancellation remains reserved for real teardown.
+    this.stack.detach(layer);
+    this.config.requestShellRender();
+  }
+
+  private restoreBackgroundAssistantLayer(layer: AssistantLayer): void {
+    if (this.assistantLayer !== layer || !this.assistantTurnBackgrounded) return;
+    if (this.activeVoiceLayer) {
+      this.assistantOverlayRestorePending = true;
+      return;
+    }
+    this.assistantTurnBackgrounded = false;
+    this.assistantOverlayRestorePending = false;
+    this.stack.push(layer);
+    this.config.requestShellRender();
+  }
+
+  private finishBackgroundAssistantTurn(layer: AssistantLayer): void {
+    if (this.assistantLayer !== layer || !this.assistantTurnBackgrounded) return;
+    const reply = layer.getReplyText().trim();
+    if (!reply || assistantReplyNeedsOverlay(reply)) {
+      this.restoreBackgroundAssistantLayer(layer);
+      return;
+    }
+    this.assistantTurnBackgrounded = false;
+    this.assistantLayer = null;
+    if (reply) {
+      this.pendingAssistantResult = reply;
+      this.flushPendingAssistantResult();
+    }
+    this.noteUserActivity();
+    this.config.requestShellRender();
+  }
+
+  private flushDeferredAssistantUi(): void {
+    if (this.activeVoiceLayer) return;
+    if (this.assistantOverlayRestorePending && this.assistantLayer) {
+      this.restoreBackgroundAssistantLayer(this.assistantLayer);
+    }
+    this.flushPendingAssistantResult();
+  }
+
+  private flushPendingAssistantResult(): void {
+    if (
+      this.pendingAssistantResultDelivery ||
+      !this.pendingAssistantResult ||
+      !this.screenOn ||
+      this.activeVoiceLayer ||
+      (this.config.isDisplayAvailable && !this.config.isDisplayAvailable())
+    ) return;
+    const pending = this.pendingAssistantResult;
+    this.pendingAssistantResultDelivery = true;
+    void (async () => {
+      try {
+        await this.showAlert(pending);
+        if (this.pendingAssistantResult === pending) this.pendingAssistantResult = null;
+      } catch {
+        // Keep the result for the next wake, reconnect, or completed voice input.
+      } finally {
+        const queuedNext = this.pendingAssistantResult !== null && this.pendingAssistantResult !== pending;
+        this.pendingAssistantResultDelivery = false;
+        if (queuedNext) this.flushPendingAssistantResult();
+      }
+    })();
   }
 
   /**
@@ -1330,6 +1436,10 @@ class Shell {
     const layer = this.assistantLayer;
     const session = this.assistantSession;
     if (!layer || !session || this.activeVoiceLayer) return;
+    if (session.isTurnActive()) {
+      this.restoreBackgroundAssistantLayer(layer);
+      return;
+    }
     const voiceOwner = this.foregroundWindow();
     voiceOwner?.setVoiceInputActive?.(true);
     const voice = new VoiceInputLayer({
@@ -1338,6 +1448,7 @@ class Shell {
         if (this.activeVoiceLayer === voice) {
           this.activeVoiceLayer = null;
           voiceOwner?.setVoiceInputActive?.(false);
+          this.flushDeferredAssistantUi();
           this.noteUserActivity();
         }
       },
@@ -1361,6 +1472,7 @@ class Shell {
     // Popping fires the layer's onRemoved, which cancels the turn and clears
     // this.assistantLayer.
     const layer = this.assistantLayer;
+    this.assistantTurnBackgrounded = false;
     if (layer) this.stack.popIfTop((top) => top === layer);
     this.noteUserActivity();
     this.config.requestShellRender();
@@ -1374,6 +1486,14 @@ class Shell {
       throw new Error("The glasses are disconnected; no alert was sent.");
     }
     const revision = ++this.alertRevision;
+    if (this.config.waitForShellRenderIdle) await this.config.waitForShellRenderIdle();
+    if (
+      this.alertRevision !== revision ||
+      signal?.aborted ||
+      (isSideEffectAllowed && !isSideEffectAllowed())
+    ) {
+      throw new Error("The alert operation was superseded or cancelled; no alert was sent.");
+    }
     if (this.alertLayer) this.stack.remove(this.alertLayer);
     let layer: ShellAlertLayer;
     const isOwner = () => this.alertRevision === revision && this.alertLayer === layer;
@@ -1493,6 +1613,12 @@ class Shell {
       this.stack.detach(displacedAssistant);
       this.assistantLayer = null;
       this.detachedAssistantLayer = displacedAssistant;
+      // Tool activity may already have removed this overlay through the
+      // background-task path. Once a context dashboard owns the same turn,
+      // detachedAssistantLayer is the sole retained owner; stale background
+      // bookkeeping would otherwise duplicate the next assistant layer.
+      this.assistantTurnBackgrounded = false;
+      this.assistantOverlayRestorePending = false;
     }
     if (prior) this.stack.remove(prior);
     this.dynamicAppLayer = layer;
