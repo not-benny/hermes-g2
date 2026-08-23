@@ -20,6 +20,7 @@ jobs:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       HERMES_SIGNING_MODE: untrusted
+      HERMES_PROTECTED_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
       HERMES_ARTIFACT_VARIANT: debug
     steps:
       - name: Check out source

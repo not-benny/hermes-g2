@@ -99,12 +99,18 @@ jobs:
           STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+          EXPECTED_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
         run: |
           set -euo pipefail
           if [[ -z "$KEYSTORE_BASE64" || -z "$STORE_PASSWORD" || -z "$KEY_ALIAS" || -z "$KEY_PASSWORD" ]]; then
             printf 'Protected Android signing credentials are required and must be complete.\n' >&2
             exit 1
           fi
+          if [[ ! "$EXPECTED_CERT_SHA256" =~ ^[[:xdigit:]]{64}$ ]]; then
+            printf 'Protected Android certificate fingerprint is required.\n' >&2
+            exit 1
+          fi
+          EXPECTED_CERT_SHA256=${EXPECTED_CERT_SHA256,,}
           input=signing-input/platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
           apk=signing-input/hermes-g2-release.apk
           if [[ ! -f "$input" || -L "$input" ]]; then
@@ -207,12 +213,50 @@ jobs:
           "$APKSIGNER" sign --debuggable-apk-permitted false --ks "$keystore" --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD "$apk"
           "$APKSIGNER" verify --verbose "$apk" >/dev/null
           verify_release_surface "$apk"
-          expected=f64ccdb8d462b42c6d143cb1323350b052acebc0a5023e14d05fea86ef7766d4
-          actual=$($APKSIGNER verify --print-certs "$apk" | python3 -c 'import sys
-          for line in sys.stdin:
-              if "certificate SHA-256 digest:" in line:
-                  print(line.rsplit(":", 1)[1].strip().lower()); break')
-          if [[ "$actual" != "$expected" ]]; then
+          cert_report=$($APKSIGNER verify --verbose --print-certs "$apk")
+          if ! parsed_cert=$(python3 -c 'import re, sys
+          digests = []
+          subjects = []
+          signer_counts = []
+          source_stamps = []
+          for raw_line in sys.stdin:
+              line = raw_line.rstrip("\r\n")
+              digest = re.fullmatch(r"Signer #(\d+) certificate SHA-256 digest: ([0-9a-fA-F]{64})", line)
+              subject = re.fullmatch(r"Signer #(\d+) certificate DN: (.+)", line)
+              signer_count = re.fullmatch(r"Number of signers: (\d+)", line)
+              source_stamp = re.fullmatch(r"Verified for SourceStamp: (true|false)", line)
+              if digest:
+                  digests.append((int(digest.group(1)), digest.group(2).lower()))
+              elif subject:
+                  subjects.append((int(subject.group(1)), subject.group(2)))
+              elif signer_count:
+                  signer_counts.append(int(signer_count.group(1)))
+              elif source_stamp:
+                  source_stamps.append(source_stamp.group(1) == "true")
+          if (len(digests) != 1 or len(subjects) != 1 or signer_counts != [1]
+                  or source_stamps != [False] or digests[0][0] != 1 or subjects[0][0] != 1):
+              raise SystemExit(1)
+          print(digests[0][1])
+          print(subjects[0][1])' <<< "$cert_report"); then
+            printf 'APK must contain exactly one signing identity.\n' >&2
+            exit 1
+          fi
+          mapfile -t cert_fields <<< "$parsed_cert"
+          if [[ ${#cert_fields[@]} -ne 2 ]]; then
+            printf 'APK must contain exactly one signing identity.\n' >&2
+            exit 1
+          fi
+          actual=${cert_fields[0]}
+          subject=${cert_fields[1]}
+          if [[ -z "$subject" ]]; then
+            printf 'Signing certificate subject is unavailable.\n' >&2
+            exit 1
+          fi
+          if [[ "${subject,,}" == *"cn=android debug"* ]]; then
+            printf 'Development signing identity cannot protect a production release.\n' >&2
+            exit 1
+          fi
+          if [[ "$actual" != "$EXPECTED_CERT_SHA256" ]]; then
             printf 'Protected APK certificate verification failed.\n' >&2
             exit 1
           fi

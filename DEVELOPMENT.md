@@ -134,6 +134,11 @@ unsigned input.
 The protected main workflow signs that verified release artifact, never the
 debug APK, and repeats the manifest, debuggable, and DEX surface checks both
 before and after signing without checking out repository code beside secrets.
+It also requires `ANDROID_RELEASE_CERT_SHA256` to match the signed APK and rejects
+an `Android Debug` certificate subject. The current owner install uses the legacy
+local Android development key, so `PROTECTED_RELEASE_ENABLED` remains `false`
+until an explicit production-key and app-data migration plan is approved; do not
+promote the same-certificate internal upgrade-validation APK as a release.
 
 TDD evidence for this feature: the protocol/source-set tests were first recorded
 RED with the debug-control protocol module missing; the CLI suite was recorded RED

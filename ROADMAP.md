@@ -15,12 +15,13 @@ Current as of 23 August 2026. `main` is the canonical branch.
   companion, exact-R1 timestamped battery persistence, ACK-resistant polling,
   the current health parity matrix, modern phone/glasses design contracts, and
   a debug-only ADB harness with release artifact exclusion. The complete host
-  suite passes 578/578, the cross-feature matrix passes 74/74, typechecking and
-  diff hygiene pass, and all 18 phone XML files parse. Exact protected debug,
-  unsigned production, signed release and same-certificate Fold7 upgrade proofs
-  are recorded in `HANDOVER.md`. Real licensed Hermes-provider deployment and
-  wearer-optical evidence remain explicit external gates rather than inferred
-  successes.
+  suite passes 579/579, the cross-feature matrix passes 74/74, typechecking and
+  diff hygiene pass, and all 18 phone XML files parse. Exact debug, unsigned
+  production-surface and legacy-development-certificate Fold7 upgrade proofs are
+  recorded in `HANDOVER.md`. Protected production signing is fail-closed until a
+  non-development key and migration plan are explicitly approved. Real licensed
+  Hermes-provider deployment and wearer-optical evidence remain explicit external
+  gates rather than inferred successes.
 
 ### Background assistant tasks
 
@@ -159,14 +160,19 @@ Current as of 23 August 2026. `main` is the canonical branch.
   Remaining physical postures and TalkBack are operational evidence gates. See
   `docs/phone-ui-design-language.md`.
 
-- **IMPLEMENTED — protected release consumes only a release variant (23 August
-  2026).** PR CI compiles debug code separately, then assembles and verifies an
+- **IMPLEMENTED / PRODUCTION SIGNING BLOCKED — protected release consumes only
+  a release variant (23 August 2026).** PR CI compiles debug code separately,
+  then assembles and verifies an
   explicitly unsigned production bundle. Positive unsigned attestation rejects
   v1 entries and every pre-central-directory signing gap, including corrupted
   signing blocks. Manifest, DEX and JavaScript scans reject the debug receiver,
   action and control implementation. The source-free protected job repeats those
-  checks, refuses debuggable signing, applies the exact protected certificate and
-  publishes only the renamed release artifact.
+  checks, refuses debuggable signing, requires the configured release-certificate
+  fingerprint, rejects an `Android Debug` subject, and publishes only the renamed
+  release artifact. The owner install still uses the legacy local Android
+  development certificate; its same-certificate non-debuggable build is internal
+  upgrade evidence, not a production release. A new production identity requires
+  an explicit signing-key and app-data migration decision.
 
 - **DONE / PRIVATE DEPLOYMENT — sleep voice, HUD signal/R1, and WSS bridge (22 August 2026).**
   A sleeping R1 long-press now wakes directly into assistant push-to-talk;
@@ -208,14 +214,17 @@ Current as of 23 August 2026. `main` is the canonical branch.
   `docs/audit-remediation-2026-08-21.md` and
   `docs/release-security.md`.
 
-- **DONE — enforced release governance (verified 23 August 2026).** The
+- **DONE / PROTECTED PUBLICATION DISABLED — enforced release governance
+  (verified 23 August 2026).** The
   Benny-authorized public repository has API-verified `main` protection:
   strict `release-gate` and `codeql`, one stale-dismissed approving review,
   conversation resolution, enforced admins, linear history, and blocked
-  force-push/deletion. `PROTECTED_RELEASE_ENABLED=true`. Protected Release
-  Validation run `32604871016` succeeded at canonical
+  force-push/deletion. `PROTECTED_RELEASE_ENABLED=false` after the final signer
+  audit identified the legacy development key. The historically named Protected
+  Release Validation run `32604871016` succeeded at canonical
   `main@712cb644d9dd017158a6359ea494ec2ab6beb9b1`, including the isolated
-  source-free `protected-release` signing job. PR builds still receive no
+  source-free signing job, but its Android Debug identity makes it internal build
+  evidence rather than production-release evidence. PR builds still receive no
   signing credentials or publishable APK.
 
 - **DONE — history consolidation.** The original release history, reviewed

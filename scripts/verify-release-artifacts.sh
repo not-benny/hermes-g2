@@ -40,20 +40,29 @@ for tool in "$ZIPALIGN" "$AAPT" "$APKSIGNER"; do
   if [[ ! -x "$tool" ]]; then printf 'required Android build tool not found: %s\n' "$tool" >&2; exit 1; fi
 done
 
-EXPECTED_CERT_SHA256=f64ccdb8d462b42c6d143cb1323350b052acebc0a5023e14d05fea86ef7766d4
 signing_mode=${HERMES_SIGNING_MODE:-protected}
 artifact_variant=${HERMES_ARTIFACT_VARIANT:-release}
+LEGACY_DEVELOPMENT_CERT_SHA256=f64ccdb8d462b42c6d143cb1323350b052acebc0a5023e14d05fea86ef7766d4
 actual_cert=
+actual_subject=
 case "$signing_mode" in
   protected|untrusted)
     if ! "$APKSIGNER" verify --verbose "$APK" >/dev/null; then
       printf 'signed APK verification failed\n' >&2
       exit 1
     fi
-    actual_cert=$($APKSIGNER verify --print-certs "$APK" | python3 -c 'import sys
-for line in sys.stdin:
-    if "certificate SHA-256 digest:" in line:
-        print(line.rsplit(":",1)[1].strip()); break')
+    cert_report=$($APKSIGNER verify --verbose --print-certs "$APK")
+    if ! parsed_cert=$(python3 scripts/parse-apksigner-cert-report.py <<< "$cert_report"); then
+      printf 'APK must contain exactly one signing identity\n' >&2
+      exit 1
+    fi
+    mapfile -t cert_fields <<< "$parsed_cert"
+    if [[ ${#cert_fields[@]} -ne 2 ]]; then
+      printf 'APK must contain exactly one signing identity\n' >&2
+      exit 1
+    fi
+    actual_cert=${cert_fields[0]}
+    actual_subject=${cert_fields[1]}
     ;;
   unsigned)
     python3 - "$APK" <<'PY'
@@ -106,13 +115,33 @@ PY
 esac
 case "$signing_mode" in
   protected)
-    if [[ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]]; then
+    expected_cert=${HERMES_PROTECTED_CERT_SHA256:-}
+    if [[ ! "$expected_cert" =~ ^[[:xdigit:]]{64}$ ]]; then
+      printf 'protected certificate fingerprint is not configured\n' >&2
+      exit 1
+    fi
+    expected_cert=${expected_cert,,}
+    if [[ -z "$actual_subject" ]]; then
+      printf 'APK signing certificate subject is unavailable\n' >&2
+      exit 1
+    fi
+    if [[ "${actual_subject,,}" == *"cn=android debug"* ]]; then
+      printf 'development signing identity cannot protect a production release\n' >&2
+      exit 1
+    fi
+    if [[ "$actual_cert" != "$expected_cert" ]]; then
       printf 'unexpected APK signing certificate\n' >&2
       exit 1
     fi
     ;;
   untrusted)
-    if [[ "$actual_cert" == "$EXPECTED_CERT_SHA256" ]]; then
+    protected_cert=${HERMES_PROTECTED_CERT_SHA256:-}
+    if [[ "$actual_cert" == "$LEGACY_DEVELOPMENT_CERT_SHA256" &&
+          "${HERMES_ALLOW_LEGACY_DEVELOPMENT_CERT:-false}" != "true" ]]; then
+      printf 'untrusted validation must not use the owner development certificate\n' >&2
+      exit 1
+    fi
+    if [[ -n "$protected_cert" && "$actual_cert" == "${protected_cert,,}" ]]; then
       printf 'untrusted validation APK must not use the protected signing certificate\n' >&2
       exit 1
     fi

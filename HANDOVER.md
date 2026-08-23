@@ -24,11 +24,14 @@ branches:
   modules.
 
 The open PR heads are historical inputs only. The combined branch is the
-authoritative delivery vehicle. Its complete host suite passes 578/578, the
+authoritative delivery vehicle. Its complete host suite passes 579/579, the
 cross-feature completion matrix passes 74/74, TypeScript typechecking and diff
-hygiene pass, and all 18 phone XML files parse. Debug, unsigned-release, signed-
-release and same-certificate Fold7 evidence is recorded against the frozen
-artifact candidate before merge. A real configured/licensed Hermes gateway
+hygiene pass, and all 18 phone XML files parse. Debug, unsigned release-surface
+and internal same-certificate Fold7 evidence is recorded against the frozen
+artifact candidate before merge. The installed app's legacy Android development
+certificate supports only internal same-certificate upgrade validation; protected
+production signing remains blocked pending an explicit key and data-migration
+decision. A real configured/licensed Hermes gateway
 remains an external deployment evidence gate; the repository provides a
 certificate-validated loopback WSS/RPC integration without inventing provider
 or deployment claims.
@@ -39,9 +42,11 @@ The frozen artifact source is
 `8fbdab9a7a19bf2b5543d26787b9660b9ca304d7`. With the locked dependency graph,
 JDK 21, Android SDK/build tools 35.0.1 and NDK 27.2:
 
-- the full host suite passes 578/578, the cross-feature matrix passes 74/74,
-  typechecking and `git diff --check` pass, and all 18 phone XML files parse;
-- the protected-cert debug APK is 195,906,735 bytes with SHA-256
+- the frozen runtime-artifact source passed 578/578 host tests and the 74/74
+  cross-feature matrix. The final branch, including the later signing-identity
+  regression, passes 579/579; typechecking and `git diff --check` pass, and all
+  18 phone XML files parse;
+- the legacy-development-cert debug APK is 195,906,735 bytes with SHA-256
   `358402611921874324945928c2671321a67e14f2ac89d7d4c2a55fa7c3dace30`;
 - that exact debug artifact upgrade-installed over USB on the Fold7, launched
   without a fatal marker and reached an online G2 session. Exact-generation
@@ -59,12 +64,15 @@ JDK 21, Android SDK/build tools 35.0.1 and NDK 27.2:
   SHA-256 `74cd0ff5f03124d3eed895a88bf9364c9a6050b9758129168197f64886d5bc50`;
   it is non-debuggable, has no signature material and contains no debug-control
   manifest, DEX or JavaScript surface; and
-- the locally protected-signed release APK is 185,774,026 bytes with SHA-256
+- the locally signed, non-debuggable internal upgrade-validation APK is
+  185,774,026 bytes with SHA-256
   `b2d8b2cebf4e596a85fcc930c9023a92a4be441609f4c25ef9ba5273809b3fc9`.
-  It verifies under the expected certificate with v2/v3 signatures and
+  It verifies under the Fold7's existing `CN=Android Debug` development
+  certificate with v2/v3 signatures and
   debuggable signing forbidden. The USB-installed base APK reproduced that exact
   digest, Android denied `run-as` as non-debuggable, the debug receiver/action
-  were absent, the process launched, and the G2 session reached ready.
+  were absent, the process launched, and the G2 session reached ready. This is
+  not a production release artifact and must not be published as one;
 
 Repeated debug/release swaps left the optional direct R1 link in bounded retry
 backoff on the final signed-process observation; no false final-session R1 claim
@@ -138,7 +146,8 @@ with the battery, companion, phone-theme and release changes. See
 
 ## Canonical repository and release governance
 
-`main` is the only canonical development branch. Current protected baseline is
+`main` is the only canonical development branch. The ultra candidate's protected
+base is
 `38c9ce1623aea4bfa0ac6d5eb556b23186e66d21` (`feat(g2): run tool tasks in
 the background (#60)`). Do not resume from historical
 `hermes-g2`, `integration/`, `work/`, `wt/`, `fix/`, or dated cleanup branches.
@@ -147,19 +156,28 @@ Public visibility is Benny-authorized and required by the current GitHub plan.
 On 23 August, GitHub API read-back verified `not-benny/hermes-g2` is public and
 `main` requires strict `release-gate` and aggregate `codeql`, conversation
 resolution, enforced admins and linear history; force-push and deletion are
-disabled. The current rule does not require an approving review. The repository variable
-`PROTECTED_RELEASE_ENABLED` is `true`.
+disabled. The current rule does not require an approving review. The repository
+variable `PROTECTED_RELEASE_ENABLED` was set to `false` on 23 August after the
+signer audit identified the legacy Android development key; do not re-enable it
+until the non-development certificate and migration gates below are satisfied.
 
-The most recent protected release validation documented here is run
+The most recent workflow run historically labelled protected release validation is
+run
 [32604871016](https://github.com/not-benny/hermes-g2/actions/runs/32604871016)
 which completed successfully at historical main SHA
 `712cb644d9dd017158a6359ea494ec2ab6beb9b1`.
 Its secret-free `main-build-validation` and source-free `protected-release`
-signing jobs both passed. That run is historical evidence, not evidence for the
-current completion candidate. The candidate workflow now builds an explicitly
+signing jobs both passed, but the signing identity was the same local Android
+development certificate and is therefore not production-release evidence. That
+run is historical build evidence, not evidence for the current completion
+candidate. The candidate workflow now builds an explicitly
 unsigned production bundle, proves there is no v1 signature or pre-central-
 directory signing material, rejects debug manifest/DEX/JavaScript surfaces,
 and signs only that exact release artifact with debuggable signing forbidden.
+The protected job now also requires an explicit `ANDROID_RELEASE_CERT_SHA256`
+and rejects an `Android Debug` subject. The only available local identity is the
+legacy development key used by the current owner install, so production signing
+is deliberately fail-closed until an explicit key/migration decision is made.
 PR jobs still receive no protected signing credential and publish no APK.
 
 ## Current outcomes: Hermes cockpit and read-only contextual dashboards

@@ -398,18 +398,6 @@ android {
     jniLibs.srcDirs += ["$projectDir/src/main/jniLibs"]
   }
 
-  signingConfigs {
-    debug {
-      def protectedStore = System.getenv("ANDROID_SIGNING_STORE_FILE")
-      if (protectedStore != null && !protectedStore.isEmpty()) {
-        storeFile file(protectedStore)
-        storePassword System.getenv("ANDROID_SIGNING_STORE_PASSWORD")
-        keyAlias System.getenv("ANDROID_SIGNING_KEY_ALIAS")
-        keyPassword System.getenv("ANDROID_SIGNING_KEY_PASSWORD")
-      }
-    }
-  }
-
   // Release verification is deliberately narrower than publishable release builds.
   // The explicit property permits only direct assembleRelease, disconnects the
   // release signing config, and therefore produces a non-publishable unsigned APK.
