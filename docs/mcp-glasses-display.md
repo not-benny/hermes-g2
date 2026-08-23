@@ -24,10 +24,12 @@ authorization remain NO-GO until the gates in
 ## Configuration and permissions
 
 The phone-side assistant is configured in Settings under Assistant. The external
-mode requires a bridge host, port, and shared token. The client now requires a
-certificate-validated `wss://` endpoint, but the available sibling bridge/server
-has not been shown to provide that endpoint or server identity proof; external
-operation therefore remains disabled/NO-GO.
+mode requires a bridge host, port, and shared token. The private deployment now
+uses a certificate-validated `wss://` endpoint with hostname verification and a
+deployment-specific CA; a real authenticated hello/ack passed. That private
+proof does not authorize public operation or publication: adapter licensing,
+generic-client compatibility, privacy, credential and real-G2 tool evidence
+remain open.
 Only grant Android runtime permissions for features you use. Keep Even installed
 for provisioning and official maintenance; Hermes does not replace Even's
 ownership or firmware responsibilities.

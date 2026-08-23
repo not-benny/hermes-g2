@@ -19,7 +19,8 @@ let cachedAtMs = 0;
 const keyedIconCache = new Map<string, { icon: GrayImage | null; atMs: number }>();
 const KEYED_ICON_CACHE_MAX = 128;
 let notificationListenerProxy: any | null = null;
-const notificationPostedListeners = new Set<(notificationKey: string) => void>();
+export type AndroidNotificationEvent = { kind: "posted" | "removed"; key: string };
+const notificationEventListeners = new Set<(event: AndroidNotificationEvent) => void>();
 
 function invalidateIconCaches(): void {
   cachedAtMs = 0;
@@ -56,6 +57,12 @@ export type AndroidNotification = {
   infoText: string;
   summaryText: string;
   category: string;
+  channelId: string;
+  sender: string;
+  groupKey: string;
+  groupSummary: boolean;
+  importance: number;
+  clearable: boolean;
   lines: string[];
   postTime: number;
   when: number;
@@ -183,6 +190,17 @@ export function readActiveNotifications(maxNotifications = 50): AndroidNotificat
   }
 }
 
+export function readNotificationByKey(key: string): AndroidNotification | null {
+  if (!global.isAndroid || !key) return null;
+  try {
+    return normalizeNotification(JSON.parse(String(
+      com.faceclaw.app.FaceclawMediaNotificationListenerService.getNotificationJsonForKey(key),
+    )));
+  } catch {
+    return null;
+  }
+}
+
 export function readActiveNotificationApps(maxApps = 30): AndroidNotificationApp[] {
   if (!global.isAndroid || maxApps <= 0) return [];
   try {
@@ -274,11 +292,17 @@ export function dismissAllNotifications(): number {
 }
 
 export function onAndroidNotificationPosted(listener: (notificationKey: string) => void): () => void {
-  notificationPostedListeners.add(listener);
+  return onAndroidNotificationEvent((event) => {
+    if (event.kind === "posted") listener(event.key);
+  });
+}
+
+export function onAndroidNotificationEvent(listener: (event: AndroidNotificationEvent) => void): () => void {
+  notificationEventListeners.add(listener);
   ensureNotificationPostedListener();
   return () => {
-    notificationPostedListeners.delete(listener);
-    if (notificationPostedListeners.size === 0) {
+    notificationEventListeners.delete(listener);
+    if (notificationEventListeners.size === 0) {
       removeNotificationPostedListener();
     }
   };
@@ -302,6 +326,12 @@ function normalizeNotification(value: any): AndroidNotification | null {
     infoText: String(value.infoText ?? ""),
     summaryText: String(value.summaryText ?? ""),
     category: String(value.category ?? ""),
+    channelId: String(value.channelId ?? ""),
+    sender: String(value.sender ?? ""),
+    groupKey: String(value.groupKey ?? ""),
+    groupSummary: Boolean(value.groupSummary),
+    importance: Number(value.importance),
+    clearable: Boolean(value.clearable),
     lines: Array.isArray(value.lines) ? value.lines.map((line: unknown) => String(line)).filter(Boolean) : [],
     postTime: Number(value.postTime) || 0,
     when: Number(value.when) || 0,
@@ -313,14 +343,10 @@ function ensureNotificationPostedListener(): void {
   if (!global.isAndroid || notificationListenerProxy) return;
   notificationListenerProxy = new com.faceclaw.app.FaceclawNotificationListener({
     onNotificationPosted: (notificationKey: string) => {
-      invalidateIconCaches();
-      const key = String(notificationKey);
-      const listeners = Array.from(notificationPostedListeners);
-      setTimeout(() => {
-        for (const listener of listeners) {
-          listener(key);
-        }
-      }, 0);
+      dispatchNotificationEvent({ kind: "posted", key: String(notificationKey) });
+    },
+    onNotificationRemoved: (notificationKey: string) => {
+      dispatchNotificationEvent({ kind: "removed", key: String(notificationKey) });
     },
   });
   com.faceclaw.app.FaceclawMediaNotificationListenerService.addNotificationListener(
@@ -334,6 +360,14 @@ function removeNotificationPostedListener(): void {
     notificationListenerProxy,
   );
   notificationListenerProxy = null;
+}
+
+function dispatchNotificationEvent(event: AndroidNotificationEvent): void {
+  invalidateIconCaches();
+  const listeners = Array.from(notificationEventListeners);
+  setTimeout(() => {
+    for (const listener of listeners) listener(event);
+  }, 0);
 }
 
 function normalizeAction(value: any): AndroidNotificationAction | null {

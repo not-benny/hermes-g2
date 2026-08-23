@@ -1,7 +1,9 @@
 import { getDefaultMediumFont, getDefaultSmallFont } from "../../graphics/bdffont";
 import { GrayImage } from "../../graphics/image";
 import { clamp } from "../../util/numeric-util";
-import { addImuListener, imuSourceLabel, setImuReportEnabled, type ImuReading } from "../../native/imu";
+import { glassesMotionService } from "../../native/glasses-motion-service";
+import { imuSourceLabel, type ImuReading } from "../../native/imu";
+import type { MotionLease, MotionSnapshot, Orientation } from "../../motion/motion-service";
 import { GESTURE_DOUBLE_CLICK } from "../../ui/gestures";
 import { Layer, type DashboardInputEvent, type LayerContext } from "../../ui/layers";
 import { shell } from "../../ui/shell/shell";
@@ -10,7 +12,6 @@ import { shell } from "../../ui/shell/shell";
 // ImuReportPace codes 100..1000 (step 100); the real delivery rate is
 // device-defined. An out-of-range value makes the firmware stream empty
 // (all-zero) samples. 200 matches the reference EvenHub running-tracker app.
-const IMU_REPORT_PACE = 200;
 // How often to reconcile the IMU on/off state with window visibility.
 const RECONCILE_INTERVAL_MS = 400;
 
@@ -26,10 +27,14 @@ export class AccelerometerDemoLayer implements Layer {
   private reading: ImuReading | null = null;
   private sampleCount = 0;
   private peak = 0;
+  private orientation: Orientation | null = null;
+  private motionState = "inactive";
+  private calibrationQuality = "uncalibrated";
   private enabled = false;
   private removed = false;
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
-  private unsubscribe: (() => void) | null = null;
+  private lease: MotionLease | null = null;
+  private lastSnapshotKey = "";
 
   constructor(
     private readonly windowId: string,
@@ -39,13 +44,12 @@ export class AccelerometerDemoLayer implements Layer {
   }
 
   private start(): void {
-    this.unsubscribe = addImuListener((reading) => {
+    this.lease = glassesMotionService.acquire({ imuRate: "interactive" }, (snapshot) => {
       if (this.removed) return;
-      this.reading = reading;
-      this.sampleCount++;
-      this.peak = Math.max(this.peak, Math.abs(reading.x), Math.abs(reading.y), Math.abs(reading.z));
+      this.onMotion(snapshot);
       this.requestRender();
     });
+    this.lease.setActive(false);
     this.reconcileTimer = setInterval(() => this.reconcile(), RECONCILE_INTERVAL_MS);
     this.reconcile();
   }
@@ -53,10 +57,11 @@ export class AccelerometerDemoLayer implements Layer {
   /** Match the IMU on/off state to whether this page is currently visible. */
   private reconcile(): void {
     if (this.removed) return;
+    this.onMotion(glassesMotionService.snapshot());
     const visible = shell.isWindowVisible(this.windowId);
     if (visible === this.enabled) return;
     this.enabled = visible;
-    setImuReportEnabled(visible, IMU_REPORT_PACE);
+    this.lease?.setActive(visible);
     this.requestRender();
   }
 
@@ -66,12 +71,37 @@ export class AccelerometerDemoLayer implements Layer {
       clearInterval(this.reconcileTimer);
       this.reconcileTimer = null;
     }
-    this.unsubscribe?.();
-    this.unsubscribe = null;
-    if (this.enabled) {
-      setImuReportEnabled(false, IMU_REPORT_PACE);
-      this.enabled = false;
+    this.lease?.release();
+    this.lease = null;
+    this.enabled = false;
+  }
+
+  private onMotion(snapshot: MotionSnapshot): void {
+    const key = JSON.stringify([
+      snapshot.state,
+      snapshot.imuReading,
+      snapshot.orientation,
+      snapshot.calibrationQuality,
+      snapshot.acceptedSamples,
+      snapshot.rejectedSamples,
+    ]);
+    if (key === this.lastSnapshotKey) return;
+    this.lastSnapshotKey = key;
+    this.motionState = snapshot.state;
+    this.calibrationQuality = snapshot.calibrationQuality;
+    this.orientation = snapshot.orientation;
+    if (!snapshot.imuReading) {
+      this.reading = null;
+      return;
     }
+    this.reading = snapshot.imuReading;
+    this.sampleCount = snapshot.acceptedSamples;
+    this.peak = Math.max(
+      this.peak,
+      Math.abs(this.reading.x),
+      Math.abs(this.reading.y),
+      Math.abs(this.reading.z),
+    );
   }
 
   paint(ctx: LayerContext): GrayImage {
@@ -81,7 +111,7 @@ export class AccelerometerDemoLayer implements Layer {
     const image = new GrayImage(width, height, 0);
 
     image.drawText(small, 20, 8, "Accelerometer", 220);
-    const status = this.enabled ? "IMU on" : "IMU off";
+    const status = this.enabled ? `IMU ${this.motionState}` : "IMU off";
     image.drawText(small, width - 20 - small.measureText(status), 8, status, 150);
 
     if (this.reading) {
@@ -107,6 +137,17 @@ export class AccelerometerDemoLayer implements Layer {
         `source: ${imuSourceLabel(this.reading.source)}    samples: ${this.sampleCount}`,
         130,
       );
+      if (this.orientation) {
+        image.drawText(
+          small,
+          22,
+          y + 22,
+          this.calibrationQuality === "uncalibrated"
+            ? "level/posture: uncalibrated"
+            : `level: ${this.orientation.level ? "yes" : "no"}   posture: ${this.orientation.posture}`,
+          130,
+        );
+      }
     } else {
       const message = this.enabled
         ? "Waiting for IMU data…"

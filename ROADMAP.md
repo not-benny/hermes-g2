@@ -6,18 +6,67 @@ Current as of 22 August 2026. `main` is the canonical branch.
 
 ## Now
 
-### Local reader and teleprompter
+### Notification priority and digests
 
-- **IN PROGRESS — bounded offline reader.** The candidate reuses Files/document
-  windows and Android SAF for one user-selected UTF-8 text/Markdown URI. It adds
-  bounded inert layout, progress/bookmark, typography, ring/arm paging,
-  foreground-only auto-scroll, and synchronous close/replacement cancellation.
-  Host tests, typecheck, Android build, A32 install/launch, and a real-G2
-  compositor render pass. Final phone-picker plus direct ring/touch
-  pause/resume/bookmark/restore evidence and reviewed PR/green CI remain before
-  DONE. See `docs/local-reader.md`.
+- **IN PROGRESS — local privacy-first triage (22 August 2026).** A deterministic
+  pure reducer now covers sender/channel/category/app/default precedence, per-app
+  defaults/reset, urgent/immediate/digest/mute tiers, quiet hours, cooldown,
+  cross-key deduplication, global/per-app rate caps, bounded fair digest draining,
+  update replacement, Android removal, dismiss/clear tombstones, restart, and
+  wall/timezone changes. Android emits post and removal events with current bounded
+  metadata; glasses show “Why” for immediate items and offer a reviewable digest.
+  Persisted state contains aggregate counts only and the old external icon-debug
+  files/package logs are removed. Host tests, typecheck and Android build pass;
+  reversible A32 synthetic post → queued update → removal transitions were observed
+  through aggregate-only metadata. Final independent review, CI and remote PR
+  read-back remain the delivery gates. See `docs/notification-triage.md`.
+
+### Renderer performance
+
+- **IMPLEMENTED / HARDWARE FLOOR MEASURED — renderer hot paths (22 August
+  2026).** Added a fixed 60-second, privacy-safe A32 benchmark and separated
+  paint, snapshot/bridge, composite, pack, compression/plan, Bluetooth send,
+  application ACK, phone framestats, GC, and PSS evidence. Ordinary redraws
+  coalesce, idle Java submission skips one measured timer hop, queued images
+  outrank redundant heartbeats, native typed-array copying replaces the slower
+  generic copy, and repetitive success logs leave the release hot path. Receipt
+  correctness is stronger: strict operations require a successful terminal
+  outcome, first-finish wins across Java/TS, and multi-message frames complete
+  only after every application ACK. Host tests pass 266/266, typecheck/build
+  pass, and an installed USB A32 candidate received both ACKs for a real
+  two-message G2 image before reporting `sent`. A clean fixed-duration candidate
+  percentile remains open because another concurrent device installer replaced
+  the package during the run; do not claim the target from contaminated or
+  zero-frame samples. No firmware/texture-cache device command was added.
 
 ### Repository and release
+
+- **DONE / PRIVATE DEPLOYMENT — sleep voice, HUD signal/R1, and WSS bridge (22 August 2026).**
+  A sleeping R1 long-press now wakes directly into assistant push-to-talk;
+  quick-close mode names its controls; the HUD adds phone signal and keeps a
+  configured R1 visible while battery is unknown. Battery requests precede rich
+  history and both standard-GATT/protocol values feed Health and HUD. The private
+  Hermes bridge now has a certificate-validated WSS deployment with its private
+  key outside the repository. Host tests, build, APK checks, independent review,
+  and a real WSS handshake pass. The exact APK installed/launched on the Fold7
+  and authenticated to Hermes with 33 phone tools. Both G2 arms then reached
+  session ready and direct R1 BLE reached MTU-247/notify readiness on the exact
+  candidate. The wearer confirmed signal bars, sleep long-press voice capture,
+  clear close-mode guidance, and a matching R1 battery percentage in HUD and
+  Health. The wearer verified Health is explicitly labelled as hideable rather
+  than closeable in quick-close mode and tap hides it; the launcher is labelled
+  pinned.
+
+- **IMPLEMENTED / FOLD7 VISUAL AND POSTURE VALIDATION BLOCKED — foldable phone UI (22 August 2026).**
+  Preview 2 removes the portrait lock, handles live cover/unfolded/rotation/
+  tabletop/multi-window bounds, bounds wide content, preserves platform font
+  scaling and 48dp controls, and retains the existing G2 compositor contract.
+  Host fixture, build, APK, ABI, signing, and 16 KiB evidence are required for
+  publication. The exact debug APK installed and ran as a live process on an
+  SM-F966B with Android 16. Both G2 arms later reached session ready and direct
+  R1 BLE connected, but no R1 HUD indicator was visible. Unlocked Hermes-phone
+  visual, physical fold-transition, rotation, tabletop, and multi-window proof
+  remains blocked.
 
 - **DONE — full audit remediation and release path (21 August 2026).** The
   merged PR #28 implementation removes private-data logging, encrypts credential
@@ -31,8 +80,8 @@ Current as of 22 August 2026. `main` is the canonical branch.
   `docs/audit-remediation-2026-08-21.md` and
   `docs/release-security.md`.
 
-- **IN PROGRESS — enforced release governance (22 August 2026).** The follow-up
-  candidate removes signing secrets and APK publication from PR jobs, gives
+- **DONE — enforced release governance (22 August 2026).** The merged PR #40
+  follow-up removes signing secrets and APK publication from PR jobs, gives
   untrusted builds an isolated debug identity, and separates secret-free `main`
   validation from a source-free protected signing job. Vulnerability alerts and
   automated security fixes are enabled. GitHub still returned the private-plan
@@ -59,6 +108,25 @@ Current as of 22 August 2026. `main` is the canonical branch.
 
 ### Connection and lifecycle reliability
 
+- **PARTIAL — shared IMU/compass calibration service (22 August 2026).** One
+  generation-bound owner now arbitrates multi-app sensor demand/rate, stops on
+  screen-off/final release, rejects stale/outlier/interference-like samples,
+  derives bounded level/posture state, and persists only versioned
+  opaque-device-bound calibration quality/neutral metadata. Compass and accelerometer UI expire
+  stale values and label uncertain results. All 303 tests, typecheck and Android
+  build pass. USB A32/G2 evidence proves warmed-session IMU/compass enable ACKs,
+  eight accepted motion samples, prompt dual disable ACKs, and no continuing
+  repaint stream after stop. The resting/off-head G2 emitted no heading or
+  calibration-complete event. A follow-up worn run then proved live `188° S`,
+  level and 54 accepted samples but still no firmware calibration events. Compass
+  now exposes a bounded local start/cancel workflow that sends no BLE command,
+  requires filtered heading coverage plus level-neutral IMU evidence, persists
+  only `poor` summary quality, and fails closed across timeout/session/restart;
+  firmware start/complete remains a separate at-most-`fair` path. Host lifecycle
+  and 576×288 viewport coverage pass, but exact-candidate hardware validation and
+  a meaningful battery delta remain unproven. Repeat the local flow while
+  worn/moving in a serialized hardware window before marking DONE.
+
 - **DONE — startup connection race.** A delayed constructor-time disconnected
   snapshot can no longer release a newly connecting communicator. Retained
   ownership remains authoritative until exact teardown completion.
@@ -68,15 +136,23 @@ Current as of 22 August 2026. `main` is the canonical branch.
 - **DONE — worker isolation and bounded teardown.** Display and R1 workers have
   separate lifecycle ownership, generation-bound packet acknowledgements, and
   deferred exact-once cleanup.
+- **DONE — truthful independent connection health (22 August 2026).** Optional
+  R1 connect and health work stays off the display worker, and blocking BLE work
+  runs outside its short state monitor under generation ownership. Deterministic
+  blocked-work reads stay below 100 ms. Controls distinguishes G2 from R1 and
+  shows a safe failure class, retry countdown/action, and bounded redacted
+  reconnect/ACK/stale-work/lock-latency counters. USB A32 evidence proves live G2
+  ACK traffic and independent R1 health/packetAck traffic.
 - **TODO — broader device matrix.** Repeat non-destructive startup, reconnect,
   charging, screen-off, and wearer-input checks on additional supported phones
   and G2 firmware revisions without weakening the existing safety gates.
-- **PARTIAL — audit device matrix (21 August 2026).** Same-certificate upgrade,
-  launch, Keystore migration, settings redaction, and log sentinels passed on the
-  authorised Samsung A32. Both G2 arms were visible at the GATT boundary, but the
-  live session was still reconnecting during this run; no wearer/render, Doze,
-  charging, phone-mic, calendar, or R1 value claim is inferred. No pairing,
-  provisioning, reset, wipe, firmware, or permission-dialog action was taken.
+- **PARTIAL — audit device matrix (updated 22 August 2026).** Same-certificate
+  upgrade, launch, Keystore migration, settings redaction, and log sentinels
+  passed on the authorised Samsung A32. A later non-destructive run proves a live
+  two-arm G2 render/ACK session and independent R1 session-open, device-info,
+  health notify and packetAck traffic. Doze, charging, phone-mic, calendar, and
+  additional phone/firmware variants remain open. No pairing, provisioning,
+  reset, wipe, firmware, permission-dialog, or Even-app Bluetooth action occurred.
 
 ## R1 health
 
@@ -115,8 +191,9 @@ Current as of 22 August 2026. `main` is the canonical branch.
   restoration. All 281 host tests, typecheck, and Android build pass. The exact
   APK installed/launched on the A32 and established a live two-arm G2 session
   with ordinary shell-frame transport ACKs. Dynamic-view/HA scroll and reversible
-  toggle evidence is still blocked by the missing authenticated WSS peer and
-  unavailable private HA credentials; no such result is inferred. See
+  private WSS hello/ack is now verified; dynamic-view/HA scroll and reversible
+  toggle evidence remains blocked by unavailable private HA credentials and
+  missing exact-candidate hardware execution; no such result is inferred. See
   `docs/dynamic-glasses-apps.md`.
 - **BLOCKED — public MCP/skill publication.** No public skill or untrusted remote
   rendering until authenticated `wss://` server identity, compatible licensed

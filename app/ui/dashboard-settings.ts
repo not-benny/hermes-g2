@@ -40,6 +40,7 @@ export const BRIGHTNESS_VALUES = ["auto", "0", "10", "20", "30", "40", "50", "60
 export type BrightnessSetting = (typeof BRIGHTNESS_VALUES)[number];
 export type WakeWordAction = "voice-input" | "off" | "turn-screen-on";
 export type NotificationFilterMode = "all" | "important" | "selected";
+export type NotificationAppTier = "default" | "mute" | "digest" | "immediate" | "urgent";
 
 type ConfigSettingOptions<TValue, TId extends string> = {
   id: TId;
@@ -435,6 +436,10 @@ const notificationFilterModeLabels: Record<NotificationFilterMode, string> = {
   selected: "Selected apps",
 };
 
+function utf8Length(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
 export const notificationFilterModeSetting = new ConfigSettingEnum<NotificationFilterMode>({
   id: "notification-filter-mode",
   label: "Notification filter",
@@ -454,6 +459,105 @@ export const notificationAllowedPackagesSetting = new ConfigSettingString({
   formatValue: (value) => `${parseNotificationAllowedPackages(value).length} app${parseNotificationAllowedPackages(value).length === 1 ? "" : "s"}`,
   description: "Apps allowed when Notification filter is set to Selected apps. Manage this list from the Android Glasses Controls page.",
 });
+
+export const notificationAppTiersSetting = new ConfigSettingString({
+  id: "notification-app-tiers",
+  label: "Notification app priorities",
+  storageKey: "notifications.appTiers",
+  defaultValue: "{}",
+  normalize: normalizeNotificationAppTiers,
+  description: "Per-app priority; sender, channel, and category rules take precedence.",
+});
+
+export const notificationRulesSetting = new ConfigSettingString({
+  id: "notification-rules",
+  label: "Notification rules",
+  storageKey: "notifications.rules",
+  defaultValue: "[]",
+  normalize: normalizeNotificationRules,
+  description: "Local-only sender, channel, and category priority rules.",
+});
+
+function normalizeNotificationRules(value: string | null | undefined): string {
+  try {
+    const parsed = JSON.parse(value ?? "[]");
+    if (!Array.isArray(parsed)) return "[]";
+    const rules: Array<{ scope: string; packageName?: string; value: string; tier: string }> = [];
+    for (const candidate of parsed.slice(0, 256)) {
+      const scope = String(candidate?.scope ?? "");
+      const tier = String(candidate?.tier ?? "");
+      const packageName = String(candidate?.packageName ?? "").slice(0, 256);
+      const selector = String(candidate?.value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 128);
+      if (!["sender", "channel", "category"].includes(scope)) continue;
+      if (!["mute", "digest", "immediate", "urgent"].includes(tier) || !selector) continue;
+      const rule = { scope, ...(packageName ? { packageName } : {}), value: selector, tier };
+      const candidateJson = JSON.stringify([...rules, rule]);
+      if (utf8Length(candidateJson) > 32_768) break;
+      rules.push(rule);
+    }
+    return JSON.stringify(rules);
+  } catch {
+    return "[]";
+  }
+}
+
+export const notificationQuietStartSetting = new ConfigSettingString({
+  id: "notification-quiet-start",
+  label: "Quiet hours start",
+  storageKey: "notifications.quietStart",
+  defaultValue: "22:00",
+});
+
+export const notificationQuietEndSetting = new ConfigSettingString({
+  id: "notification-quiet-end",
+  label: "Quiet hours end",
+  storageKey: "notifications.quietEnd",
+  defaultValue: "07:00",
+});
+
+export const notificationTriageMetadataSetting = new ConfigSettingString({
+  id: "notification-triage-metadata",
+  label: "Notification queue metadata",
+  storageKey: "notifications.triageMetadata",
+  defaultValue: "",
+  description: "Bounded aggregate state only; notification content, sender, app and Android keys are not persisted.",
+});
+
+export function parseNotificationAppTiers(value = notificationAppTiersSetting.get()): Record<string, NotificationAppTier> {
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out: Record<string, NotificationAppTier> = {};
+    for (const [rawPackageName, tier] of Object.entries(parsed).slice(0, 1024)) {
+      const packageName = rawPackageName.slice(0, 256);
+      if (!/^[A-Za-z0-9._-]+$/.test(packageName)) continue;
+      if (["mute", "digest", "immediate", "urgent"].includes(String(tier))) {
+        out[packageName] = tier as NotificationAppTier;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function setNotificationAppTier(packageName: string, tier: NotificationAppTier): void {
+  if (!/^[A-Za-z0-9._-]+$/.test(packageName)) return;
+  const tiers = parseNotificationAppTiers();
+  if (tier === "default") delete tiers[packageName];
+  else tiers[packageName] = tier;
+  notificationAppTiersSetting.set(JSON.stringify(tiers));
+}
+
+function normalizeNotificationAppTiers(value: string | null | undefined): string {
+  const bounded: Record<string, NotificationAppTier> = {};
+  for (const [packageName, tier] of Object.entries(parseNotificationAppTiers(value ?? "{}"))) {
+    const candidate = { ...bounded, [packageName]: tier };
+    if (utf8Length(JSON.stringify(candidate)) > 32_768) break;
+    bounded[packageName] = tier;
+  }
+  return JSON.stringify(bounded);
+}
 
 // ---- Beeps / buzzer feedback ----
 // BEEP_EVENTS (keys, defaults, labels) live in event-beeps.ts so a worker
@@ -603,11 +707,23 @@ export const assistantBridgePortSetting = new ConfigSettingString({
   id: "assistant-bridge-port",
   label: "Hermes Agent port",
   storageKey: "assistant.bridgePort",
-  defaultValue: "8790",
+  defaultValue: "8791",
   editorTitle: "Hermes Agent bridge port",
   glassesEditTitle: "Edit Hermes port",
-  description: "TCP port the Hermes Agent bridge listens on. The default is 8790.",
+  description: "TCP port the Hermes Agent bridge listens on. The default is 8791.",
 });
+
+/** One canonical bridge-port resolver for both transport and assistant sessions. */
+export function resolveAssistantBridgePort(): number {
+  const raw = assistantBridgePortSetting.get().trim();
+  // Deployment port moved when the Hermes bridge gained mandatory WSS. Migrate
+  // only the exact historical default; every custom port remains untouched.
+  if (raw === "8790") {
+    assistantBridgePortSetting.set("8791");
+    return 8791;
+  }
+  return parseInt(raw, 10) || 8791;
+}
 
 export const assistantBridgeTokenSetting = new ConfigSettingString({
   id: "assistant-bridge-token",

@@ -100,7 +100,7 @@ test("durable PR and main CI enforce the release safety matrix", () => {
   assert.match(verifier, /llvm-readelf/);
   assert.match(verifier, /ground-truth-private/);
   assert.match(verifier, /"\$APKSIGNER" verify/);
-  assert.match(verifier, /versionCode='1000001'/);
+  assert.match(verifier, /versionCode='1000002'/);
   assert.match(verifier, /private content in APK/);
   assert.match(verifier, /EXPECTED_CERT_SHA256/);
   assert.match(verifier, /unexpected native or WhatsApp artifact inventory/);
@@ -120,8 +120,8 @@ test("Android native inputs and release metadata are pinned", () => {
   assert.match(gradle, /faceclawCmakeVersion = "3\.22\.1"/);
   assert.match(gradle, /MessageDigest\.getInstance\("SHA-256"\)/);
   assert.match(gradle, /\.part/);
-  assert.match(gradle, /versionCode 1000001/);
-  assert.match(gradle, /versionName "1\.0\.0-preview\.1"/);
+  assert.match(gradle, /versionCode 1000002/);
+  assert.match(gradle, /versionName "1\.0\.0-preview\.2"/);
   for (const abi of ["armeabi-v7a", "x86", "x86_64"]) {
     assert.ok(gradle.includes(`exclude "lib/${abi}/**"`));
   }

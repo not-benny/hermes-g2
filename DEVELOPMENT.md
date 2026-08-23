@@ -57,6 +57,16 @@ npx ns run android --device <adb-device-id> --justlaunch
 Use package-filtered `adb logcat` for runtime evidence. A successful build is not
 the same as a successful install or hardware test; report each separately.
 
+### Foldable and resizable phone UI
+
+Do not restore a portrait activity lock or calculate phone layouts from the
+physical display. Android 16 can ignore orientation restrictions on large
+screens, and fold/multi-window transitions can resize a live activity. Keep
+phone breakpoints in `app/phone-ui/window-layout.ts`, driven from the current
+page's `getActualSize()`. Run `node --test tests/foldable-phone-ui.test.mjs`
+for the cover/unfolded/landscape/tabletop/split-screen contract. The matrix and
+source links are in `notes/fold7-compatibility-matrix-2026-08-22.md`.
+
 ## Repository map
 
 - `app/assistant/` — bridge, MCP server, tool registry, and direct backends
