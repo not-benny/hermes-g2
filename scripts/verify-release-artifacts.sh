@@ -148,7 +148,7 @@ case "$signing_mode" in
     ;;
 esac
 badging=$($AAPT dump badging "$APK")
-if [[ "$badging" != *"package: name='com.faceclaw.app' versionCode='1000002' versionName='1.0.0-preview.2'"* ]]; then
+if [[ "$badging" != *"package: name='com.faceclaw.app' versionCode='1000003' versionName='1.0.0-preview.3'"* ]]; then
   printf 'unexpected APK package identity or version\n' >&2
   exit 1
 fi

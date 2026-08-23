@@ -11,9 +11,14 @@ histories and numerous task branches; they were deliberately consolidated on
 21 August 2026. Do not base new work on archived `work/`, `wt/`, `integration/`,
 or dated cleanup branches.
 
-Use a focused feature branch, keep commits reviewable, and merge through a pull
-request. Never force-push or rewrite a reviewed shared branch unless the owner
-explicitly asks for that exact operation.
+`STATUS.md` is the only current-state authority and `ROADMAP.md` contains the
+single active milestone. Feature documents describe component contracts; dated
+notes and pull-request descriptions are evidence, not competing priorities.
+
+Until the Owner Hermes Loop milestone closes, work only on a failed acceptance
+item or a P0/P1 security, privacy, data-loss, or hardware-safety finding. Use one
+short-lived branch and one pull request at a time. Never force-push or rewrite a
+reviewed shared branch unless the owner explicitly asks for that exact operation.
 
 ## Toolchain
 
@@ -69,87 +74,24 @@ source links are in `notes/fold7-compatibility-matrix-2026-08-22.md`.
 
 ## Debug-only ADB control harness
 
-Debug APKs expose a deliberately narrow ordered-broadcast receiver for authorised
-ADB-shell automation. The receiver exists only in Android's `debug` source set,
-requires the signature-level `android.permission.DUMP` permission held by the ADB
-shell, and checks `BuildConfig.DEBUG` again at runtime. Release APKs must contain
-neither `FaceclawDebugControlReceiver` nor `com.faceclaw.app.DEBUG_CONTROL_V1`.
-
-The host command reads exactly one version-1 JSON envelope from stdin and writes
-exactly one JSON receipt to stdout:
+Authorised debug APKs expose a narrow, generation-bound ADB automation harness.
+Query current state before any mutation:
 
 ```bash
 printf '%s\n' '{"v":1,"id":"query-1","command":"state","args":{}}' \
   | node scripts/hermes-g2-debug-control.mjs
 ```
 
-The initial `state` receipt supplies the process, session, window, and capture
-generations required by every mutating command. Commands with stale generations,
-duplicate IDs, malformed fields, an offline G2 session, or invalid fixture state
-fail closed. The command selects the sole authorised online ADB target. If more
-than one target is listed, set an exact wireless or USB serial explicitly:
-
-```bash
-HERMES_G2_ADB_SERIAL='192.0.2.10:37123' \
-  node scripts/hermes-g2-debug-control.mjs < request.json
-# Equivalent when ANDROID_SERIAL is unset:
-node scripts/hermes-g2-debug-control.mjs --serial '192.0.2.10:37123' < request.json
-```
-
-The allowlist is limited to display wake/blank, fixed launcher app IDs, and two
-procedural voice fixtures. It deliberately exposes no synthetic wearer input:
-clicks, scrolls, long presses, and wakewords can redirect as UI focus changes or
-start production microphone capture. There is no arbitrary intent, shell, path,
-URL, keycode, PCM, file, transcript, token, or credential input. Mutating request
-IDs remain tombstoned for the whole connected debug session; read-only query
-churn cannot evict them, and a full mutation ledger fails closed.
-Receipts contain only bounded state and `empty`/`nonempty` transcript classes.
-Fixtures are generated in memory and traverse the production endpoint detector
-and Moonshine recognizer; neither samples nor recognized content are logged.
-
-Focused verification:
-
-```bash
-node --test tests/debug-control.test.mjs tests/debug-control-android.test.mjs tests/debug-control-cli.test.mjs
-npm run verify:release-unsigned
-```
-
-`verify:release-unsigned` prepares Android, cleans variant metadata, and invokes
-Webpack's production mode followed by Gradle's `assembleRelease` with the narrowly scoped
-`hermesUnsignedReleaseVerification=true` property. Its
-`app-release-unsigned.apk` is verification evidence only: it is explicitly
-unsigned, non-installable as a trusted update, and must never be published.
-The property rejects every task request except exactly `assembleRelease`; release
-tasks without it still require all four real NativeScript keystore properties and
-fail closed when credentials are absent. Do not create a verification keystore.
-Inspect the generated release merged manifest and unsigned APK for
-`FaceclawDebugControlReceiver`, `com.faceclaw.app.DEBUG_CONTROL_V1`, and
-`android.permission.DUMP`; all three must be absent.
-Debug-control TypeScript lives outside `app/` so NativeScript's recursive app
-context cannot package it; the production build also replaces its conditional
-entry and rejects the control protocol's stable strings in every app bundle.
-Unsigned verification requires no v1 entries and no bytes between the final ZIP
-entry and central directory, so damaged signing blocks cannot masquerade as an
-unsigned input.
-The protected main workflow signs that verified release artifact, never the
-debug APK, and repeats the manifest, debuggable, and DEX surface checks both
-before and after signing without checking out repository code beside secrets.
-It also requires `ANDROID_RELEASE_CERT_SHA256` to match the signed APK and rejects
-an `Android Debug` certificate subject. The current owner install uses the legacy
-local Android development key, so `PROTECTED_RELEASE_ENABLED` remains `false`
-until an explicit production-key and app-data migration plan is approved; do not
-promote the same-certificate internal upgrade-validation APK as a release.
-
-TDD evidence for this feature: the protocol/source-set tests were first recorded
-RED with the debug-control protocol module missing; the CLI suite was recorded RED
-with `MODULE_NOT_FOUND` for `scripts/hermes-g2-debug-control.mjs`; and the
-concurrency regression was recorded RED when a queued old-generation command
-executed instead of returning `stale`. The implementation then produced GREEN
-focused suites, followed by the full host suite, typecheck, and both Android
-variants. No hardware action is part of this build-time harness validation.
+The harness is debug-only, DUMP-protected, allowlisted, replay-safe, and contains
+no synthetic wearer input or arbitrary shell/file/network surface. Release APKs
+must contain none of its receiver, action, permission, or JavaScript
+implementation. The full protocol, target selection, privacy boundary, and
+verification commands are in [`docs/debug-control.md`](docs/debug-control.md).
 
 ## Repository map
 
+- `STATUS.md` — sole current product and operational state
+- `ROADMAP.md` — single active milestone and deferred boundaries
 - `app/assistant/` — bridge, MCP server, tool registry, and direct backends
 - `app/g2/` — dashboard controller and G2 session lifecycle
 - `app/health/` — R1 frame parsing, health state, and persistence contracts
@@ -157,8 +99,8 @@ variants. No hardware action is part of this build-time harness validation.
 - `app/ui/` — glasses shell, layers, settings, notifications, and rendering
 - `App_Resources/Android/` — Android manifest, Java BLE implementation, and assets
 - `tests/` — host-side regression tests
-- `docs/` — maintained public-facing protocol and integration documentation
-- `notes/` — detailed research, threat models, validation matrices, and gates
+- `docs/` — maintained component contracts and integration documentation
+- `notes/` — research, threat models, and dated evidence; never current status
 - `firmware-research/` — source-only G2 firmware port research; no proprietary binaries
 
 ## Safety boundaries

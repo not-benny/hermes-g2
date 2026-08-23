@@ -245,10 +245,12 @@ hardware, credential, WSS, or operational proof.
 
 ## Source traceability and evidence ledger
 
-Inspected release and manifest sources: `package.json` (the only app manifest;
-version `1.0.0`, `private:false`, no `publishConfig`) and
-`package-lock.json`, plus `ROADMAP.md:105-117,131-133`, `HANDOVER.md:50-83`,
-and `README.md:36-60`. No `CHANGELOG.md` is present in this checkout. The
+At this audit's frozen 20 August commit, inspected release and manifest sources
+were `package.json` (the only app manifest; version `1.0.0`, `private:false`, no
+`publishConfig`), `package-lock.json`, and the then-current root roadmap,
+handover, and README. Those mutable files and line numbers are historical
+evidence, not current project status. No `CHANGELOG.md` was present in that
+checkout. The
 established release description is debug
 preview APK via `npm run build`, followed by GitHub Release and CHANGELOG; no
 MCP registry, skill manifest, npm publish configuration, or release automation
