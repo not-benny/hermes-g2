@@ -57,7 +57,7 @@ export type ContextDashboardRenderState = DynamicAppState & {
 type Receipt = { status: "acknowledged"; frameId: number };
 type Identity = { dashboardId: string; presentationGeneration: number; refreshGeneration: number; revision: number };
 type Current = Identity & { connectionKey: string; turnKey: string; dashboardKey: string; intent: string; refreshPolicy: RefreshPolicy; pinned: boolean; spec: ContextDashboardSpec; render: ContextDashboardRenderState };
-type LocalEvent = { version: 2; event_id: string; dashboard_id: string; presentation_generation: number; revision: number; kind: "refresh" | "section" | "follow_up"; intent: string; section_id?: string };
+type LocalEvent = { version: 2; event_id: string; dashboard_id: string; presentation_generation: number; revision: number; kind: "refresh" | "section" | "follow_up"; intent: string; dashboard_key: string; title: string; privacy: DynamicAppPrivacy; section_id?: string };
 
 type Dependencies = {
   isDisplayAvailable: () => boolean;
@@ -80,7 +80,11 @@ const UNCERTAINTY = ["exact", "estimated", "unknown"];
 const LOCAL_ACTIONS = ["refresh", "pin", "unpin", "section", "follow_up"];
 const ERRORS = ["timeout", "offline", "permission", "unavailable", "invalid_data", "unknown"];
 
-function record(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
+function record(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
 function exact(value: Record<string, unknown>, keys: readonly string[]): boolean { const allowed = new Set(keys); return Object.keys(value).every((key) => allowed.has(key)); }
 function bytes(value: string): number { return typeof TextEncoder !== "undefined" ? new TextEncoder().encode(value).length : encodeURIComponent(value).replace(/%[0-9A-F]{2}|./gi, "x").length; }
 function text(value: unknown, points: number, maxBytes = points * 4): value is string {
@@ -155,7 +159,7 @@ export function validateContextDashboardSpec(value: unknown): string | null {
 }
 
 function connectionKey(context?: ToolExecutionContext): string | null {
-  return context?.caller === "mcp" && context.connectionGeneration !== undefined && context.connectionGeneration !== null && context.connectionGeneration !== ""
+  return context?.caller === "mcp" && context.profileId === "even-g2" && context.connectionGeneration !== undefined && context.connectionGeneration !== null && context.connectionGeneration !== ""
     ? `mcp:${String(context.connectionGeneration)}`
     : null;
 }
@@ -166,10 +170,12 @@ function fail(error: string): ToolResult { return { ok: false, error }; }
 function validRefreshPolicy(value: unknown): value is RefreshPolicy { return record(value) && exact(value, ["mode", "min_interval_seconds"]) && ["manual", "on_visible"].includes(String(value.mode)) && Number.isInteger(value.min_interval_seconds) && Number(value.min_interval_seconds) >= 30 && Number(value.min_interval_seconds) <= 86400; }
 
 function componentsFor(spec: ContextDashboardSpec, pinned: boolean, nowMs: number): DynamicAppComponent[] {
-  const components: DynamicAppComponent[] = [{ id: "summary", type: "heading", text: spec.summary.primary }];
+  const uncertainty = (value: Uncertainty) => value === "estimated" ? " · Est." : value === "unknown" ? " · Uncertain" : "";
+  const components: DynamicAppComponent[] = [{ id: "summary", type: "heading", text: `${spec.summary.primary}${uncertainty(spec.summary.uncertainty)}` }];
   if (spec.summary.secondary) components.push({ id: "summary-detail", type: "text", text: spec.summary.secondary });
   for (const section of spec.sections) {
-    if (section.title) components.push({ id: `${section.id}-heading`, type: "heading", text: section.title });
+    if (section.title) components.push({ id: `${section.id}-heading`, type: "heading", text: `${section.title}${uncertainty(section.uncertainty)}` });
+    if (section.note) components.push({ id: `${section.id}-note`, type: "text", text: section.note });
     if (section.load_state === "pending") components.push({ id: `${section.id}-pending`, type: "text", text: "Loading…" });
     else if (section.load_state === "error") components.push({ id: `${section.id}-error`, type: "status", label: section.title ?? "Section", value: section.error_code ?? "unavailable", tone: "warning" });
     else if (section.type === "departures") for (const row of section.rows) {
@@ -201,10 +207,12 @@ function loadingSpec(key: string, title: string, privacy: DynamicAppPrivacy, ttl
 
 export class ContextDashboardManager {
   private current: Current | null = null;
+  private pending: (Identity & { connectionKey: string; turnKey: string; cancelled: boolean }) | null = null;
   private readonly pins: PinRecord[];
   private queue: Promise<unknown> = Promise.resolve();
   private timer: unknown = null;
   private readonly operations = new Map<string, { fingerprint: string; value: ToolResult }>();
+  private readonly lastRefreshAt = new Map<string, number>();
   private readonly events: LocalEvent[] = [];
   private readonly acknowledgedEvents = new Set<string>();
   private eventSequence = 0;
@@ -221,10 +229,22 @@ export class ContextDashboardManager {
   }
 
   begin(args: unknown, signal?: AbortSignal, isAllowed?: () => boolean, context?: ToolExecutionContext): Promise<ToolResult> { return this.enqueue(() => this.beginOnce(args, signal, isAllowed, context)); }
+  openPin(args: unknown, signal?: AbortSignal, isAllowed?: () => boolean, context?: ToolExecutionContext): Promise<ToolResult> { return this.enqueue(() => this.openPinOnce(args, signal, isAllowed, context)); }
   publish(args: unknown, signal?: AbortSignal, isAllowed?: () => boolean, context?: ToolExecutionContext): Promise<ToolResult> { return this.enqueue(() => this.publishOnce(args, signal, isAllowed, context)); }
   startRefresh(args: unknown, signal?: AbortSignal, isAllowed?: () => boolean, context?: ToolExecutionContext): Promise<ToolResult> { return this.enqueue(() => this.refreshOnce(args, signal, isAllowed, context)); }
+  close(args: unknown, context?: ToolExecutionContext): ToolResult {
+    const connection = connectionKey(context);
+    if (!connection || !record(args) || !exact(args, ["operation_id", "dashboard_id", "presentation_generation", "expected_revision"]) ||
+        typeof args.operation_id !== "string" || !ID.test(args.operation_id) || !this.current || this.current.connectionKey !== connection ||
+        this.current.dashboardId !== args.dashboard_id || this.current.presentationGeneration !== args.presentation_generation || this.current.revision !== args.expected_revision) {
+      return fail("dashboard close owner or presentation is stale");
+    }
+    const identity = { dashboard_id: this.current.dashboardId, presentation_generation: this.current.presentationGeneration, revision: this.current.revision };
+    this.closeCurrent();
+    return result({ status: "closed", ...identity });
+  }
   private enqueue(task: () => Promise<ToolResult>): Promise<ToolResult> { const pending = this.queue.then(task); this.queue = pending.catch(() => undefined); return pending; }
-  private replay(turn: string, operationId: string, args: unknown): ToolResult | null { const key = `${turn}:${operationId}`; const fingerprint = JSON.stringify(args); const prior = this.operations.get(key); if (!prior) return null; return prior.fingerprint === fingerprint ? prior.value : fail("operation_id was reused with different arguments"); }
+  private replay(turn: string, operationId: string, args: unknown): ToolResult | null { const key = `${turn}:${operationId}`; const fingerprint = JSON.stringify(args); const prior = this.operations.get(key); if (!prior) return null; if (prior.fingerprint !== fingerprint) return fail("operation_id was reused with different arguments"); if (!prior.value.ok) return prior.value; const parsed = JSON.parse(prior.value.content ?? "{}"); if (parsed.dashboard_id && (!this.current || this.current.dashboardId !== parsed.dashboard_id || this.current.revision < parsed.revision)) return result({ ...parsed, status: "historical_acknowledgement" }); return prior.value; }
   private remember(turn: string, operationId: string, args: unknown, value: ToolResult): ToolResult { this.operations.set(`${turn}:${operationId}`, { fingerprint: JSON.stringify(args), value }); if (this.operations.size > 256) this.operations.delete(this.operations.keys().next().value!); return value; }
 
   private async beginOnce(args: unknown, signal?: AbortSignal, isAllowed?: () => boolean, context?: ToolExecutionContext): Promise<ToolResult> {
@@ -242,12 +262,28 @@ export class ContextDashboardManager {
     return this.remember(turn, args.operation_id, args, delivered);
   }
 
+  private async openPinOnce(args: unknown, signal?: AbortSignal, isAllowed?: () => boolean, context?: ToolExecutionContext): Promise<ToolResult> {
+    const turn = turnKey(context); const connection = connectionKey(context);
+    if (!turn || !connection || !record(args) || !exact(args, ["operation_id", "dashboard_key", "ttl_seconds"]) ||
+        typeof args.operation_id !== "string" || !ID.test(args.operation_id) || typeof args.dashboard_key !== "string" || !ID.test(args.dashboard_key) ||
+        !Number.isInteger(args.ttl_seconds) || Number(args.ttl_seconds) < 30 || Number(args.ttl_seconds) > 3600) return fail("open pin arguments or exact owner are invalid");
+    const replay = this.replay(turn, args.operation_id, args); if (replay) return replay;
+    const pin = this.pins.find((candidate) => candidate.dashboard_key === args.dashboard_key);
+    if (!pin) return fail("pinned dashboard is unavailable");
+    const dashboardId = this.createId(); if (!LONG_ID.test(dashboardId)) return fail("secure dashboard identity generation failed");
+    this.events.length = 0; this.acknowledgedEvents.clear();
+    const delivered = await this.deliver(loadingSpec(pin.dashboard_key, pin.title, pin.privacy, Number(args.ttl_seconds)),
+      { dashboardId, presentationGeneration: 1, refreshGeneration: 1, revision: 1 }, connection, turn, pin.intent, pin.refresh_policy,
+      true, signal, isAllowed);
+    return this.remember(turn, args.operation_id, args, delivered);
+  }
+
   private async publishOnce(args: unknown, signal?: AbortSignal, isAllowed?: () => boolean, context?: ToolExecutionContext): Promise<ToolResult> {
     const turn = turnKey(context); const connection = connectionKey(context);
     if (!turn || !connection || !record(args) || !exact(args, ["operation_id", "dashboard_id", "presentation_generation", "refresh_generation", "expected_revision", "spec"]) || typeof args.operation_id !== "string" || !ID.test(args.operation_id)) return fail("publish arguments or exact owner are invalid");
     const replay = this.replay(turn, args.operation_id, args); if (replay) return replay;
     const current = this.current;
-    if (!current || current.connectionKey !== connection || current.dashboardId !== args.dashboard_id || current.presentationGeneration !== args.presentation_generation || current.refreshGeneration !== args.refresh_generation || current.revision !== args.expected_revision) return fail("dashboard presentation, refresh, or revision is stale");
+    if (!current || current.connectionKey !== connection || current.turnKey !== turn || current.dashboardId !== args.dashboard_id || current.presentationGeneration !== args.presentation_generation || current.refreshGeneration !== args.refresh_generation || current.revision !== args.expected_revision) return fail("dashboard turn, presentation, refresh, or revision is stale");
     const validation = validateContextDashboardSpec(args.spec); if (validation) return fail(`Invalid contextual dashboard spec: ${validation}`);
     const spec = args.spec as ContextDashboardSpec;
     if (spec.dashboard_key !== current.dashboardKey) return fail("dashboard key is stale");
@@ -261,23 +297,39 @@ export class ContextDashboardManager {
     const replay = this.replay(turn, args.operation_id, args); if (replay) return replay;
     const current = this.current;
     if (!current || current.connectionKey !== connection || current.dashboardId !== args.dashboard_id || current.presentationGeneration !== args.presentation_generation || current.revision !== args.expected_revision) return fail("dashboard presentation or revision is stale");
+    const lastRefresh = this.lastRefreshAt.get(current.dashboardKey) ?? 0;
+    if (this.now() - lastRefresh < current.refreshPolicy.min_interval_seconds * 1000) return fail("dashboard refresh is rate limited by its current policy");
     const spec = { ...current.spec, state: "loading" as const, summary: { ...current.spec.summary, secondary: "Refreshing current authorised sources", uncertainty: "unknown" as const } };
     const delivered = await this.deliver(spec, { dashboardId: current.dashboardId, presentationGeneration: current.presentationGeneration, refreshGeneration: current.refreshGeneration + 1, revision: current.revision + 1 }, connection, turn, current.intent, current.refreshPolicy, current.pinned, signal, isAllowed);
+    if (delivered.ok) this.lastRefreshAt.set(current.dashboardKey, this.now());
     return this.remember(turn, args.operation_id, args, delivered);
   }
 
   private async deliver(spec: ContextDashboardSpec, identity: Identity, connection: string, turn: string, intent: string, refreshPolicy: RefreshPolicy, pinned: boolean, signal?: AbortSignal, isAllowed?: () => boolean): Promise<ToolResult> {
     if (signal?.aborted || (isAllowed && !isAllowed())) return fail("authorizing turn is no longer active");
     if (!this.deps.isDisplayAvailable()) return fail("glasses display is disconnected or unavailable");
+    const priorFocusedId = this.current?.dashboardId === identity.dashboardId
+      ? this.current.render.components[this.current.render.scrollOffset]?.id
+      : undefined;
+    const renderedComponents = componentsFor(spec, pinned, this.now());
+    const preservedOffset = priorFocusedId ? renderedComponents.findIndex((component) => component.id === priorFocusedId) : -1;
     const render: ContextDashboardRenderState = { viewId: identity.dashboardId, revision: identity.revision, ownerKey: connection, title: spec.title,
-      state: spec.state === "partial" ? "ready" : spec.state, privacy: spec.privacy, components: componentsFor(spec, pinned, this.now()),
+      state: spec.state === "partial" ? "ready" : spec.state, privacy: spec.privacy, components: renderedComponents,
       selectedAction: this.current?.dashboardId === identity.dashboardId ? this.current.render.selectedAction : 0,
-      scrollOffset: this.current?.dashboardId === identity.dashboardId ? this.current.render.scrollOffset : 0,
+      scrollOffset: preservedOffset >= 0 ? preservedOffset : 0,
       expiresAtMs: this.now() + spec.ttl_seconds * 1000, dashboardId: identity.dashboardId, presentationGeneration: identity.presentationGeneration,
       refreshGeneration: identity.refreshGeneration, dashboardState: spec.state, contextIntent: intent, announcement: spec.announcement };
+    const pending = { ...identity, connectionKey: connection, turnKey: turn, cancelled: false };
+    this.pending = pending;
     let receipt: Receipt;
-    try { receipt = await this.deps.deliver(render, signal, () => !signal?.aborted && (!isAllowed || isAllowed())); } catch { return fail("glasses delivery was not acknowledged"); }
-    if (receipt.status !== "acknowledged" || !Number.isSafeInteger(receipt.frameId) || signal?.aborted || (isAllowed && !isAllowed()) || !this.deps.isDisplayAvailable()) { this.deps.clear({ viewId: identity.dashboardId, revision: identity.revision }); return fail("context dashboard became stale before acknowledged delivery"); }
+    try { receipt = await this.deps.deliver(render, signal, () => !pending.cancelled && !signal?.aborted && (!isAllowed || isAllowed())); }
+    catch { if (this.pending === pending) this.pending = null; return fail("glasses delivery was not acknowledged"); }
+    if (this.pending === pending) this.pending = null;
+    if (receipt.status !== "acknowledged" || !Number.isSafeInteger(receipt.frameId) || receipt.frameId <= 0 || pending.cancelled || signal?.aborted ||
+        (isAllowed && !isAllowed()) || !this.deps.isDisplayAvailable()) {
+      this.deps.clear({ viewId: identity.dashboardId, revision: identity.revision });
+      return fail("context dashboard became stale before acknowledged delivery");
+    }
     this.current = { ...identity, connectionKey: connection, turnKey: turn, dashboardKey: spec.dashboard_key, intent, refreshPolicy, pinned, spec: structuredClone(spec), render };
     if (this.timer !== null) this.clearTimer(this.timer);
     const exactIdentity = { dashboardId: identity.dashboardId, presentationGeneration: identity.presentationGeneration, refreshGeneration: identity.refreshGeneration, revision: identity.revision };
@@ -288,25 +340,30 @@ export class ContextDashboardManager {
   handleInput(type: "scroll-up" | "scroll-down" | "click", foreground: boolean): boolean {
     if (!foreground || !this.current) return false;
     const actions = this.current.spec.local_actions.filter((action) => action.enabled);
-    if (type === "scroll-up") this.current.render.selectedAction = actions.length ? Math.max(0, this.current.render.selectedAction - 1) : 0;
-    else if (type === "scroll-down") this.current.render.selectedAction = actions.length ? Math.min(actions.length - 1, this.current.render.selectedAction + 1) : 0;
+    if (type === "scroll-up") this.current.render.scrollOffset = Math.max(0, this.current.render.scrollOffset - 1);
+    else if (type === "scroll-down") this.current.render.scrollOffset = Math.min(Math.max(0, this.current.render.components.length - 1), this.current.render.scrollOffset + 1);
     else {
-      const action = actions[this.current.render.selectedAction]; if (!action) return false;
+      const focusedId = this.current.render.components[this.current.render.scrollOffset]?.id;
+      const action = actions.find((candidate) => `local-${candidate.id}` === focusedId);
+      if (!action) return true;
       if (action.kind === "pin") this.pinCurrent();
       else if (action.kind === "unpin") this.unpinCurrent();
       else if (this.events.length < 16) {
         this.events.push({ version: 2, event_id: `${this.current.dashboardId}.${this.current.presentationGeneration}.${++this.eventSequence}`,
           dashboard_id: this.current.dashboardId, presentation_generation: this.current.presentationGeneration, revision: this.current.revision,
-          kind: action.kind, intent: this.current.intent,
+          kind: action.kind, intent: this.current.intent, dashboard_key: this.current.dashboardKey, title: this.current.spec.title, privacy: this.current.spec.privacy,
           ...(action.kind === "section" ? { section_id: this.current.spec.sections[Math.min(this.current.render.scrollOffset, this.current.spec.sections.length - 1)]?.id } : {}) });
       }
-      const focused = action ? this.current.render.components.findIndex((component) => component.id === `local-${action.id}`) : -1;
-      if (focused >= 0) this.current.render.scrollOffset = focused;
+      this.current.render.selectedAction = Math.max(0, actions.indexOf(action));
     }
     return true;
   }
 
-  listPins(): PinRecord[] { return this.pins.map((pin) => ({ ...pin, refresh_policy: { ...pin.refresh_policy } })); }
+  listPins(context?: ToolExecutionContext): ToolResult {
+    if (!turnKey(context)) return fail("an exact even-g2 MCP turn is required to read pins");
+    return result({ pins: this.pins.map((pin) => ({ ...pin, refresh_policy: { ...pin.refresh_policy } })) });
+  }
+  private pinSnapshot(): PinRecord[] { return this.pins.map((pin) => ({ ...pin, refresh_policy: { ...pin.refresh_policy } })); }
   readEvents(context: ToolExecutionContext | undefined, dashboardId: string, presentationGeneration: number, revision: number, afterEventId: string | null): ToolResult {
     const connection = connectionKey(context);
     if (!connection || !this.current || this.current.connectionKey !== connection || this.current.dashboardId !== dashboardId ||
@@ -314,26 +371,34 @@ export class ContextDashboardManager {
     if (afterEventId && !this.acknowledgedEvents.has(afterEventId)) return fail("dashboard event cursor is not acknowledged");
     return result({ dashboard_id: dashboardId, presentation_generation: presentationGeneration, revision, events: this.events.slice(0, 1) });
   }
-  ackEvents(context: ToolExecutionContext | undefined, eventId: string): ToolResult {
+  ackEvents(context: ToolExecutionContext | undefined, dashboardId: string, presentationGeneration: number, revision: number, eventId: string): ToolResult {
     const connection = connectionKey(context);
-    if (!connection || !this.current || this.current.connectionKey !== connection || typeof eventId !== "string" || eventId.length > 180) return fail("dashboard event owner is stale");
+    if (!connection || !this.current || this.current.connectionKey !== connection || this.current.dashboardId !== dashboardId ||
+        this.current.presentationGeneration !== presentationGeneration || revision < 1 || revision > this.current.revision ||
+        typeof eventId !== "string" || eventId.length > 180) return fail("dashboard event owner or presentation is stale");
     if (this.acknowledgedEvents.has(eventId)) return result({ status: "historical_acknowledgement", through_event_id: eventId });
     if (this.events[0]?.event_id !== eventId) return fail("dashboard events must be acknowledged in queue order");
+    if (this.events[0]?.revision !== revision) return fail("dashboard event revision is stale");
     this.events.shift(); this.acknowledgedEvents.add(eventId);
     while (this.acknowledgedEvents.size > 32) this.acknowledgedEvents.delete(this.acknowledgedEvents.values().next().value!);
     return result({ status: "acknowledged", through_event_id: eventId });
   }
   snapshot(): ContextDashboardRenderState | null { return this.current ? { ...this.current.render, components: this.current.render.components.map((component) => component.type === "list" ? { ...component, items: [...component.items] } : { ...component }) } : null; }
-  closeConnection(context?: ToolExecutionContext): void { const connection = connectionKey(context); if (connection && this.current?.connectionKey === connection) this.closeCurrent(); }
-  closeView(viewId: string, revision: number): void { if (this.current?.dashboardId === viewId && this.current.revision === revision) this.closeCurrent(); }
+  closeConnection(context?: ToolExecutionContext): void { const connection = connectionKey(context); if (!connection) return; if (this.pending?.connectionKey === connection) this.pending.cancelled = true; if (this.current?.connectionKey === connection) this.closeCurrent(); }
+  closeView(viewId: string, revision: number): void { if (this.pending?.dashboardId === viewId && this.pending.revision === revision) this.pending.cancelled = true; if (this.current?.dashboardId === viewId && this.current.revision === revision) this.closeCurrent(); }
 
   private pinCurrent(): void {
     if (!this.current || this.current.spec.privacy === "sensitive" || this.pins.some((pin) => pin.dashboard_key === this.current!.dashboardKey) || this.pins.length >= 5) return;
     this.pins.push({ dashboard_key: this.current.dashboardKey, title: this.current.spec.title, privacy: this.current.spec.privacy, intent: this.current.intent, refresh_policy: { ...this.current.refreshPolicy } });
-    this.current.pinned = true; this.persistPins();
+    this.current.pinned = true;
+    this.current.spec.local_actions = this.current.spec.local_actions.map((action) => action.kind === "pin"
+      ? { ...action, kind: "unpin", label: "Unpin" }
+      : action);
+    this.current.render.components = componentsFor(this.current.spec, true, this.now());
+    this.persistPins();
   }
-  private unpinCurrent(): void { if (!this.current) return; const index = this.pins.findIndex((pin) => pin.dashboard_key === this.current!.dashboardKey); if (index >= 0) { this.pins.splice(index, 1); this.current.pinned = false; this.persistPins(); } }
-  private persistPins(): void { this.deps.savePins?.(this.listPins()); }
+  private unpinCurrent(): void { if (!this.current) return; const index = this.pins.findIndex((pin) => pin.dashboard_key === this.current!.dashboardKey); if (index >= 0) { this.pins.splice(index, 1); this.current.pinned = false; this.current.spec.local_actions = this.current.spec.local_actions.map((action) => action.kind === "unpin" ? { ...action, kind: "pin", label: "Pin" } : action); this.current.render.components = componentsFor(this.current.spec, false, this.now()); this.persistPins(); } }
+  private persistPins(): void { this.deps.savePins?.(this.pinSnapshot()); }
   private validatePins(value: unknown): PinRecord[] { if (!Array.isArray(value)) return []; const pins: PinRecord[] = []; const keys = new Set<string>(); for (const candidate of value.slice(0, 6)) { if (!record(candidate) || !exact(candidate, ["dashboard_key", "title", "privacy", "intent", "refresh_policy"]) || typeof candidate.dashboard_key !== "string" || !ID.test(candidate.dashboard_key) || keys.has(candidate.dashboard_key) || !text(candidate.title, 48, 192) || !["public", "private"].includes(String(candidate.privacy)) || !text(candidate.intent, 240, 960) || !validRefreshPolicy(candidate.refresh_policy)) return []; keys.add(candidate.dashboard_key); pins.push(candidate as PinRecord); } return pins.length <= 5 ? pins : []; }
   private matches(identity: Identity): boolean { return Boolean(this.current && this.current.dashboardId === identity.dashboardId && this.current.presentationGeneration === identity.presentationGeneration && this.current.refreshGeneration === identity.refreshGeneration && this.current.revision === identity.revision); }
   private closeCurrent(): void { if (!this.current) return; const identity = { viewId: this.current.dashboardId, revision: this.current.revision }; this.current = null; this.events.length = 0; this.acknowledgedEvents.clear(); if (this.timer !== null) { this.clearTimer(this.timer); this.timer = null; } this.deps.clear(identity); }

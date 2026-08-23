@@ -27,6 +27,8 @@ export type McpServerOptions = {
   isHealthCallerTrusted?: () => boolean;
   /** Unique generation of the connection owning this MCP server. */
   connectionGeneration?: string | number;
+  /** Authenticated deployment profile bound to this MCP server. */
+  profileId?: string;
   /** Revalidates that this server's connection is still the live one. */
   isConnectionGenerationActive?: () => boolean;
   registry?: ToolRegistry;
@@ -90,7 +92,7 @@ export class AssistantMcpServer {
         if (!validId) return;
         if (!this.requireInitialized(id)) return;
         this.reply(id, {
-          tools: this.registry.listTools().filter((spec) => this.isHealthVisible(spec.name)).map((spec) => ({
+          tools: this.registry.listTools().filter((spec) => this.isHealthVisible(spec.name) && this.profilePolicyError(spec.name) === null).map((spec) => ({
             name: spec.name,
             description: spec.description,
             inputSchema: spec.inputSchema,
@@ -137,6 +139,11 @@ export class AssistantMcpServer {
     try {
       const name = typeof params?.name === "string" ? params.name : "";
       const args = params?.arguments ?? {};
+      const profileDenied = this.profilePolicyError(name);
+      if (profileDenied) {
+        this.replyToolError(id, profileDenied);
+        return;
+      }
       const healthDenied = this.healthPolicyError(name);
       if (healthDenied) {
         this.replyToolError(id, healthDenied);
@@ -183,6 +190,7 @@ export class AssistantMcpServer {
         signal: callController.signal,
         executionContext: {
           caller: "mcp",
+          profileId: this.options.profileId,
           connectionGeneration: this.options.connectionGeneration,
           turnGeneration,
         },
@@ -203,6 +211,13 @@ export class AssistantMcpServer {
 
   private isHealthVisible(name: string): boolean {
     return name !== "health.get_ring_data" || this.healthPolicyError(name) === null;
+  }
+
+  private profilePolicyError(name: string): string | null {
+    if (!name.startsWith("glasses.context_dashboard.")) return null;
+    return this.options.profileId !== "even-g2"
+      ? "Context dashboards are available only to the authenticated even-g2 profile"
+      : null;
   }
 
   private healthPolicyError(name: string, expectedTurnGeneration?: string | null): string | null {
@@ -267,6 +282,7 @@ export class AssistantMcpServer {
     if (this.options.connectionGeneration !== undefined) {
       this.registry.closeExecutionOwner({
         caller: "mcp",
+        profileId: this.options.profileId,
         connectionGeneration: this.options.connectionGeneration,
         turnGeneration: null,
       });

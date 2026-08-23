@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ContextDashboardRuntime, projectLiverpoolLimeStreetDepartures } from "../hermes-host/context-dashboard-runtime.mjs";
+import { ContextDashboardAgent, ContextDashboardRuntime, projectLiverpoolLimeStreetDepartures } from "../hermes-host/context-dashboard-runtime.mjs";
 
 const identity = { profile: "even-g2", device: "phone-1", connectionGeneration: "socket-1", turnGeneration: "turn-1" };
 
@@ -70,17 +70,59 @@ test("a local refresh event starts a new generation and reruns only the saved re
       presentation_generation: args.presentation_generation, refresh_generation: 2, revision: args.expected_revision + 1, frame_id: 20 };
     if (name.endsWith("publish")) return { status: "acknowledged", dashboard_id: args.dashboard_id,
       presentation_generation: args.presentation_generation, refresh_generation: args.refresh_generation, revision: args.expected_revision + 1, frame_id: 21 };
+    if (name.endsWith("ack_events")) return { status: "acknowledged", through_event_id: args.through_event_id };
     throw new Error(`unexpected ${name}`);
   } };
   const runtime = new ContextDashboardRuntime({ phone, now: () => 1_000_000 });
   const receipt = await runtime.refreshFromLocalEvent(identity, {
     version: 2, event_id: "dashboard.1.1", dashboard_id: "dashboard_abcdefghijkl", presentation_generation: 1,
     revision: 2, kind: "refresh", intent: "When is the next train at Liverpool Lime Street?",
+    dashboard_key: "rail-liverpool-lime-street", title: "Liverpool Lime Street", privacy: "private",
   }, {
     operationId: "local-refresh", gather: async () => ({ stationName: "Liverpool Lime Street", sourceLabel: "Rail feed",
       observedAtMs: 1_000_000, nowMs: 1_000_000, departures: [] }), project: projectLiverpoolLimeStreetDepartures,
   });
-  assert.deepEqual(calls.map((call) => call.name), ["glasses.context_dashboard.start_refresh", "glasses.context_dashboard.publish"]);
+  assert.deepEqual(calls.map((call) => call.name), ["glasses.context_dashboard.start_refresh", "glasses.context_dashboard.publish", "glasses.context_dashboard.ack_events"]);
   assert.equal(calls[1].args.refresh_generation, 2);
   assert.equal(receipt.revision, 4);
+});
+
+test("pre-aborted opens do not touch the phone and refresh deadlines abort gathering then publish an honest terminal state", async () => {
+  const calls = [];
+  const phone = { callTool: async (name, args) => {
+    calls.push({ name, args });
+    if (name.endsWith("start_refresh")) return { status: "acknowledged", dashboard_id: args.dashboard_id,
+      presentation_generation: 1, refresh_generation: 2, revision: 3, frame_id: 30 };
+    if (name.endsWith("publish")) return { status: "acknowledged", dashboard_id: args.dashboard_id,
+      presentation_generation: 1, refresh_generation: 2, revision: 4, frame_id: 31 };
+    if (name.endsWith("ack_events")) return { status: "acknowledged" };
+    throw new Error(`unexpected ${name}`);
+  } };
+  const runtime = new ContextDashboardRuntime({ phone, usefulDeadlineMs: 10 });
+  const aborted = new AbortController(); aborted.abort();
+  await assert.rejects(() => runtime.open(identity, { operationId: "aborted", dashboardKey: "x", title: "X", privacy: "private", intent: "X",
+    refreshPolicy: { mode: "manual", min_interval_seconds: 30 }, signal: aborted.signal, gather: async () => ({}), project: () => ({}) }), /cancelled/);
+  assert.equal(calls.length, 0);
+  let gatherAborted = false;
+  await runtime.refreshFromLocalEvent(identity, { version: 2, event_id: "dashboard.1.2", dashboard_id: "dashboard_abcdefghijkl",
+    presentation_generation: 1, revision: 2, kind: "refresh", intent: "Train departures", dashboard_key: "rail-liverpool-lime-street",
+    title: "Liverpool Lime Street", privacy: "private" }, { operationId: "deadline", gather: ({ signal }) => new Promise((resolve) => {
+      signal.addEventListener("abort", () => { gatherAborted = true; resolve({}); }, { once: true });
+    }), project: () => ({}) });
+  assert.equal(gatherAborted, true);
+  assert.equal(calls[1].args.spec.state, "error");
+});
+
+test("dedicated agent automatically maps the mandatory ordinary train question to the read-only dashboard runtime", async () => {
+  const calls = [];
+  const agent = new ContextDashboardAgent({
+    runtime: { open: async (owner, options) => { calls.push({ owner, options }); return { revision: 2, announcement: "Train summary" }; } },
+    readers: { railDepartures: async () => ({ departures: [] }) },
+  });
+  const result = await agent.handleQuestion(identity, "When is the next train at Liverpool Lime Street?");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.dashboardKey, "rail-liverpool-lime-street");
+  assert.equal((await calls[0].options.gather()).stationName, "Liverpool Lime Street");
+  assert.equal(result.announcement, "Train summary");
+  assert.equal(await agent.handleQuestion(identity, "Tell me a joke"), null);
 });

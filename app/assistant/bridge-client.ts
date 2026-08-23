@@ -201,6 +201,9 @@ export class AssistantBridgeClient {
         // The configured WSS endpoint has no repository-owned deployment or
         // runtime server-proof evidence; sensitive health remains fail-closed.
         isHealthCallerTrusted: () => false,
+        // This certificate-authenticated bridge endpoint is dedicated to the
+        // even-g2 deployment profile; callers cannot supply or override it.
+        profileId: "even-g2",
         connectionGeneration: generation,
         isConnectionGenerationActive: () => this.connectionGuard.isCurrent(generation),
         allowProactive: this.options!.allowProactive,

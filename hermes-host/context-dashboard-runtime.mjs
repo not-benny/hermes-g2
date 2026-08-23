@@ -21,6 +21,10 @@ function timeLabel(epochMs) {
   return new Date(epochMs).toISOString().slice(11, 16);
 }
 
+function derivedOperationId(base, suffix) {
+  return `${base.slice(0, 64 - suffix.length)}${suffix}`;
+}
+
 function normalizeDeparture(value) {
   if (!value || typeof value !== "object" || Array.isArray(value) || typeof value.id !== "string" || !ID.test(value.id) ||
       !Number.isSafeInteger(value.scheduledDepartureMs) || value.scheduledDepartureMs < 0 ||
@@ -86,6 +90,46 @@ function normalizedFailure({ dashboardKey, title, privacy, code, now }) {
   };
 }
 
+/** Dedicated-profile router: ordinary questions select only trusted read-only adapters. */
+export class ContextDashboardAgent {
+  #runtime;
+  #readers;
+  #adapters;
+
+  constructor({ runtime, readers, adapters = [] }) {
+    if (!runtime?.open || !readers?.railDepartures || !Array.isArray(adapters)) throw new Error("context dashboard agent adapters are required");
+    this.#runtime = runtime;
+    this.#readers = readers;
+    this.#adapters = [...adapters];
+  }
+
+  async handleQuestion(identity, question) {
+    exactIdentity(identity);
+    const intent = boundedText(question, 240);
+    if (/^when is the next train at liverpool lime street\??$/iu.test(intent)) {
+      return this.#runtime.open(identity, {
+        operationId: `rail-${Date.now().toString(36)}`,
+        dashboardKey: "rail-liverpool-lime-street",
+        title: "Liverpool Lime Street",
+        privacy: "private",
+        intent,
+        refreshPolicy: { mode: "on_visible", min_interval_seconds: 60 },
+        gather: async ({ signal } = {}) => {
+          const response = await this.#readers.railDepartures({ station: "Liverpool Lime Street", allDestinations: true, signal });
+          return { ...response, stationName: "Liverpool Lime Street", sourceLabel: response.sourceLabel ?? "Rail departures",
+            observedAtMs: response.observedAtMs ?? Date.now(), nowMs: response.nowMs ?? Date.now() };
+        },
+        project: projectLiverpoolLimeStreetDepartures,
+      });
+    }
+    for (const adapter of this.#adapters) {
+      if (typeof adapter?.matches !== "function" || typeof adapter?.options !== "function" || !adapter.matches(intent)) continue;
+      return this.#runtime.open(identity, adapter.options(intent));
+    }
+    return null;
+  }
+}
+
 /** Hermes-hosted read-only dashboard lifecycle; all data gatherers are trusted profile-local adapters. */
 export class ContextDashboardRuntime {
   #phone;
@@ -105,6 +149,7 @@ export class ContextDashboardRuntime {
     if (!options || typeof options.operationId !== "string" || !ID.test(options.operationId) || typeof options.dashboardKey !== "string" || !ID.test(options.dashboardKey) ||
         typeof options.gather !== "function" || typeof options.project !== "function" || !options.refreshPolicy || !["manual", "on_visible"].includes(options.refreshPolicy.mode) ||
         !Number.isInteger(options.refreshPolicy.min_interval_seconds) || options.refreshPolicy.min_interval_seconds < 30) throw new Error("invalid contextual dashboard request");
+    if (options.signal?.aborted) throw new Error("contextual dashboard request was cancelled");
     const request = {
       operation_id: options.operationId, dashboard_key: options.dashboardKey, title: boundedText(options.title, 48), privacy: options.privacy,
       intent: boundedText(options.intent, 240), refresh_policy: { mode: options.refreshPolicy.mode, min_interval_seconds: options.refreshPolicy.min_interval_seconds }, ttl_seconds: 300,
@@ -113,35 +158,43 @@ export class ContextDashboardRuntime {
     if (prior) prior.cancelled = true;
     const active = { owner, cancelled: false, startedAtMs: this.#now(), request };
     this.#active = active;
-    const begin = await this.#phone.callTool("glasses.context_dashboard.begin", request);
+    const begin = await this.#phone.callTool("glasses.context_dashboard.begin", request, { signal: options.signal });
     if (this.#active !== active || active.cancelled) throw new Error("stale contextual dashboard open");
     if (begin?.status !== "acknowledged" || typeof begin.dashboard_id !== "string" || !Number.isSafeInteger(begin.presentation_generation) || !Number.isSafeInteger(begin.refresh_generation) || begin.revision !== 1) throw new Error("phone did not acknowledge loading dashboard");
     active.identity = begin;
     active.loadingAckMs = Math.max(0, this.#now() - active.startedAtMs);
 
     let timer;
+    const gatherController = new AbortController();
+    const abortGather = () => gatherController.abort();
+    options.signal?.addEventListener("abort", abortGather, { once: true });
+    let spec;
     try {
-      const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("deadline")), this.#deadlineMs); });
-      const raw = await Promise.race([Promise.resolve().then(() => options.gather({ signal: options.signal })), timeout]);
+      const timeout = new Promise((_, reject) => { timer = setTimeout(() => { reject(new Error("deadline")); gatherController.abort(); }, this.#deadlineMs); });
+      const raw = await Promise.race([Promise.resolve().then(() => options.gather({ signal: gatherController.signal })), timeout]);
       if (this.#active !== active || active.cancelled || options.signal?.aborted) throw new Error("stale contextual dashboard gather");
-      const spec = options.project(raw);
-      return await this.#publish(active, options.operationId, spec);
+      spec = options.project(raw);
     } catch (error) {
       if (this.#active !== active || active.cancelled || options.signal?.aborted) throw new Error("stale contextual dashboard gather");
       const code = error instanceof Error && error.message === "deadline" ? "timeout" : "unavailable";
-      return await this.#publish(active, options.operationId, normalizedFailure({ dashboardKey: options.dashboardKey, title: request.title, privacy: options.privacy, code, now: this.#now() }));
+      spec = normalizedFailure({ dashboardKey: options.dashboardKey, title: request.title, privacy: options.privacy, code, now: this.#now() });
     } finally {
       if (timer) clearTimeout(timer);
+      options.signal?.removeEventListener("abort", abortGather);
     }
+    return this.#publish(active, options.operationId, spec);
   }
 
   async refreshFromLocalEvent(identity, event, options) {
     const owner = exactIdentity(identity);
     if (!event || event.version !== 2 || event.kind !== "refresh" || typeof event.event_id !== "string" || event.event_id.length > 180 ||
         typeof event.dashboard_id !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(event.dashboard_id) || !Number.isSafeInteger(event.presentation_generation) ||
-        !Number.isSafeInteger(event.revision) || !options || typeof options.operationId !== "string" || !ID.test(options.operationId) ||
+        !Number.isSafeInteger(event.revision) || typeof event.dashboard_key !== "string" || !ID.test(event.dashboard_key) ||
+        !["public", "private", "sensitive"].includes(event.privacy) || !options || typeof options.operationId !== "string" || !ID.test(options.operationId) ||
         typeof options.gather !== "function" || typeof options.project !== "function") throw new Error("invalid local read-only refresh event");
     const intent = boundedText(event.intent, 240);
+    const title = boundedText(event.title, 48);
+    if (options.signal?.aborted) throw new Error("local dashboard refresh was cancelled");
     const prior = this.#active;
     if (prior) prior.cancelled = true;
     const active = { owner, cancelled: false, startedAtMs: this.#now(), request: { intent } };
@@ -149,20 +202,44 @@ export class ContextDashboardRuntime {
     const refreshed = await this.#phone.callTool("glasses.context_dashboard.start_refresh", {
       operation_id: options.operationId, dashboard_id: event.dashboard_id, presentation_generation: event.presentation_generation,
       expected_revision: event.revision,
-    });
+    }, { signal: options.signal });
     if (this.#active !== active || active.cancelled || refreshed?.status !== "acknowledged" || refreshed.dashboard_id !== event.dashboard_id ||
         refreshed.presentation_generation !== event.presentation_generation || refreshed.refresh_generation < 2 || refreshed.revision !== event.revision + 1) {
       throw new Error("phone did not acknowledge current local refresh");
     }
     active.identity = refreshed;
     active.loadingAckMs = Math.max(0, this.#now() - active.startedAtMs);
-    const raw = await options.gather({ intent, signal: options.signal });
-    if (this.#active !== active || active.cancelled || options.signal?.aborted) throw new Error("stale local refresh gather");
-    return this.#publish(active, options.operationId, options.project(raw));
+    const gatherController = new AbortController();
+    const abortGather = () => gatherController.abort();
+    options.signal?.addEventListener("abort", abortGather, { once: true });
+    let timer;
+    let spec;
+    try {
+      const timeout = new Promise((_, reject) => { timer = setTimeout(() => { reject(new Error("deadline")); gatherController.abort(); }, this.#deadlineMs); });
+      const raw = await Promise.race([options.gather({ intent, signal: gatherController.signal }), timeout]);
+      if (this.#active !== active || active.cancelled || options.signal?.aborted) throw new Error("stale local refresh gather");
+      spec = options.project(raw);
+    } catch (error) {
+      if (this.#active !== active || active.cancelled || options.signal?.aborted) throw new Error("stale local refresh gather");
+      spec = normalizedFailure({ dashboardKey: event.dashboard_key, title, privacy: event.privacy,
+        code: error instanceof Error && error.message === "deadline" ? "timeout" : "unavailable", now: this.#now() });
+    } finally {
+      if (timer) clearTimeout(timer);
+      options.signal?.removeEventListener("abort", abortGather);
+    }
+    const receipt = await this.#publish(active, options.operationId, spec);
+    const acknowledgement = await this.#phone.callTool("glasses.context_dashboard.ack_events", {
+      dashboard_id: event.dashboard_id, presentation_generation: event.presentation_generation, revision: event.revision,
+      through_event_id: event.event_id,
+    }, { signal: options.signal });
+    if (acknowledgement?.status !== "acknowledged" && acknowledgement?.status !== "historical_acknowledgement") {
+      throw new Error("phone did not acknowledge processed local dashboard event");
+    }
+    return receipt;
   }
 
   async #publish(active, operationId, spec) {
-    const args = { operation_id: `${operationId}.useful`, dashboard_id: active.identity.dashboard_id,
+    const args = { operation_id: derivedOperationId(operationId, ".useful"), dashboard_id: active.identity.dashboard_id,
       presentation_generation: active.identity.presentation_generation, refresh_generation: active.identity.refresh_generation,
       expected_revision: active.identity.revision, spec };
     const receipt = await this.#phone.callTool("glasses.context_dashboard.publish", args);
@@ -172,11 +249,21 @@ export class ContextDashboardRuntime {
     }
     active.identity = receipt;
     return { dashboardId: receipt.dashboard_id, presentationGeneration: receipt.presentation_generation, refreshGeneration: receipt.refresh_generation, revision: receipt.revision,
-      loadingAckMs: active.loadingAckMs ?? 0, usefulAckMs: Math.max(0, this.#now() - active.startedAtMs) };
+      loadingAckMs: active.loadingAckMs ?? 0, usefulAckMs: Math.max(0, this.#now() - active.startedAtMs), announcement: spec.announcement?.text ?? null };
   }
 
-  close(identity) {
+  async close(identity) {
     const owner = exactIdentity(identity);
-    if (this.#active?.owner === owner) { this.#active.cancelled = true; this.#active = null; }
+    const active = this.#active;
+    if (!active || active.owner !== owner || !active.identity) return;
+    active.cancelled = true;
+    this.#active = null;
+    const receipt = await this.#phone.callTool("glasses.context_dashboard.close", {
+      operation_id: `close-${Date.now().toString(36)}`,
+      dashboard_id: active.identity.dashboard_id,
+      presentation_generation: active.identity.presentation_generation,
+      expected_revision: active.identity.revision,
+    });
+    if (receipt?.status !== "closed" && receipt?.status !== "historical_acknowledgement") throw new Error("phone did not acknowledge contextual dashboard close");
   }
 }

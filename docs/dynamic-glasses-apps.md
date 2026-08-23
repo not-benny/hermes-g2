@@ -59,8 +59,11 @@ candidate run through the authenticated bridge on A32/G2.
   normalized revision.
 - `glasses.context_dashboard.start_refresh` — start a fresh read-only refresh
   generation while retaining prior content as visibly refreshing.
+- `glasses.context_dashboard.close` — close the exact current presentation.
 - `glasses.context_dashboard.pins` — return up to five encrypted local pin
   records containing intent and policy, never raw responses.
+- `glasses.context_dashboard.open_pin` — reopen one pin as a fresh loading view;
+  the saved intent is gathered again under the current exact turn.
 - `glasses.context_dashboard.read_events` / `ack_events` — queue-head delivery
   and exact acknowledgement for fixed local intents.
 
@@ -142,6 +145,9 @@ silently evicting pins.
 ## Dedicated-agent integration
 
 `hermes-host/context-dashboard-runtime.mjs` is the provider-neutral host boundary.
+`ContextDashboardAgent` automatically maps the mandatory ordinary Liverpool
+question and supports additional trusted read-only visual adapters; unsupported
+questions remain in the normal conversation flow.
 The dedicated profile supplies trusted local `gather` and `project` functions;
 provider output is projected field-by-field. The runtime:
 
@@ -159,11 +165,12 @@ tiebreakers, caps at 12 rows, and produces typed provenance and one announcement
 Future adapters should follow this pattern rather than paste raw tool JSON into
 the phone schema.
 
-The production Hermes gateway/profile configuration is deployment-local and is
-not stored in this application repository. It must allow this contextual
-surface only for `even-g2`, keep external mutation/generic shell tools absent,
-and route no unmatched output to a current turn. No public MCP skill is
-published by this change.
+The phone binds the certificate-authenticated bridge MCP server to authenticated
+profile `even-g2`; other profiles cannot list or call contextual tools, and pin
+reads require an exact active turn. The production Hermes gateway deployment
+and concrete rail-reader credential/configuration remain deployment-local. They
+must keep external mutation/generic shell tools absent and route no unmatched
+output to a current turn. No public MCP skill is published by this change.
 
 ## Evidence and remaining gates
 

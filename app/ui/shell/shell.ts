@@ -798,6 +798,9 @@ class Shell {
       if (this.dynamicAppLayer) {
         const layer = this.dynamicAppLayer;
         if (this.contextDashboardVoicePrefix) {
+          const contextState = layer.state as DynamicAppState & { contextIntent?: string };
+          const focusedId = contextState.components[contextState.scrollOffset]?.id ?? "summary";
+          this.contextDashboardVoicePrefix = `Context dashboard intent: ${contextState.contextIntent}. Focused item: ${focusedId}.`;
           this.startEscapeMenuTimer();
           this.openVoiceDialog({ defaultTarget: "assistant" });
           return { shell: true, window: false };
@@ -1452,8 +1455,14 @@ class Shell {
     if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
       throw new Error("The dynamic app operation is stale.");
     }
-    const prior = this.dynamicAppLayer;
-    const priorContextPrefix = this.contextDashboardVoicePrefix;
+    let prior = this.dynamicAppLayer;
+    if (prior && prior.state.viewId !== state.viewId) {
+      // A different manager/view is claiming the one remote-app surface. Tell
+      // the displaced owner first so its timers/events cannot remain live.
+      prior.close();
+      prior = null;
+    }
+    const priorContextPrefix = prior ? this.contextDashboardVoicePrefix : null;
     const layer = new ShellDynamicAppLayer(state, onInput, onClose);
     if (prior) this.stack.remove(prior);
     this.dynamicAppLayer = layer;

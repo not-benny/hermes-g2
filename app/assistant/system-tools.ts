@@ -262,12 +262,39 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
 
   registry.registerSystemTool(
     {
+      name: "glasses.context_dashboard.close",
+      description: "Close and tombstone the exact current contextual-dashboard presentation.",
+      inputSchema: { type: "object", properties: {
+        operation_id: contextIdentitySchema.operation_id,
+        dashboard_id: contextIdentitySchema.dashboard_id,
+        presentation_generation: contextIdentitySchema.presentation_generation,
+        expected_revision: contextIdentitySchema.expected_revision,
+      }, required: ["operation_id", "dashboard_id", "presentation_generation", "expected_revision"], additionalProperties: false },
+    },
+    (args, _signal, _isAllowed, context) => contextDashboards.close(args, context),
+  );
+
+  registry.registerSystemTool(
+    {
       name: "glasses.context_dashboard.pins",
       description: "List up to five encrypted phone-local dashboard intents and refresh policies; never returns raw tool responses.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      proactive: true,
     },
-    () => ok(JSON.stringify({ pins: contextDashboards.listPins() })),
+    (_args, _signal, _isAllowed, context) => contextDashboards.listPins(context),
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.context_dashboard.open_pin",
+      description: "Reopen one encrypted phone-local pin as a fresh loading presentation for current authorised gathering.",
+      inputSchema: { type: "object", properties: {
+        operation_id: contextIdentitySchema.operation_id,
+        dashboard_key: { type: "string", minLength: 1, maxLength: 64 },
+        ttl_seconds: { type: "integer", minimum: 30, maximum: 3600 },
+      }, required: ["operation_id", "dashboard_key", "ttl_seconds"], additionalProperties: false },
+      timeoutMs: 15_000,
+    },
+    (args, signal, isAllowed, context) => contextDashboards.openPin(args, signal, isAllowed, context),
   );
 
   registry.registerSystemTool(
@@ -289,10 +316,15 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
     {
       name: "glasses.context_dashboard.ack_events",
       description: "Acknowledge exactly one processed local contextual-dashboard event; duplicate acknowledgement is historical only.",
-      inputSchema: { type: "object", properties: { through_event_id: { type: "string", minLength: 1, maxLength: 180 } },
-        required: ["through_event_id"], additionalProperties: false },
+      inputSchema: { type: "object", properties: {
+        dashboard_id: contextIdentitySchema.dashboard_id,
+        presentation_generation: contextIdentitySchema.presentation_generation,
+        revision: contextIdentitySchema.expected_revision,
+        through_event_id: { type: "string", minLength: 1, maxLength: 180 },
+      }, required: ["dashboard_id", "presentation_generation", "revision", "through_event_id"], additionalProperties: false },
     },
-    (args, _signal, _isAllowed, context) => contextDashboards.ackEvents(context, String(args.through_event_id)),
+    (args, _signal, _isAllowed, context) => contextDashboards.ackEvents(context, String(args.dashboard_id),
+      Number(args.presentation_generation), Number(args.revision), String(args.through_event_id)),
   );
 
   registry.registerSystemTool(

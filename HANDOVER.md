@@ -66,22 +66,26 @@ is in `notes/dynamic-glasses-app-threat-model-2026-08-22.md`.
 Baseline for the candidate is exact `origin/main@712cb644d9dd017158a6359ea494ec2ab6beb9b1`.
 After a clean `npm ci` using the locked dependency graph:
 
-- focused contextual-dashboard tests pass 9/9;
-- full host suite passes 353/353;
+- focused contextual-dashboard tests pass 15/15;
+- full host suite passes 359/359;
 - TypeScript `tsc --noEmit` passes;
 - `git diff --check` passes;
 - added-line credential/private-key/bearer scan has zero matches; and
 - the JDK 21 / Android SDK 35 debug build passes.
 
-The resulting debug APK is 195,503,478 bytes with SHA-256
-`5c58b78d9eed6c6d72420495cd9ea5a158d347beed0271931312128c68825997`.
+The resulting debug APK is 195,505,207 bytes with SHA-256
+`fb60140742c9f84f0a62b45363ba7e1e2af3c982f6234008844246d460623065`.
 At verification time `adb devices -l` returned no attached device, so this exact
 APK was not installed or launched and there is no exact-candidate A32/G2 lens,
 latency, scroll, refresh, pin/reopen, contextual-voice, reconnect or optical
 evidence. Do not infer any of those from host tests or build success.
 
-Independent adversarial review of a frozen candidate and final PR/CI/remote
-read-back are still required before this section may claim static completion.
+The first frozen adversarial review correctly blocked profile/pin authorization,
+pending-delivery resurrection, stale-turn publication, shared-surface ownership,
+event acknowledgement, replay receipts, cancellation/deadlines, operation-ID
+bounds, inherited-object validation, receipt bounds, scrolling, pin reopen,
+uncertainty/focus and automatic train routing. Those findings are fixed with
+permanent regressions; final re-review and PR/CI/remote read-back remain required.
 Operational authorization and public MCP/skill publication remain NO-GO.
 
 ## Safety and private data

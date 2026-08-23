@@ -48,6 +48,8 @@ export type ToolResult = {
 
 export type ToolExecutionContext = {
   caller: "direct" | "mcp";
+  /** Authenticated deployment profile; never accepted from tool arguments. */
+  profileId?: string | null;
   connectionGeneration?: string | number | null;
   turnGeneration: string | null;
 };
