@@ -68,7 +68,7 @@
                     <Button text="Allow unrestricted background usage" tap="{{ onAllowBackgroundUsageTap }}" class="-primary" />
                 </StackLayout>
             </StackLayout>
-            <GridLayout row="1" rows="auto,auto,*" columns="*,260">
+            <GridLayout row="1" rows="auto,auto,*" columns="*,320">
                 <StackLayout row="0" col="0" visibility="{{ displayPreviewVisibility }}" horizontalAlignment="left">
                     <Image
                         src="{{ displayPreview }}"
@@ -87,7 +87,7 @@
                     <Label text="{{ displayPreviewMessage }}" textWrap="true" horizontalAlignment="center" verticalAlignment="center" />
                 </GridLayout>
                 <StackLayout row="0" col="1" class="m-l-16">
-                    <GridLayout rows="auto,auto,auto" columns="*,*,*">
+                    <GridLayout rows="auto,auto,auto" columns="*,*,*" class="gesture-grid">
                         <Button row="0" col="1" text="Swipe up" tap="{{ onSyntheticUpTap }}" />
                         <Button row="1" col="0" text="Double-click" tap="{{ onSyntheticLeftTap }}" />
                         <Button row="1" col="1" text="Long press" tap="{{ onSyntheticLongPressTap }}" />

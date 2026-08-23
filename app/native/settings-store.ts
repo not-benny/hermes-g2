@@ -35,6 +35,7 @@ const SECRET_SETTING_KEYS = new Set([
   "terminal.newConnectionDraft",
   "terminal.connections",
   "motion.deviceBindingSalt",
+  "assistant.contextDashboardPins",
 ]);
 
 function getJava(): any {

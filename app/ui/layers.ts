@@ -148,6 +148,14 @@ export class LayerStack {
     return true;
   }
 
+  /** Detach a layer without firing teardown while ownership continues elsewhere. */
+  detach(target: Layer): boolean {
+    const index = this.layers.indexOf(target);
+    if (index <= 0) return false;
+    this.layers.splice(index, 1);
+    return true;
+  }
+
   clearToBase(): void {
     for (const layer of this.layers.splice(1)) {
       notifyRemoved(layer);

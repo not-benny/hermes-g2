@@ -1,230 +1,213 @@
-# Dynamic glasses applications (private evaluation)
+# Contextual dashboards for the dedicated G2 agent
 
-Status: implemented local boundary; public MCP/skill publication remains blocked.
-Protocol version: `1`.
+Status: implemented read-only local boundary; final hardware/bridge proof remains gated.
+Protocol version: `2`.
 
-## Architecture
+## Product boundary
 
-Hermes is the trusted orchestration host. `hermes-host/dynamic-glasses-runtime.mjs`
-projects typed provider data into the generic phone tools under
-`glasses.dynamic_apps.*`. Provider credentials, provider URLs, entity IDs, raw
-responses, headers, and arbitrary executable code never appear in the phone view
-model or action events.
+Contextual dashboards are a presentation capability of the dedicated `even-g2`
+Hermes profile. They are not enabled for the default, phone, or web agent. An
+ordinary G2 question should open a dashboard when a compact visual answer is
+materially better than speech alone. The same `even-g2` turn gathers data with
+its directly authorised read-only tools and publishes a normalized dashboard;
+it never relays through the default agent.
 
-The phone owns strict validation and the G2 compositor. It reports success only
-when the exact shell frame finishes with transport outcome `sent` in the current
-connected session. A timeout, disconnect, supersession, cancellation, or any
-`discarded:*` frame outcome fails the tool call. This proves the current BLE
-transport acknowledgement available to the app; it does not by itself prove
-that both lenses visibly applied the pixels.
+Release 1 is read-only. Remote content cannot define a provider action, tool
+name, URL, script, command, toggle, purchase, booking, message, or other external
+side effect. The only actions are fixed phone-local `refresh`, `pin`, `unpin`,
+`section`, and `follow_up` intents. Home Assistant mutation from protocol V1 is
+superseded for this outcome and belongs to a later separately authorised project.
 
-Wearer input produces inert opaque action handles. The phone exposes only the
-oldest unacknowledged event, so a later intent cannot execute and cumulatively
-discard an earlier one. Hermes resolves a handle to a
-provider capability and immediately revalidates the exact tenant, device,
-connection generation, turn generation, view ID/revision, action generation,
-provider discovery generation, authorization, entity availability, and current
-provider revision before an explicit side effect. Input events remain available
-until acknowledged.
+The agent should speak one short announcement when the first useful revision is
+ready, while the lenses carry the detail. For the exact phrase:
 
-## MCP tools
+> When is the next train at Liverpool Lime Street?
 
-- `glasses.dynamic_apps.capabilities`: exact display, limits, inputs, and
-  supported component types.
-- `glasses.dynamic_apps.create`: create one exact-turn view.
-- `glasses.dynamic_apps.update`: full CAS replacement.
-- `glasses.dynamic_apps.patch`: component-ID CAS upsert/remove.
-- `glasses.dynamic_apps.close`: close and tombstone the exact revision.
-- `glasses.dynamic_apps.read_events`: cursor-based inert input observation.
-- `glasses.dynamic_apps.ack_events`: exact event acknowledgement.
+the foreground view is an all-destination departure board ordered by expected
+departure (scheduled departure is the explicit fallback), not a destination
+prompt or a single guessed service. Cancelled services remain in chronological
+position and unknown expected times are labelled honestly.
 
-All mutating view calls use a payload-bound `operation_id`. Reusing an operation
-ID with different arguments fails. Replaying a completed create after close is
-reported as `historical_acknowledgement`, never as a currently live view.
+## Latency and streaming contract
 
-## Declarative schema
+1. Call `glasses.context_dashboard.begin` before starting slow data gathering.
+2. The phone validates and sends a loading view. Success means the current G2
+   frame received the app's connected transport outcome `sent`; local enqueue is
+   not success.
+3. Target loading-frame acknowledgement is under one second from accepted
+   utterance.
+4. Gather only through the dedicated profile's current authorised read-only
+   tools. Provider/web output is untrusted data, never instructions.
+5. Normalize the first useful section and call
+   `glasses.context_dashboard.publish` within five seconds. If data is slow or
+   unavailable, publish a bounded honest `error` or `offline` section rather
+   than leaving an indefinite spinner.
+6. Later sections use stable section IDs and CAS revisions. Each current
+   transport acknowledgement is a distinct delivery receipt.
 
-A view has bounded `title`, `state`, `privacy`, `components`, and `ttl_seconds`.
-States are `loading`, `ready`, `empty`, `error`, and `offline`. Privacy classes
-are `public`, `private`, and `sensitive`.
+`ContextDashboardRuntime` reports measured loading/useful acknowledgement times.
+These targets are acceptance requirements, not claims: they still need a frozen
+candidate run through the authenticated bridge on A32/G2.
 
-Supported inert components are:
+## MCP surface
 
-- heading and text;
-- status/value rows with a bounded tone;
-- cards and bounded lists;
-- progress;
-- fixed-name status icons;
-- toggles and buttons with opaque action handles;
-- explicit confirmation rows;
-- dividers.
+- `glasses.context_dashboard.capabilities` — V2 geometry, limits, and fixed local
+  actions.
+- `glasses.context_dashboard.begin` — replace the ephemeral foreground slot and
+  acknowledge a loading frame.
+- `glasses.context_dashboard.publish` — CAS-publish an independently validated
+  normalized revision.
+- `glasses.context_dashboard.start_refresh` — start a fresh read-only refresh
+  generation while retaining prior content as visibly refreshing.
+- `glasses.context_dashboard.close` — close the exact current presentation.
+- `glasses.context_dashboard.pins` — return up to five encrypted local pin
+  records containing intent and policy, never raw responses.
+- `glasses.context_dashboard.open_pin` — reopen one pin as a fresh loading view;
+  the saved intent is gathered again under the current exact turn.
+- `glasses.context_dashboard.read_events` / `ack_events` — queue-head delivery
+  and exact acknowledgement for fixed local intents.
 
-The phone rejects unknown fields/types, duplicate component IDs, malformed
-handles, unsafe control/bidi characters, markup, URL-like text, non-finite
-numbers, more than 64 components, more than 32 list entries, specs above 24 KiB,
-and retained component text above 12 KiB. There are no URLs, images, coordinates,
-fonts, colors, scripts, HTML, Markdown execution, shell commands, or generic tool
-names in the protocol.
+Every call still requires the MCP server's live authenticated socket and exact
+active turn. Dashboard lifetime is separate from turn authority: a later exact
+turn may refresh the same current presentation only with its dashboard,
+presentation, refresh, and CAS revision identities. Old socket, turn,
+presentation, refresh, revision, timer, event, or delivery identities fail
+closed.
 
-The renderer is deterministic for the fixed 640×480 grayscale G2 canvas. It
-reserves title/state/footer space, clips atomically by component, truncates
-bounded columns, displays an explicit omitted-item count, and uses scroll/click
-for focus and activation. Double-click and long-press remain shell-owned escape
-paths. Dynamic apps close on display sleep, owner disconnect, exact local close,
-TTL, or explicit close; they do not wake the glasses or restore after process
-replacement.
+## Declarative V2 schema
 
-## Home Assistant reference adapter
+A V2 dashboard has:
 
-`hermes-host/home-assistant-adapter.mjs` is the first provider adapter. It:
+- stable `dashboard_key`, bounded title, lifecycle state and privacy class;
+- a required summary with typed `exact`, `estimated`, or `unknown` uncertainty;
+- one to four ordered typed sections;
+- one to three structured sources with observation time, stale threshold, and
+  current/stale/unavailable/unknown state;
+- zero to three fixed local actions;
+- an optional one-line `once_when_useful` announcement; and
+- a 30–3600 second live-view TTL.
 
-1. requires a server-side HTTPS origin and token getter;
-2. blocks redirects and normalizes every error;
-3. discovers the actual `Living Room` membership at runtime through a fixed
-   Home Assistant template plus current states;
-4. intersects membership with current state and permits only available
-   `light.*` and `switch.*` entities;
-5. exposes fresh opaque handles rather than entity IDs;
-6. delegates mutation to one configured provider-side atomic endpoint that
-   checks the exact area membership, entity/domain, provider revision, and
-   explicit `on`/`off` target in the same Home Assistant operation; the endpoint
-   must never use provider `toggle` or an area-wide target;
-7. fails closed with `atomic mutation unavailable` when that endpoint is absent,
-   rather than attempting a check-then-service TOCTOU sequence;
-8. atomically reserves in-flight idempotency keys before asynchronous work and
-   retains outcome-unknown failures so retries cannot redispatch;
-9. rechecks current Living Room membership, capability generation, entity
-   availability, provider revision, and authorization immediately before the
-   service call; and
-10. restores only an adapter-issued receipt whose service response context and
-   verified post-read context match, then refuses to overwrite any later
-   human/automation revision. A provider response without causal context is
-   explicitly non-restorable.
+States are `loading`, `partial`, `ready`, `empty`, `error`, and `offline`.
+Sections are `departures` (12 rows), `status_grid` (6 rows), `list` (8 rows), or
+`message`. Global bounds are 4 sections, 20 records, 3 sources, 3 local actions,
+16 KiB encoded model and 8 KiB retained text.
 
-## Adding another provider
+Host projection and phone execution both validate the model. Unknown fields,
+duplicate/non-contiguous IDs, missing source references, malformed timestamps,
+non-finite numbers, invalid error-state combinations, oversized/deep data,
+markup, URL-like text, controls/bidi overrides, arbitrary action kinds, and
+executable content are rejected atomically. The last valid revision remains
+current; invalid partial data is never merged.
 
-Keep the adapter on the Hermes host. Implement these seams:
+The phone derives displayed age and stale state from its own clock and the typed
+observation metadata. Provider-authored freshness prose is not trusted.
+Unsupported V2 clients may downgrade only to inert V1 heading/status/card/text
+components. Mutation controls and remote action handles must be omitted.
 
-1. runtime discovery returning bounded labels, typed state, opaque capability
-   handles, and provider-derived revisions;
-2. `read(handle)` with current availability and revision validation;
-3. explicit target-state mutation with an operation ID, abort signal, and a
-   last-moment authorization callback;
-4. post-mutation verification and an honest `outcome unknown` error where the
-   provider cannot prove the result; and
-5. receipt-based conservative restoration for any evaluation mutation.
+## Deterministic lens UX
 
-Project only allowlisted provider fields into the generic schema. Never copy raw
-objects or exception text. Refreshing discovery must issue a new generation and
-make every old handle stale. Removing and re-adding the same external ID must not
-resurrect old authority.
+The compositor uses the existing fixed 640×480 grayscale canvas and its 584×268
+content window. It paints title/state, summary first, stable ordered sections,
+source/freshness/uncertainty, and phone-owned local controls. Updates preserve
+focus and scroll when identities survive. Omitted rows show an explicit count.
+State is always written, never encoded by grayscale alone.
 
-## Private harness
+Ring behavior:
 
-Read-only discovery is the default:
+- scroll moves focus through content/local controls;
+- click activates only the selected fixed local action;
+- long-press opens assistant voice with bounded original intent and focused-item
+  context; remote content cannot close or redirect it;
+- double-click closes the presentation through the shell-owned escape path.
 
-```bash
-HA_URL=https://home-assistant.example \
-HA_TOKEN='server-side-secret' \
-node hermes-host/private-evaluation.mjs
-```
+A `refresh` event carries the saved bounded intent, not an old provider response
+or tool-call payload. The host starts a new generation and reruns under current
+read-only authorisation. Late prior results cannot overwrite it.
 
-A reversible mutation requires all gates:
+## Pinning
 
-```bash
-HA_URL=https://home-assistant.example \
-HA_TOKEN='server-side-secret' \
-HA_ATOMIC_MUTATION_PATH=/api/hermes_g2/safe_set_power \
-HA_ALLOW_MUTATION=I_UNDERSTAND \
-node hermes-host/private-evaluation.mjs \
-  --apply --label 'Floor lamp' --to on --restore
-```
+At most five dashboards are pinned. The encrypted phone-local record contains
+only:
 
-The token must be supplied through the server environment, not command-line
-arguments. The harness prints only bounded labels and state. It requires one
-exact unique label, verifies the explicit target, and restores in `finally`; a
-revision conflict leaves the newer state untouched. SIGINT/SIGTERM does not exit
-while a mutation is in flight; it waits for a verifiable receipt and then enters
-the same restoration path. Kill/crash recovery still requires the durable
-production ledger described below and is not authorised by this private harness.
+- dashboard key and title;
+- `public` or `private` privacy class (`sensitive` is not pinnable);
+- bounded original intent; and
+- bounded manual/on-visible refresh policy.
 
-The atomic endpoint is an external Home Assistant peer contract, not arbitrary
-code delivered to the phone. Its exact request is an object containing only
-`version: 1`, bounded `operation_id`, `area: "Living Room"`, one `entity_id`,
-`domain: "light"|"switch"`, `expected_revision`, and `target: "on"|"off"`.
-It must durably bind `operation_id` to that payload before mutation. Success is
-`{applied:true, area:"Living Room", before:<HA state>, after:<HA state>}`;
-fail-closed precondition responses are `{applied:false, code:"stale_scope"|
-"stale_revision"|"unavailable"}`. Unknown fields and other codes are errors.
+It never contains rendered values, raw/normalized tool responses, headers,
+credentials, provider URLs/IDs, source rows, exceptions, handles, socket/turn
+identities, receipts, or announcements. Corrupt, future, duplicate, oversized,
+or sixth records fail closed. A pinned dashboard refreshes only while visible
+and immediately on reopen; there is no hidden background polling. A new
+unpinned dashboard replaces the previous ephemeral presentation without
+silently evicting pins.
 
-The revision is SHA-256, base64url without padding, over UTF-8 JSON for
-`{attributes, context, last_updated, state}` where `context` is the HA context
-ID and every object key (including nested attribute keys) is recursively sorted
-lexicographically before serialization; arrays preserve order. The endpoint
-must validate membership and this revision, execute one explicit service
-transition, and capture before/after states atomically. Without this peer,
-read-only discovery works and every mutation fails closed.
+## Dedicated-agent integration
 
-### Private end-to-end WSS runner
+`hermes-host/context-dashboard-runtime.mjs` is the provider-neutral host boundary.
+`ContextDashboardAgent` automatically maps the mandatory ordinary Liverpool
+question and supports additional trusted read-only visual adapters; unsupported
+questions remain in the normal conversation flow.
+The dedicated profile supplies trusted local `gather` and `project` functions;
+provider output is projected field-by-field. The runtime:
 
-`hermes-host/private-dynamic-ha-server.mjs` now joins the phone's existing WSS
-bridge protocol to a generic exact-turn MCP client, `DynamicGlassesRuntime`, and
-the Home Assistant adapter. It accepts only one authenticated phone connection,
-binds only a literal private/tunnel/loopback address, requires TLS certificate
-and key files, rejects binary/oversized frames, replaces old connection
-generations, and recognizes one exact spoken trigger. It polls only
-`glasses.dynamic_apps.read_events`; one opaque action is routed through the
-runtime per evaluation session and every retained mutation receipt is restored
-before exact view close. Reopen the view for another reversible action.
+- rejects every identity except exact `even-g2` profile/device/socket/turn;
+- opens loading before gathering;
+- normalizes timeout/provider failures without exposing exception text;
+- suppresses cancelled/replaced runs;
+- publishes against exact presentation/refresh/revision identities; and
+- reruns a phone-local refresh event using its saved bounded intent.
 
-Run from a private deployment environment; keep every path and value private:
+`projectLiverpoolLimeStreetDepartures` is the permanent typed acceptance
+projector. It validates the station, excludes already-departed rows, retains all
+destinations and cancellations, sorts by effective departure then deterministic
+tiebreakers, caps at 12 rows, and produces typed provenance and one announcement.
+Future adapters should follow this pattern rather than paste raw tool JSON into
+the phone schema.
 
-```bash
-PRIVATE_BRIDGE_BIND_HOST=<private-literal-address> \
-PRIVATE_BRIDGE_PORT=<wss-port> \
-PRIVATE_BRIDGE_TLS_CERT=<server-certificate-path> \
-PRIVATE_BRIDGE_TLS_KEY=<server-key-path> \
-PRIVATE_BRIDGE_TOKEN=<shared-token> \
-HA_URL=https://home-assistant.example \
-HA_TOKEN=<server-side-token> \
-HA_ATOMIC_MUTATION_PATH=/api/hermes_g2/safe_set_power \
-HA_MUTATION_LEDGER_PATH=<absolute-private-0600-ledger-path> \
-HA_ALLOW_MUTATION=I_UNDERSTAND \
-PRIVATE_EVALUATION_RESTORE=REQUIRED \
-node hermes-host/private-dynamic-ha-server.mjs
-```
+The phone binds the certificate-authenticated bridge MCP server to authenticated
+profile `even-g2` only after the token/TLS-authenticated `hello-ack` explicitly
+claims `profile: "even-g2"`; custom peers receive no fallback. Other profiles
+cannot list or call contextual tools, and pin
+reads require an exact active turn. The production Hermes gateway deployment
+and concrete rail-reader credential/configuration remain deployment-local. They
+must keep external mutation/generic shell tools absent and route no unmatched
+output to a current turn. No public MCP skill is published by this change.
 
-Then say exactly `open private living room controls`. A different utterance is
-rejected without opening a view. The durable local ledger binds operation ID,
-provider payload, mutation/restore purpose, and restoration parent before
-dispatch. On restart the server replays pending provider operations through the
-same atomic endpoint, reconstructs trusted receipts for completed but unrestored
-mutations, and restores them before accepting WSS connections. The atomic Home
-Assistant endpoint remains the authority that must make a repeated operation ID
-non-dispatching across host crashes.
+### Separate private Home Assistant evaluation harness
 
-## Remaining gates
+Protected main includes a private-only harness in
+`hermes-host/private-dynamic-ha-server.mjs` and its bounded WSS/phone/provider
+peers. It keeps credentials deployment-local, uses a durable payload-bound
+mutation ledger, defaults to read-only, and requires explicit reversible
+mutation authorization. It is not called by the contextual-dashboard tools,
+does not change this V2 schema's local-action allowlist, and is not production or
+public MCP authorization.
 
-The repository now contains a private-evaluation WSS server and generic MCP
-client. It is not a public or production gateway. Real HA-to-phone-to-G2 use
-still requires deployment-local credentials, a certificate whose SAN matches
-the configured bridge host, the provider-side atomic endpoint, and explicit
-hardware authorization/evidence.
+## Evidence and remaining gates
 
-Public publication and production authorization remain NO-GO until all of these
-are independently proven on one frozen final SHA:
+Permanent host tests cover the V2 bounds, executable/action rejection, source
+references, loading-before-gathering order, cross-turn refresh with exact socket
+identity, local queue-head refresh acknowledgement, intent-only encrypted pin
+records, dedicated-profile isolation, deterministic all-destination train
+sorting, and stale generation rejection. Existing dynamic-app, MCP, BLE receipt,
+and teardown tests remain in the full suite.
 
-- Android evidence for correct-certificate success and wrong-CA/wrong-host
-  failure (host-side WSS tests cover these paths but are not Android evidence);
-- independent deployment review of durable cross-process mutation and restore
-  reconciliation against the real provider-side endpoint;
-- generic MCP-client version negotiation and interoperability;
-- credential rotation and production secret-store integration;
-- licensing and redistribution review;
-- sanitized logs with secret sentinels;
-- real A32 + G2 scroll/action/state-update evidence; and
-- exact per-lens applied acknowledgement or complementary optical evidence for
-  both lenses.
+Operational authorization remains NO-GO until the final reviewed SHA is run
+through the authenticated `even-g2` bridge on the authorised A32/G2 and proves:
 
-No firmware, DFU/OTA, pairing/ownership, provisioning/NVM, reset/wipe,
-destructive BLE, or unrelated terminal capability is part of this feature.
+- loading acknowledgement under one second;
+- first useful or honest terminal state under five seconds;
+- visible all-destination Liverpool board and scroll/focus behavior;
+- local refresh, pin/reopen, contextual voice and double-click close;
+- disconnect/reconnect and process-restart fail-closed behavior;
+- secret-sentinel-clean phone/host/logcat/persistence surfaces; and
+- complementary wearer/optical evidence if per-lens application acknowledgement
+  remains unavailable.
+
+Static source/build approval does not establish lens visibility. No firmware,
+DFU/OTA, pairing/ownership, provisioning/NVM, reset/wipe, destructive BLE,
+smart-home mutation, or unrelated terminal authority is part of this feature.
+Public skill/MCP publication remains blocked pending authenticated generic-client
+interoperability, credential and retry evidence, licensing, and the real-G2
+proof above.
