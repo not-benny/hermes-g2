@@ -48,6 +48,7 @@ import {
   retireGlassesMotionSession,
 } from "../native/glasses-motion-service";
 import { effectiveCaptionProvider } from "../captions/caption-settings";
+import { registerDebugControl } from "../debug/control-runtime";
 
 type ConnectionPhase = DashboardConnectionPhase;
 
@@ -341,6 +342,7 @@ class DashboardController {
     // connection stays up (with re-dial) so proactive tool calls work
     // outside voice turns.
     this.syncAssistantBridge();
+    registerDebugControl(this);
   }
 
   /** A local shell flag is not device availability; require the live session. */
@@ -1505,6 +1507,14 @@ class DashboardController {
         this.appendLog("Disconnected from the glasses.");
       }
     }
+  }
+
+  /** Debug harness uses the same fixed launcher registry; no arbitrary deep links. */
+  async launchDebugAllowlistedApp(appId: string): Promise<void> {
+    if (!ALL_APPS.some((app) => app.appId === appId)) {
+      throw new Error("app is not allowlisted");
+    }
+    await this.launchApp(appId);
   }
 
   async injectSyntheticRingInput(

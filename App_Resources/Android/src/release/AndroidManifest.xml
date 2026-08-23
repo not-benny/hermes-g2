@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <!-- Release verification and publishable releases must expose no
+             DUMP-protected receiver. The debug harness has its own debug-only
+             source-set manifest; remove AndroidX's profiling receiver too so
+             the merged release manifest has no DUMP entry at all. -->
+        <receiver
+            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+            tools:node="remove" />
+    </application>
+</manifest>
