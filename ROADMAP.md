@@ -6,18 +6,31 @@ Current as of 23 August 2026. `main` is the canonical branch.
 
 ## Now
 
+### Ultra completion bundle
+
+- **IMPLEMENTED / ARTIFACT AND DEVICE EVIDENCE IN PROGRESS (23 August 2026).** The
+  branch based on exact protected `origin/main@38c9ce1623aea4bfa0ac6d5eb556b23186e66d21`
+  consolidates open issues #59, #66 and #67 plus the maintained work from stale
+  PRs #51, #53, #54 and #56. Code-complete scope includes the mobile Hermes
+  companion, exact-R1 timestamped battery persistence, ACK-resistant polling,
+  the current health parity matrix, modern phone/glasses design contracts, and
+  a debug-only ADB harness with release artifact exclusion. The complete host
+  suite passes 575/575, the cross-feature matrix passes 74/74, typechecking and
+  diff hygiene pass, and all 18 phone XML files parse. Artifact and same-
+  certificate Fold7 upgrade evidence is recorded before merge. Real licensed
+  Hermes-provider deployment and wearer-optical evidence remain explicit
+  external gates rather than inferred successes.
+
 ### Background assistant tasks
 
-- **IMPLEMENTED / HOST VERIFIED; G2 EVIDENCE PENDING (23 August 2026).** The
+- **DONE ON PROTECTED MAIN / COMBINED G2 EVIDENCE PENDING (23 August 2026).** The
   assistant yields its overlay during tool work without cancelling the turn,
   returns short outcomes through serial ACK-backed alerts, and restores the
-  conversation for interactive, long, empty, or failed outcomes. Exact turn,
-  render, display-session, capture, and displaced-overlay ownership prevent
-  stale delivery or duplicate UI. The code-only refresh is based on exact
-  `origin/main@b762846c5c0652c0e67f8828209b40d148447272`; its stable patch ID
-  matches the verified port. Fresh focused tests pass 70/70, the full host suite
-  passes 508/508, and TypeScript typechecking passes. No APK installation or
-  combined Fold7/G2 runtime evidence is claimed.
+  conversation for interactive, long, empty, failed, postcode, code-entry, and
+  approval outcomes. Exact turn, render, display-session, capture, and displaced-
+  overlay ownership prevent stale delivery or duplicate UI. PR #60 is merged at
+  the current protected baseline; its 508-test refresh count is historical and
+  the combined candidate is revalidated separately.
 
 ### Accessibility-first live captions and translation
 
@@ -60,6 +73,20 @@ Current as of 23 August 2026. `main` is the canonical branch.
   real question/deny/allow-once/steer/interrupt/completion evidence remains open.
   See `docs/hermes-agent-cockpit.md`.
 
+### Mobile Hermes companion
+
+- **IMPLEMENTED / REAL PROVIDER DEPLOYMENT EVIDENCE PENDING (23 August 2026).**
+  A fifth responsive phone tab consumes a bounded metadata-only projection over
+  the existing authenticated private WSS owner. Negotiated support, initial-
+  snapshot and RPC deadlines, exact phone/provider generations, positive gateway
+  acknowledgements, durable owner-only operation receipts and replay-safe
+  rejection cover list/refresh/resume/cancel/new-voice/usage paths. Unsupported,
+  offline, stale, nonresumable, duplicate, timed-out and late-reply cases remain
+  deterministic and recoverable. Host tests include a real local TLS-WSS path to
+  a bounded fake RPC gateway and assert prompts, tool payloads and credentials do
+  not traverse it. No configured/licensed production Hermes adapter was available,
+  so the live deployment acceptance gate remains open and is not fabricated.
+
 ### Accessibility-first live captions and translation
 
 - **IMPLEMENTED / FOLD7 AND G2 EVIDENCE PENDING — volatile foreground captions
@@ -84,7 +111,8 @@ Current as of 23 August 2026. `main` is the canonical branch.
 
 ### Notification priority and digests
 
-- **IN PROGRESS — local privacy-first triage (22 August 2026).** A deterministic
+- **IMPLEMENTED / REAL-G2 DIGEST EVIDENCE PENDING — local privacy-first triage
+  (22 August 2026).** A deterministic
   pure reducer now covers sender/channel/category/app/default precedence, per-app
   defaults/reset, urgent/immediate/digest/mute tiers, quiet hours, cooldown,
   cross-key deduplication, global/per-app rate caps, bounded fair digest draining,
@@ -94,8 +122,9 @@ Current as of 23 August 2026. `main` is the canonical branch.
   Persisted state contains aggregate counts only and the old external icon-debug
   files/package logs are removed. Host tests, typecheck and Android build pass;
   reversible A32 synthetic post → queued update → removal transitions were observed
-  through aggregate-only metadata. Final independent review, CI and remote PR
-  read-back remain the delivery gates. See `docs/notification-triage.md`.
+  through aggregate-only metadata. Independent review, CI and PR #47 merge
+  passed; real-G2 digest rendering remains the honest evidence gate. See
+  `docs/notification-triage.md`.
 
 ### Renderer performance
 
@@ -117,6 +146,23 @@ Current as of 23 August 2026. `main` is the canonical branch.
   remains open. No firmware/texture-cache device command was added.
 
 ### Repository and release
+
+- **IMPLEMENTED / FINAL FOLD7 MEASUREMENT PENDING — quiet technical phone UI
+  (23 August 2026).** Semantic palette, type, spacing, bounded surfaces, status
+  banners, accessible control labels and 48-DIP actions now cover current phone
+  settings, captions, credentials, installed-app lists, Glasses/Health warnings,
+  reader and the Hermes companion. Android tab minimum height performs exactly
+  one DIP-to-pixel conversion, and destructive Hermes actions meet normal-text
+  contrast. See `docs/phone-ui-design-language.md`.
+
+- **IMPLEMENTED — protected release consumes only a release variant (23 August
+  2026).** PR CI compiles debug code separately, then assembles and verifies an
+  explicitly unsigned production bundle. Positive unsigned attestation rejects
+  v1 entries and every pre-central-directory signing gap, including corrupted
+  signing blocks. Manifest, DEX and JavaScript scans reject the debug receiver,
+  action and control implementation. The source-free protected job repeats those
+  checks, refuses debuggable signing, applies the exact protected certificate and
+  publishes only the renamed release artifact.
 
 - **DONE / PRIVATE DEPLOYMENT — sleep voice, HUD signal/R1, and WSS bridge (22 August 2026).**
   A sleeping R1 long-press now wakes directly into assistant push-to-talk;
@@ -236,6 +282,15 @@ Current as of 23 August 2026. `main` is the canonical branch.
 
 ## R1 health
 
+- **DONE — exact battery lifetime.** Protocol and standard-GATT battery values
+  share one timestamped Health/HUD state, persist only under the exact normalized
+  R1 identity, reject future/stale records, throttle unchanged writes, and fence
+  final listener delivery by both the current ring generation and exact listener
+  identity across same-address reconnects.
+- **DONE — ACK-resistant poll lifecycle.** Packet acknowledgements wake and
+  resume the same generation-owned health deadline instead of restarting the
+  poll. The candidate completes battery → HR → SpO2 → HRV → activity → sleep
+  ordering while ACK traffic continues; sleep decoding itself remains gated.
 - **DONE — vital decoding and persistence.** Battery, read-only firmware version,
   current/current-hour heart rate, hourly HR/SpO2/HRV, nullable anchored
   timestamps, history, export, and fail-closed persistence are implemented.

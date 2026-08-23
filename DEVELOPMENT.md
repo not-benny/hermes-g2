@@ -115,7 +115,7 @@ npm run verify:release-unsigned
 ```
 
 `verify:release-unsigned` prepares Android, cleans variant metadata, and invokes
-Gradle's `assembleRelease` with the narrowly scoped
+Webpack's production mode followed by Gradle's `assembleRelease` with the narrowly scoped
 `hermesUnsignedReleaseVerification=true` property. Its
 `app-release-unsigned.apk` is verification evidence only: it is explicitly
 unsigned, non-installable as a trusted update, and must never be published.
@@ -125,6 +125,12 @@ fail closed when credentials are absent. Do not create a verification keystore.
 Inspect the generated release merged manifest and unsigned APK for
 `FaceclawDebugControlReceiver`, `com.faceclaw.app.DEBUG_CONTROL_V1`, and
 `android.permission.DUMP`; all three must be absent.
+Debug-control TypeScript lives outside `app/` so NativeScript's recursive app
+context cannot package it; the production build also replaces its conditional
+entry and rejects the control protocol's stable strings in every app bundle.
+Unsigned verification requires no v1 entries and no bytes between the final ZIP
+entry and central directory, so damaged signing blocks cannot masquerade as an
+unsigned input.
 The protected main workflow signs that verified release artifact, never the
 debug APK, and repeats the manifest, debuggable, and DEX surface checks both
 before and after signing without checking out repository code beside secrets.

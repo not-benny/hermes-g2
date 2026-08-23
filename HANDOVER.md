@@ -1,29 +1,49 @@
 # Hermes G2 handover — 23 August 2026
 
-## Background assistant tasks refresh
+## Ultra completion candidate
 
-PR #60 is refreshed from exact `origin/main`
-`b762846c5c0652c0e67f8828209b40d148447272` in code-only commit
-`11efdedd02a4c374f3dd3ecfc106ead231b98a64`. Its stable patch ID is identical
-to the independently verified ultra-tree port. The refresh does not copy the
-PR's older endpoint, native voice, or Transcribe revisions; the current
-generation-bound voice and caption lifecycle remains authoritative.
+This candidate starts from exact protected `origin/main`
+`38c9ce1623aea4bfa0ac6d5eb556b23186e66d21`, where PR #60 is already merged,
+and consolidates every remaining open repository item without reviving stale
+branches:
 
-The assistant overlay now yields when a live turn begins tool work without
-cancelling that turn. Short declarative outcomes drain serially through retained
-ACK-backed alerts; questions, choices, long answers, empty answers, and errors
+- issue #66's timestamped, exact-R1 battery persistence and ACK-resistant health
+  polling, including same-address reconnect fencing at the final Java listener;
+- issue #67's current-main request/decode/persist/export/phone/glasses health
+  parity matrix, with sleep cmd 6 still deliberately unmapped and fail-closed;
+- issue #59's bounded Hermes phone companion over the authenticated private WSS
+  owner, with negotiated capability, exact-generation CAS, durable operation
+  receipts, deadlines, replay safety, redacted projections and a responsive
+  fifth tab;
+- the maintained work from stale PRs #51, #53, #54 and #56: firmware automation
+  research, the modern phone and glasses design contracts, and a DUMP-protected
+  debug-only ADB harness; and
+- final adversarial fixes for phone tab units, interactive assistant replies,
+  companion initial synchronization, release-only publication, unsigned-input
+  attestation and complete production exclusion of the JavaScript debug-control
+  modules.
+
+The open PR heads are historical inputs only. The combined branch is the
+authoritative delivery vehicle. Its complete host suite passes 575/575, the
+cross-feature completion matrix passes 74/74, TypeScript typechecking and diff
+hygiene pass, and all 18 phone XML files parse. Debug, unsigned-release, signed-
+release and same-certificate Fold7 evidence is recorded against the frozen
+artifact candidate before merge. A real configured/licensed Hermes gateway
+remains an external deployment evidence gate; the repository provides a
+certificate-validated loopback WSS/RPC integration without inventing provider
+or deployment claims.
+
+## Background assistant tasks on protected main
+
+PR #60 is merged into the protected baseline. The assistant overlay yields when
+a live turn begins tool work without cancelling that turn. Short declarative
+outcomes drain serially through retained ACK-backed alerts; questions, choices,
+long answers, empty answers, errors, and common postcode/code/approval prompts
 restore the full assistant view. Pending results retry after a real G2 display
 reconnect, strict alerts wait for ordinary rendering to become idle, active
 turns reject competing capture, and synchronous bridge failures cannot retain a
-dead turn handle. Context-dashboard displacement explicitly retires the prior
+dead turn handle. Context-dashboard displacement explicitly retires prior
 background-overlay ownership so it cannot later duplicate or restore stale UI.
-
-Fresh verification passes 70/70 focused assistant, endpoint, caption, voice,
-and dashboard tests; the complete host suite passes 508/508; and TypeScript
-typechecking passes. No APK was installed and no combined Fold7/G2 runtime claim
-is made. Real-device closure still requires tool backgrounding and result
-delivery, question/error restoration, queued-result ordering, disconnect/retry,
-caption preemption/resume, and foreground-app preservation on the same build.
 
 ## Accessibility-first live captions candidate
 
@@ -71,15 +91,15 @@ cannot publish into a replacement generation. Source captions remain available
 when translation or its credential is unavailable. Captions are memory-only and
 credentials remain in the existing Keystore-backed replace-only settings.
 
-The exact Search + captions + battery-lifecycle completion candidate is
-revalidated and recorded separately before delivery. See
+The combined completion candidate preserves this lifecycle and revalidates it
+with the battery, companion, phone-theme and release changes. See
 `docs/live-captions.md` and `PRIVACY`.
 
 ## Canonical repository and release governance
 
 `main` is the only canonical development branch. Current protected baseline is
-`b762846c5c0652c0e67f8828209b40d148447272` (`feat(accessibility): ship
-foreground live captions (#63)`). Do not resume from historical
+`38c9ce1623aea4bfa0ac6d5eb556b23186e66d21` (`feat(g2): run tool tasks in
+the background (#60)`). Do not resume from historical
 `hermes-g2`, `integration/`, `work/`, `wt/`, `fix/`, or dated cleanup branches.
 
 Public visibility is Benny-authorized and required by the current GitHub plan.
@@ -94,8 +114,12 @@ The most recent protected release validation documented here is run
 which completed successfully at historical main SHA
 `712cb644d9dd017158a6359ea494ec2ab6beb9b1`.
 Its secret-free `main-build-validation` and source-free `protected-release`
-signing jobs both passed. PR jobs still receive no protected signing credential
-and cannot publish a release APK.
+signing jobs both passed. That run is historical evidence, not evidence for the
+current completion candidate. The candidate workflow now builds an explicitly
+unsigned production bundle, proves there is no v1 signature or pre-central-
+directory signing material, rejects debug manifest/DEX/JavaScript surfaces,
+and signs only that exact release artifact with debuggable signing forbidden.
+PR jobs still receive no protected signing credential and publish no APK.
 
 ## Current outcomes: Hermes cockpit and read-only contextual dashboards
 
@@ -107,6 +131,18 @@ one-shot decisions, steering, interrupt and terminal actions remain exact-
 generation and deny-default. Provider IDs, prompts, reasoning, tool arguments/
 results, credentials and unshared work are excluded. The contract and remaining
 private deployment evidence gates are in `docs/hermes-agent-cockpit.md`.
+
+The completion candidate adds a separate phone companion projection on the same
+authenticated WSS owner. It negotiates support before requesting state, bounds
+initial synchronization and every gateway RPC, and exposes only status,
+model/profile, last connection, bounded sessions, voice state, usage/cost and
+redacted activity/error classes. Resume, cancel and voice creation are explicit
+operation-ID actions with exact phone/provider generations, positive gateway
+acknowledgements and durable owner-only receipts. Offline, unsupported, stale,
+duplicate, timed-out, lost-receipt and late-reply paths terminate deterministically
+and preserve a safe refresh route. A real licensed/configured provider deployment
+was not available in the repository, so live provider evidence remains separate
+from the passing local TLS-WSS/RPC integration.
 
 PR #61's contextual-dashboard implementation supersedes the earlier HA-centric
 dynamic mutation objective. Home Assistant and other external mutations are not
