@@ -1308,11 +1308,14 @@ class Shell {
     const layer = this.assistantLayer;
     const session = this.assistantSession;
     if (!layer || !session || this.activeVoiceLayer) return;
+    const voiceOwner = this.foregroundWindow();
+    voiceOwner?.setVoiceInputActive?.(true);
     const voice = new VoiceInputLayer({
       actions: this.config.actions,
       onClosed: () => {
         if (this.activeVoiceLayer === voice) {
           this.activeVoiceLayer = null;
+          voiceOwner?.setVoiceInputActive?.(false);
           this.noteUserActivity();
         }
       },

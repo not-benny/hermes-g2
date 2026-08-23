@@ -118,6 +118,9 @@ test("translation lag is measured from the matching source revision and stale tr
   });
   assert.equal(session.snapshot(450).translationLagMs, 350);
   assert.equal(session.snapshot(450).translationCurrent, true);
+  session.apply({ generation: 4, type: "transcript", text: "bonjour monde", isFinal: false, receivedAtMs: 500 });
+  assert.equal(session.snapshot(600).translationCurrent, false);
+  assert.equal(session.snapshot(600).translationPending, true);
 });
 
 test("incremental final deltas keep long continuous streams moving and bounded", () => {
@@ -194,6 +197,23 @@ test("Soniox token fixtures preserve repeated speaker labels, split translation 
     assert.equal(events.at(-1).text, "");
     client.stop();
 
+    const finishRetry = new SonioxSttClient({
+      apiKey: "synthetic-not-a-secret",
+      onTranscript: () => {},
+      onStatus: () => {},
+      onError: () => {},
+    });
+    finishRetry.start();
+    const finishSocket = FakeSocket.instances.at(-1);
+    finishSocket.listener.onOpen();
+    finishSocket.failText = true;
+    finishRetry.finish();
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    const retrySocket = FakeSocket.instances.at(-1);
+    retrySocket.listener.onOpen();
+    assert.equal(retrySocket.text.at(-1), "");
+    finishRetry.stop();
+
     const failedStatuses = [];
     const failedErrors = [];
     const failed = new SonioxSttClient({
@@ -252,6 +272,7 @@ test("caption integration exposes foreground and screen lifecycle hooks and remo
   assert.match(windowHost, /onForegroundChanged/);
   assert.match(windowHost, /onScreenChanged/);
   assert.match(windowHost, /onVoiceInputChanged/);
+  assert.match(transcribe, /event\.generation < currentGeneration/);
 });
 
 test("phone settings are bounded, disclose cloud use, and keep vocabulary phone-only when unsupported", () => {
@@ -270,6 +291,7 @@ test("capture permission requests and provider callbacks are generation bound", 
   const controller = readFileSync(new URL("../app/g2/dashboard-controller.ts", import.meta.url), "utf8");
   const bridge = readFileSync(new URL("../app/native/voice-control.ts", import.meta.url), "utf8");
   const soniox = readFileSync(new URL("../app/native/soniox-stt.ts", import.meta.url), "utf8");
+  const shell = readFileSync(new URL("../app/ui/shell/shell.ts", import.meta.url), "utf8");
   assert.match(controller, /voiceCaptureRequestEpoch/);
   assert.match(controller, /requestEpoch !== this\.voiceCaptureRequestEpoch\[kind\]/);
   assert.match(bridge, /generation !== this\.activeGeneration/);
@@ -278,6 +300,7 @@ test("capture permission requests and provider callbacks are generation bound", 
   assert.doesNotMatch(bridge, /still finish a dangling cloud commit/);
   assert.match(soniox, /translation_status === "translation"/);
   assert.match(soniox, /enable_speaker_diarization/);
+  assert.ok((shell.match(/setVoiceInputActive\?\.\(true\)/g) ?? []).length >= 2);
   for (const provider of ["deepgram-stt.ts", "elevenlabs-stt.ts", "openai-stt.ts", "soniox-stt.ts"]) {
     const source = readFileSync(new URL(`../app/native/${provider}`, import.meta.url), "utf8");
     assert.match(source, /MAX_PENDING_PCM_CHUNKS/);

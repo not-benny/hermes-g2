@@ -147,6 +147,7 @@ export class SonioxSttClient implements CloudSttClient {
     if (this.closed) return;
     if (this.open) {
       if (!this.trySendText("")) {
+        this.pendingFinish = true;
         this.retireCurrentSocketAndReconnect("Soniox finalization send failed; reconnecting.");
       }
     } else {

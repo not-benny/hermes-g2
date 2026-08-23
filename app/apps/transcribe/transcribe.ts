@@ -57,7 +57,9 @@ export class TranscribeLayer implements Layer {
     });
     this.unsubscribeStatus = voiceControlBridge.onStatus((state) => {
       if (!this.captureRequested) return;
-      if (this.captions.snapshot().generation !== state.generation) {
+      const currentGeneration = this.captions.snapshot().generation;
+      if (state.generation < currentGeneration) return;
+      if (state.generation > currentGeneration) {
         this.captions.begin(state.generation, Date.now());
       }
       this.status = visualStatus(state.status);
@@ -201,7 +203,9 @@ export class TranscribeLayer implements Layer {
 
   private onTranscript(event: VoiceTranscriptEvent): void {
     if (!this.captureRequested) return;
-    if (this.captions.snapshot().generation !== event.generation) {
+    const currentGeneration = this.captions.snapshot().generation;
+    if (event.generation < currentGeneration) return;
+    if (event.generation > currentGeneration) {
       this.captions.begin(event.generation, event.receivedAtMs);
     }
     this.captions.apply({ type: "transcript", ...event });

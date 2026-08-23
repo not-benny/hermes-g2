@@ -202,6 +202,14 @@ export class CaptionSession {
     const sourceRevisionPresent = event.sourceRevisionPresent ?? true;
     const translationRevisionPresent = event.translationRevisionPresent ?? event.translationText !== undefined;
     if (sourceRevisionPresent) this.liveSource = source;
+    if (sourceRevisionPresent && !translationRevisionPresent) {
+      // A translation belongs to one exact source revision. A newer source
+      // invalidates the old live translation immediately so translation-first
+      // rendering falls back to the current source.
+      this.liveTranslation = "";
+      this.liveTranslationAtMs = null;
+      this.translationIsFinal = false;
+    }
     if (translationRevisionPresent) this.liveTranslation = translation;
     this.liveLanguage = boundedText(event.language).slice(0, 32) || null;
     this.liveConfidence = boundedConfidence(event.confidence);
