@@ -35,7 +35,7 @@ export class DynamicGlassesRuntime {
     this.#now = now;
   }
 
-  async openLivingRoom(identity, { operationId }) {
+  async openLivingRoom(identity, { operationId, signal } = {}) {
     const owner = identityKey(identity);
     if (this.#session?.expiresAtMs <= this.#now()) {
       this.#session = null;
@@ -45,7 +45,8 @@ export class DynamicGlassesRuntime {
     const pending = { owner, cancelled: false };
     this.#pendingOpen = pending;
     try {
-    const devices = (await this.#adapter.discover({ kind: "area", label: "Living Room" })).slice(0, 63);
+    if (signal?.aborted) throw new Error("dynamic app open was cancelled");
+    const devices = (await this.#adapter.discover({ kind: "area", label: "Living Room" }, signal)).slice(0, 63);
     if (pending.cancelled || this.#pendingOpen !== pending) throw new Error("stale dynamic app open");
     const components = [{ id: "title", type: "heading", text: "Living room" }];
     this.#actions.clear();
@@ -72,7 +73,7 @@ export class DynamicGlassesRuntime {
         components,
         ttl_seconds: 300,
       },
-    });
+    }, { signal });
     if (pending.cancelled || this.#pendingOpen !== pending) {
       if (result?.status === "acknowledged" && result.view_id && result.revision === 1) {
         let closeResult;
@@ -135,7 +136,7 @@ export class DynamicGlassesRuntime {
   }
 
   async #deliverInputOnce(owner, session, action, event, operationId, signal) {
-    const current = await this.#adapter.read(action.capabilityHandle);
+    const current = await this.#adapter.read(action.capabilityHandle, signal);
     if (current.revision !== action.expectedRevision) throw new Error("provider state changed; refresh required");
     const desired = current.value === "on" ? "off" : "on";
     const receipt = await this.#adapter.setPower({
@@ -158,7 +159,7 @@ export class DynamicGlassesRuntime {
           value: receipt.after.value === "on", action_handle: nextActionHandle }],
         remove: [],
       },
-    });
+    }, { signal });
     if (patched?.status !== "acknowledged" || patched.revision !== session.revision + 1) {
       throw new Error("provider changed but refreshed glasses state was not acknowledged");
     }
@@ -170,7 +171,7 @@ export class DynamicGlassesRuntime {
       view_id: session.viewId,
       revision: event.revision,
       through_event_id: event.event_id,
-    });
+    }, { signal });
     if (acknowledgement?.status !== "acknowledged" && acknowledgement?.status !== "historical_acknowledgement") {
       throw new Error("phone did not acknowledge the processed input event");
     }
@@ -184,6 +185,7 @@ export class DynamicGlassesRuntime {
     const session = this.#session;
     if (!session || session.owner !== owner) throw new Error("stale dynamic app session");
     const restorations = [];
+    let restorationIncomplete = false;
     for (let index = session.receipts.length - 1; index >= 0; index--) {
       if (signal?.aborted) throw new Error("dynamic app restoration was cancelled");
       const result = await this.#adapter.restore(session.receipts[index], {
@@ -192,6 +194,7 @@ export class DynamicGlassesRuntime {
         isAuthorized: () => this.#session === session && session.owner === owner,
       });
       restorations.push(result);
+      if (result?.restored !== true) restorationIncomplete = true;
     }
     const closed = await this.#phone.callTool("glasses.dynamic_apps.close", {
       operation_id: `${operationId}.close`,
@@ -206,6 +209,7 @@ export class DynamicGlassesRuntime {
       this.#session = null;
       this.#actions.clear();
     }
+    if (restorationIncomplete) throw new Error("dynamic app restoration was not completed");
     return { restorations, viewId: session.viewId, revision: session.revision };
   }
 

@@ -301,6 +301,12 @@ export class HomeAssistantAdapter {
       const { entity, snapshot: current } = await this.#readCurrent(receipt.after.handle, context?.signal);
       const currentProof = createHash("sha256").update(entity.contextId).digest("base64url");
       if (current.revision !== receipt.after.revision || currentProof !== receipt.restorationProof) {
+        if (this.#ledger && typeof context?.operationId === "string") {
+          await this.#ledger.reserve(context.operationId, {
+            version: 1, resolution: "state_changed", parent_operation_id: receipt.operationId,
+          }, { purpose: "restore", parentOperationId: receipt.operationId });
+          await this.#ledger.reject(context.operationId, "stale_revision");
+        }
         return { restored: false, reason: "state-changed" };
       }
       const restoredReceipt = await this.setPower({

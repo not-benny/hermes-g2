@@ -55,3 +55,13 @@ test("tool errors and malformed payloads fail closed without leaking raw provide
   client.receive({ jsonrpc: "2.0", id: frames.at(-1).msg.id, result: { content: [{ type: "image", data: "secret" }] } });
   await assert.rejects(() => malformed, /malformed/i);
 });
+
+test("an aborted turn rejects its pending phone MCP request and ignores the late reply", async () => {
+  const { client, frames } = setup();
+  const controller = new AbortController();
+  const pending = client.callTool("glasses.dynamic_apps.create", {}, { signal: controller.signal });
+  const id = frames[0].msg.id;
+  controller.abort();
+  await assert.rejects(() => pending, /cancelled|aborted/i);
+  assert.equal(client.receive({ jsonrpc: "2.0", id, result: {} }), false);
+});

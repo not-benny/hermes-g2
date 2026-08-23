@@ -35,7 +35,7 @@ export class PrivateDynamicHaTurn {
     let revision = 0;
     let actions = 0;
     try {
-      opened = await this.#runtime.openLivingRoom(identity, { operationId: `${operationId}.open` });
+      opened = await this.#runtime.openLivingRoom(identity, { operationId: `${operationId}.open`, signal });
       if (!opened || typeof opened.viewId !== "string" || !Number.isSafeInteger(opened.revision)) throw new Error("dynamic app open response is malformed");
       revision = opened.revision;
       while (!signal?.aborted && this.#now() - started < this.#maxSessionMs) {
@@ -43,14 +43,16 @@ export class PrivateDynamicHaTurn {
           view_id: opened.viewId,
           revision,
           after_event_id: null,
-        });
+        }, { signal });
         if (!batch || batch.view_id !== opened.viewId || batch.revision !== revision || !Array.isArray(batch.events) || batch.events.length > 1) {
           throw new Error("phone event batch is malformed or stale");
         }
         if (batch.events.length === 1) {
           const event = batch.events[0];
           if (!validEvent(event, opened.viewId, revision)) throw new Error("phone event is malformed or stale");
-          const result = await this.#runtime.deliverInput(identity, event, { operationId: `${operationId}.action.${++actions}` });
+          const result = await this.#runtime.deliverInput(identity, event, {
+            operationId: `${operationId}.action.${++actions}`, signal,
+          });
           if (!result || result.viewId !== opened.viewId || !Number.isSafeInteger(result.revision) || result.revision <= revision) {
             throw new Error("dynamic app action result is malformed or stale");
           }

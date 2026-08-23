@@ -8,8 +8,8 @@ test("turn driver opens, polls, routes one exact wearer event, then restores bef
   const controller = new AbortController();
   const calls = [];
   let revision = 1;
-  const phone = { async callTool(name, args) {
-    calls.push({ kind: "phone", name, args });
+  const phone = { async callTool(name, args, options) {
+    calls.push({ kind: "phone", name, args, options });
     if (name.endsWith(".read_events")) return { view_id: "opaque_dynamic_view_0001", revision, events: [{
       event_id: "event-1", view_id: "opaque_dynamic_view_0001", revision, action_handle: "opaque_action_handle_0001", kind: "activate",
     }] };
@@ -27,6 +27,9 @@ test("turn driver opens, polls, routes one exact wearer event, then restores bef
   const result = await turn.run(identity, { operationId: "eval-1", signal: controller.signal });
   assert.equal(result.actions, 1);
   assert.equal(calls.filter((call) => call.kind === "deliver").length, 1);
+  assert.equal(calls.find((call) => call.kind === "open").options.signal, controller.signal);
+  assert.equal(calls.find((call) => call.name?.endsWith(".read_events")).options.signal, controller.signal);
+  assert.equal(calls.find((call) => call.kind === "deliver").options.signal, controller.signal);
   assert.equal(calls.at(-1).kind, "restore-close");
   assert.equal(calls.find((call) => call.name?.endsWith(".read_events")).args.revision, 1);
 });

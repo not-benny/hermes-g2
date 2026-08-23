@@ -34,11 +34,11 @@ export class PrivatePhoneMcpClient {
     this.#initialized = true;
   }
 
-  async callTool(name, args) {
+  async callTool(name, args, { signal } = {}) {
     if (typeof name !== "string" || !name.startsWith("glasses.dynamic_apps.") || !args || typeof args !== "object" || Array.isArray(args)) {
       throw new Error("private phone tool request rejected");
     }
-    const result = await this.#request("tools/call", { name, arguments: args });
+    const result = await this.#request("tools/call", { name, arguments: args }, signal);
     if (result?.isError === true) throw new Error("phone tool failed safely");
     const content = result?.content;
     if (!Array.isArray(content) || content.length !== 1 || content[0]?.type !== "text" || typeof content[0].text !== "string") {
@@ -59,7 +59,7 @@ export class PrivatePhoneMcpClient {
     const pending = this.#pending.get(key);
     if (!pending) return false;
     this.#pending.delete(key);
-    clearTimeout(pending.timer);
+    pending.cleanup();
     if (message.error) pending.reject(new Error("phone MCP request failed safely"));
     else if (!("result" in message)) pending.reject(new Error("phone MCP response is malformed"));
     else pending.resolve(message.result);
@@ -70,25 +70,39 @@ export class PrivatePhoneMcpClient {
     if (this.#closed) return;
     this.#closed = true;
     for (const pending of this.#pending.values()) {
-      clearTimeout(pending.timer);
+      pending.cleanup();
       pending.reject(new Error(reason));
     }
     this.#pending.clear();
   }
 
-  #request(method, params) {
+  #request(method, params, signal) {
     if (this.#closed) return Promise.reject(new Error("phone MCP connection is closed"));
+    if (signal?.aborted) return Promise.reject(new Error("phone MCP request was cancelled"));
     const id = `${this.#connectionGeneration}:${++this.#nextId}`;
     return new Promise((resolve, reject) => {
+      const key = `string:${id}`;
+      const onAbort = () => {
+        const pending = this.#pending.get(key);
+        if (!pending) return;
+        this.#pending.delete(key);
+        pending.cleanup();
+        reject(new Error("phone MCP request was cancelled"));
+      };
       const timer = setTimeout(() => {
-        this.#pending.delete(`string:${id}`);
+        const pending = this.#pending.get(key);
+        if (!pending) return;
+        this.#pending.delete(key);
+        pending.cleanup();
         reject(new Error("phone MCP request timed out"));
       }, this.#requestTimeoutMs);
-      this.#pending.set(`string:${id}`, { resolve, reject, timer });
+      const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
+      this.#pending.set(key, { resolve, reject, cleanup });
+      signal?.addEventListener("abort", onAbort, { once: true });
       try { this.#sendFrame({ jsonrpc: "2.0", id, method, params }); }
       catch {
-        clearTimeout(timer);
-        this.#pending.delete(`string:${id}`);
+        cleanup();
+        this.#pending.delete(key);
         reject(new Error("phone MCP transport failed"));
       }
     });

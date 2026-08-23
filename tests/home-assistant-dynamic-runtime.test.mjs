@@ -284,6 +284,25 @@ test("restore is conservative and refuses to overwrite a later human or automati
     { restored: false, reason: "state-changed" });
 });
 
+test("durable restore records a later human change as a resolved causal conflict", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "hermes-g2-restore-conflict-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const ledger = new DurableMutationLedger({ path: join(directory, "mutations.json") });
+  const { transport, setLamp } = fakeHa();
+  const adapter = new HomeAssistantAdapter({ transport, ledger,
+    createHandle: () => "opaque_entity_handle_0001", now: () => 1_000 });
+  const [device] = await adapter.discover({ kind: "area", label: "Living Room" });
+  const receipt = await adapter.setPower({ operationId: "conflict-op", handle: device.handle, value: "on", expectedRevision: device.revision },
+    { isAuthorized: () => true });
+  setLamp({ entity_id: "light.floor_lamp", state: "on", attributes: { friendly_name: "Floor lamp", brightness: 1 },
+    last_updated: "2026-08-22T10:00:03Z", context: { id: "human-change" } });
+  assert.equal((await adapter.restore(receipt, { operationId: "conflict-restore", isAuthorized: () => true })).restored, false);
+  const resolution = await ledger.get("conflict-restore");
+  assert.equal(resolution.purpose, "restore");
+  assert.equal(resolution.parentOperationId, "conflict-op");
+  assert.equal(resolution.code, "stale_revision");
+});
+
 test("fetch transport keeps credentials server-side, requires HTTPS, blocks redirects, and redacts failures", async () => {
   assert.throws(() => createHomeAssistantTransport({ baseUrl: "http://ha.local", getToken: () => "sentinel-token" }), /https/i);
   const seen = [];
@@ -368,6 +387,33 @@ test("runtime retains mutation receipts and restores before closing the exact ph
   assert.deepEqual(result.restorations, [{ restored: true, snapshot }]);
   assert.equal(calls.findIndex((call) => call.kind === "restore") < calls.findIndex((call) => call.name?.endsWith(".close")), true);
   await assert.rejects(() => runtime.deliverInput(identity, { view_id: opened.viewId }, { operationId: "late" }), /stale/i);
+});
+
+test("runtime closes but fails the turn when conservative restoration cannot restore", async () => {
+  const snapshot = { handle: "entity-handle-0001", label: "Lamp", value: "off", revision: "r1" };
+  const calls = [];
+  const adapter = {
+    async discover() { return [snapshot]; }, async read() { return snapshot; },
+    async setPower() { return { operationId: "mutation", changed: true, before: snapshot,
+      after: { ...snapshot, value: "on", revision: "r2" } }; },
+    async restore() { calls.push("restore"); return { restored: false, reason: "state-changed" }; },
+  };
+  const phone = { async callTool(name, args) {
+    calls.push(name);
+    if (name.endsWith(".create")) return { status: "acknowledged", view_id: "opaque_dynamic_view_0001", revision: 1 };
+    if (name.endsWith(".patch")) return { status: "acknowledged", view_id: args.view_id, revision: 2 };
+    if (name.endsWith(".close")) return { status: "closed", view_id: args.view_id, revision: args.expected_revision };
+    return { status: "acknowledged" };
+  } };
+  let actionN = 0;
+  const runtime = new DynamicGlassesRuntime({ adapter, phone,
+    createHandle: () => `opaque_action_handle_${String(++actionN).padStart(4, "0")}`, now: () => 1_000 });
+  const identity = { tenant: "owner", device: "g2", connectionGeneration: "socket", turnGeneration: "turn" };
+  const opened = await runtime.openLivingRoom(identity, { operationId: "open" });
+  await runtime.deliverInput(identity, { event_id: "event", view_id: opened.viewId, revision: 1,
+    action_handle: "opaque_action_handle_0001", kind: "activate" }, { operationId: "mutation" });
+  await assert.rejects(() => runtime.restoreAndClose(identity, { operationId: "finish" }), /restoration/i);
+  assert.equal(calls.some((call) => call.endsWith?.(".close")), true);
 });
 
 test("runtime keeps untouched multi-device actions current and bounds a 64-device provider to the phone limit", async () => {
