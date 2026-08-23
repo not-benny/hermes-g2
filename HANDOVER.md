@@ -1,5 +1,30 @@
 # Hermes G2 handover — 23 August 2026
 
+## Background assistant tasks refresh
+
+PR #60 is refreshed from exact `origin/main`
+`b762846c5c0652c0e67f8828209b40d148447272` in code-only commit
+`11efdedd02a4c374f3dd3ecfc106ead231b98a64`. Its stable patch ID is identical
+to the independently verified ultra-tree port. The refresh does not copy the
+PR's older endpoint, native voice, or Transcribe revisions; the current
+generation-bound voice and caption lifecycle remains authoritative.
+
+The assistant overlay now yields when a live turn begins tool work without
+cancelling that turn. Short declarative outcomes drain serially through retained
+ACK-backed alerts; questions, choices, long answers, empty answers, and errors
+restore the full assistant view. Pending results retry after a real G2 display
+reconnect, strict alerts wait for ordinary rendering to become idle, active
+turns reject competing capture, and synchronous bridge failures cannot retain a
+dead turn handle. Context-dashboard displacement explicitly retires the prior
+background-overlay ownership so it cannot later duplicate or restore stale UI.
+
+Fresh verification passes 70/70 focused assistant, endpoint, caption, voice,
+and dashboard tests; the complete host suite passes 508/508; and TypeScript
+typechecking passes. No APK was installed and no combined Fold7/G2 runtime claim
+is made. Real-device closure still requires tool backgrounding and result
+delivery, question/error restoration, queued-result ordering, disconnect/retry,
+caption preemption/resume, and foreground-app preservation on the same build.
+
 ## Accessibility-first live captions candidate
 
 PR #63 evolves Transcribe into volatile foreground/screen-owned captions with
