@@ -93,7 +93,7 @@ export class DynamicGlassesRuntime {
       throw new Error("stale dynamic app open");
     }
     if (result?.status !== "acknowledged" || !result.view_id || result.revision !== 1) throw new Error("phone did not acknowledge dynamic app delivery");
-    this.#session = { owner, viewId: result.view_id, revision: result.revision, expiresAtMs: this.#now() + 300_000 };
+    this.#session = { owner, viewId: result.view_id, revision: result.revision, expiresAtMs: this.#now() + 300_000, receipts: [] };
     this.#pendingOpen = null;
     return { viewId: result.view_id, revision: result.revision };
     } catch (error) {
@@ -144,6 +144,7 @@ export class DynamicGlassesRuntime {
       value: desired,
       expectedRevision: current.revision,
     }, { isAuthorized: () => this.#isCurrent(owner, event), signal });
+    if (this.#session === session) session.receipts.push(receipt);
     if (!this.#isCurrent(owner, event)) throw new Error("stale dynamic app event after provider mutation");
 
     const nextActionHandle = this.#mintAction({ owner, capabilityHandle: action.capabilityHandle,
@@ -175,6 +176,37 @@ export class DynamicGlassesRuntime {
     }
     const result = { state: receipt.after.value, viewId: session.viewId, revision: session.revision, changed: receipt.changed };
     return result;
+  }
+
+  async restoreAndClose(identity, { operationId, signal } = {}) {
+    const owner = identityKey(identity);
+    if (!/^[A-Za-z0-9._-]{1,40}$/.test(operationId ?? "")) throw new Error("bounded restoration operation ID is required");
+    const session = this.#session;
+    if (!session || session.owner !== owner) throw new Error("stale dynamic app session");
+    const restorations = [];
+    for (let index = session.receipts.length - 1; index >= 0; index--) {
+      if (signal?.aborted) throw new Error("dynamic app restoration was cancelled");
+      const result = await this.#adapter.restore(session.receipts[index], {
+        operationId: `${operationId}.restore.${session.receipts.length - index}`,
+        signal,
+        isAuthorized: () => this.#session === session && session.owner === owner,
+      });
+      restorations.push(result);
+    }
+    const closed = await this.#phone.callTool("glasses.dynamic_apps.close", {
+      operation_id: `${operationId}.close`,
+      view_id: session.viewId,
+      expected_revision: session.revision,
+    });
+    if ((closed?.status !== "closed" && closed?.status !== "historical_acknowledgement") ||
+        closed?.view_id !== session.viewId || closed?.revision !== session.revision) {
+      throw new Error("phone did not acknowledge dynamic app close");
+    }
+    if (this.#session === session) {
+      this.#session = null;
+      this.#actions.clear();
+    }
+    return { restorations, viewId: session.viewId, revision: session.revision };
   }
 
   close(identity) {

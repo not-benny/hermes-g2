@@ -165,19 +165,59 @@ must validate membership and this revision, execute one explicit service
 transition, and capture before/after states atomically. Without this peer,
 read-only discovery works and every mutation fails closed.
 
+### Private end-to-end WSS runner
+
+`hermes-host/private-dynamic-ha-server.mjs` now joins the phone's existing WSS
+bridge protocol to a generic exact-turn MCP client, `DynamicGlassesRuntime`, and
+the Home Assistant adapter. It accepts only one authenticated phone connection,
+binds only a literal private/tunnel/loopback address, requires TLS certificate
+and key files, rejects binary/oversized frames, replaces old connection
+generations, and recognizes one exact spoken trigger. It polls only
+`glasses.dynamic_apps.read_events`; one opaque action is routed through the
+runtime per evaluation session and every retained mutation receipt is restored
+before exact view close. Reopen the view for another reversible action.
+
+Run from a private deployment environment; keep every path and value private:
+
+```bash
+PRIVATE_BRIDGE_BIND_HOST=<private-literal-address> \
+PRIVATE_BRIDGE_PORT=<wss-port> \
+PRIVATE_BRIDGE_TLS_CERT=<server-certificate-path> \
+PRIVATE_BRIDGE_TLS_KEY=<server-key-path> \
+PRIVATE_BRIDGE_TOKEN=<shared-token> \
+HA_URL=https://home-assistant.example \
+HA_TOKEN=<server-side-token> \
+HA_ATOMIC_MUTATION_PATH=/api/hermes_g2/safe_set_power \
+HA_MUTATION_LEDGER_PATH=<absolute-private-0600-ledger-path> \
+HA_ALLOW_MUTATION=I_UNDERSTAND \
+PRIVATE_EVALUATION_RESTORE=REQUIRED \
+node hermes-host/private-dynamic-ha-server.mjs
+```
+
+Then say exactly `open private living room controls`. A different utterance is
+rejected without opening a view. The durable local ledger binds operation ID,
+provider payload, mutation/restore purpose, and restoration parent before
+dispatch. On restart the server replays pending provider operations through the
+same atomic endpoint, reconstructs trusted receipts for completed but unrestored
+mutations, and restores them before accepting WSS connections. The atomic Home
+Assistant endpoint remains the authority that must make a repeated operation ID
+non-dispatching across host crashes.
+
 ## Remaining gates
 
-This repository does not contain the authenticated production Hermes WSS server
-that accepts the phone's bridge connection and supplies a generic-client MCP
-peer. Therefore the checked-in host runtime uses an injected phone MCP client,
-and a real HA-to-A32-to-G2 run requires that external peer plus private
-credentials.
+The repository now contains a private-evaluation WSS server and generic MCP
+client. It is not a public or production gateway. Real HA-to-phone-to-G2 use
+still requires deployment-local credentials, a certificate whose SAN matches
+the configured bridge host, the provider-side atomic endpoint, and explicit
+hardware authorization/evidence.
 
 Public publication and production authorization remain NO-GO until all of these
 are independently proven on one frozen final SHA:
 
-- authenticated WSS server identity and certificate-failure behavior;
-- durable cross-process mutation idempotency/reconciliation;
+- Android evidence for correct-certificate success and wrong-CA/wrong-host
+  failure (host-side WSS tests cover these paths but are not Android evidence);
+- independent deployment review of durable cross-process mutation and restore
+  reconciliation against the real provider-side endpoint;
 - generic MCP-client version negotiation and interoperability;
 - credential rotation and production secret-store integration;
 - licensing and redistribution review;

@@ -102,6 +102,7 @@ export class HomeAssistantAdapter {
   #transport;
   #createHandle;
   #now;
+  #ledger;
   #generation = 0;
   #capabilities = new Map();
   #issuedHandles = new Set();
@@ -109,11 +110,15 @@ export class HomeAssistantAdapter {
   #restores = new Map();
   #issuedReceipts = new WeakSet();
 
-  constructor({ transport, createHandle = opaqueHandle, now = Date.now }) {
+  constructor({ transport, createHandle = opaqueHandle, now = Date.now, ledger = null }) {
     if (!transport?.request) throw new Error("Home Assistant transport is required");
+    if (ledger !== null && ["reserve", "complete", "reject", "get", "list", "forget"].some((name) => typeof ledger[name] !== "function")) {
+      throw new Error("Home Assistant durable ledger is invalid");
+    }
     this.#transport = transport;
     this.#createHandle = createHandle;
     this.#now = now;
+    this.#ledger = ledger;
   }
 
   async discover(scope, signal) {
@@ -197,47 +202,66 @@ export class HomeAssistantAdapter {
       return prior.promise;
     }
     const promise = this.#setPowerOnce(structuredClone(request), context);
-    this.#operations.set(request.operationId, { request: structuredClone(request), promise });
+    const entry = { request: structuredClone(request), promise };
+    this.#operations.set(request.operationId, entry);
+    if (this.#ledger) {
+      void promise.catch(() => {
+        if (this.#operations.get(request.operationId) === entry) this.#operations.delete(request.operationId);
+      });
+    }
     return promise;
   }
 
   async #setPowerOnce(request, context) {
     const capability = this.#resolve(request.handle);
-    const { snapshot: before } = await this.#readCurrent(request.handle, context?.signal);
-    if (before.revision !== request.expectedRevision) throw new HomeAssistantError("revision is stale");
-    if (before.value === request.value) {
-      const receipt = Object.freeze({ operationId: request.operationId, changed: false, restorable: true, before, after: before });
-      this.#issuedReceipts.add(receipt);
-      return receipt;
+    const providerRequest = {
+      version: 1,
+      operation_id: request.operationId,
+      area: "Living Room",
+      entity_id: capability.entityId,
+      domain: capability.domain,
+      expected_revision: request.expectedRevision,
+      target: request.value,
+    };
+    const durableMetadata = {
+      purpose: context?.durablePurpose === "restore" ? "restore" : "mutation",
+      parentOperationId: context?.durablePurpose === "restore" ? context?.parentOperationId ?? null : null,
+    };
+    let durable = null;
+    if (this.#ledger) {
+      const existing = await this.#ledger.get(request.operationId);
+      if (existing) {
+        durable = await this.#ledger.reserve(request.operationId, providerRequest, durableMetadata);
+        if (durable.state === "completed") return this.#receiptFromMutationResult(request, capability, durable.outcome);
+        if (durable.state === "rejected") throw new HomeAssistantError(durable.code.replace(/_/g, " "));
+      }
+    }
+    if (!durable) {
+      const { snapshot: before } = await this.#readCurrent(request.handle, context?.signal);
+      if (before.revision !== request.expectedRevision) {
+        throw new HomeAssistantError("revision is stale");
+      }
+      if (before.value === request.value) {
+        const receipt = Object.freeze({ operationId: request.operationId, changed: false, restorable: true, before, after: before });
+        this.#issuedReceipts.add(receipt);
+        return receipt;
+      }
+      if (this.#ledger) durable = await this.#ledger.reserve(request.operationId, providerRequest, durableMetadata);
     }
     if (context?.signal?.aborted || context?.isAuthorized?.() !== true) throw new HomeAssistantError("mutation no longer authorized");
     if (typeof this.#transport.mutateBinaryCapability !== "function") throw new HomeAssistantError("atomic mutation unavailable");
     try {
-      const result = await this.#transport.mutateBinaryCapability({
-        version: 1,
-        operation_id: request.operationId,
-        area: "Living Room",
-        entity_id: capability.entityId,
-        domain: capability.domain,
-        expected_revision: request.expectedRevision,
-        target: request.value,
-      }, context?.signal);
+      const result = await this.#transport.mutateBinaryCapability(providerRequest, context?.signal);
       if (result?.applied === false && ["stale_scope", "stale_revision", "unavailable"].includes(result.code)) {
+        if (this.#ledger && durableMetadata.purpose === "restore" && result.code !== "stale_revision") {
+          await this.#ledger.forget(request.operationId);
+        } else {
+          await this.#ledger?.reject(request.operationId, result.code);
+        }
         throw new HomeAssistantError(result.code.replace(/_/g, " "));
       }
-      const beforeEntity = parseEntity(result?.before);
-      const afterEntity = parseEntity(result?.after);
-      if (result?.applied !== true || result?.area !== "Living Room" || !beforeEntity || !afterEntity ||
-          beforeEntity.entityId !== capability.entityId || afterEntity.entityId !== capability.entityId ||
-          beforeEntity.revision !== request.expectedRevision || afterEntity.value !== request.value) {
-        throw new HomeAssistantError("mutation outcome unknown");
-      }
-      const after = Object.freeze({ handle: request.handle, kind: afterEntity.domain, label: afterEntity.label,
-        value: afterEntity.value, revision: afterEntity.revision, observedAtMs: this.#now() });
-      const contextDigest = createHash("sha256").update(afterEntity.contextId).digest("base64url");
-      const receipt = Object.freeze({ operationId: request.operationId, changed: true, restorable: true,
-        restorationProof: contextDigest, before, after });
-      this.#issuedReceipts.add(receipt);
+      const receipt = this.#receiptFromMutationResult(request, capability, result);
+      await this.#ledger?.complete(request.operationId, result);
       return receipt;
     } catch (error) {
       if (error instanceof HomeAssistantError && ["Home Assistant stale scope", "Home Assistant stale revision", "Home Assistant unavailable"].includes(error.message)) {
@@ -245,6 +269,25 @@ export class HomeAssistantAdapter {
       }
       throw new HomeAssistantError("mutation outcome unknown");
     }
+  }
+
+  #receiptFromMutationResult(request, capability, result) {
+    const beforeEntity = parseEntity(result?.before);
+    const afterEntity = parseEntity(result?.after);
+    if (result?.applied !== true || result?.area !== "Living Room" || !beforeEntity || !afterEntity ||
+        beforeEntity.entityId !== capability.entityId || afterEntity.entityId !== capability.entityId ||
+        beforeEntity.revision !== request.expectedRevision || afterEntity.value !== request.value) {
+      throw new HomeAssistantError("mutation outcome unknown");
+    }
+    const before = Object.freeze({ handle: request.handle, kind: beforeEntity.domain, label: beforeEntity.label,
+      value: beforeEntity.value, revision: beforeEntity.revision, observedAtMs: this.#now() });
+    const after = Object.freeze({ handle: request.handle, kind: afterEntity.domain, label: afterEntity.label,
+      value: afterEntity.value, revision: afterEntity.revision, observedAtMs: this.#now() });
+    const contextDigest = createHash("sha256").update(afterEntity.contextId).digest("base64url");
+    const receipt = Object.freeze({ operationId: request.operationId, changed: true, restorable: true,
+      restorationProof: contextDigest, before, after });
+    this.#issuedReceipts.add(receipt);
+    return receipt;
   }
 
   async restore(receipt, context) {
@@ -265,10 +308,54 @@ export class HomeAssistantAdapter {
         handle: receipt.after.handle,
         value: receipt.before.value,
         expectedRevision: current.revision,
-      }, context);
+      }, { ...context, durablePurpose: "restore", parentOperationId: receipt.operationId });
       return { restored: true, snapshot: restoredReceipt.after };
     })();
     this.#restores.set(context.operationId, promise);
+    if (this.#ledger) {
+      void promise.catch(() => {
+        if (this.#restores.get(context.operationId) === promise) this.#restores.delete(context.operationId);
+      });
+    }
     return promise;
+  }
+
+  async recoverUnrestoredMutations(context) {
+    if (!this.#ledger) throw new HomeAssistantError("durable ledger unavailable");
+    if (context?.isAuthorized?.() !== true) throw new HomeAssistantError("recovery no longer authorized");
+    let records = await this.#ledger.list();
+    for (const record of records.filter((item) => item.purpose === "restore" && item.state === "pending")) {
+      try { await this.#replayDurableRecord(record, context); }
+      catch (error) {
+        if (!(error instanceof HomeAssistantError)) throw error;
+      }
+    }
+    records = await this.#ledger.list();
+    const resolvedParents = new Set(records.filter((item) => item.purpose === "restore" &&
+      (item.state === "completed" || (item.state === "rejected" && item.code === "stale_revision")))
+      .map((item) => item.parentOperationId).filter(Boolean));
+    const receipts = [];
+    for (const record of records) {
+      if (record.purpose !== "mutation" || record.state === "rejected" || resolvedParents.has(record.operationId)) continue;
+      receipts.push(await this.#replayDurableRecord(record, context));
+    }
+    return receipts;
+  }
+
+  #replayDurableRecord(record, context) {
+    const payload = record.payload;
+    if (!payload || payload.area !== "Living Room" || !SAFE_DOMAINS.has(payload.domain) || !SAFE_STATES.has(payload.target) ||
+        typeof payload.entity_id !== "string" || typeof payload.expected_revision !== "string") {
+      return Promise.reject(new HomeAssistantError("durable record malformed"));
+    }
+    const capabilityEntry = [...this.#capabilities.entries()].find(([, capability]) =>
+      capability.entityId === payload.entity_id && capability.domain === payload.domain && capability.generation === this.#generation);
+    if (!capabilityEntry) return Promise.reject(new HomeAssistantError("durable entity unavailable"));
+    return this.setPower({ operationId: record.operationId, handle: capabilityEntry[0], value: payload.target,
+      expectedRevision: payload.expected_revision }, {
+      ...context,
+      durablePurpose: record.purpose,
+      parentOperationId: record.parentOperationId,
+    });
   }
 }
