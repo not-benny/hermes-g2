@@ -30,19 +30,29 @@ export class HermesCockpitAdapter {
   #pending = new Map();
   #consumed = new Set();
   #sequence = 0;
-  #connected = true;
+  #connectionGeneration = null;
+  #journal = new Map();
 
   constructor(options = {}) {
     this.now = options.now ?? (() => Date.now());
+    this.monotonicNow = options.monotonicNow ?? this.now;
     this.createOpaque = options.createOpaque ?? opaque;
+    for (const record of options.journal ?? []) this.#journal.set(record.commandId, clone(record));
+  }
+
+  connect(connectionGeneration) {
+    if (typeof connectionGeneration !== "string" || connectionGeneration.length < 12) throw new Error("invalid connection generation");
+    this.#connectionGeneration = connectionGeneration;
+    this.#pending.clear();
   }
 
   share({ publicSessionId, hermesSessionId, generation, title }) {
     if (typeof publicSessionId !== "string" || typeof hermesSessionId !== "string" ||
         !Number.isSafeInteger(generation) || generation < 0) throw new Error("invalid explicit share");
     const old = this.#byPublic.get(publicSessionId);
+    if (old && old.hermesSessionId !== hermesSessionId && generation <= old.generation) throw new Error("replacement identity requires a newer generation");
     if (old && old.hermesSessionId !== hermesSessionId) this.#publicByHermes.delete(old.hermesSessionId);
-    if (old && old.generation !== generation) this.#retirePending(publicSessionId);
+    if (old && (old.generation !== generation || old.hermesSessionId !== hermesSessionId)) this.#retirePending(publicSessionId);
     const session = {
       publicSessionId,
       hermesSessionId,
@@ -56,7 +66,6 @@ export class HermesCockpitAdapter {
     };
     this.#byPublic.set(publicSessionId, session);
     this.#publicByHermes.set(hermesSessionId, publicSessionId);
-    this.#connected = true;
     return this.#projectSession(session);
   }
 
@@ -70,14 +79,17 @@ export class HermesCockpitAdapter {
   }
 
   disconnect() {
-    this.#connected = false;
+    this.#connectionGeneration = null;
+    this.#pending.clear();
   }
 
   observeSession(hermesSessionId, update) {
     const session = this.#sharedByHermes(hermesSessionId);
     if (!session) return null;
-    if (STATES.has(update?.state)) session.state = update.state;
-    else if (typeof update?.running === "boolean") session.state = update.running ? "running" : "completed";
+    const requestedState = STATES.has(update?.state) ? update.state : typeof update?.running === "boolean" ? (update.running ? "running" : "completed") : null;
+    if (["completed", "failed", "interrupted"].includes(session.state)) return null;
+    if (session.state === "interrupting") session.state = requestedState && ["completed", "failed", "interrupted"].includes(requestedState) ? "interrupted" : "interrupting";
+    else if (requestedState) session.state = requestedState;
     if (boundedText(update?.summary, 240)) session.summary = boundedText(update.summary, 240);
     session.updatedAtMs = this.now();
     session.revision++;
@@ -86,24 +98,25 @@ export class HermesCockpitAdapter {
   }
 
   snapshot() {
-    this.#connected = true;
+    if (!this.#connectionGeneration) return null;
     return {
       v: 1,
       chan: "cockpit",
       type: "snapshot",
+      connection_generation: this.#connectionGeneration,
       sequence: ++this.#sequence,
       sessions: [...this.#byPublic.values()].map((session) => this.#projectSession(session)),
     };
   }
 
-  ingest(event) {
+  ingest(event, sourceGeneration) {
     if (!event || typeof event !== "object" || typeof event.type !== "string") return null;
     const session = this.#sharedByHermes(event.session_id);
-    if (!session) return null;
+    if (!session || sourceGeneration !== session.generation || ["completed", "failed", "interrupted"].includes(session.state)) return null;
     const data = event.data && typeof event.data === "object" ? event.data : {};
     if (event.type === "reasoning.delta" || event.type === "thinking.delta") return null;
     if (event.type === "message.delta" || event.type === "message.complete") {
-      const text = boundedText(data.text, 240);
+      const text = data.redacted === true ? boundedText(data.cockpit_text, 240) : null;
       if (!text) return null;
       return this.#appendTimeline(session, "assistant", text, "done", event.type);
     }
@@ -121,9 +134,10 @@ export class HermesCockpitAdapter {
     return null;
   }
 
-  handleCommand(command) {
-    if (!this.#connected || !command || command.v !== 1 || command.chan !== "cockpit" || typeof command.command_id !== "string") return null;
-    if (this.#consumed.has(command.command_id)) return null;
+  handleCommand(command, dispatch) {
+    if (!this.#connectionGeneration || !command || command.connection_generation !== this.#connectionGeneration ||
+        command.v !== 1 || command.chan !== "cockpit" || typeof command.command_id !== "string" || typeof dispatch !== "function") return null;
+    if (this.#consumed.has(command.command_id) || this.#journal.has(command.command_id)) return null;
     const session = this.#byPublic.get(command.session_id);
     if (!session || session.generation !== command.generation || ["completed", "failed", "interrupted"].includes(session.state)) return null;
 
@@ -131,7 +145,7 @@ export class HermesCockpitAdapter {
     if (command.type === "answer" || command.type === "permission_decide") {
       const pending = this.#pending.get(command.request_id);
       if (!pending || pending.publicSessionId !== session.publicSessionId || pending.generation !== session.generation ||
-          pending.nonce !== command.nonce || this.now() >= pending.expiresAtMs) return null;
+          pending.nonce !== command.nonce || this.monotonicNow() >= pending.expiresAtMonotonic) return null;
       if (command.type === "answer") {
         if (pending.kind !== "question") return null;
         const answer = pending.choices.get(command.choice_id);
@@ -159,9 +173,31 @@ export class HermesCockpitAdapter {
       this.#retirePending(session.publicSessionId);
       rpc = this.#rpc(command.command_id, "session.interrupt", { session_id: session.hermesSessionId });
     }
-    if (!rpc) return null;
+    if (!rpc || !this.#connectionGeneration || command.connection_generation !== this.#connectionGeneration ||
+        this.#byPublic.get(command.session_id) !== session || session.generation !== command.generation) return null;
+    const record = { commandId: command.command_id, fingerprint: createHash("sha256").update(JSON.stringify(command)).digest("hex"), status: "reserved" };
+    this.#journal.set(command.command_id, record);
     this.#consumed.add(command.command_id);
-    return rpc;
+    try {
+      const result = dispatch(rpc);
+      record.status = "dispatched";
+      return result;
+    } catch {
+      record.status = "outcome_unknown";
+      return null;
+    }
+  }
+
+  exportJournal() {
+    return [...this.#journal.values()].map(clone);
+  }
+
+  commandReceipt(command, outcome, code) {
+    if (!this.#connectionGeneration || !command || command.connection_generation !== this.#connectionGeneration ||
+        !["accepted", "rejected", "duplicate", "outcome_unknown"].includes(outcome)) return null;
+    return { v: 1, chan: "cockpit", type: "command_receipt", sequence: ++this.#sequence,
+      command_id: command.command_id, session_id: command.session_id, generation: command.generation, outcome,
+      ...(typeof code === "string" && code ? { code: boundedText(code, 80) ?? "rejected" } : {}) };
   }
 
   #rpc(id, method, params) {
@@ -228,7 +264,8 @@ export class HermesCockpitAdapter {
     const projected = { request_id: publicRequestId, nonce, kind: "question", title,
       expires_at_ms: this.now() + 120_000, choices: projectedChoices };
     this.#pending.set(publicRequestId, { publicSessionId: session.publicSessionId, generation: session.generation,
-      providerRequestId: String(data.request_id), nonce, kind: "question", choices, expiresAtMs: projected.expires_at_ms, projected });
+      providerRequestId: String(data.request_id), nonce, kind: "question", choices,
+      expiresAtMs: projected.expires_at_ms, expiresAtMonotonic: this.monotonicNow() + 120_000, projected });
     session.state = "waiting_human";
     return this.#interactionFrame(session, projected);
   }
@@ -251,7 +288,7 @@ export class HermesCockpitAdapter {
     };
     this.#pending.set(publicRequestId, { publicSessionId: session.publicSessionId, generation: session.generation,
       providerRequestId: data.request_id, nonce, kind: "permission", allowOnce: Boolean(supported),
-      expiresAtMs: projected.expires_at_ms, projected });
+      expiresAtMs: projected.expires_at_ms, expiresAtMonotonic: this.monotonicNow() + 60_000, projected });
     session.state = "waiting_human";
     return this.#interactionFrame(session, projected);
   }

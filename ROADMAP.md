@@ -20,9 +20,9 @@ Current as of 23 August 2026. `main` is the canonical branch.
   adapter maps current TUI gateway events/actions without exporting provider IDs,
   prompts, reasoning, tool arguments/results, credentials, or unshared work; a
   deterministic JSON-lines fake and adversarial fixtures cover ordering and
-  privacy. All 366 host tests, TypeScript typecheck, and the JDK 21 / SDK 35
+  privacy. All 374 host tests, TypeScript typecheck, and the JDK 21 / SDK 35
   Android build pass. The exact debug APK SHA-256 is
-  `dfcc474f6b9157926058fdbfd86543a1beba039d52964d7a3334c93d01f27183`.
+  `f0dba7840f7116053db25656d4ad0996f1fdf1f4d446d27ec1ff2d70ddf01866`.
   No A32/G2 was attached and the private bridge was not upgraded in this run, so
   real question/deny/allow-once/steer/interrupt/completion evidence remains open.
   See `docs/hermes-agent-cockpit.md`.

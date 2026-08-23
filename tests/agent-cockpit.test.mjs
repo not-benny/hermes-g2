@@ -27,6 +27,7 @@ function snapshot(sequence = 1, overrides = {}) {
     v: 1,
     chan: "cockpit",
     type: "snapshot",
+    connection_generation: "connection_123456",
     sequence,
     sessions: [{ ...session, ...overrides }],
   };
@@ -116,6 +117,7 @@ test("interrupt and steering bind to current live generation and receipts contro
   store.apply(snapshot());
   assert.deepEqual(store.prepareSteer(session.session_id, 7, "Run only the focused test"), {
     v: 1, chan: "cockpit", type: "steer", command_id: "command_steer_1234",
+    connection_generation: "connection_123456",
     session_id: session.session_id, generation: 7, text: "Run only the focused test",
   });
   assert.equal(store.snapshot().sessions[0].state, "running", "socket intent is not an acknowledgement");

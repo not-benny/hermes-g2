@@ -45,27 +45,27 @@ export class AgentCockpitController {
     this.publish();
   }
 
-  answer(sessionId: string, generation: number, requestId: string, choiceId: string): boolean {
+  answer(sessionId: string, generation: number, requestId: string, choiceId: string): string | null {
     return this.send(this.store.prepareAnswer(sessionId, generation, requestId, choiceId));
   }
 
   decidePermission(sessionId: string, generation: number, requestId: string,
-      decision: "deny" | "allow_once"): boolean {
+      decision: "deny" | "allow_once"): string | null {
     return this.send(this.store.preparePermissionDecision(sessionId, generation, requestId, decision));
   }
 
-  steer(sessionId: string, generation: number, text: string): boolean {
+  steer(sessionId: string, generation: number, text: string): string | null {
     return this.send(this.store.prepareSteer(sessionId, generation, text));
   }
 
-  interrupt(sessionId: string, generation: number): boolean {
+  interrupt(sessionId: string, generation: number): string | null {
     return this.send(this.store.prepareInterrupt(sessionId, generation));
   }
 
-  private send(command: CockpitClientCommand | null): boolean {
-    if (!command) return false;
+  private send(command: CockpitClientCommand | null): string | null {
+    if (!command) return null;
     this.sendCommand(command);
-    return true;
+    return command.command_id;
   }
 
   private publish(): void {

@@ -9,8 +9,10 @@ export type CockpitScreenMode =
   | "answer_review"
   | "permission_review"
   | "permission_decision"
+  | "interrupt_review"
   | "steer_review"
-  | "submitting";
+  | "submitting"
+  | "submission_error";
 
 export type CockpitScreen = {
   mode: CockpitScreenMode;
@@ -18,14 +20,16 @@ export type CockpitScreen = {
   body: string[];
   rows: Array<{ label: string; tone?: "normal" | "attention" | "muted" }>;
   selected: number;
+  scrollOffset?: number;
+  visibleRows?: number;
   footer: string;
 };
 
 export type CockpitActions = {
-  answer: (sessionId: string, generation: number, requestId: string, choiceId: string) => boolean;
-  decidePermission: (sessionId: string, generation: number, requestId: string, decision: "deny" | "allow_once") => boolean;
-  steer: (sessionId: string, generation: number, text: string) => boolean;
-  interrupt: (sessionId: string, generation: number) => boolean;
+  answer: (sessionId: string, generation: number, requestId: string, choiceId: string) => string | null;
+  decidePermission: (sessionId: string, generation: number, requestId: string, decision: "deny" | "allow_once") => string | null;
+  steer: (sessionId: string, generation: number, text: string) => string | null;
+  interrupt: (sessionId: string, generation: number) => string | null;
 };
 
 type SelectedRun = { sessionId: string; generation: number };
@@ -35,13 +39,16 @@ const TERMINAL = new Set(["completed", "failed", "interrupted"]);
 
 /** Pure navigation and review state for the native cockpit. Remote data never defines controls. */
 export class CockpitViewModel {
-  private state: CockpitSnapshot = { synchronized: false, sequence: 0, sessions: [], lastReceipt: null };
+  private state: CockpitSnapshot = { synchronized: false, connectionGeneration: null, sequence: 0, sessions: [], lastReceipt: null };
   private mode: CockpitScreenMode = "offline";
   private selected = 0;
   private run: SelectedRun | null = null;
   private request: SelectedRequest | null = null;
   private selectedChoiceId: string | null = null;
+  private requestOrigin: "inbox" | "detail" = "inbox";
   private steerText = "";
+  private pendingCommandId: string | null = null;
+  private submissionError = "";
 
   constructor(private readonly actions: CockpitActions) {}
 
@@ -56,10 +63,18 @@ export class CockpitViewModel {
     if (this.mode === "offline") {
       this.mode = "active";
       this.selected = 0;
-    } else if (this.mode === "submitting" && state.sequence > priorSequence && state.lastReceipt) {
+    } else if (this.mode === "submitting" && state.sequence > priorSequence && state.lastReceipt?.commandId === this.pendingCommandId &&
+        state.lastReceipt.sessionId === this.run?.sessionId && state.lastReceipt.generation === this.run?.generation) {
       // A socket write is not success. Leave the input-locked submitting view
       // only after an authoritative sequenced receipt has been applied.
-      this.mode = this.currentRun() ? "detail" : "active";
+      if (["accepted", "duplicate"].includes(state.lastReceipt.outcome)) this.mode = this.currentRun() ? "detail" : "active";
+      else {
+        this.submissionError = state.lastReceipt.outcome === "outcome_unknown"
+          ? "Action outcome is unknown. Do not retry from the glasses."
+          : `Action rejected${state.lastReceipt.code ? `: ${state.lastReceipt.code}` : "."}`;
+        this.mode = "submission_error";
+      }
+      this.pendingCommandId = null;
       this.selected = 0;
     }
   }
@@ -76,11 +91,18 @@ export class CockpitViewModel {
     if (this.mode === "answer_review") return this.answerReviewScreen();
     if (this.mode === "permission_review") return this.permissionReviewScreen();
     if (this.mode === "permission_decision") return this.permissionDecisionScreen();
+    if (this.mode === "interrupt_review") {
+      return { mode: this.mode, title: "INTERRUPT RUN", body: ["Stop this exact running generation?"],
+        rows: [{ label: "Keep running" }, { label: "Interrupt run", tone: "attention" }], selected: this.selected,
+        footer: "safe choice selected · click confirm" };
+    }
     if (this.mode === "steer_review") {
       return { mode: this.mode, title: "REVIEW STEERING", body: [this.steerText],
         rows: [{ label: "Send steering" }, { label: "Discard", tone: "muted" }], selected: this.selected,
         footer: "click confirm · double-click discard" };
     }
+    if (this.mode === "submission_error") return { mode: this.mode, title: "ACTION NOT CONFIRMED", body: [this.submissionError],
+      rows: [], selected: 0, footer: "double-click back" };
     return { mode: "submitting", title: "SENDING", body: ["Waiting for authoritative receipt…"],
       rows: [], selected: 0, footer: "No repeated input" };
   }
@@ -95,6 +117,7 @@ export class CockpitViewModel {
     if (!this.state.synchronized || this.mode === "submitting") return;
     if (this.mode === "active") return this.clickActive();
     if (this.mode === "inbox") return this.clickInbox();
+    if (this.mode === "detail") return this.clickDetail();
     if (this.mode === "question") {
       const interaction = this.currentInteraction();
       if (interaction?.kind !== "question") return;
@@ -112,6 +135,14 @@ export class CockpitViewModel {
       return;
     }
     if (this.mode === "permission_decision") return this.submitPermission();
+    if (this.mode === "interrupt_review") {
+      if (this.selected === 0) {
+        this.mode = "detail";
+        return;
+      }
+      this.submitInterrupt();
+      return;
+    }
     if (this.mode === "steer_review") {
       if (this.selected === 1) {
         this.steerText = "";
@@ -120,7 +151,9 @@ export class CockpitViewModel {
         return;
       }
       const session = this.currentRun();
-      if (session && this.actions.steer(session.session_id, this.run!.generation, this.steerText)) {
+      const commandId = session ? this.actions.steer(session.session_id, this.run!.generation, this.steerText) : null;
+      if (commandId) {
+        this.pendingCommandId = commandId;
         this.mode = "submitting";
         this.selected = 0;
       }
@@ -130,10 +163,12 @@ export class CockpitViewModel {
   back(): void {
     if (this.mode === "active" || this.mode === "offline") return;
     if (["question", "permission_review"].includes(this.mode)) {
-      this.mode = "inbox";
+      this.mode = this.requestOrigin;
     } else if (["answer_review", "permission_decision"].includes(this.mode)) {
       this.mode = this.currentInteraction()?.kind === "question" ? "question" : "permission_review";
     } else if (this.mode === "inbox") {
+      this.mode = "active";
+    } else if (this.mode === "detail") {
       this.mode = "active";
     } else {
       this.mode = "detail";
@@ -160,12 +195,13 @@ export class CockpitViewModel {
   interruptCurrent(): boolean {
     const session = this.currentRun();
     if (!session || !["running", "waiting_human"].includes(session.state)) return false;
-    const sent = this.actions.interrupt(session.session_id, this.run!.generation);
-    if (sent) {
+    const commandId = this.actions.interrupt(session.session_id, this.run!.generation);
+    if (commandId) {
+      this.pendingCommandId = commandId;
       this.mode = "submitting";
       this.selected = 0;
     }
-    return sent;
+    return Boolean(commandId);
   }
 
   private activeScreen(): CockpitScreen {
@@ -176,6 +212,7 @@ export class CockpitViewModel {
     rows.push(...sorted.map((session) => ({ label: session.title, tone: session.pending.length ? "attention" as const : "normal" as const })));
     this.selected = Math.min(this.selected, Math.max(0, rows.length - 1));
     return { mode: "active", title: "HERMES", body: [], rows, selected: this.selected,
+      ...this.viewport(rows.length),
       footer: "scroll · click open · double-click back" };
   }
 
@@ -186,7 +223,7 @@ export class CockpitViewModel {
       rows: pending.map(({ session, request }) => ({
         label: `${request.kind === "permission" ? "!" : "?"} ${request.title} · ${session.title}`,
         tone: "attention",
-      })), selected: this.selected, footer: "click review · double-click back" };
+      })), selected: this.selected, ...this.viewport(pending.length), footer: "click review · double-click back" };
   }
 
   private detailScreen(): CockpitScreen {
@@ -195,9 +232,14 @@ export class CockpitViewModel {
       rows: [], selected: 0, footer: "double-click back" };
     const body = session.timeline.slice(-8).map((row) => `${row.kind.toUpperCase()} ${row.status === "running" ? "…" : row.status === "failed" ? "×" : "✓"} ${row.text}`);
     if (session.summary) body.push(`${session.state.toUpperCase()} ${session.summary}`);
-    return { mode: "detail", title: `${session.title} · ${session.state.toUpperCase()}`, body,
-      rows: session.pending.map((item) => ({ label: `${item.kind === "permission" ? "!" : "?"} ${item.title}`, tone: "attention" })),
-      selected: 0, footer: TERMINAL.has(session.state) ? "double-click back" : "voice steer · double-click interrupt" };
+    const rows: CockpitScreen["rows"] = session.pending.map((item) => ({
+      label: `${item.kind === "permission" ? "!" : "?"} ${item.title}`, tone: "attention",
+    }));
+    if (!TERMINAL.has(session.state)) rows.push({ label: "Interrupt run", tone: "attention" });
+    this.selected = Math.min(this.selected, Math.max(0, rows.length - 1));
+    return { mode: "detail", title: `${session.title} · ${session.state.toUpperCase()}`, body, rows,
+      selected: this.selected, ...this.viewport(rows.length, 5),
+      footer: TERMINAL.has(session.state) ? "double-click back" : "click review · voice via long-press" };
   }
 
   private questionScreen(): CockpitScreen {
@@ -261,14 +303,34 @@ export class CockpitViewModel {
     if (!item) return;
     this.run = { sessionId: item.session.session_id, generation: item.session.generation };
     this.request = { ...this.run, requestId: item.request.request_id };
+    this.requestOrigin = "inbox";
     this.mode = item.request.kind === "question" ? "question" : "permission_review";
     this.selected = 0;
+  }
+
+  private clickDetail(): void {
+    const session = this.currentRun();
+    if (!session) return;
+    const request = session.pending[this.selected];
+    if (request) {
+      this.request = { ...this.run!, requestId: request.request_id };
+      this.requestOrigin = "detail";
+      this.mode = request.kind === "question" ? "question" : "permission_review";
+      this.selected = 0;
+      return;
+    }
+    if (!TERMINAL.has(session.state) && this.selected === session.pending.length) {
+      this.mode = "interrupt_review";
+      this.selected = 0;
+    }
   }
 
   private submitAnswer(): void {
     const request = this.currentInteraction();
     if (request?.kind !== "question" || !this.selectedChoiceId || !this.request) return;
-    if (this.actions.answer(this.request.sessionId, this.request.generation, request.request_id, this.selectedChoiceId)) {
+    const commandId = this.actions.answer(this.request.sessionId, this.request.generation, request.request_id, this.selectedChoiceId);
+    if (commandId) {
+      this.pendingCommandId = commandId;
       this.mode = "submitting";
       this.selected = 0;
     }
@@ -278,10 +340,23 @@ export class CockpitViewModel {
     const request = this.currentInteraction();
     if (request?.kind !== "permission" || !this.request) return;
     const decision = this.selected === 0 ? "deny" : "allow_once";
-    if (this.actions.decidePermission(this.request.sessionId, this.request.generation, request.request_id, decision)) {
+    const commandId = this.actions.decidePermission(this.request.sessionId, this.request.generation, request.request_id, decision);
+    if (commandId) {
+      this.pendingCommandId = commandId;
       this.mode = "submitting";
       this.selected = 0;
     }
+  }
+
+  private submitInterrupt(): void {
+    this.interruptCurrent();
+  }
+
+  private viewport(rowCount: number, visibleRows = 7): { scrollOffset: number; visibleRows: number } {
+    const boundedVisible = Math.max(1, visibleRows);
+    const maximumOffset = Math.max(0, rowCount - boundedVisible);
+    const scrollOffset = Math.min(maximumOffset, Math.max(0, this.selected - boundedVisible + 1));
+    return { scrollOffset, visibleRows: boundedVisible };
   }
 
   private sortedSessions(): CockpitSession[] {

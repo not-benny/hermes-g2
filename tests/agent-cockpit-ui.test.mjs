@@ -29,10 +29,10 @@ const state = { synchronized: true, sequence: 1, sessions, lastReceipt: null };
 function setup() {
   const calls = [];
   const model = new CockpitViewModel({
-    answer: (...args) => (calls.push(["answer", ...args]), true),
-    decidePermission: (...args) => (calls.push(["permission", ...args]), true),
-    steer: (...args) => (calls.push(["steer", ...args]), true),
-    interrupt: (...args) => (calls.push(["interrupt", ...args]), true),
+    answer: (...args) => (calls.push(["answer", ...args]), "command_answer_1234"),
+    decidePermission: (...args) => (calls.push(["permission", ...args]), "command_permission_1"),
+    steer: (...args) => (calls.push(["steer", ...args]), "command_steer_1234"),
+    interrupt: (...args) => (calls.push(["interrupt", ...args]), "command_stop_12345"),
   });
   model.update(state);
   return { model, calls };
@@ -64,7 +64,9 @@ test("question requires answer review before exact choice is sent", () => {
   model.click();
   assert.deepEqual(calls, [["answer", "session_waiting_123", 5, "request_question_1234", "choice_full_12345"]]);
   assert.equal(model.screen().mode, "submitting");
-  model.update({ ...state, sequence: 2, lastReceipt: { commandId: "opaque", outcome: "accepted" } });
+  model.update({ ...state, sequence: 2, lastReceipt: { commandId: "unrelated", sessionId: "other", generation: 1, outcome: "accepted" } });
+  assert.equal(model.screen().mode, "submitting", "an unrelated receipt cannot unlock submitting");
+  model.update({ ...state, sequence: 3, lastReceipt: { commandId: "command_answer_1234", sessionId: "session_waiting_123", generation: 5, outcome: "accepted" } });
   assert.equal(model.screen().mode, "detail", "an authoritative receipt leaves the no-repeat submitting state");
 });
 
@@ -109,6 +111,40 @@ test("offline state makes every mutation inert", () => {
   assert.deepEqual(calls, []);
 });
 
+test("long active lists keep the selected row inside a bounded viewport", () => {
+  const { model } = setup();
+  const many = Array.from({ length: 24 }, (_, index) => ({
+    ...sessions[0], session_id: `session_many_${String(index).padStart(3, "0")}`, title: `Run ${index}`, updated_at_ms: index,
+  }));
+  model.update({ ...state, sessions: many });
+  for (let index = 0; index < 30; index++) model.scroll(1);
+  const screen = model.screen();
+  assert.equal(screen.selected, 23);
+  assert.ok(screen.scrollOffset <= screen.selected);
+  assert.ok(screen.selected < screen.scrollOffset + screen.visibleRows);
+});
+
+test("detail pending rows open review and interrupt requires an explicit confirmation", () => {
+  const { model, calls } = setup();
+  model.scroll(1);
+  model.click();
+  assert.equal(model.screen().mode, "detail");
+  model.click();
+  assert.equal(model.screen().mode, "question");
+  model.back();
+  model.back();
+  model.scroll(1);
+  model.scroll(1);
+  model.click();
+  assert.equal(model.screen().mode, "detail");
+  model.click();
+  assert.equal(model.screen().mode, "interrupt_review");
+  assert.deepEqual(calls, []);
+  model.scroll(1);
+  model.click();
+  assert.deepEqual(calls, [["interrupt", "session_running_123", 2]]);
+});
+
 test("native app is launcher-registered, subscribes to the main-isolate controller, and keeps voice steering reviewed", () => {
   const apps = readFileSync(new URL("../app/apps/all-apps.ts", import.meta.url), "utf8");
   const index = readFileSync(new URL("../app/apps/agent-cockpit/index.ts", import.meta.url), "utf8");
@@ -119,7 +155,7 @@ test("native app is launcher-registered, subscribes to the main-isolate controll
   assert.match(index, /appId: "agent-cockpit"/);
   assert.match(cockpit, /assistantBridge\.cockpit\.onChange/);
   assert.match(cockpit, /reviewSteer\(text\)/);
-  assert.match(cockpit, /interruptCurrent\(\)/);
+  assert.match(cockpit, /event\.type === "double-click"[\s\S]*this\.model\.back\(\)/);
   assert.match(windows, /receiveTextInput\?: \(text: string\) => void/);
   assert.match(windows, /receiveTextInput: options\.receiveTextInput/);
 });

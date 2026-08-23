@@ -52,7 +52,7 @@ export type CockpitSession = {
 };
 
 export type CockpitServerFrame =
-  | { v: 1; chan: "cockpit"; type: "snapshot"; sequence: number; sessions: CockpitSession[] }
+  | { v: 1; chan: "cockpit"; type: "snapshot"; connection_generation: string; sequence: number; sessions: CockpitSession[] }
   | { v: 1; chan: "cockpit"; type: "session_state"; sequence: number; session_id: string; generation: number;
       revision: number; state: CockpitSessionState; updated_at_ms: number; summary?: string }
   | { v: 1; chan: "cockpit"; type: "timeline_append"; sequence: number; session_id: string; generation: number;
@@ -65,18 +65,19 @@ export type CockpitServerFrame =
       generation: number; outcome: "accepted" | "rejected" | "duplicate" | "outcome_unknown"; code?: string };
 
 export type CockpitClientCommand =
-  | { v: 1; chan: "cockpit"; type: "answer"; command_id: string; session_id: string; generation: number;
+  | { v: 1; chan: "cockpit"; connection_generation: string; type: "answer"; command_id: string; session_id: string; generation: number;
       request_id: string; nonce: string; choice_id: string }
-  | { v: 1; chan: "cockpit"; type: "permission_decide"; command_id: string; session_id: string; generation: number;
+  | { v: 1; chan: "cockpit"; connection_generation: string; type: "permission_decide"; command_id: string; session_id: string; generation: number;
       request_id: string; nonce: string; decision: "deny" | "allow_once" }
-  | { v: 1; chan: "cockpit"; type: "steer"; command_id: string; session_id: string; generation: number; text: string }
-  | { v: 1; chan: "cockpit"; type: "interrupt"; command_id: string; session_id: string; generation: number };
+  | { v: 1; chan: "cockpit"; connection_generation: string; type: "steer"; command_id: string; session_id: string; generation: number; text: string }
+  | { v: 1; chan: "cockpit"; connection_generation: string; type: "interrupt"; command_id: string; session_id: string; generation: number };
 
 export type CockpitSnapshot = {
   synchronized: boolean;
+  connectionGeneration: string | null;
   sequence: number;
   sessions: CockpitSession[];
-  lastReceipt: { commandId: string; outcome: string; code?: string } | null;
+  lastReceipt: { commandId: string; sessionId: string; generation: number; outcome: string; code?: string } | null;
 };
 
 const ID = /^[A-Za-z0-9._-]{12,128}$/;
@@ -154,7 +155,7 @@ export function validateCockpitFrame(value: unknown): string | null {
   if (value.v !== 1 || value.chan !== "cockpit" || typeof value.type !== "string" || !uint(value.sequence)) return "invalid envelope";
   switch (value.type) {
     case "snapshot":
-      return exact(value, ["v", "chan", "type", "sequence", "sessions"]) && Array.isArray(value.sessions) &&
+      return exact(value, ["v", "chan", "type", "connection_generation", "sequence", "sessions"]) && id(value.connection_generation) && Array.isArray(value.sessions) &&
         value.sessions.length <= 24 && value.sessions.every(validSession) ? null : "invalid snapshot";
     case "session_state":
       return exact(value, ["v", "chan", "type", "sequence", "session_id", "generation", "revision", "state", "updated_at_ms"], ["summary"]) &&
@@ -203,6 +204,7 @@ function defaultCommandId(): string {
 export class AgentCockpitStore {
   private sessions = new Map<string, CockpitSession>();
   private synchronized = false;
+  private connectionGeneration: string | null = null;
   private sequence = 0;
   private lastReceipt: CockpitSnapshot["lastReceipt"] = null;
   private readonly submitted = new Set<string>();
@@ -217,6 +219,7 @@ export class AgentCockpitStore {
   snapshot(): CockpitSnapshot {
     return {
       synchronized: this.synchronized,
+      connectionGeneration: this.connectionGeneration,
       sequence: this.sequence,
       sessions: [...this.sessions.values()].map(cloneSession),
       lastReceipt: this.lastReceipt ? { ...this.lastReceipt } : null,
@@ -225,6 +228,7 @@ export class AgentCockpitStore {
 
   markDisconnected(): void {
     this.synchronized = false;
+    this.connectionGeneration = null;
   }
 
   apply(value: unknown): boolean {
@@ -235,6 +239,7 @@ export class AgentCockpitStore {
       const replacement = new Map<string, CockpitSession>();
       for (const session of frame.sessions) replacement.set(session.session_id, cloneSession(session));
       this.sessions = replacement;
+      this.connectionGeneration = frame.connection_generation;
       this.sequence = frame.sequence;
       this.synchronized = true;
       return true;
@@ -244,7 +249,8 @@ export class AgentCockpitStore {
       return false;
     }
     if (frame.type === "command_receipt") {
-      this.lastReceipt = { commandId: frame.command_id, outcome: frame.outcome, ...(frame.code ? { code: frame.code } : {}) };
+      this.lastReceipt = { commandId: frame.command_id, sessionId: frame.session_id, generation: frame.generation,
+        outcome: frame.outcome, ...(frame.code ? { code: frame.code } : {}) };
       this.sequence = frame.sequence;
       return true;
     }
@@ -280,7 +286,7 @@ export class AgentCockpitStore {
     const request = session?.pending.find((item): item is CockpitQuestion => item.request_id === requestId && item.kind === "question");
     if (!request || this.now() >= request.expires_at_ms || !request.choices.some((choice) => choice.id === choiceId)) return null;
     if (!this.reserve(requestId)) return null;
-    return { v: 1, chan: "cockpit", type: "answer", command_id: this.createCommandId(), session_id: sessionId,
+    return { v: 1, chan: "cockpit", connection_generation: this.connectionGeneration!, type: "answer", command_id: this.createCommandId(), session_id: sessionId,
       generation, request_id: requestId, nonce: request.nonce, choice_id: choiceId };
   }
 
@@ -290,14 +296,14 @@ export class AgentCockpitStore {
     const request = session?.pending.find((item): item is CockpitPermission => item.request_id === requestId && item.kind === "permission");
     if (!request || this.now() >= request.expires_at_ms || !request.choices.includes(decision)) return null;
     if (!this.reserve(requestId)) return null;
-    return { v: 1, chan: "cockpit", type: "permission_decide", command_id: this.createCommandId(), session_id: sessionId,
+    return { v: 1, chan: "cockpit", connection_generation: this.connectionGeneration!, type: "permission_decide", command_id: this.createCommandId(), session_id: sessionId,
       generation, request_id: requestId, nonce: request.nonce, decision };
   }
 
   prepareSteer(sessionId: string, generation: number, value: string): CockpitClientCommand | null {
     const session = this.liveSession(sessionId, generation);
     if (!session || session.state !== "running" || !text(value, 500)) return null;
-    return { v: 1, chan: "cockpit", type: "steer", command_id: this.createCommandId(), session_id: sessionId, generation, text: value };
+    return { v: 1, chan: "cockpit", connection_generation: this.connectionGeneration!, type: "steer", command_id: this.createCommandId(), session_id: sessionId, generation, text: value };
   }
 
   prepareInterrupt(sessionId: string, generation: number): CockpitClientCommand | null {
@@ -305,7 +311,7 @@ export class AgentCockpitStore {
     if (!session || !["running", "waiting_human"].includes(session.state)) return null;
     const key = `interrupt:${sessionId}:${generation}`;
     if (!this.reserve(key)) return null;
-    return { v: 1, chan: "cockpit", type: "interrupt", command_id: this.createCommandId(), session_id: sessionId, generation };
+    return { v: 1, chan: "cockpit", connection_generation: this.connectionGeneration!, type: "interrupt", command_id: this.createCommandId(), session_id: sessionId, generation };
   }
 
   private liveSession(sessionId: string, generation: number): CockpitSession | null {

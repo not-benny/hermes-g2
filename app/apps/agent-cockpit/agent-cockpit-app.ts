@@ -69,7 +69,9 @@ class AgentCockpitLayer implements Layer {
       }
     }
     if (screen.body.length) y += 4;
-    for (let index = 0; index < screen.rows.length && y < height - 43; index++) {
+    const rowStart = screen.scrollOffset ?? 0;
+    const rowEnd = Math.min(screen.rows.length, rowStart + (screen.visibleRows ?? screen.rows.length));
+    for (let index = rowStart; index < rowEnd && y < height - 43; index++) {
       const row = screen.rows[index]!;
       if (index === screen.selected) drawSelectionHighlight(image, left - 5, y - 3, bodyWidth + 10, small.lineHeight + 7, true, 4);
       const ink = row.tone === "attention" ? 245 : row.tone === "muted" ? 110 : 195;
@@ -86,9 +88,7 @@ class AgentCockpitLayer implements Layer {
     else if (event.type === "scroll-down") this.model.scroll(1);
     else if (event.type === "click") this.model.click();
     else if (event.type === "double-click") {
-      if (this.model.screen().mode === "detail" && this.model.interruptCurrent()) {
-        // The authoritative receipt/event drives the terminal state.
-      } else if (this.model.screen().mode !== "active") {
+      if (this.model.screen().mode !== "active") {
         this.model.back();
       } else {
         shell.yieldFocusToSidebar();

@@ -19,7 +19,7 @@ const session = {
   session_id: "session_1234567890", generation: 4, revision: 1, title: "Disposable task",
   state: "running", updated_at_ms: 1000, timeline: [], pending: [],
 };
-const snapshot = { v: 1, chan: "cockpit", type: "snapshot", sequence: 1, sessions: [session] };
+const snapshot = { v: 1, chan: "cockpit", type: "snapshot", connection_generation: "connection_123456", sequence: 1, sessions: [session] };
 
 test("controller publishes only validated synchronized projections", () => {
   const sent = [];
@@ -42,10 +42,10 @@ test("disconnect clears authority and reconnect snapshot never replays queued ac
     createCommandId: () => `command_${sent.length}_1234567890`,
   });
   controller.handleFrame(snapshot);
-  assert.equal(controller.steer(session.session_id, 4, "Use focused tests"), true);
+  assert.equal(controller.steer(session.session_id, 4, "Use focused tests"), "command_0_1234567890");
   assert.equal(sent.length, 1);
   controller.disconnect();
-  assert.equal(controller.interrupt(session.session_id, 4), false);
+  assert.equal(controller.interrupt(session.session_id, 4), null);
   controller.handleFrame({ ...snapshot, sequence: 9 });
   assert.equal(sent.length, 1, "offline intent is never queued for reconnect");
 });
@@ -65,10 +65,10 @@ test("question answers and permission decisions send only store-issued exact han
         expires_at_ms: 3000, action: "read_file", target: "README.md", effect: "Read one file", choices: ["deny", "allow_once"] },
     ] }],
   });
-  assert.equal(controller.answer(session.session_id, 4, "request_question_1234", "choice_unit_12345"), true);
-  assert.equal(controller.decidePermission(session.session_id, 4, "request_permission_1", "allow_once"), true);
+  assert.equal(controller.answer(session.session_id, 4, "request_question_1234", "choice_unit_12345"), "command_1_1234567890");
+  assert.equal(controller.decidePermission(session.session_id, 4, "request_permission_1", "allow_once"), "command_2_1234567890");
   assert.deepEqual(sent.map((item) => item.type), ["answer", "permission_decide"]);
-  assert.equal(controller.decidePermission(session.session_id, 4, "request_permission_1", "allow_once"), false);
+  assert.equal(controller.decidePermission(session.session_id, 4, "request_permission_1", "allow_once"), null);
   assert.ok(sent.every((item) => item.generation === 4 && item.session_id === session.session_id));
 });
 

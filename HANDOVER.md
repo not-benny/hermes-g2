@@ -28,12 +28,20 @@ reconnect, races, process death, malformed content, and privacy sentinels. See
 `docs/hermes-agent-cockpit.md` and
 `notes/hermes-cockpit-protocol-threat-model-2026-08-23.md`.
 
-Verification from the current worktree: focused cockpit coverage passes 22/22;
-the full host suite passes 366/366 after a clean `npm ci`; TypeScript typecheck
+The first frozen-SHA adversarial reviews correctly returned static FAIL. The
+reworked candidate adds connection-generation commands, reconnect revocation,
+source-generation event binding, same-generation rebind rejection, monotonic
+interrupt/terminal and expiry state, redacted-only assistant text, content-free
+restart command reservations, dispatch-at-final-revalidation, exact receipt
+correlation/error UI, bounded list viewports, actionable detail prompts, explicit
+interrupt confirmation, and a loopback-only production Hermes endpoint core.
+
+Verification from the current worktree: focused cockpit coverage passes 30/30;
+the full host suite passes 374/374 after a clean `npm ci`; TypeScript typecheck
 passes after platform preparation; and the JDK 21 / Android SDK 35 build passes.
 The exact debug APK at
 `platforms/android/app/build/outputs/apk/debug/app-debug.apk` has SHA-256
-`dfcc474f6b9157926058fdbfd86543a1beba039d52964d7a3334c93d01f27183` and package
+`f0dba7840f7116053db25656d4ad0996f1fdf1f4d446d27ec1ff2d70ddf01866` and package
 metadata `com.faceclaw.app`, version code 1000002 / version
 `1.0.0-preview.2`, min SDK 24, target/compile SDK 35. No A32 or other ADB device
 was attached, and the private bridge deployment was not upgraded from this

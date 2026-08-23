@@ -54,10 +54,12 @@ No cockpit transcript, request, or decision is written to app settings.
 
 ## Host adapter
 
-`tools/hermes-cockpit-adapter.mjs` is the metadata-only host adapter core intended
-to be embedded in the existing authenticated bridge process. It consumes the
-current Hermes TUI gateway JSON-RPC/event surface and emits only the bounded
-cockpit projection. Its supported Hermes mappings are:
+`tools/hermes-cockpit-endpoint.mjs` is the production Hermes-side endpoint core.
+It connects only to the loopback Hermes `/api/ws` gateway, requires its ephemeral
+session token, opens no public listener, and exposes a narrow `emit` / exact
+`handleCommand` seam for the existing authenticated bridge process.
+`tools/hermes-cockpit-adapter.mjs` is its metadata-only lifecycle and projection
+core. Its supported Hermes mappings are:
 
 | Cockpit input/event | Hermes TUI gateway |
 |---|---|
@@ -79,21 +81,26 @@ an allowlisted action, exact bounded target, and material effect. Generic Hermes
 approval payloads are deliberately deny-only because their provider-shaped
 command/argument data is not a safe authority schema.
 
-The bridge integration sequence is:
+The endpoint integration sequence is:
 
-1. connect to Hermes' authenticated `/api/ws` gateway on loopback;
+1. instantiate `HermesCockpitEndpoint` with a loopback WebSocket URL, gateway
+   token, explicit shares, bridge `emit` callback, and content-free durable
+   command journal recovered from the prior process;
 2. maintain an operator-selected allowlist of session/task IDs;
 3. feed allowlisted gateway events into `HermesCockpitAdapter.ingest`;
 4. send returned frames over the already authenticated private WSS `cockpit`
    channel;
-5. pass phone commands to `handleCommand` immediately before dispatch;
-6. send a returned JSON-RPC request to Hermes only if non-null;
-7. turn the Hermes RPC result into a `command_receipt` and authoritative state or
-   interaction-close event;
+5. pass phone commands to the endpoint's `handleCommand`; the adapter revalidates
+   connection/session/generation/request/expiry immediately before the endpoint's
+   synchronous Hermes WebSocket send;
+6. let the endpoint correlate the exact Hermes JSON-RPC response and emit the
+   matching `command_receipt`;
+7. persist the adapter's content-free hashed reservation journal after each
+   transition; a reserved/unknown command survives restart as non-dispatchable;
 8. call `disconnect()` on either transport loss and require a fresh snapshot
    before accepting another action.
 
-The adapter has no standalone public listener, token store, or TLS downgrade. The
+The endpoint and adapter have no standalone public listener, token store, or TLS downgrade. The
 private bridge deployment owns its WSS endpoint, credentials, certificate, replay
 journal, and audit metadata. Audit records must contain stable event/action type,
 public opaque identity, generation, timestamp, and outcome only—not text, scope,
@@ -114,7 +121,11 @@ stdout line. Operations are `share`, `unshare`, `snapshot`, `event`, `observe`,
 `tests/fixtures/hermes-cockpit-events.json` inventories ordering, duplicated and
 answered-elsewhere prompts, stale generations, expiry, reconnect, interrupt races,
 process death, malformed/oversized content, and privacy sentinels. The permanent
-adapter/protocol/controller/UI tests exercise the executable paths.
+adapter/endpoint/protocol/controller/UI tests exercise the executable paths,
+including reconnect replay, delayed old-generation events, same-generation
+identity collision, interrupt/terminal monotonicity, monotonic expiry, raw-secret
+rejection, restart journal recovery, receipt correlation, and long-list viewport
+navigation.
 
 ## Verification status
 
