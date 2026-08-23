@@ -66,6 +66,100 @@ test("endpoint dispatches exact operations, emits ordered receipts, and rejects 
   assert.equal(endpoint.handleCommand({ ...command, operation_id: "operation_after_12345" }, "connection_phone_1234"), false);
 });
 
+test("authoritative capability and session state reject crafted commands with durable terminal receipts", () => {
+  let socket;
+  const frames = [], reserved = [], completed = [];
+  const endpoint = new HermesCompanionEndpoint({ gatewayUrl: "ws://localhost:9119", token: "private-loopback-token",
+    createSocket: (url) => (socket = new FakeSocket(url)), createOpaque: opaque,
+    createRequestId: () => "snapshot_capability_1234", now: () => 1_000,
+    reserveOperation: (record) => { reserved.push(record); return true; },
+    completeOperation: (operationId, outcome) => { completed.push({ operationId, outcome }); return true; },
+  });
+  endpoint.start(); socket.open(); endpoint.attach("connection_phone_1234", (frame) => frames.push(frame));
+  socket.message({ jsonrpc: "2.0", id: "snapshot_capability_1234", result: { ...providerSnapshot,
+    capabilities: { ...providerSnapshot.capabilities, voice: false }, voice: undefined } });
+  const projected = frames.at(-1);
+  assert.equal(projected.capabilities.voice, false);
+
+  const voice = { v: 1, chan: "companion", connection_generation: "connection_phone_1234",
+    type: "new_voice_session", operation_id: "operation_voice_blocked_1234" };
+  const sentBeforeVoice = socket.sent.length;
+  assert.equal(endpoint.handleCommand(voice, "connection_phone_1234"), true);
+  assert.equal(socket.sent.length, sentBeforeVoice, "voice:false must block crafted commands before gateway dispatch");
+  assert.deepEqual(frames.at(-1), { v: 1, chan: "companion", type: "operation_receipt",
+    connection_generation: "connection_phone_1234", sequence: projected.sequence + 1,
+    operation_id: voice.operation_id, operation: voice.type, outcome: "rejected", code: "voice_unavailable" });
+  assert.deepEqual(completed.at(-1), { operationId: voice.operation_id, outcome: "rejected" });
+  assert.equal(endpoint.handleCommand(voice, "connection_phone_1234"), true);
+  assert.equal(frames.at(-1).outcome, "rejected");
+  assert.equal(frames.at(-1).code, "duplicate");
+  assert.equal(socket.sent.length, sentBeforeVoice);
+
+  const stale = { v: 1, chan: "companion", connection_generation: "connection_phone_1234",
+    type: "cancel_session", operation_id: "operation_stale_blocked_1234",
+    session_id: projected.sessions[0].session_id, generation: 1 };
+  assert.equal(endpoint.handleCommand(stale, "connection_phone_1234"), true);
+  assert.equal(frames.at(-1).outcome, "rejected");
+  assert.equal(frames.at(-1).code, "stale_session");
+  assert.equal(socket.sent.length, sentBeforeVoice);
+  assert.equal(reserved.length, 2, "each terminal pre-dispatch rejection is durably tombstoned once");
+  endpoint.stop();
+});
+
+test("gateway mutations need positive acknowledgements and refresh needs an authoritative snapshot", () => {
+  let socket;
+  let requestSerial = 0;
+  const frames = [];
+  const endpoint = new HermesCompanionEndpoint({ gatewayUrl: "ws://localhost:9119", token: "private-loopback-token",
+    createSocket: (url) => (socket = new FakeSocket(url)), reserveOperation: () => true, createOpaque: opaque,
+    createRequestId: () => `snapshot_strict_${++requestSerial}_1234`, now: () => 1_000 });
+  endpoint.start(); socket.open(); endpoint.attach("connection_phone_1234", (frame) => frames.push(frame));
+  socket.message({ jsonrpc: "2.0", id: "snapshot_strict_1_1234", result: providerSnapshot });
+
+  const createVoice = (operationId) => ({ v: 1, chan: "companion", connection_generation: "connection_phone_1234",
+    type: "new_voice_session", operation_id: operationId });
+  for (const [operationId, result] of [
+    ["operation_voice_null_1234", null],
+    ["operation_voice_empty_1234", {}],
+  ]) {
+    const command = createVoice(operationId);
+    assert.equal(endpoint.handleCommand(command, "connection_phone_1234"), true);
+    socket.message({ jsonrpc: "2.0", id: operationId, result });
+    assert.equal(frames.at(-1).outcome, "rejected");
+    assert.equal(frames.at(-1).code, "operation_unconfirmed");
+  }
+  const ambiguousVoice = createVoice("operation_voice_ambiguous_1234");
+  assert.equal(endpoint.handleCommand(ambiguousVoice, "connection_phone_1234"), true);
+  socket.message({ jsonrpc: "2.0", id: ambiguousVoice.operation_id, result: { accepted: true }, error: null });
+  assert.equal(frames.at(-1).outcome, "rejected", "a response carrying an error member is never a positive acknowledgement");
+  assert.equal(frames.at(-1).code, "rpc_error");
+
+  const acceptedVoice = createVoice("operation_voice_positive_1234");
+  assert.equal(endpoint.handleCommand(acceptedVoice, "connection_phone_1234"), true);
+  socket.message({ jsonrpc: "2.0", id: acceptedVoice.operation_id, result: { accepted: true } });
+  assert.equal(frames.at(-1).outcome, "accepted", "a literal accepted:true is the positive creation acknowledgement");
+
+  const refresh = (operationId) => ({ v: 1, chan: "companion", connection_generation: "connection_phone_1234",
+    type: "refresh", operation_id: operationId });
+  for (const [operationId, result] of [
+    ["operation_refresh_null_1234", null],
+    ["operation_refresh_empty_1234", {}],
+  ]) {
+    const command = refresh(operationId);
+    assert.equal(endpoint.handleCommand(command, "connection_phone_1234"), true);
+    socket.message({ jsonrpc: "2.0", id: operationId, result });
+    assert.equal(frames.at(-2).status, "unavailable", "invalid refresh retires cached authority");
+    assert.equal(frames.at(-1).outcome, "rejected");
+    assert.equal(frames.at(-1).code, "invalid_snapshot");
+  }
+  const validRefresh = refresh("operation_refresh_valid_1234");
+  assert.equal(endpoint.handleCommand(validRefresh, "connection_phone_1234"), true);
+  socket.message({ jsonrpc: "2.0", id: validRefresh.operation_id, result: providerSnapshot });
+  assert.equal(frames.at(-2).status, "ready");
+  assert.equal(frames.at(-1).outcome, "accepted");
+  endpoint.stop();
+});
+
 test("offline rejection is durably replayed and can never dispatch after recovery", () => {
   let socket;
   const frames = [];

@@ -63,12 +63,34 @@ test("adapter maps only fixed RPCs after durable and final generation checks", (
     params: { session_id: "provider-session-private", expected_generation: 7 } });
   assert.equal(reserved.length, 1);
   assert.equal(adapter.handleCommand({ ...cancel, operation_id: "operation_stale_12345", generation: 6 }, () => true), null);
+  assert.equal(adapter.preDispatchRejection({ ...cancel, operation_id: "operation_stale_12345", generation: 6 }),
+    "stale_session");
   const resume = { ...cancel, type: "resume_session", operation_id: "operation_resume_1234",
     session_id: completed.session_id, generation: 3 };
   assert.equal(adapter.handleCommand(resume, (rpc) => { sent.push(rpc); return true; }), true);
   assert.equal(sent[1].method, "session.resume");
   assert.equal(adapter.handleCommand({ ...cancel, operation_id: "operation_extra_12345", arbitrary: true }, () => true), null);
   assert.equal(JSON.stringify(sent).includes(active.session_id), false, "public IDs do not reach the private gateway");
+});
+
+test("adapter retains authoritative voice capability and rejects unsupported creation before dispatch", () => {
+  const adapter = new HermesCompanionAdapter({ now: () => 1_000, createOpaque: opaque,
+    reserveOperation: () => true });
+  adapter.connect("connection_adapter_1234");
+  assert.equal(adapter.authoritativeSnapshot({}), null, "a partial object is not an authoritative snapshot");
+  adapter.authoritativeSnapshot({ ...raw,
+    capabilities: { ...raw.capabilities, voice: false }, voice: undefined });
+  const command = { v: 1, chan: "companion", connection_generation: "connection_adapter_1234",
+    type: "new_voice_session", operation_id: "operation_voice_denied_1234" };
+  let dispatches = 0;
+  assert.equal(adapter.preDispatchRejection(command), "voice_unavailable");
+  assert.equal(adapter.handleCommand(command, () => { dispatches++; return true; }), null);
+  assert.equal(dispatches, 0);
+
+  adapter.authoritativeSnapshot(raw);
+  assert.equal(adapter.preDispatchRejection(command), null);
+  assert.equal(adapter.handleCommand(command, () => { dispatches++; return true; }), true);
+  assert.equal(dispatches, 1);
 });
 
 test("durable duplicate replay never redispatches and failed reservation is inert", () => {

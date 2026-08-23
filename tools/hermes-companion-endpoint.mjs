@@ -4,6 +4,7 @@ import { HermesCompanionAdapter } from "./hermes-companion-adapter.mjs";
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 const SESSION_OPERATIONS = new Set(["open_session", "resume_session", "cancel_session"]);
 const requestId = () => `snapshot_${randomBytes(16).toString("base64url")}`;
+const owns = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 
 /**
  * Connects outward to a loopback-only Hermes gateway and exposes no listener.
@@ -113,6 +114,13 @@ export class HermesCompanionEndpoint {
         command?.connection_generation !== connectionGeneration) return false;
     const replay = this.adapter.replayReceipt(command);
     if (replay) { this.#emit(replay); return true; }
+    const rejectionCode = this.adapter.preDispatchRejection(command);
+    if (rejectionCode === undefined) return false;
+    if (rejectionCode !== null) {
+      if (!this.adapter.reserveRejection(command)) return false;
+      this.#settle(command, "rejected", rejectionCode);
+      return true;
+    }
     const socket = this.socket;
     if (!socket || socket.readyState !== 1) {
       if (!this.adapter.reserveRejection(command)) return false;
@@ -195,28 +203,42 @@ export class HermesCompanionEndpoint {
     try { frame = JSON.parse(raw); } catch { return; }
     if (!frame || typeof frame !== "object") return;
     if (frame.jsonrpc === "2.0" && frame.method === "companion.snapshot") {
-      this.#emit(this.adapter.snapshot(frame.params));
+      this.#emit(this.adapter.authoritativeSnapshot(frame.params) ?? this.adapter.unavailableSnapshot());
       return;
     }
-    if (frame.jsonrpc !== "2.0" || typeof frame.id !== "string" || (!("result" in frame) && !("error" in frame))) return;
+    if (frame.jsonrpc !== "2.0" || typeof frame.id !== "string" || (!owns(frame, "result") && !owns(frame, "error"))) return;
+    const hasError = owns(frame, "error");
     if (this.snapshotRequests.delete(frame.id)) {
-      if (!frame.error && frame.result && typeof frame.result === "object") this.#emit(this.adapter.snapshot(frame.result));
-      else this.#emit(this.adapter.unavailableSnapshot());
+      this.#emit(!hasError ? this.adapter.authoritativeSnapshot(frame.result) ?? this.adapter.unavailableSnapshot()
+        : this.adapter.unavailableSnapshot());
       return;
     }
     const command = this.#takePending(frame.id);
     if (!command) return;
-    const casConfirmed = !SESSION_OPERATIONS.has(command.type) ||
-      (frame.result && typeof frame.result === "object" && frame.result.accepted === true &&
-        frame.result.matched_generation === command.generation);
-    const applicationRejected = frame.result && typeof frame.result === "object" &&
-      [frame.result.accepted, frame.result.ok].some((value) => value === false);
-    const outcome = frame.error || applicationRejected || !casConfirmed ? "rejected" : "accepted";
-    const code = frame.error && typeof frame.error.code !== "undefined" ? `rpc_${String(frame.error.code)}`
-      : !casConfirmed ? "generation_unconfirmed" : undefined;
-    if (command.type === "refresh" && outcome === "accepted" && frame.result && typeof frame.result === "object") {
-      this.#emit(this.adapter.snapshot(frame.result));
+    if (command.type === "refresh") {
+      const snapshot = !hasError ? this.adapter.authoritativeSnapshot(frame.result) : null;
+      if (snapshot) {
+        this.#emit(snapshot);
+        this.#settle(command, "accepted");
+      } else {
+        this.#emit(this.adapter.unavailableSnapshot());
+        const code = hasError && frame.error && typeof frame.error.code !== "undefined"
+          ? `rpc_${String(frame.error.code)}` : hasError ? "rpc_error" : "invalid_snapshot";
+        this.#settle(command, "rejected", code);
+      }
+      return;
     }
+    const result = frame.result && typeof frame.result === "object" && !Array.isArray(frame.result)
+      ? frame.result : null;
+    const accepted = result?.accepted === true;
+    const generationConfirmed = !SESSION_OPERATIONS.has(command.type) ||
+      (accepted && result.matched_generation === command.generation);
+    const outcome = !hasError && accepted && generationConfirmed ? "accepted" : "rejected";
+    const code = hasError && frame.error && typeof frame.error.code !== "undefined" ? `rpc_${String(frame.error.code)}`
+      : hasError ? "rpc_error"
+        : result?.accepted === false ? "operation_rejected"
+          : accepted && !generationConfirmed ? "generation_unconfirmed"
+            : !accepted ? "operation_unconfirmed" : undefined;
     this.#settle(command, outcome, code);
   }
 

@@ -37,6 +37,7 @@ function validCommand(command) {
 export class HermesCompanionAdapter {
   #connectionGeneration = null;
   #sequence = 0;
+  #voiceAvailable = false;
   #publicByHermes = new Map();
   #sessionByPublic = new Map();
   #journal = new Map();
@@ -56,12 +57,19 @@ export class HermesCompanionAdapter {
     }
     this.#connectionGeneration = connectionGeneration;
     this.#sequence = 0;
+    this.#voiceAvailable = false;
     this.#sessionByPublic.clear();
   }
 
   disconnect() {
     this.#connectionGeneration = null;
+    this.#voiceAvailable = false;
     this.#sessionByPublic.clear();
+  }
+
+  authoritativeSnapshot(raw) {
+    if (!this.#validAuthoritativeSnapshot(raw)) return null;
+    return this.snapshot(raw);
   }
 
   snapshot(raw = {}) {
@@ -75,6 +83,7 @@ export class HermesCompanionAdapter {
       cost: Boolean(usage?.cost),
       tool_activity: claimed.tool_activity === true,
     };
+    this.#voiceAvailable = capabilities.voice;
     const sessions = [];
     const seen = new Set();
     for (const item of Array.isArray(source.sessions) ? source.sessions.slice(0, 20) : []) {
@@ -137,12 +146,8 @@ export class HermesCompanionAdapter {
   }
 
   handleCommand(command, dispatch) {
-    if (!validCommand(command) || typeof dispatch !== "function" ||
-        command.connection_generation !== this.#connectionGeneration || this.#journal.has(command.operation_id)) return null;
+    if (typeof dispatch !== "function" || this.preDispatchRejection(command) !== null) return null;
     const binding = SESSION_OPERATIONS.has(command.type) ? this.#sessionByPublic.get(command.session_id) : null;
-    if (SESSION_OPERATIONS.has(command.type) && (!binding || binding.generation !== command.generation)) return null;
-    if (command.type === "resume_session" && (binding.state === "active" || !binding.resumable)) return null;
-    if (command.type === "cancel_session" && binding.state !== "active") return null;
 
     const params = command.type === "refresh" ? this.snapshotParams()
       : command.type === "new_voice_session" ? { input_mode: "voice" }
@@ -158,8 +163,8 @@ export class HermesCompanionAdapter {
 
     // Revalidate the socket and session authority at the synchronous dispatch
     // boundary, after projection and immediately before durable reservation.
-    if (command.connection_generation !== this.#connectionGeneration ||
-        (binding && (this.#sessionByPublic.get(command.session_id) !== binding || binding.generation !== command.generation))) return null;
+    if (this.preDispatchRejection(command) !== null ||
+        (binding && this.#sessionByPublic.get(command.session_id) !== binding)) return null;
     const record = this.#reserve(command);
     if (!record) return null;
     try {
@@ -177,6 +182,25 @@ export class HermesCompanionAdapter {
   reserveRejection(command) {
     if (!validCommand(command) || command.connection_generation !== this.#connectionGeneration) return false;
     return Boolean(this.#reserve(command));
+  }
+
+  /**
+   * Returns null when a valid current command may dispatch, a bounded rejection
+   * code for a valid but stale/unsupported command, and undefined when the frame
+   * is malformed, retired, or already reserved.
+   */
+  preDispatchRejection(command) {
+    if (!validCommand(command) || command.connection_generation !== this.#connectionGeneration ||
+        this.#journal.has(command.operation_id)) return undefined;
+    if (command.type === "new_voice_session" && !this.#voiceAvailable) return "voice_unavailable";
+    if (!SESSION_OPERATIONS.has(command.type)) return null;
+    const binding = this.#sessionByPublic.get(command.session_id);
+    if (!binding || binding.generation !== command.generation) return "stale_session";
+    if (command.type === "resume_session" && (binding.state === "active" || !binding.resumable)) {
+      return "session_not_resumable";
+    }
+    if (command.type === "cancel_session" && binding.state !== "active") return "session_not_active";
+    return null;
   }
 
   operationReceipt(command, outcome, code) {
@@ -212,6 +236,15 @@ export class HermesCompanionAdapter {
     if (this.reserveOperation(clone(record)) !== true) return null;
     this.#journal.set(command.operation_id, record);
     return record;
+  }
+
+  #validAuthoritativeSnapshot(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value) ||
+        !["ready", "degraded", "unavailable"].includes(value.status) ||
+        !value.capabilities || typeof value.capabilities !== "object" || Array.isArray(value.capabilities) ||
+        !Array.isArray(value.sessions) || !Array.isArray(value.recent_errors)) return false;
+    return ["voice", "usage", "cost", "tool_activity"]
+      .every((capability) => typeof value.capabilities[capability] === "boolean");
   }
 
   #voice(value, metadataAllowed) {
