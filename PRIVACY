@@ -78,6 +78,14 @@ Android access. This data is used for the glasses UI and explicitly invoked
 assistant tools. Data returned by a tool follows the selected assistant backend's
 data path described above.
 
+The local reader uses Android's system document picker for one user-selected
+plain-text or Markdown `content://` URI. It reads strict UTF-8 within fixed size
+bounds and treats all markup as inert text; it does not fetch links, load
+embedded content, execute scripts, or upload the document. Reader persistence is
+limited to that approved URI plus page/bookmark and display/auto-scroll settings.
+The document body is not persisted, and the filename is not exposed as the
+assistant-visible shell window title.
+
 Notification direct replies are delivered through Android's `RemoteInput` to the
 notification's originating app. Hermes G2 does not operate an intermediary
 messaging service.

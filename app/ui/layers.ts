@@ -79,6 +79,10 @@ export interface Layer {
   handleInput(event: DashboardInputEvent, ctx: LayerContext): Promise<void> | void;
   /** Called when the layer leaves the stack by any path (pop or clearToBase). */
   onRemoved?(): void;
+  /** Called for the base layer when its shell window gains or loses focus. */
+  onForegroundChanged?(foreground: boolean): void;
+  /** Called for the base layer when the G2 display wakes or sleeps. */
+  onScreenChanged?(screenOn: boolean): void;
 }
 
 export class LayerStack {
@@ -148,6 +152,18 @@ export class LayerStack {
     for (const layer of this.layers.splice(1)) {
       notifyRemoved(layer);
     }
+  }
+
+  notifyBaseRemoved(): void {
+    notifyRemoved(this.layers[0]);
+  }
+
+  notifyForegroundChanged(foreground: boolean): void {
+    this.layers[0]?.onForegroundChanged?.(foreground);
+  }
+
+  notifyScreenChanged(screenOn: boolean): void {
+    this.layers[0]?.onScreenChanged?.(screenOn);
   }
 
   isAtBase(): boolean {
