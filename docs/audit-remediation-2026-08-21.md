@@ -32,4 +32,6 @@ separately authorized sacrificial plan.
 - R1 provisioning/ownership/NVM/DFU and G2 firmware flash/recovery were not performed.
 - Public MCP/skill publication remains NO-GO.
 
-See `docs/release-security.md`, `ROADMAP.md`, and `HANDOVER.md` for the maintained release and operational state.
+See [`release-security.md`](release-security.md) for the permanent release
+contract and [`STATUS.md`](../STATUS.md) for the current operational state. This
+dated audit remains evidence, not a roadmap.

@@ -5,8 +5,29 @@ This document is the maintained release contract for Hermes G2. Historical previ
 ## Identity, versioning, and signing
 
 - The Android application ID remains `com.faceclaw.app` for upgrade compatibility with the current owner installation. Renaming it would create a second app and strand app-private state, so it requires a separately planned migration.
-- Version metadata is `versionCode 1000002` and `versionName 1.0.0-preview.2`. Future builds must increase `versionCode`; stable releases use the same monotonically increasing sequence.
-- Pull-request debug builds use an isolated ephemeral identity and are not production release APKs. Pull-request CI also produces an explicitly unsigned, production-bundled release variant solely to prove the publishable surface. Unsigned means positive absence of v1 signature entries and of any gap between the final ZIP entry and central directory; a generic `apksigner verify` failure is insufficient because corrupt signed inputs fail verification too. A development prerelease may publish a debug-signed APK only when its filename and release notes identify it as non-production, disclose the certificate fingerprint and lack of signing credentials, and attach checksums and build metadata. Production publication requires the separate protected path: after a green `main` build, a source-free job downloads only the content-addressed, verified unsigned release APK/evidence, rechecks that it is non-debuggable and contains no debug receiver/action or JavaScript control implementation, applies the protected upgrade-compatible identity with pinned `apksigner --debuggable-apk-permitted false`, verifies exactly one signer with no SourceStamp, matches an explicitly configured certificate fingerprint and rejects an `Android Debug` certificate subject before publication. The signing job never checks out or executes repository source, npm, Gradle, or project scripts while credentials are present. It is additionally disabled unless repository variable `PROTECTED_RELEASE_ENABLED` is exactly `true`; the separate `ANDROID_RELEASE_CERT_SHA256` variable and the matching non-development keystore must both be configured before enabling it. The current owner install uses the local Android development identity, so its non-debuggable same-certificate artifact is internal upgrade-validation evidence only; production signing remains blocked pending an explicit key and data-migration decision. Do not install a differently signed build over the owner phone until that decision is made.
+- Version metadata is `versionCode 1000003` and
+  `versionName 1.0.0-preview.3`. It identifies the current internal candidate;
+  it is not a publication claim. Future builds must increase `versionCode`.
+- Pull-request debug builds use an isolated ephemeral identity and are not
+  production release APKs. Pull-request CI separately builds an explicitly
+  unsigned, production-bundled variant only to verify the publishable surface.
+- Unsigned means positive absence of v1 signature entries and of every byte gap
+  before the ZIP central directory. A generic `apksigner verify` failure is not
+  sufficient because corrupt signed inputs fail verification too.
+- The protected path consumes only the content-addressed unsigned artifact after
+  a green `main` build. Its source-free job rechecks the manifest, DEX, JavaScript
+  surface, and debuggability; signs with
+  `--debuggable-apk-permitted false`; requires exactly one signer and no
+  SourceStamp; and matches the configured certificate fingerprint while rejecting
+  an `Android Debug` subject.
+- The signing job never checks out or executes repository source, npm, Gradle, or
+  project scripts beside credentials. It is disabled unless
+  `PROTECTED_RELEASE_ENABLED` is exactly `true` and the separate
+  `ANDROID_RELEASE_CERT_SHA256` value matches the non-development keystore.
+- The owner install uses the legacy Android development identity. A
+  non-debuggable same-certificate artifact is internal upgrade evidence only.
+  Do not install a differently signed build over the owner phone until an
+  explicit signing and app-data migration plan is approved.
 - The APK is large because it includes offline speech/model and arm64 native runtime assets. CI records its exact size and SHA-256. Splitting models into optional, hash-verified downloads is the preferred future footprint reduction.
 
 ## Credentials and storage
