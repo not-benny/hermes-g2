@@ -191,12 +191,12 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
     close: () => {
       if (closed) return;
       closed = true;
-      removeTools();
+      try { removeTools(); } catch (error) { console.error(`${options.windowId} tool cleanup failed: ${error}`); }
       // Fire onRemoved for any pushed layers so they release resources (e.g. a
       // demo that enabled a hardware stream) even when closed from within.
-      stack.clearToBase();
-      options.onClosed?.();
-      options.removeSurface?.();
+      try { stack.clearToBase(); } catch (error) { console.error(`${options.windowId} layer cleanup failed: ${error}`); }
+      try { options.onClosed?.(); } catch (error) { console.error(`${options.windowId} close callback failed: ${error}`); }
+      try { options.removeSurface?.(); } catch (error) { console.error(`${options.windowId} surface cleanup failed: ${error}`); }
     },
     drawIcon: windowIcon(options.icon, options.iconLetter),
     handleInput: async (event, frameId) => {
