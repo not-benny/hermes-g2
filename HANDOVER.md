@@ -51,8 +51,12 @@ end-of-audio retry, stale generation rollback in the lens layer, missing
 assistant-follow-up preemption, stale live translation after a newer source
 revision, and Soniox final-token loss in ordinary assistant/voice input. The
 last fix introduces one provider-neutral transcript accumulator shared by voice
-input and an executable final-delta/stream-finish regression. A final static
-pass over this exact source remains required before push.
+input and an executable final-delta/stream-finish regression. Independent
+adversarial re-review of exact source commit
+`55740b49725f1b078d00ba7549c9e5efab50c8c4` returned **PASS** across the
+final-token path and all earlier lifecycle, provider, translation, queue and
+disclosure blockers. Operational hardware authorization remains NO-GO until an
+A32/G2 is attached and the documented non-private checks run.
 
 ## Gesture, HUD, R1 battery, and Hermes bridge follow-up
 

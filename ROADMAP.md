@@ -23,6 +23,7 @@ Current as of 22 August 2026. `main` is the canonical branch.
   and full 357/357 host tests, TypeScript and the JDK 21 / SDK 35 Android build
   pass. The exact 195,740,952-byte APK has SHA-256
   `491e8f53cd24754aeeae4427ed6d8209dc3b3e1250549c64694d70ae2eda9979`.
+  Independent adversarial review of exact source commit `55740b4` passed.
   No ADB device was attached, so A32 install/launch, scripted/live microphone,
   real-G2 readability, disconnect, background-stop and privacy-safe logcat
   evidence remain required before DONE. See `docs/live-captions.md`.
