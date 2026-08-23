@@ -56,29 +56,39 @@ pass; connected-G2 navigation evidence remains NO-GO rather than inferred. See
 ## Canonical repository and release governance
 
 `main` is the only canonical development branch. Current protected baseline is
-`712cb644d9dd017158a6359ea494ec2ab6beb9b1` (`feat: add privacy-first
-notification triage and digests (#47)`). Do not resume from historical
+`a9e714c52ea91a056205e83b2ca3b5e13ff7f58b` (`feat: add privacy-scoped
+universal search (#64)`). Do not resume from historical
 `hermes-g2`, `integration/`, `work/`, `wt/`, `fix/`, or dated cleanup branches.
 
 Public visibility is Benny-authorized and required by the current GitHub plan.
 On 23 August, GitHub API read-back verified `not-benny/hermes-g2` is public and
-`main` requires strict `release-gate` and `codeql`, one approving review with
-stale-review dismissal, conversation resolution, enforced admins and linear
-history; force-push and deletion are disabled. The repository variable
+`main` requires strict `release-gate` and aggregate `codeql`, conversation
+resolution, enforced admins and linear history; force-push and deletion are
+disabled. The current rule does not require an approving review. The repository variable
 `PROTECTED_RELEASE_ENABLED` is `true`.
 
-Protected Release Validation run
+The most recent protected release validation documented here is run
 [32604871016](https://github.com/not-benny/hermes-g2/actions/runs/32604871016)
-completed successfully at exact main SHA `712cb644d9dd017158a6359ea494ec2ab6beb9b1`.
+which completed successfully at historical main SHA
+`712cb644d9dd017158a6359ea494ec2ab6beb9b1`.
 Its secret-free `main-build-validation` and source-free `protected-release`
 signing jobs both passed. PR jobs still receive no protected signing credential
 and cannot publish a release APK.
 
-## Current outcome: dedicated read-only contextual dashboards
+## Current outcomes: Hermes cockpit and read-only contextual dashboards
 
-Branch `feat/contextual-g2-dashboards` supersedes the earlier HA-centric dynamic
-mutation objective. Home Assistant and other external mutations are not part of
-this release and remain a later separately authorized project.
+Protected main contains PR #62's provider-neutral native Hermes agent cockpit.
+Its `cockpit-v1` channel rides the authenticated private WSS bridge and accepts
+only explicitly shared, opaque session projections. The glasses app provides
+bounded active-work, transcript/tool, pending-inbox and listed-answer views;
+one-shot decisions, steering, interrupt and terminal actions remain exact-
+generation and deny-default. Provider IDs, prompts, reasoning, tool arguments/
+results, credentials and unshared work are excluded. The contract and remaining
+private deployment evidence gates are in `docs/hermes-agent-cockpit.md`.
+
+PR #61's contextual-dashboard implementation supersedes the earlier HA-centric
+dynamic mutation objective. Home Assistant and other external mutations are not
+part of this release and remain a later separately authorized project.
 
 Protected main now also contains PR #65's private dynamic-HA evaluation harness.
 That harness is deployment-local, credential-custody and durable-idempotency
@@ -86,7 +96,7 @@ gated, read-only by default, and does not authorize production/public mutations.
 The contextual dashboard surface below remains strictly read-only and does not
 expose the private harness or broaden its authority.
 
-The candidate adds a provider-neutral V2 contextual-dashboard boundary for the
+PR #61 adds a provider-neutral V2 contextual-dashboard boundary for the
 dedicated authenticated `even-g2` Hermes profile:
 
 - `ContextDashboardRuntime` sends an ACK-backed loading view before direct
@@ -120,9 +130,11 @@ The maintained contract, integration guide, downgrade behavior and exact
 remaining gates are in `docs/dynamic-glasses-apps.md`; the current security model
 is in `notes/dynamic-glasses-app-threat-model-2026-08-22.md`.
 
-## Current candidate verification
+## Historical contextual-dashboard candidate verification
 
-Baseline for the candidate is exact `origin/main@712cb644d9dd017158a6359ea494ec2ab6beb9b1`.
+This section records the exact PR #61 candidate evidence; it is not the current
+protected-main baseline. Its base was
+`origin/main@712cb644d9dd017158a6359ea494ec2ab6beb9b1`.
 The final source head is `844fc62aafe52c19f031bbd3e7c52358e9ef5014`.
 Using the locked dependency graph, JDK 21 and Android SDK 35:
 
