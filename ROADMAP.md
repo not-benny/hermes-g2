@@ -6,6 +6,16 @@ Current as of 23 August 2026. `main` is the canonical branch.
 
 ## Now
 
+### Accessibility-first live captions and translation
+
+- **IMPLEMENTED / HARDWARE EVIDENCE PENDING (23 August 2026).** Transcribe now
+  provides volatile foreground/screen-owned captions, exact generation-bound
+  capture, visual-only failure states, bounded rolling text and optional
+  translation/speaker evidence. Duplicate/stale provider events fail closed and
+  no transcript is logged or persisted. Static review and the full build matrix
+  pass; connected-G2 readability/stop/privacy and approved live-mic evidence
+  remain pending. See `docs/live-captions.md`.
+
 ### Privacy-scoped universal search
 
 - **IMPLEMENTED / HARDWARE EVIDENCE PENDING (23 August 2026).** A native

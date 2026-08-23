@@ -43,12 +43,20 @@ export type TranscribeAppOptions = InProcessAppOptions & {
 
 /**
  * The Transcribe app: live speech-to-text in its own window. While open it
- * owns one isolated continuous mic generation and
+ * owns an isolated continuous mic generation and
  * shows a microphone tray icon in the top bar.
  */
 export function createTranscribeAppWindow(options: TranscribeAppOptions): InProcessWindow {
-  const layer = new TranscribeLayer();
-  let generation = 0;
+  const startCapture = () => {
+    const generation = options.startContinuousVoiceCapture();
+    if (generation > 0) shell.setTrayIcon(TRAY_ICON_ID, MIC_ICON);
+    return generation;
+  };
+  const stopCapture = (generation: number) => {
+    options.stopContinuousVoiceCapture(generation);
+    shell.setTrayIcon(TRAY_ICON_ID, null);
+  };
+  const layer = new TranscribeLayer({ startCapture, stopCapture });
   const app = createInProcessWindow({
     appId: "transcribe",
     windowId: TRANSCRIBE_WINDOW_ID,
@@ -58,19 +66,36 @@ export function createTranscribeAppWindow(options: TranscribeAppOptions): InProc
     closeable: true,
     actions: options.actions,
     baseLayer: new YieldAtRootLayer(layer),
+    menuItems: () => [
+      {
+        label: layer.isPaused() ? "Resume captions" : "Pause captions",
+        onSelect: (ctx) => {
+          ctx.stack.pop();
+          layer.togglePaused();
+        },
+      },
+      {
+        label: "Clear captions",
+        onSelect: (ctx) => {
+          ctx.stack.pop();
+          layer.clear();
+        },
+      },
+    ],
     submitFrame: options.submitFrame,
     setSurfaceVisible: options.setSurfaceVisible,
     removeSurface: options.removeSurface,
+    onForegroundChanged: (foreground) => layer.onForegroundChanged(foreground),
+    onScreenChanged: (on) => layer.onScreenChanged(on),
+    onVoiceInputChanged: (active) => layer.onVoiceInputChanged(active),
     onClosed: () => {
-      if (generation > 0) options.stopContinuousVoiceCapture(generation);
-      shell.setTrayIcon(TRAY_ICON_ID, null);
+      layer.onRemoved();
       options.onClosed();
     },
   });
   // Wire async state changes to this window's renderer, rather than the
   // controller action from which the window-specific actions were derived.
-  generation = options.startContinuousVoiceCapture();
-  layer.start(generation, app.requestRender);
-  shell.setTrayIcon(TRAY_ICON_ID, MIC_ICON);
+  layer.start(app.requestRender);
+  layer.onScreenChanged(shell.isScreenOn());
   return app;
 }

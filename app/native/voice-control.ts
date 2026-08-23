@@ -20,12 +20,25 @@ export type VoiceProviderKind = "onboard" | "deepgram" | "elevenlabs" | "whisper
 
 export type VoiceTranscriptEvent = {
   generation: number;
+  receivedAtMs: number;
   /**
    * Complete best transcript of the current utterance. REPLACE semantics —
    * render as-is, replacing any previous partial. Not a delta.
    */
   text: string;
   isFinal: boolean;
+  language?: string;
+  confidence?: number;
+  speaker?: string;
+  speakerEvidence?: boolean;
+  translationText?: string;
+  translationIsFinal?: boolean;
+  targetLanguage?: string;
+  droppedAudioFrames?: number;
+  sourceFinalDelta?: string;
+  translationFinalDelta?: string;
+  sourceRevisionPresent?: boolean;
+  translationRevisionPresent?: boolean;
 };
 
 export type PushToTalkOptions = {
@@ -36,6 +49,9 @@ export type PushToTalkOptions = {
   openAiApiKey: string;
   sonioxApiKey: string;
   saveRecording: boolean;
+  sourceLanguage?: string;
+  targetLanguage?: string;
+  speakerLabels?: boolean;
   /**
    * Watch the mic and fire onSpeechEnd when the speaker stops. For hands-free
    * ("Hey Even") capture, which has no button release to end the utterance.
@@ -158,6 +174,15 @@ export class FaceclawVoiceControlBridge {
     if (generation) this.failCapture(generation, message);
   }
 
+  isContinuousCaptureActive(): boolean {
+    const capture = this.activeCapture;
+    return Boolean(capture?.holder === "continuous" && this.turnGate.accepts(capture.generation));
+  }
+
+  reportStatus(status: string): void {
+    this.setStatus(this.activeCapture?.generation ?? null, String(status).slice(0, 160));
+  }
+
   private startReservedCapture(
     generation: number,
     holder: CaptureHolder,
@@ -191,14 +216,27 @@ export class FaceclawVoiceControlBridge {
    */
   private createCloudClient(generation: number, options: PushToTalkOptions): CloudSttClient | null {
     if (options.provider === "onboard") return null;
+    let exactClient: CloudSttClient | null = null;
     const sttOptions = {
       apiKey: "",
-      onTranscript: (event: { text: string; isFinal: boolean }) =>
-        this.emitTranscript(generation, event.text, event.isFinal),
-      onStatus: (status: string) => {
-        if (this.turnGate.accepts(generation)) this.setStatus(generation, status);
+      sourceLanguage: options.sourceLanguage,
+      targetLanguage: options.targetLanguage,
+      speakerLabels: options.speakerLabels,
+      onTranscript: (event: Omit<VoiceTranscriptEvent, "generation" | "receivedAtMs">) => {
+        const capture = this.activeCapture;
+        if (capture?.generation !== generation || capture.cloudClient !== exactClient || !this.turnGate.accepts(generation)) return;
+        this.emitTranscript({ ...event, generation, receivedAtMs: Date.now() });
       },
-      onError: (message: string) => this.failCapture(generation, message),
+      onStatus: (status: string) => {
+        const capture = this.activeCapture;
+        if (capture?.generation === generation && capture.cloudClient === exactClient && this.turnGate.accepts(generation)) {
+          this.setStatus(generation, status);
+        }
+      },
+      onError: (message: string) => {
+        const capture = this.activeCapture;
+        if (capture?.generation === generation && capture.cloudClient === exactClient) this.failCapture(generation, message);
+      },
     };
     if (options.provider === "deepgram") {
       const apiKey = options.deepgramApiKey.trim();
@@ -206,7 +244,8 @@ export class FaceclawVoiceControlBridge {
         this.setStatus(generation, "No Deepgram key set; using on-device voice.");
         return null;
       }
-      return new DeepgramSttClient({ ...sttOptions, apiKey });
+      exactClient = new DeepgramSttClient({ ...sttOptions, apiKey });
+      return exactClient;
     }
     if (options.provider === "elevenlabs") {
       const apiKey = options.elevenLabsApiKey.trim();
@@ -214,7 +253,8 @@ export class FaceclawVoiceControlBridge {
         this.setStatus(generation, "No ElevenLabs key set; using on-device voice.");
         return null;
       }
-      return new ElevenLabsSttClient({ ...sttOptions, apiKey });
+      exactClient = new ElevenLabsSttClient({ ...sttOptions, apiKey });
+      return exactClient;
     }
     if (options.provider === "soniox") {
       const apiKey = options.sonioxApiKey.trim();
@@ -222,14 +262,16 @@ export class FaceclawVoiceControlBridge {
         this.setStatus(generation, "No Soniox key set; using on-device voice.");
         return null;
       }
-      return new SonioxSttClient({ ...sttOptions, apiKey });
+      exactClient = new SonioxSttClient({ ...sttOptions, apiKey });
+      return exactClient;
     }
     const apiKey = options.openAiApiKey.trim();
     if (!apiKey) {
       this.setStatus(generation, "No OpenAI key set; using on-device voice.");
       return null;
     }
-    return new OpenAiRealtimeSttClient({ ...sttOptions, apiKey });
+    exactClient = new OpenAiRealtimeSttClient({ ...sttOptions, apiKey });
+    return exactClient;
   }
 
   private cancelCapture(generation: number): void {
@@ -289,7 +331,12 @@ export class FaceclawVoiceControlBridge {
         }
       },
       onTranscript: (generation: number, text: string, isFinal: boolean) => {
-        this.emitTranscript(generation, String(text), Boolean(isFinal));
+        this.emitTranscript({
+          generation,
+          text: String(text),
+          isFinal: Boolean(isFinal),
+          receivedAtMs: Date.now(),
+        });
       },
       onPcm: (generation: number, pcm: any) => {
         const capture = this.activeCapture;
@@ -310,9 +357,8 @@ export class FaceclawVoiceControlBridge {
     this.controller.setListener(this.listenerProxy);
   }
 
-  private emitTranscript(generation: number, text: string, isFinal: boolean): void {
-    if (!this.turnGate.accepts(generation)) return;
-    const event = { generation, text, isFinal };
+  private emitTranscript(event: VoiceTranscriptEvent): void {
+    if (!this.turnGate.accepts(event.generation)) return;
     for (const listener of this.transcriptListeners) {
       listener(event);
     }

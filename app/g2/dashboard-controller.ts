@@ -37,7 +37,7 @@ import { loadPersistedOpenApps, savePersistedOpenApps } from "../ui/shell/open-a
 import { loadHealthTabHidden, saveHealthTabHidden } from "../ui/shell/health-tab-persistence";
 import { appViewportRect, type WindowHeightMode } from "../ui/shell/geometry";
 import { type LayerActions } from "../ui/layers";
-import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, resolveAssistantBridgePort, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
+import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, resolveAssistantBridgePort, brightnessSetting, brightnessSettingToLevel, captionSourceLanguageSetting, captionSpeakerLabelsSetting, captionTargetLanguageSetting, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "../native/battery-optimization";
 import { shouldFinalizeCommunicatorClose, type DashboardConnectionPhase } from "./connection-state-lifecycle";
 import { notificationTriageController } from "../notifications/triage-controller";
@@ -47,6 +47,7 @@ import {
   glassesMotionService,
   retireGlassesMotionSession,
 } from "../native/glasses-motion-service";
+import { effectiveCaptionProvider } from "../captions/caption-settings";
 
 type ConnectionPhase = DashboardConnectionPhase;
 
@@ -249,6 +250,7 @@ class DashboardController {
   // Other in-process singleton apps, keyed by windowId.
   private readonly inProcessApps = new Map<string, InProcessWindow>();
   private sharedActions!: Omit<LayerActions, "requestRender">;
+  private readonly voiceCaptureRequestEpoch = { ptt: 0, continuous: 0 };
   private lastForegroundNotificationUpdateAtMs = 0;
   private lastConnectedPreviewUpdateAtMs = 0;
   // Saving the open-app list is gated until the one-time restore has run, so
@@ -332,6 +334,7 @@ class DashboardController {
       this.applyVerticalPositionIfChanged();
       this.syncAssistantBridgeIfChanged();
       this.syncLockScreenSettingIfChanged();
+      this.restartContinuousCaptureAfterSettingsChange();
     });
     // Connect to the external agent bridge at boot if configured; the
     // connection stays up (with re-dial) so proactive tool calls work
@@ -1385,6 +1388,9 @@ class DashboardController {
     ++this.connectAttemptGeneration;
     this.clearEvenAppReleasePoll();
     if (this.phase === "disconnected") return;
+    // Revoke microphone/provider authority before any awaited UX or transport
+    // teardown work so explicit disconnect cannot keep recording in the gap.
+    voiceControlBridge.failActiveCapture("Glasses disconnected; voice capture stopped.");
 
     // Beep while the transport is still up (phase is still "connected" here);
     // await it so the queued frame flushes before teardown. ~300ms on a manual
@@ -1533,11 +1539,8 @@ class DashboardController {
   }
 
   private stopVoiceCapture(generation: number, commit: boolean): void {
-    if (commit) {
-      voiceControlBridge.finishPushToTalk(generation);
-    } else {
-      voiceControlBridge.cancelPushToTalk(generation);
-    }
+    if (commit) voiceControlBridge.finishPushToTalk(generation);
+    else voiceControlBridge.cancelPushToTalk(generation);
   }
 
   private startContinuousVoiceCapture(): number {
@@ -1551,26 +1554,36 @@ class DashboardController {
     voiceControlBridge.stopContinuousCapture(generation);
   }
 
-  private beginVoiceCapture(
-    kind: "ptt" | "continuous",
-    endpointing = false,
-    generation = 0,
-  ): void {
+  private beginVoiceCapture(kind: "ptt" | "continuous", endpointing = false, generation = 0): void {
     if (this.phase !== "connected" || !this.communicator) {
+      voiceControlBridge.failCaptureRequest(generation, "Glasses disconnected before voice capture started.");
       return;
     }
     const communicator = this.communicator;
     void ensureVoicePermissions()
       .then(() => {
-        if (this.phase !== "connected" || this.communicator !== communicator) return;
+        if (this.phase !== "connected" || this.communicator !== communicator) {
+          voiceControlBridge.failCaptureRequest(generation, "Glasses disconnected before voice capture started.");
+          return;
+        }
+        const targetLanguage = captionTargetLanguageSetting.get();
+        const provider = effectiveCaptionProvider(voiceProviderSetting.get(), {
+          deepgram: deepgramApiKeySetting.get().trim().length > 0,
+          elevenlabs: elevenLabsApiKeySetting.get().trim().length > 0,
+          whisper: openAiApiKeySetting.get().trim().length > 0,
+          soniox: sonioxApiKeySetting.get().trim().length > 0,
+        });
         const options = {
           communicator: communicator.getNativeCommunicator(),
-          provider: voiceProviderSetting.get(),
+          provider,
           deepgramApiKey: deepgramApiKeySetting.get(),
           elevenLabsApiKey: elevenLabsApiKeySetting.get(),
           openAiApiKey: openAiApiKeySetting.get(),
           sonioxApiKey: sonioxApiKeySetting.get(),
           saveRecording: saveVoiceRecordingsSetting.get(),
+          sourceLanguage: captionSourceLanguageSetting.get(),
+          targetLanguage: provider === "soniox" && targetLanguage !== "off" ? targetLanguage : undefined,
+          speakerLabels: provider === "soniox" && captionSpeakerLabelsSetting.get(),
           endpointing,
         };
         if (kind === "ptt") {
@@ -1583,6 +1596,15 @@ class DashboardController {
         voiceControlBridge.failCaptureRequest(generation, "Microphone permission was not granted.");
         this.appendLog(`voice permission failed: ${this.formatError(error)}`);
       });
+  }
+
+  private restartContinuousCaptureAfterSettingsChange(): void {
+    if (!voiceControlBridge.isContinuousCaptureActive()) return;
+    // Keep the exact lease stable while captions are live. Applying a provider
+    // or language change by restarting behind the Transcribe layer would leave
+    // that layer bound to the retired generation. The next ordinary lifecycle
+    // restart (pause/resume, foreground, screen, or reopen) picks up settings.
+    voiceControlBridge.reportStatus("Caption settings will apply to the next capture session.");
   }
 
   private endTextSettingEdit(): void {

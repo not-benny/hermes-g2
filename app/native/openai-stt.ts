@@ -19,6 +19,7 @@ declare const com: any;
 const WS_URL = "wss://api.openai.com/v1/realtime?intent=transcription";
 const MODEL_ID = "gpt-realtime-whisper";
 const TARGET_SAMPLE_RATE = 24000;
+const MAX_PENDING_PCM_CHUNKS = 50;
 
 export type OpenAiSttOptions = CloudSttOptions;
 
@@ -29,6 +30,7 @@ export class OpenAiRealtimeSttClient implements CloudSttClient {
   private closed = false;
   // Base64 audio (or the commit sentinel) queued until the socket opens.
   private readonly pendingChunks: string[] = [];
+  private droppedAudioFrames = 0;
   private readonly upsampler = new PcmUpsampler();
   private latestText = "";
   private committed = false;
@@ -37,15 +39,20 @@ export class OpenAiRealtimeSttClient implements CloudSttClient {
 
   start(): void {
     if (this.ws) return;
+    let exactSocket: any = null;
     this.listenerProxy = new com.faceclaw.app.FaceclawWebSocketListener({
       onOpen: () => {
+        if (this.closed || this.ws !== exactSocket) return;
         this.open = true;
         this.trySend(JSON.stringify(sessionConfig()));
         for (const chunk of this.pendingChunks.splice(0)) {
           this.sendChunk(chunk);
         }
       },
-      onTextMessage: (message: string) => this.handleMessage(String(message)),
+      onTextMessage: (message: string) => {
+        if (this.closed || this.ws !== exactSocket) return;
+        this.handleMessage(String(message));
+      },
       onClosed: () => {
         this.open = false;
       },
@@ -55,12 +62,13 @@ export class OpenAiRealtimeSttClient implements CloudSttClient {
       },
     });
     try {
-      this.ws = new com.faceclaw.app.FaceclawWebSocket(
+      exactSocket = new com.faceclaw.app.FaceclawWebSocket(
         WS_URL,
         this.listenerProxy,
         "Authorization",
         `Bearer ${this.options.apiKey}`,
       );
+      this.ws = exactSocket;
       this.options.onStatus("Connecting to OpenAI...");
     } catch (error) {
       this.options.onError(`OpenAI connection failed: ${String((error as Error)?.message ?? error)}`);
@@ -76,6 +84,10 @@ export class OpenAiRealtimeSttClient implements CloudSttClient {
     if (this.open) {
       this.sendChunk(base64);
     } else {
+      if (this.pendingChunks.length >= MAX_PENDING_PCM_CHUNKS) {
+        this.pendingChunks.shift();
+        this.droppedAudioFrames++;
+      }
       this.pendingChunks.push(base64);
     }
   }
@@ -86,12 +98,17 @@ export class OpenAiRealtimeSttClient implements CloudSttClient {
     if (this.open) {
       this.sendChunk("__commit__");
     } else {
+      if (this.pendingChunks.length >= MAX_PENDING_PCM_CHUNKS) {
+        this.pendingChunks.shift();
+        this.droppedAudioFrames++;
+      }
       this.pendingChunks.push("__commit__");
     }
   }
 
   stop(): void {
     this.closed = true;
+    this.pendingChunks.length = 0;
     if (this.ws) {
       try {
         this.ws.close(1000, "bye");
@@ -121,6 +138,7 @@ export class OpenAiRealtimeSttClient implements CloudSttClient {
   }
 
   private handleMessage(text: string): void {
+    if (this.closed) return;
     let message: any;
     try {
       message = JSON.parse(text);
@@ -134,11 +152,11 @@ export class OpenAiRealtimeSttClient implements CloudSttClient {
         return;
       case "conversation.item.input_audio_transcription.delta":
         this.latestText += String(message.delta ?? "");
-        this.options.onTranscript({ text: this.latestText, isFinal: false });
+        this.options.onTranscript({ text: this.latestText, isFinal: false, droppedAudioFrames: this.droppedAudioFrames });
         return;
       case "conversation.item.input_audio_transcription.completed":
         this.latestText = String(message.transcript ?? this.latestText);
-        this.options.onTranscript({ text: this.latestText, isFinal: true });
+        this.options.onTranscript({ text: this.latestText, isFinal: true, droppedAudioFrames: this.droppedAudioFrames });
         // The utterance is done; nothing further is coming after the commit.
         if (this.committed) this.stop();
         return;

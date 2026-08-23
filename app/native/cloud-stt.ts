@@ -9,6 +9,18 @@
 export type CloudSttTranscriptEvent = {
   text: string;
   isFinal: boolean;
+  language?: string;
+  confidence?: number;
+  speaker?: string;
+  speakerEvidence?: boolean;
+  translationText?: string;
+  translationIsFinal?: boolean;
+  targetLanguage?: string;
+  droppedAudioFrames?: number;
+  sourceFinalDelta?: string;
+  translationFinalDelta?: string;
+  sourceRevisionPresent?: boolean;
+  translationRevisionPresent?: boolean;
 };
 
 export type CloudSttOptions = {
@@ -16,6 +28,9 @@ export type CloudSttOptions = {
   onTranscript: (event: CloudSttTranscriptEvent) => void;
   onStatus: (status: string) => void;
   onError: (message: string) => void;
+  sourceLanguage?: string;
+  targetLanguage?: string;
+  speakerLabels?: boolean;
 };
 
 export interface CloudSttClient {

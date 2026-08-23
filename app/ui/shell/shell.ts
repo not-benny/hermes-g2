@@ -108,6 +108,8 @@ export type ShellWindow = {
   setForeground?: (foreground: boolean) => void;
   /** Screen turned on/off; hidden or screen-off windows should stop painting. */
   setScreenOn?: (on: boolean) => void;
+  /** Shell voice capture preempts app-owned continuous microphone capture. */
+  setVoiceInputActive?: (active: boolean) => void;
 };
 
 export type ShellConfig = {
@@ -1134,11 +1136,14 @@ class Shell {
       targets[defaultIndex]?.id === "assistant" &&
       assistantSkipConfirmationSetting.get();
 
+    const voiceOwner = this.foregroundWindow();
+    voiceOwner?.setVoiceInputActive?.(true);
     const layer = new VoiceInputLayer({
       actions: this.config.actions,
       onClosed: () => {
         if (this.activeVoiceLayer === layer) {
           this.activeVoiceLayer = null;
+          voiceOwner?.setVoiceInputActive?.(false);
           // The idle countdown restarts in full once voice input ends.
           this.noteUserActivity();
         }
@@ -1325,11 +1330,14 @@ class Shell {
     const layer = this.assistantLayer;
     const session = this.assistantSession;
     if (!layer || !session || this.activeVoiceLayer) return;
+    const voiceOwner = this.foregroundWindow();
+    voiceOwner?.setVoiceInputActive?.(true);
     const voice = new VoiceInputLayer({
       actions: this.config.actions,
       onClosed: () => {
         if (this.activeVoiceLayer === voice) {
           this.activeVoiceLayer = null;
+          voiceOwner?.setVoiceInputActive?.(false);
           this.noteUserActivity();
         }
       },

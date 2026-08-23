@@ -9,6 +9,7 @@ import { drawSelectionHighlight } from "../menu";
 import { EdgeBounce, EdgeWrapScroller } from "../edge-scroll";
 import { Layer, type DashboardInputEvent, type LayerActions, type LayerContext } from "../layers";
 import { MIN_WINDOW_HEIGHT, minWindowTop } from "./geometry";
+import { applyTranscriptText } from "../../captions/transcript-accumulator";
 
 const DIALOG_X = 40;
 const DIALOG_W = G2_LENS_WIDTH - 80;
@@ -500,12 +501,13 @@ export class VoiceInputLayer implements Layer {
     // The refine stream owns the text buffers once it starts; a transcript
     // that trails in after that point is stale.
     if (this.phase === "refining") return;
+    const textState = applyTranscriptText(
+      { finalizedText: this.finalizedText, liveText: this.liveText },
+      event,
+    );
+    this.finalizedText = textState.finalizedText;
+    this.liveText = textState.liveText;
     if (event.isFinal) {
-      const finalText = event.text.trim() || this.liveText.trim();
-      if (finalText) {
-        this.finalizedText = this.finalizedText ? `${this.finalizedText} ${finalText}` : finalText;
-      }
-      this.liveText = "";
       if (this.phase === "continuing" && this.followupFinalizeTimer !== null) {
         // The follow-up finalized; no need to keep waiting.
         this.beginRefine();
@@ -517,8 +519,6 @@ export class VoiceInputLayer implements Layer {
         this.performAutoSend();
         return;
       }
-    } else {
-      this.liveText = event.text.trim();
     }
     this.actions.requestRender();
   }

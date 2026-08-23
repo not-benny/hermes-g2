@@ -29,6 +29,7 @@ export class SettingsViewModel extends Observable {
 
   onDevicesTap(): void { Frame.topmost()?.navigate("phone-ui/config-page"); }
   onApiKeysTap(): void { Frame.topmost()?.navigate("phone-ui/api-keys-page"); }
+  onCaptionSettingsTap(): void { Frame.topmost()?.navigate("phone-ui/caption-settings-page"); }
 
   onHealthProfileTap(): void { Frame.topmost()?.navigate("phone-ui/health-profile-page"); }
 

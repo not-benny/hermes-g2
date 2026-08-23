@@ -25,6 +25,23 @@ import { isLocalModelReady } from "../native/llama";
 import { drawRightValueMenuItem, drawToggleMenuItem, MenuItem, openModalMenu } from "./menu";
 import { DashboardInputEvent, Layer, type LayerContext } from "./layers";
 import { GrayImage } from "~/graphics/image";
+import {
+  CAPTION_FONT_SIZES,
+  CAPTION_LAYOUTS,
+  CAPTION_LINE_SPACING,
+  CAPTION_MAX_LINES,
+  CAPTION_SOURCE_LANGUAGES,
+  CAPTION_TARGET_LANGUAGES,
+  normalizeCaptionLanguage,
+  normalizeCaptionTargetLanguage,
+  normalizeCaptionVocabulary,
+  type CaptionFontSize,
+  type CaptionLayout,
+  type CaptionLineSpacing,
+  type CaptionMaxLines,
+  type CaptionSourceLanguage,
+  type CaptionTargetLanguage,
+} from "~/captions/caption-settings";
 
 export type NightscoutSettings = {
   siteUrl: string;
@@ -396,6 +413,77 @@ export const voiceProviderSetting = new ConfigSettingEnum<VoiceProvider>({
     return false;
   },
   description: "Speech-to-text engine for voice input. Deepgram, ElevenLabs, Whisper, and Soniox are cloud services that need an API key, with significantly better accuracy than on-device transcription.",
+});
+
+export const captionSourceLanguageSetting = new ConfigSettingEnum<CaptionSourceLanguage>({
+  id: "caption-source-language",
+  label: "Caption source language",
+  storageKey: "captions.sourceLanguage",
+  defaultValue: "auto",
+  values: CAPTION_SOURCE_LANGUAGES,
+  normalize: normalizeCaptionLanguage,
+  description: "Bounded language hint for live captions. Auto does not invent a language when the provider supplies none.",
+});
+
+export const captionTargetLanguageSetting = new ConfigSettingEnum<CaptionTargetLanguage>({
+  id: "caption-target-language",
+  label: "Translate captions to",
+  storageKey: "captions.targetLanguage",
+  defaultValue: "off",
+  values: CAPTION_TARGET_LANGUAGES,
+  normalize: normalizeCaptionTargetLanguage,
+  isDisabled: (value) => value !== "off" && voiceProviderSetting.get() !== "soniox",
+  description: "Optional Soniox translation target. Off keeps transcript-only captions and requires no translation service.",
+});
+
+export const captionLayoutSetting = new ConfigSettingEnum<CaptionLayout>({
+  id: "caption-layout",
+  label: "Caption layout",
+  storageKey: "captions.layout",
+  defaultValue: "split",
+  values: CAPTION_LAYOUTS,
+  description: "Show source captions, a source/translation split, or translation full-screen. Source remains available when translation fails.",
+});
+
+export const captionFontSizeSetting = new ConfigSettingEnum<CaptionFontSize>({
+  id: "caption-font-size",
+  label: "Caption font size",
+  storageKey: "captions.fontSize",
+  defaultValue: "medium",
+  values: CAPTION_FONT_SIZES,
+});
+
+export const captionLineSpacingSetting = new ConfigSettingEnum<CaptionLineSpacing>({
+  id: "caption-line-spacing",
+  label: "Caption line spacing",
+  storageKey: "captions.lineSpacing",
+  defaultValue: "normal",
+  values: CAPTION_LINE_SPACING,
+});
+
+export const captionMaxLinesSetting = new ConfigSettingEnum<CaptionMaxLines>({
+  id: "caption-max-lines",
+  label: "Maximum caption lines",
+  storageKey: "captions.maxLines",
+  defaultValue: "8",
+  values: CAPTION_MAX_LINES,
+});
+
+export const captionSpeakerLabelsSetting = new ConfigSettingBoolean({
+  id: "caption-speaker-labels",
+  label: "Provider speaker labels",
+  storageKey: "captions.speakerLabels",
+  defaultValue: false,
+  description: "Labels speakers only when the selected provider supplies documented diarization evidence; Hermes never guesses speakers.",
+});
+
+export const captionVocabularySetting = new ConfigSettingString({
+  id: "caption-vocabulary",
+  label: "Caption vocabulary",
+  storageKey: "captions.vocabulary",
+  defaultValue: "",
+  normalize: normalizeCaptionVocabulary,
+  description: "Bounded phone-only vocabulary. It is retained locally and sent only when a selected provider explicitly supports it.",
 });
 
 const wakeWordActionLabels: Record<WakeWordAction, string> = {

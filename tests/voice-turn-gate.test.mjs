@@ -88,6 +88,11 @@ test("voice capture integration carries the exact generation through permission,
   assert.match(dashboard, /voiceControlBridge\.startPushToTalk\(generation, options\)/);
   assert.match(dashboard, /voiceControlBridge\.failCaptureRequest\(generation/);
   assert.match(dashboard, /voiceControlBridge\.failActiveCapture\("Glasses disconnected/);
+  const disconnectBody = dashboard.slice(
+    dashboard.indexOf("async disconnect("),
+    dashboard.indexOf("private startVoiceCapture", dashboard.indexOf("async disconnect(")),
+  );
+  assert.ok(disconnectBody.indexOf("failActiveCapture") >= 0 && disconnectBody.indexOf("failActiveCapture") < disconnectBody.indexOf("\n    await "));
   assert.match(voice, /reserveContinuousCapture\(\): number/);
   assert.match(voice, /onCaptureStopped: \(generation: number\)/);
   assert.match(voice, /this\.completeCapture\(generation\)/);

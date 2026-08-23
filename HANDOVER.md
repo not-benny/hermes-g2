@@ -1,5 +1,19 @@
 # Hermes G2 handover — 23 August 2026
 
+## Accessibility-first live captions candidate
+
+PR #63 evolves Transcribe into volatile foreground/screen-owned captions with
+visual mic/network/provider/error states, bounded grapheme-safe bottom-anchored
+text, pause/clear/history, optional translation, truthful lag/drop metadata and
+evidence-only speaker labels. It uses the exact generation-reserved voice
+lifecycle now on main; caption and cloud callbacks are exact-lease/socket bound,
+disconnect revokes capture before awaited teardown, and duplicate final provider
+events cannot alter the submitted transcript. Credentials remain in the existing
+replace-only secure settings and transcripts are neither logged nor persisted.
+Frozen review, focused/full tests, typecheck and Android build pass. Real-G2
+caption readability/stop/privacy and any explicitly approved live-mic evidence
+remain operational gates. See `docs/live-captions.md`.
+
 ## Privacy-scoped universal search candidate
 
 PR #64 adds a native, memory-only Search app over bounded local providers for

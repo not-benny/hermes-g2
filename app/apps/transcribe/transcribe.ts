@@ -1,137 +1,254 @@
 import { GrayImage } from "../../graphics/image";
-import { getDefaultSmallFont, type BdfFont } from "../../graphics/bdffont";
-import { writeTextToDownloads } from "../../native/file-access";
+import {
+  getDefaultLargeFont,
+  getDefaultMediumFont,
+  getDefaultSmallFont,
+  type BdfFont,
+} from "../../graphics/bdffont";
+import { CaptionSession, bottomAnchoredLines, wrapCaptionText } from "../../captions/caption-session";
+import { captionProviderCapabilities, effectiveCaptionProvider } from "../../captions/caption-settings";
 import { voiceControlBridge, type VoiceTranscriptEvent } from "../../native/voice-control";
+import {
+  captionFontSizeSetting,
+  captionLayoutSetting,
+  captionLineSpacingSetting,
+  captionMaxLinesSetting,
+  captionTargetLanguageSetting,
+  deepgramApiKeySetting,
+  elevenLabsApiKeySetting,
+  openAiApiKeySetting,
+  sonioxApiKeySetting,
+  voiceProviderSetting,
+} from "../../ui/dashboard-settings";
+import { GESTURE_CLICK, GESTURE_DOUBLE_CLICK } from "../../ui/gestures";
 import { Layer, type DashboardInputEvent, type LayerContext } from "../../ui/layers";
+import { truncateText } from "../../graphics/textwrap";
+
+export type TranscribeLayerOptions = {
+  startCapture: () => number;
+  stopCapture: (generation: number) => void;
+};
 
 /**
- * Live transcription view. Continuous mic capture is owned by the app wrapper
- * (createTranscribeAppWindow); this layer accumulates the transcript, shows
- * it, and saves it to Downloads on click.
+ * Accessibility-first volatile live captions. Capture is active only while the
+ * window is foreground and the display is on; closing/pausing clears the exact
+ * capture lease and late generations fail closed in CaptionSession.
  */
-import { GESTURE_CLICK, GESTURE_DOUBLE_CLICK } from "../../ui/gestures";
 export class TranscribeLayer implements Layer {
-  private generation = 0;
-  private status = "Listening...";
-  // Finalized utterances, plus the live (replace-semantics) partial appended
-  // when painting.
-  private finalizedText = "";
-  private liveText = "";
-  private saveNotice = "";
+  private readonly captions = new CaptionSession();
+  private foreground = false;
+  private screenOn = false;
+  private userPaused = false;
+  private voiceInputActive = false;
+  private captureRequested = false;
+  private captureGeneration: number | null = null;
+
+  private historyOffset = 0;
+  private status = "[STOPPED]";
+  private requestRender: () => void = () => {};
   private unsubscribeTranscript: (() => void) | null = null;
   private unsubscribeStatus: (() => void) | null = null;
 
-  start(generation: number, requestRender: () => void): void {
-    this.generation = generation;
-    if (generation <= 0) this.status = "Voice capture is busy.";
+  constructor(private readonly options: TranscribeLayerOptions) {}
+
+  start(requestRender: () => void): void {
+    this.requestRender = requestRender;
     this.unsubscribeTranscript = voiceControlBridge.onTranscript((event) => {
-      if (event.generation !== this.generation) return;
       this.onTranscript(event);
       requestRender();
     });
     this.unsubscribeStatus = voiceControlBridge.onStatus((state) => {
-      if (state.generation !== this.generation) return;
-      this.status = state.status;
+      if (!this.captureRequested || state.generation !== this.captureGeneration) return;
+      this.status = visualStatus(state.status);
       requestRender();
     });
   }
 
+  onForegroundChanged(foreground: boolean): void {
+    this.foreground = foreground;
+    this.reconcileCapture();
+  }
+
+  onScreenChanged(on: boolean): void {
+    this.screenOn = on;
+    this.reconcileCapture();
+  }
+
+  onVoiceInputChanged(active: boolean): void {
+    this.voiceInputActive = active;
+    this.reconcileCapture();
+  }
+
+  isPaused(): boolean {
+    return this.userPaused;
+  }
+
+  togglePaused(): void {
+    this.userPaused = !this.userPaused;
+    this.reconcileCapture();
+    this.requestRender();
+  }
+
+  clear(): void {
+    this.captions.clear();
+    this.historyOffset = 0;
+    this.status = this.captureRequested ? "[LIVE] Captions cleared" : this.status;
+    this.requestRender();
+  }
+
   paint(ctx: LayerContext): GrayImage {
-    const font = getDefaultSmallFont();
+    const font = captionFont();
+    const chromeFont = getDefaultSmallFont();
     const { width, height } = ctx.stack.getBaseSize();
     const image = new GrayImage(width, height, 0);
-    const text = this.displayText() || "Listening...";
-    const wrapped = wrapTranscribeText(font, text, width - 64);
-
-    image.drawText(font, 24, 20, "Transcribe", 200);
-    image.drawText(font, 24, 40, this.saveNotice || this.status, 110);
-
-    const bodyTop = 62;
+    const snapshot = this.captions.snapshot();
+    const provider = effectiveCaptionProvider(voiceProviderSetting.get(), {
+      deepgram: deepgramApiKeySetting.get().trim().length > 0,
+      elevenlabs: elevenLabsApiKeySetting.get().trim().length > 0,
+      whisper: openAiApiKeySetting.get().trim().length > 0,
+      soniox: sonioxApiKeySetting.get().trim().length > 0,
+    });
+    const target = captionTargetLanguageSetting.get();
+    const capabilities = captionProviderCapabilities(provider);
+    const translationEnabled = target !== "off" && capabilities.translation;
+    const layout = translationEnabled ? captionLayoutSetting.get() : "source";
+    const lineGap = captionLineSpacingSetting.get() === "compact" ? 0 : captionLineSpacingSetting.get() === "relaxed" ? 4 : 2;
+    const lineHeight = font.lineHeight + lineGap;
+    const bodyTop = 50;
     const footerY = height - 18;
-    const bodyLines = Math.max(1, Math.floor((footerY - bodyTop) / 16));
-    const firstLine = Math.max(0, wrapped.length - bodyLines);
-    for (let index = firstLine; index < wrapped.length; index++) {
-      const y = bodyTop + (index - firstLine) * 16;
-      image.drawText(font, 32, y, wrapped[index]!, 230);
+    const availableLines = Math.max(1, Math.min(Number(captionMaxLinesSetting.get()), Math.floor((footerY - bodyTop) / lineHeight)));
+    const textWidth = width - 48;
+
+    const header = `Captions ${this.captureRequested ? "[LIVE]" : this.userPaused ? "[PAUSED]" : "[STOPPED]"}`;
+    image.drawText(chromeFont, 24, 10, truncateText(chromeFont, header, textWidth), 230);
+    const details = [
+      this.historyOffset ? `[HISTORY +${this.historyOffset}]` : "",
+      translationEnabled && snapshot.translationPending ? `[TR WAIT ${Math.min(99_999, snapshot.translationLagMs ?? 0)}ms]` : "",
+      snapshot.droppedEvents ? `[DROP ${Math.min(9_999, snapshot.droppedEvents)}]` : "",
+      snapshot.droppedAudioFrames ? `[AUDIO DROP ${Math.min(9_999, snapshot.droppedAudioFrames)}]` : "",
+    ].filter(Boolean).join(" ");
+    image.drawText(chromeFont, 24, 30, truncateText(chromeFont, details || this.status, textWidth), 150);
+
+    const source = snapshot.displaySource || (this.captureRequested ? "Listening..." : "No captions");
+    const translation = snapshot.displayTranslation || (translationEnabled ? "Translation waiting..." : "");
+
+    if (layout === "split") {
+      const sourceLines = Math.max(1, Math.floor(availableLines / 3));
+      const translationLines = Math.max(1, availableLines - sourceLines);
+      this.drawBottomAnchored(image, font, source, bodyTop, sourceLines, lineHeight, textWidth, 170);
+      const translationTop = bodyTop + sourceLines * lineHeight + 4;
+      image.drawLine(24, translationTop - 3, width - 24, translationTop - 3, 80);
+      this.drawBottomAnchored(image, font, translation, translationTop, translationLines, lineHeight, textWidth, 240);
+    } else {
+      const primary = layout === "translation" && snapshot.translationCurrent ? translation : source;
+      this.drawBottomAnchored(image, font, primary, bodyTop, availableLines, lineHeight, textWidth, 235);
     }
 
-    image.drawText(font, 24, footerY, `${GESTURE_CLICK} save   ${GESTURE_DOUBLE_CLICK} back`, 110);
+    const action = this.userPaused ? "resume" : "pause";
+    const footer = `${GESTURE_CLICK} ${action} | scroll history | ${GESTURE_DOUBLE_CLICK} back`;
+    image.drawText(chromeFont, 24, footerY, truncateText(chromeFont, footer, textWidth), 120);
     return image;
   }
 
-  handleInput(event: DashboardInputEvent, ctx: LayerContext): void {
+  handleInput(event: DashboardInputEvent): void {
     if (event.type === "click") {
-      this.saveTranscript();
-      ctx.actions.requestRender();
+      this.togglePaused();
       return;
     }
-    if (event.type === "double-click") {
-      ctx.stack.pop();
+    if (event.type === "scroll-up") {
+      this.historyOffset = Math.min(1_024, this.historyOffset + 1);
+      this.requestRender();
+      return;
+    }
+    if (event.type === "scroll-down") {
+      this.historyOffset = Math.max(0, this.historyOffset - 1);
+      this.requestRender();
     }
   }
 
   onRemoved(): void {
+    this.foreground = false;
+    this.screenOn = false;
+    this.stopCapture();
+    this.captions.clear();
     this.unsubscribeTranscript?.();
     this.unsubscribeTranscript = null;
     this.unsubscribeStatus?.();
     this.unsubscribeStatus = null;
   }
 
-  private saveTranscript(): void {
-    const text = this.displayText().trim();
-    if (!text) {
-      this.saveNotice = "Nothing to save yet.";
-      return;
+  private reconcileCapture(): void {
+    const shouldCapture = this.foreground && this.screenOn && !this.userPaused && !this.voiceInputActive;
+    if (shouldCapture && !this.captureRequested) {
+      this.captureRequested = true;
+      this.captureGeneration = null;
+      this.status = "[STARTING]";
+      const generation = this.options.startCapture();
+      if (generation <= 0) {
+        this.captureRequested = false;
+        this.status = "[MIC ERROR] Capture unavailable";
+        this.requestRender();
+        return;
+      }
+      this.captureGeneration = generation;
+      this.captions.begin(generation, Date.now());
+      this.requestRender();
+    } else if (!shouldCapture && this.captureRequested) {
+      this.stopCapture();
     }
-    const filename = `transcript-${transcriptTimestamp()}.txt`;
-    const path = writeTextToDownloads(filename, `${text}\n`);
-    this.saveNotice = path ? `Saved ${filename}` : "Save failed (check file access).";
   }
 
-  private displayText(): string {
-    if (!this.finalizedText) return this.liveText;
-    if (!this.liveText) return this.finalizedText;
-    return `${this.finalizedText} ${this.liveText}`;
+  private stopCapture(): void {
+    if (!this.captureRequested) return;
+    const generation = this.captureGeneration;
+    this.captureRequested = false;
+    this.captureGeneration = null;
+    if (generation !== null && generation > 0) {
+      this.options.stopCapture(generation);
+      if (this.userPaused) this.captions.pause(generation);
+      else this.captions.stop(generation);
+    }
+    this.status = this.userPaused ? "[PAUSED]" : "[STOPPED]";
   }
 
   private onTranscript(event: VoiceTranscriptEvent): void {
-    if (event.isFinal) {
-      const finalText = event.text.trim() || this.liveText.trim();
-      if (finalText) {
-        this.finalizedText = this.finalizedText ? `${this.finalizedText} ${finalText}` : finalText;
-      }
-      this.liveText = "";
-    } else {
-      // Replace semantics: the live partial is the whole current best transcript.
-      this.liveText = event.text.trim();
+    if (!this.captureRequested || event.generation !== this.captureGeneration) return;
+    this.captions.apply({ type: "transcript", ...event });
+    if (this.historyOffset === 0) this.historyOffset = 0;
+  }
+
+  private drawBottomAnchored(
+    image: GrayImage,
+    font: BdfFont,
+    text: string,
+    top: number,
+    maxLines: number,
+    lineHeight: number,
+    maxWidth: number,
+    color: number,
+  ): void {
+    const wrapped = wrapCaptionText(text, maxWidth, (value) => font.measureText(value));
+    const lines = bottomAnchoredLines(wrapped, maxLines, this.historyOffset);
+    for (let index = 0; index < lines.length; index++) {
+      image.drawText(font, 24, top + index * lineHeight, lines[index]!, color);
     }
   }
 }
 
-function transcriptTimestamp(): string {
-  const now = new Date();
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return (
-    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
-    `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
-  );
+function captionFont(): BdfFont {
+  switch (captionFontSizeSetting.get()) {
+    case "large": return getDefaultLargeFont();
+    case "small": return getDefaultSmallFont();
+    default: return getDefaultMediumFont();
+  }
 }
 
-function wrapTranscribeText(font: BdfFont, text: string, maxWidth: number): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let line = "";
-  for (const word of words) {
-    const candidate = line ? `${line} ${word}` : word;
-    if (line && font.measureText(candidate) > maxWidth) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = candidate;
-    }
-  }
-  if (line) {
-    lines.push(line);
-  }
-  return lines.length ? lines : [""];
+function visualStatus(status: string): string {
+  const lower = status.toLowerCase();
+  if (lower.includes("permission") || lower.includes("unavailable")) return `[MIC ERROR] ${status}`;
+  if (lower.includes("connect") || lower.includes("network")) return `[NETWORK] ${status}`;
+  if (lower.includes("error") || lower.includes("failed")) return `[PROVIDER ERROR] ${status}`;
+  if (lower.includes("listen")) return "[LIVE] Listening";
+  if (lower.includes("stop")) return "[STOPPED]";
+  return `[STARTING] ${status}`;
 }
