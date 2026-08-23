@@ -223,10 +223,11 @@ Current as of 23 August 2026. `main` is the canonical branch.
 - **DONE — session clock and polling.** A one-shot best-effort `systemTime`
   command runs during session setup; HR-only refresh remains separate from the
   slower full-health poll.
-- **RESEARCH — sleep.** Three CRC-valid type-2 frames establish ordered relative
-  interval endpoints in seconds. Full decoding remains blocked until a matching
-  type-1 summary/stage frame and the absolute time-base handoff are proven.
-  `decodeSleep` must remain fail-closed.
+- **RESEARCH — health parity and sleep.** The field-level current-main inventory
+  is recorded in `notes/health-data-parity-2026-08-23.md`. Cmd 6 remains unmapped
+  and `decodeSleep` remains fail-closed until a CRC-valid stage-bearing frame is
+  correlated to authoritative ground truth for the exact same worn session and
+  its absolute time-base handoff is proven with frozen positive/negative vectors.
 - **BLOCKED — first-time provisioning and ownership.** Pair/unpair, host binding,
   NVM mutation, recovery, and fresh-device onboarding remain unproven and are not
   authorised for implementation or hardware use.
