@@ -69,7 +69,7 @@ jobs:
       - name: Verify unsigned-build integrity, privacy, and native alignment
         run: bash scripts/verify-release-artifacts.sh
       - name: Upload isolated signing input
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: hermes-g2-unsigned-${{ github.sha }}
           path: |
@@ -138,7 +138,7 @@ jobs:
           sha256sum "$apk" signing-input/sbom.cdx.json signing-input/whatsapp-sbom.cdx.json > SHA256SUMS
           printf 'source=%s\nsize=%s\nsigning_mode=protected\n' "$GITHUB_SHA" "$(stat -c %s "$apk")" > PROVENANCE.txt
       - name: Upload protected release evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: hermes-g2-${{ github.sha }}
           path: |
