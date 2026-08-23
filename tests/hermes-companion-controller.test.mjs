@@ -40,12 +40,35 @@ test("controller sends only store-issued operations and publishes pending state"
   assert.equal(controller.newVoiceSession(), null);
 });
 
+test("negotiated unsupported state clears stale authority and remains action-inert", () => {
+  const sent = [], changes = [];
+  const controller = new HermesCompanionController((command) => sent.push(command), {
+    now: () => 1_100, createOperationId: () => "operation_unsupported_1234",
+  });
+  controller.onChange((state) => changes.push(state));
+  assert.equal(controller.handleFrame(snapshot), true);
+  assert.equal(controller.snapshot().support, "supported");
+  controller.setSupported(false);
+  assert.equal(controller.snapshot().support, "unsupported");
+  assert.equal(controller.snapshot().data, null, "another bridge cannot inherit prior companion metadata");
+  assert.equal(controller.refresh(), null);
+  assert.equal(controller.newVoiceSession(), null);
+  assert.equal(sent.length, 0);
+  assert.equal(changes.at(-1).support, "unsupported");
+  controller.setSupported(true);
+  assert.equal(controller.snapshot().support, "supported");
+  assert.equal(controller.snapshot().synchronized, false, "negotiation alone grants no snapshot authority");
+});
+
 test("bridge gates companion frames on authenticated WSS and revokes authority on loss", () => {
   const bridge = readFileSync(new URL("../app/assistant/bridge-client.ts", import.meta.url), "utf8");
   assert.match(bridge, /wss:\/\//);
   assert.match(bridge, /readonly companion = new HermesCompanionController/);
   assert.match(bridge, /capabilities: \["chat", "mcp", "cockpit-v1", "hermes-companion-v1"\]/);
-  assert.match(bridge, /case "companion":\s*\n\s*if \(!this\.requireAuthenticated\(generation\)\) return;\s*\n\s*this\.companion\.handleFrame\(frame\)/);
+  assert.match(bridge, /case "companion":\s*\n\s*if \(!this\.requireAuthenticated\(generation\)\) return;\s*\n\s*if \(!this\.companionSupported\) return;\s*\n\s*this\.companion\.handleFrame\(frame\)/);
+  assert.match(bridge, /frame\.capabilities\.includes\("hermes-companion-v1"\)/);
+  assert.match(bridge, /this\.companion\.setSupported\(this\.companionSupported\)/);
+  assert.match(bridge, /if \(!this\.companionSupported\) return;/);
   assert.match(bridge, /this\.companion\.disconnect\(\)/);
   assert.match(bridge, /private sendCompanion/);
   assert.doesNotMatch(bridge, /http:\/\//);

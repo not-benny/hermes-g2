@@ -33,6 +33,11 @@ export class HermesCompanionController {
     this.publish();
   }
 
+  setSupported(supported: boolean): void {
+    if (!this.store.setSupported(supported)) return;
+    this.publish();
+  }
+
   refresh(): string | null { return this.send(this.store.prepareRefresh()); }
   newVoiceSession(): string | null { return this.send(this.store.prepareNewVoiceSession()); }
   open(sessionId: string, generation: number): string | null { return this.send(this.store.prepareOpen(sessionId, generation)); }

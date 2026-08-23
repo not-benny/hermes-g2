@@ -42,6 +42,61 @@ test("endpoint is loopback-only, attaches an authenticated generation, and expos
   assert.throws(() => new HermesCompanionEndpoint({ gatewayUrl: "ws://192.0.2.1:9119", token: "x", reserveOperation: () => true }));
 });
 
+test("an unanswered initial snapshot reaches deterministic unavailable state and recovers only through a fresh RPC", () => {
+  let socket;
+  const frames = [], timers = [];
+  const endpoint = new HermesCompanionEndpoint({ gatewayUrl: "ws://localhost:9119", token: "private-loopback-token",
+    createSocket: (url) => (socket = new FakeSocket(url)), reserveOperation: () => true, createOpaque: opaque,
+    createRequestId: () => "snapshot_initial_timeout_1234", now: () => 1_000,
+    snapshotTimeoutMs: 100,
+    setSnapshotTimer: (callback, delay) => { const timer = { callback, delay, cleared: false }; timers.push(timer); return timer; },
+    clearSnapshotTimer: (timer) => { timer.cleared = true; },
+  });
+  endpoint.start(); socket.open(); endpoint.attach("connection_phone_1234", (frame) => frames.push(frame));
+  assert.equal(frames.length, 0, "an open gateway has until the bounded deadline to answer");
+  assert.equal(timers[0].delay, 100);
+  timers[0].callback();
+  assert.equal(frames.at(-1).status, "unavailable");
+  assert.equal(frames.at(-1).connection_generation, "connection_phone_1234");
+
+  const afterTimeout = frames.length;
+  socket.message({ jsonrpc: "2.0", id: "snapshot_initial_timeout_1234", result: providerSnapshot });
+  assert.equal(frames.length, afterTimeout, "the timed-out initial reply cannot restore stale authority");
+
+  const refresh = { v: 1, chan: "companion", connection_generation: "connection_phone_1234", type: "refresh",
+    operation_id: "operation_recover_timeout_1234" };
+  assert.equal(endpoint.handleCommand(refresh, "connection_phone_1234"), true);
+  socket.message({ jsonrpc: "2.0", id: refresh.operation_id, result: providerSnapshot });
+  assert.equal(frames.at(-2).status, "ready", "an explicit fresh request can recover after the deadline");
+  assert.equal(frames.at(-1).outcome, "accepted");
+  endpoint.stop();
+});
+
+test("snapshot deadlines and late replies are owned by the exact phone generation", () => {
+  let socket;
+  let requestSerial = 0;
+  const firstFrames = [], secondFrames = [], timers = [];
+  const endpoint = new HermesCompanionEndpoint({ gatewayUrl: "ws://localhost:9119", token: "private-loopback-token",
+    createSocket: (url) => (socket = new FakeSocket(url)), reserveOperation: () => true, createOpaque: opaque,
+    createRequestId: () => `snapshot_generation_${++requestSerial}_1234`, now: () => 1_000,
+    snapshotTimeoutMs: 100,
+    setSnapshotTimer: (callback) => { const timer = { callback, cleared: false }; timers.push(timer); return timer; },
+    clearSnapshotTimer: (timer) => { timer.cleared = true; },
+  });
+  endpoint.start(); socket.open();
+  endpoint.attach("connection_phone_first_1234", (frame) => firstFrames.push(frame));
+  endpoint.attach("connection_phone_second_1234", (frame) => secondFrames.push(frame));
+  assert.equal(timers[0].cleared, true);
+  timers[0].callback();
+  socket.message({ jsonrpc: "2.0", id: "snapshot_generation_1_1234", result: providerSnapshot });
+  assert.equal(firstFrames.length, 0);
+  assert.equal(secondFrames.length, 0, "retired generation work cannot publish into its replacement");
+  socket.message({ jsonrpc: "2.0", id: "snapshot_generation_2_1234", result: providerSnapshot });
+  assert.equal(secondFrames.at(-1).status, "ready");
+  assert.equal(secondFrames.at(-1).connection_generation, "connection_phone_second_1234");
+  endpoint.stop();
+});
+
 test("endpoint dispatches exact operations, emits ordered receipts, and rejects stale generations", () => {
   let socket;
   let requestSerial = 0;

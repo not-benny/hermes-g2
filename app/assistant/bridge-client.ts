@@ -77,6 +77,7 @@ export class AssistantBridgeClient {
   private activeTurn: ActiveTurn | null = null;
   private turnSeq = 0;
   private mcpServer: AssistantMcpServer | null = null;
+  private companionSupported = false;
   private authenticatedProfileId: string | null = null;
   private unsubscribeToolsChanged: (() => void) | null = null;
   private readonly connectionGuard = new BridgeConnectionGuard();
@@ -113,6 +114,7 @@ export class AssistantBridgeClient {
   /** Disconnect and stay down until the next configure(). */
   stop(): void {
     this.stopped = true;
+    this.companionSupported = false;
     this.authenticatedProfileId = null;
     this.connectionGuard.invalidateCurrent();
     this.clearReconnectTimer();
@@ -274,6 +276,7 @@ export class AssistantBridgeClient {
         return;
       case "companion":
         if (!this.requireAuthenticated(generation)) return;
+        if (!this.companionSupported) return;
         this.companion.handleFrame(frame);
         return;
       default:
@@ -291,6 +294,9 @@ export class AssistantBridgeClient {
       }
       this.authenticatedProfileId = frame.profile === "even-g2" ? "even-g2" : null;
       if (!this.connectionGuard.authenticate(generation)) { this.authenticatedProfileId = null; return; }
+      this.companionSupported = Array.isArray(frame.capabilities) &&
+        frame.capabilities.includes("hermes-companion-v1");
+      this.companion.setSupported(this.companionSupported);
       this.clearAuthTimer();
       this.reconnectDelayMs = RECONNECT_MIN_MS;
       this.lastTrafficMs = Date.now();
@@ -342,6 +348,7 @@ export class AssistantBridgeClient {
 
   private handleConnectionLost(status: string, generation: number): void {
     if (!this.connectionGuard.invalidate(generation)) return;
+    this.companionSupported = false;
     this.authenticatedProfileId = null;
     this.mcpServer?.close();
     this.mcpServer = null;
@@ -451,7 +458,7 @@ export class AssistantBridgeClient {
   }
 
   private sendCompanion(command: HermesCompanionClientCommand): void {
-    if (this.phase !== "connected") return;
+    if (this.phase !== "connected" || !this.companionSupported) return;
     this.send({ ...command, chan: "companion" });
   }
 

@@ -1,6 +1,7 @@
 export const HERMES_COMPANION_PROTOCOL_VERSION = 1 as const;
 
 export type HermesBackendStatus = "ready" | "degraded" | "unavailable";
+export type HermesCompanionSupport = "unknown" | "supported" | "unsupported";
 export type HermesSessionState = "active" | "completed" | "failed" | "cancelled";
 export type HermesCaptureState = "idle" | "listening" | "processing" | "paused" | "unavailable";
 
@@ -107,6 +108,7 @@ export type HermesCompanionClientCommand =
     });
 
 export type HermesCompanionProjection = {
+  support: HermesCompanionSupport;
   synchronized: boolean;
   connectionGeneration: string | null;
   sequence: number;
@@ -256,6 +258,7 @@ function defaultOperationId(): string {
 }
 
 export class HermesCompanionStore {
+  private support: HermesCompanionSupport = "unknown";
   private synchronized = false;
   private connectionGeneration: string | null = null;
   private sequence = 0;
@@ -275,6 +278,7 @@ export class HermesCompanionStore {
 
   snapshot(): HermesCompanionProjection {
     return {
+      support: this.support,
       synchronized: this.synchronized,
       connectionGeneration: this.connectionGeneration,
       sequence: this.sequence,
@@ -286,11 +290,30 @@ export class HermesCompanionStore {
   }
 
   markDisconnected(): void {
+    this.support = "unknown";
     this.synchronized = false;
     this.connectionGeneration = null;
     this.pending.clear();
     this.operationKey.clear();
     this.completed.clear();
+  }
+
+  setSupported(supported: boolean): boolean {
+    const next: HermesCompanionSupport = supported ? "supported" : "unsupported";
+    if (this.support === next && (supported || (!this.synchronized && this.data === null))) return false;
+    this.support = next;
+    if (!supported) {
+      this.synchronized = false;
+      this.connectionGeneration = null;
+      this.sequence = 0;
+      this.generatedAtMs = null;
+      this.data = null;
+      this.pending.clear();
+      this.operationKey.clear();
+      this.completed.clear();
+      this.lastReceipt = null;
+    }
+    return true;
   }
 
   apply(value: unknown): boolean {
@@ -304,6 +327,7 @@ export class HermesCompanionStore {
         this.completed.clear();
       }
       this.connectionGeneration = frame.connection_generation;
+      this.support = "supported";
       this.sequence = frame.sequence;
       this.generatedAtMs = frame.generated_at_ms;
       const { v: _v, chan: _chan, type: _type, connection_generation: _generation,

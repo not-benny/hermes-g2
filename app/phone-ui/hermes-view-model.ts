@@ -103,6 +103,7 @@ export class HermesViewModel extends Observable {
   get statusDotClass(): string { return this.available && this.companion.data?.status === "ready" ? "dot-on" : "dot-off"; }
   get statusLabel(): string {
     if (this.bridge.phase !== "connected") return "Hermes bridge offline";
+    if (this.companion.support === "unsupported") return "Hermes companion unavailable";
     if (!this.companion.synchronized) return "Hermes data out of sync";
     if (!this.fresh) return "Hermes data is stale";
     return this.companion.data?.status === "ready" ? "Hermes ready"
@@ -110,13 +111,17 @@ export class HermesViewModel extends Observable {
   }
   get statusDetail(): string {
     if (this.bridge.phase !== "connected") return "Reconnect the configured private bridge. Actions are disabled and never queued.";
+    if (this.companion.support === "unsupported") {
+      return "The connected bridge does not advertise Hermes companion support. Actions are disabled.";
+    }
     if (!this.companion.synchronized) return "Waiting for a fresh authoritative snapshot. Actions are disabled.";
     if (!this.fresh) return "Snapshot expired. Refresh before starting or changing a session.";
     return `Updated ${ageLabel(this.companion.generatedAtMs, this.now)}`;
   }
   get offlineVisibility(): Visibility { return visible(!this.available); }
   get refreshEnabled(): boolean {
-    return this.bridge.phase === "connected" && this.companion.connectionGeneration !== null && !this.pending;
+    return this.bridge.phase === "connected" && this.companion.support === "supported" &&
+      this.companion.connectionGeneration !== null && !this.pending;
   }
 
   get modelLabel(): string { return this.companion.data?.model ?? "Not reported"; }

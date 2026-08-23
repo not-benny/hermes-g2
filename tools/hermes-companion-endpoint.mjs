@@ -30,12 +30,22 @@ export class HermesCompanionEndpoint {
     if (!Number.isSafeInteger(this.commandTimeoutMs) || this.commandTimeoutMs < 100 || this.commandTimeoutMs > 120_000) {
       throw new Error("Hermes gateway command timeout is invalid");
     }
+    this.snapshotTimeoutMs = options.snapshotTimeoutMs ?? 10_000;
+    if (!Number.isSafeInteger(this.snapshotTimeoutMs) || this.snapshotTimeoutMs < 100 || this.snapshotTimeoutMs > 120_000) {
+      throw new Error("Hermes gateway snapshot timeout is invalid");
+    }
     this.setCommandTimer = options.setCommandTimer ?? ((callback, delay) => {
       const timer = setTimeout(callback, delay);
       timer.unref?.();
       return timer;
     });
     this.clearCommandTimer = options.clearCommandTimer ?? ((timer) => clearTimeout(timer));
+    this.setSnapshotTimer = options.setSnapshotTimer ?? ((callback, delay) => {
+      const timer = setTimeout(callback, delay);
+      timer.unref?.();
+      return timer;
+    });
+    this.clearSnapshotTimer = options.clearSnapshotTimer ?? ((timer) => clearTimeout(timer));
     this.setReconnectTimer = options.setReconnectTimer ?? ((callback, delay) => {
       const timer = setTimeout(callback, delay);
       timer.unref?.();
@@ -46,7 +56,7 @@ export class HermesCompanionEndpoint {
     this.phoneGeneration = null;
     this.emit = null;
     this.pendingCommands = new Map();
-    this.snapshotRequests = new Set();
+    this.snapshotRequest = null;
     this.reconnectTimer = null;
     this.reconnectDelayMs = 1_000;
     this.stopped = true;
@@ -104,7 +114,7 @@ export class HermesCompanionEndpoint {
     }
     this.phoneGeneration = null;
     this.emit = null;
-    this.snapshotRequests.clear();
+    this.#takeSnapshotRequest();
     this.adapter.disconnect();
     return true;
   }
@@ -171,7 +181,7 @@ export class HermesCompanionEndpoint {
       this.#takePending(command.operation_id);
       this.#settle(command, "outcome_unknown", "gateway_disconnected");
     }
-    this.snapshotRequests.clear();
+    this.#takeSnapshotRequest();
     if (this.phoneGeneration) this.#emit(this.adapter.unavailableSnapshot());
     this.#scheduleReconnect();
   }
@@ -190,11 +200,24 @@ export class HermesCompanionEndpoint {
     const socket = this.socket;
     if (!socket || socket.readyState !== 1 || !this.phoneGeneration) return;
     const id = this.createRequestId();
-    // Only the latest projection request can restore current authority. A late
-    // reply to an older request is ignored, and its ID is not retained forever.
-    this.snapshotRequests.clear();
-    this.snapshotRequests.add(id);
-    socket.send(JSON.stringify({ jsonrpc: "2.0", id, method: "companion.snapshot", params: this.adapter.snapshotParams() }));
+    // Only the latest projection request can restore current authority. Its
+    // exact socket and phone generation own the deadline; a replaced, retired,
+    // or timed-out request can never publish a late reply.
+    this.#takeSnapshotRequest();
+    const pending = { id, socket, connectionGeneration: this.phoneGeneration, timer: null };
+    this.snapshotRequest = pending;
+    try {
+      socket.send(JSON.stringify({ jsonrpc: "2.0", id, method: "companion.snapshot", params: this.adapter.snapshotParams() }));
+    } catch {
+      if (this.snapshotRequest === pending) {
+        this.#takeSnapshotRequest(id);
+        this.#emit(this.adapter.unavailableSnapshot());
+      }
+      return;
+    }
+    const timer = this.setSnapshotTimer(() => this.#snapshotTimedOut(pending), this.snapshotTimeoutMs);
+    if (this.snapshotRequest === pending) pending.timer = timer;
+    else this.clearSnapshotTimer(timer);
   }
 
   #message(socket, raw) {
@@ -203,12 +226,14 @@ export class HermesCompanionEndpoint {
     try { frame = JSON.parse(raw); } catch { return; }
     if (!frame || typeof frame !== "object") return;
     if (frame.jsonrpc === "2.0" && frame.method === "companion.snapshot") {
-      this.#emit(this.adapter.authoritativeSnapshot(frame.params) ?? this.adapter.unavailableSnapshot());
+      const snapshot = this.adapter.authoritativeSnapshot(frame.params);
+      if (snapshot) this.#takeSnapshotRequest();
+      this.#emit(snapshot ?? this.adapter.unavailableSnapshot());
       return;
     }
     if (frame.jsonrpc !== "2.0" || typeof frame.id !== "string" || (!owns(frame, "result") && !owns(frame, "error"))) return;
     const hasError = owns(frame, "error");
-    if (this.snapshotRequests.delete(frame.id)) {
+    if (this.#takeSnapshotRequest(frame.id)) {
       this.#emit(!hasError ? this.adapter.authoritativeSnapshot(frame.result) ?? this.adapter.unavailableSnapshot()
         : this.adapter.unavailableSnapshot());
       return;
@@ -248,6 +273,21 @@ export class HermesCompanionEndpoint {
     this.pendingCommands.delete(operationId);
     if (pending.timer) this.clearCommandTimer(pending.timer);
     return pending.command;
+  }
+
+  #takeSnapshotRequest(id = null) {
+    const pending = this.snapshotRequest;
+    if (!pending || (id !== null && pending.id !== id)) return null;
+    this.snapshotRequest = null;
+    if (pending.timer !== null) this.clearSnapshotTimer(pending.timer);
+    return pending;
+  }
+
+  #snapshotTimedOut(pending) {
+    if (this.snapshotRequest !== pending || this.socket !== pending.socket ||
+        this.phoneGeneration !== pending.connectionGeneration) return;
+    this.#takeSnapshotRequest(pending.id);
+    this.#emit(this.adapter.unavailableSnapshot());
   }
 
   #commandTimedOut(operationId, command) {
