@@ -1,10 +1,31 @@
 # Hermes G2 roadmap
 
-Current as of 22 August 2026. `main` is the canonical branch.
+Current as of 23 August 2026. `main` is the canonical branch.
 
 **Status key:** DONE · IN PROGRESS · PARTIAL · TODO · RESEARCH · BLOCKED
 
 ## Now
+
+### Native Hermes agent cockpit
+
+- **IMPLEMENTED / END-TO-END HARDWARE AND BRIDGE DEPLOYMENT BLOCKED (23 August
+  2026).** A provider-neutral `cockpit-v1` channel now rides the authenticated
+  private WSS bridge and exposes only explicitly shared opaque session
+  projections. The native Hermes glasses app provides active work, compact
+  transcript/tool rows, a pending inbox, reviewed listed answers, deny-default
+  exact one-shot permissions, twice-reviewed voice steering, exact-generation
+  interrupt, and explicit terminal states. Sequence gaps, reconnect, expiry,
+  duplicate taps, replacement generations, answered-elsewhere prompts, terminal
+  runs, and unsupported approval scopes fail closed. The metadata-only Hermes
+  adapter maps current TUI gateway events/actions without exporting provider IDs,
+  prompts, reasoning, tool arguments/results, credentials, or unshared work; a
+  deterministic JSON-lines fake and adversarial fixtures cover ordering and
+  privacy. All 376 host tests, TypeScript typecheck, and the JDK 21 / SDK 35
+  Android build pass. The exact debug APK SHA-256 is
+  `be226031aa95fbf3b731d32a92d54c4b7935f3fa60892e379cb9144d567ea7d0`.
+  No A32/G2 was attached and the private bridge was not upgraded in this run, so
+  real question/deny/allow-once/steer/interrupt/completion evidence remains open.
+  See `docs/hermes-agent-cockpit.md`.
 
 ### Notification priority and digests
 

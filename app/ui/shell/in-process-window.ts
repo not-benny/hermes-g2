@@ -34,6 +34,8 @@ export type InProcessWindowOptions = {
    * the items can reflect current app state.
    */
   menuItems?: () => MenuItem[];
+  /** Final reviewed voice/text input for apps that explicitly accept it. */
+  receiveTextInput?: (text: string) => void;
   /** Shared actions; requestRender is rebound to this window's render. */
   actions: LayerActions;
   baseLayer: Layer;
@@ -218,6 +220,7 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
       // the shell changes this window's focus so their tool list is refreshed.
       toolRegistry.fireToolsChanged();
     },
+    receiveTextInput: options.receiveTextInput,
     setScreenOn: (on) => {
       stack.notifyScreenChanged(on);
       options.onScreenChanged?.(on);
