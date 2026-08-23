@@ -166,7 +166,9 @@ Future adapters should follow this pattern rather than paste raw tool JSON into
 the phone schema.
 
 The phone binds the certificate-authenticated bridge MCP server to authenticated
-profile `even-g2`; other profiles cannot list or call contextual tools, and pin
+profile `even-g2` only after the token/TLS-authenticated `hello-ack` explicitly
+claims `profile: "even-g2"`; custom peers receive no fallback. Other profiles
+cannot list or call contextual tools, and pin
 reads require an exact active turn. The production Hermes gateway deployment
 and concrete rail-reader credential/configuration remain deployment-local. They
 must keep external mutation/generic shell tools absent and route no unmatched

@@ -183,7 +183,7 @@ Current as of 22 August 2026. `main` is the canonical branch.
 - **DONE — turn and connection binding.** External calls require a live
   connection and exact claimed originating turn, or an explicitly gated
   proactive call. Disconnect and cancellation retire owned work.
-- **IN PROGRESS — dedicated read-only contextual dashboards (23 August 2026).**
+- **PARTIAL / STATIC PASS — dedicated read-only contextual dashboards (23 August 2026).**
   The superseding V2 outcome is restricted to the dedicated `even-g2` profile.
   It opens an ACK-backed loading view before direct read-only gathering, streams
   bounded summary-first sections with typed source/freshness/uncertainty, and
@@ -192,9 +192,10 @@ Current as of 22 August 2026. `main` is the canonical branch.
   mutation or remote action handle is accepted. Up to five encrypted pins retain
   bounded intent and refresh policy but no responses or rendered values. The
   permanent Liverpool Lime Street projector renders all destinations ordered by
-  expected departure. Host-focused tests and TypeScript pass; the final full
-  matrix, independent review, PR/CI and exact-candidate A32/G2 timing/visual/input
-  proof remain gates. See `docs/dynamic-glasses-apps.md`.
+  expected departure. The final 359-test/typecheck/Android-build matrix and
+  independent adversarial static review pass at `d4925fe`; PR/CI and the
+  deployment-local gateway/rail reader plus exact-candidate A32/G2 timing,
+  visual and input proof remain gates. See `docs/dynamic-glasses-apps.md`.
 - **BLOCKED — public MCP/skill publication.** No public skill or untrusted remote
   rendering until authenticated `wss://` server identity, compatible licensed
   generic client, credential/retry/privacy gates, and real-G2 contextual-
