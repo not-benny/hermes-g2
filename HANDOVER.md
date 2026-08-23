@@ -1,5 +1,55 @@
 # Hermes G2 handover — 23 August 2026
 
+## Privacy-scoped universal search candidate
+
+Branch `feat/universal-search-launcher` is stacked on the open, reviewed Hermes
+cockpit PR #62 at `f68a902ebef25b3ae2b9859e8ff3225fe5c3dc72`, because exact public
+Hermes session ID/execution-generation projections are a prerequisite. The new
+native Search app accepts only final text reviewed by the shell and starts with
+Apps as the sole enabled source. Its memory-only window filters can opt into
+upcoming calendar events, active notifications, one bounded directory level
+under file bookmarks, and synchronized explicitly shared Hermes cockpit
+sessions. Roam, terminal, media and health are listed honestly as unavailable:
+the current repository lacks a bounded broad Roam query, restart-safe exact
+terminal/media identity, and consent-scoped health search projection.
+
+The framework-free core validates inert bounded provider output, normalizes
+Unicode, deterministically ranks and deduplicates exact source identities, gives
+each provider an independent deadline, and revokes publication/action authority
+before aborting a replaced query. Provider failure, permission denial, offline
+state and timeout remain independent. Closed action descriptors never reach the
+view: they become memory-only one-shot handles bound to the exact query
+generation and trusted provider. Immediately before open, adapters revalidate
+the local app registry, calendar event ID/start time, notification access/key,
+bookmark scope plus file path/modified time, or synchronized public Hermes
+session ID/execution generation. Search exposes no arbitrary URL/shell/terminal
+command, notification action/dismissal, Roam write, media control, health-history
+read, cockpit answer/permission/steer/interrupt, or remote-defined UI.
+
+No query, result, filter or recent history is persisted. Clear, window close and
+process replacement revoke pending providers and action handles. Search content
+is not logged; file-access failure logs were reduced to content-free event text
+so paths and exception bodies cannot leak through the new metadata adapter.
+Focused synthetic coverage passes 16/16 for Unicode and duplicate
+ranking, provider timeout/error/permission/offline/unavailable isolation,
+non-cooperative stale generations, malformed throwing results, one-shot replay,
+exact file/session replacement, grouped pagination, filters, clear and native
+wiring/privacy contracts. After a clean `npm ci`, the full host suite passes
+392/392; NativeScript Android preparation, TypeScript, and the JDK 21 / SDK 35
+build pass. The 195,185,353-byte debug APK has SHA-256
+`e6a1acde44cef537f7f916784903d7823f13e5618eb461ab9f2d697612974522` and
+package metadata `com.faceclaw.app`, version code 1000002 / version
+`1.0.0-preview.2`, min SDK 24, target/compile SDK 35. It upgrade-installed and
+launched on the authorised A32 over its existing wireless ADB transport; the
+expected live process remained present and the filtered post-launch log had no
+fatal/JavaScript marker. The app reported no active glasses connection, so no
+real-G2 Search render, ring/touch navigation, source filtering, exact open/back,
+offline-source or privacy-safe connected logcat evidence is inferred. No
+Bluetooth setting, pairing, ownership, permission, firmware, provisioning,
+reset, wipe or other destructive operation was performed. Independent
+frozen-SHA review, connected-G2 evidence, CI and remote PR read-back remain.
+See `docs/universal-search.md`.
+
 ## Native Hermes agent cockpit candidate
 
 Branch `feat/hermes-agent-cockpit-main` starts from canonical

@@ -6,6 +6,29 @@ Current as of 23 August 2026. `main` is the canonical branch.
 
 ## Now
 
+### Privacy-scoped universal search
+
+- **IMPLEMENTED / FINAL VERIFICATION AND HARDWARE EVIDENCE IN PROGRESS (23 August
+  2026).** The native Search app accepts only shell-reviewed text and defaults to
+  Apps-only. Per-window opt-in filters search launcher apps, upcoming calendar
+  events, active notifications, one bounded level below file bookmarks, and
+  explicitly shared synchronized Hermes cockpit sessions. Results are inert,
+  source-labelled and bounded; Unicode-aware ranking/deduplication is stable;
+  provider deadlines and query generations isolate slow/erroring sources and
+  prevent stale publication. Memory-only one-shot action handles revalidate the
+  exact app, event ID/start time, notification key, bookmarked file path/modified
+  time, or public Hermes session ID/execution generation before opening. Query,
+  result and filter history is not persisted or logged. Roam, terminal, media and
+  health remain visibly unavailable because safe bounded search/exact-action
+  identities do not yet exist; no shell, URL, notification mutation, Roam write,
+  cockpit command, media control or health-history read is exposed. Focused
+  synthetic coverage passes 16/16; the full host suite passes 392/392,
+  prepared-platform typecheck and the JDK 21 / SDK 35 Android build pass. The
+  exact candidate installed and launched as a live process on the A32, but its
+  G2 transport had no active connection, so glasses navigation/open/back/filter
+  evidence is not claimed. Independent frozen-SHA review, connected-G2 evidence,
+  CI and remote PR read-back remain gates. See `docs/universal-search.md`.
+
 ### Native Hermes agent cockpit
 
 - **IMPLEMENTED / END-TO-END HARDWARE AND BRIDGE DEPLOYMENT BLOCKED (23 August
