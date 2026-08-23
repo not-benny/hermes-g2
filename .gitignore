@@ -24,6 +24,9 @@ typings/
 __pycache__/
 *.py[cod]
 .review-*/
+/.worktrees/
+/wt/
+/.hermes/
 App_Resources/Android/src/main/jniLibs/**/*.so
 App_Resources/Android/src/main/assets/faceclaw-voice-asr/
 
@@ -48,7 +51,13 @@ scratchpad/
 # path too in case it is ever copied inside the tree.
 secrets.local.md
 secrets.local
-.env.local
+.env
+.env.*
+!.env.example
 *.secret
 .even-jwt
+*.jks
+*.keystore
+*.p12
+*.pfx
 ground-truth-private/
