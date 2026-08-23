@@ -53,11 +53,33 @@ than broadened. Frozen review, focused/full tests, typecheck and Android build
 pass; connected-G2 navigation evidence remains NO-GO rather than inferred. See
 `docs/universal-search.md`.
 
+## Live captions on protected main
+
+PR #63 ships the live-captions/translation delta on top of Search. It retains the
+native Hermes cockpit and contextual-dashboard lifecycle, including in-process
+text input, foreground/screen notifications, assistant displacement/restoration
+and exact-generation voice capture.
+
+Transcribe is now a volatile, accessibility-first Captions window with literal
+starting/live/paused/stopped/error/drop states, grapheme-safe bounded wrapping,
+bottom anchoring and history, pause/resume and clear controls, and bounded phone
+settings for source language, translation layout, font, spacing, line count,
+evidence-backed speaker labels, and local-only unsupported vocabulary. Capture
+is owned by the exact successful foreground/screen lease; assistant push-to-talk
+preempts it, and late permission, Java, provider, PCM, stop, or close callbacks
+cannot publish into a replacement generation. Source captions remain available
+when translation or its credential is unavailable. Captions are memory-only and
+credentials remain in the existing Keystore-backed replace-only settings.
+
+The exact Search + captions + battery-lifecycle completion candidate is
+revalidated and recorded separately before delivery. See
+`docs/live-captions.md` and `PRIVACY`.
+
 ## Canonical repository and release governance
 
 `main` is the only canonical development branch. Current protected baseline is
-`a9e714c52ea91a056205e83b2ca3b5e13ff7f58b` (`feat: add privacy-scoped
-universal search (#64)`). Do not resume from historical
+`b762846c5c0652c0e67f8828209b40d148447272` (`feat(accessibility): ship
+foreground live captions (#63)`). Do not resume from historical
 `hermes-g2`, `integration/`, `work/`, `wt/`, `fix/`, or dated cleanup branches.
 
 Public visibility is Benny-authorized and required by the current GitHub plan.

@@ -53,12 +53,34 @@ Current as of 23 August 2026. `main` is the canonical branch.
   adapter maps current TUI gateway events/actions without exporting provider IDs,
   prompts, reasoning, tool arguments/results, credentials, or unshared work; a
   deterministic JSON-lines fake and adversarial fixtures cover ordering and
-  privacy. All 376 host tests, TypeScript typecheck, and the JDK 21 / SDK 35
-  Android build pass. The exact debug APK SHA-256 is
+  privacy. At its `main` merge, all 376 host tests, TypeScript typecheck, and the
+  JDK 21 / SDK 35 Android build passed. That merge's exact debug APK SHA-256 is
   `be226031aa95fbf3b731d32a92d54c4b7935f3fa60892e379cb9144d567ea7d0`.
   No A32/G2 was attached and the private bridge was not upgraded in this run, so
   real question/deny/allow-once/steer/interrupt/completion evidence remains open.
   See `docs/hermes-agent-cockpit.md`.
+
+### Accessibility-first live captions and translation
+
+- **IMPLEMENTED / FOLD7 AND G2 EVIDENCE PENDING — volatile foreground captions
+  (23 August 2026).**
+  The Transcribe app is now an accessibility-first Captions window with
+  visual-only microphone/network/provider/translation states, grapheme-safe
+  bounded wrapping, bottom anchoring, history scrollback, pause/resume, clear,
+  and source-preserving split/full translation layouts. Capture, permission
+  continuations, Java/cloud callbacks, PCM delivery, provider swaps and teardown
+  are generation-bound; background, screen-off, pause and close stop capture.
+  Soniox supplies optional one-way translation and evidence-backed speaker
+  labels with bounded PCM buffering/reconnect/drop metrics. Phone settings bound
+  languages, layout, font, spacing, lines, speaker labels and local-only
+  unsupported vocabulary while disclosing local/cloud processing. Captions are
+  memory-only and transcript-only remains credential-independent. On the
+  requested `main@51f147d` integration, the focused caption/voice race suite
+  passes 19/19, the full host suite passes 478/478, TypeScript and the JDK 21 /
+  SDK 35 build pass, and the APK verifier passes. Fold7 install/launch, scripted
+  and live microphone, real-G2 readability,
+  stop/clear/background, disconnect, and caption-specific privacy-safe logcat
+  evidence remain required before DONE. See `docs/live-captions.md`.
 
 ### Notification priority and digests
 
