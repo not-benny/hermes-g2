@@ -87,6 +87,8 @@ public class FaceclawVoiceController {
     private final ArrayDeque<AudioPacket> audioQueue = new ArrayDeque<>();
     private volatile FaceclawVoiceControllerListener listener;
     private volatile FaceclawBleCommunicator communicator;
+    private FaceclawBleCommunicator activeAudioCommunicator;
+    private long activeAudioGeneration;
     private Thread workerThread;
     private volatile boolean started;
     private volatile long currentGeneration;
@@ -186,7 +188,7 @@ public class FaceclawVoiceController {
             started = false;
             threadToJoin = workerThread;
         }
-        stopG2Audio();
+        stopG2Audio(generation);
         synchronized (audioQueueLock) {
             audioQueueLock.notifyAll();
         }
@@ -253,7 +255,7 @@ public class FaceclawVoiceController {
             Log.e(TAG, "Voice control failed", error);
             emitStatus(generation, "Voice control failed: " + error.getMessage());
         } finally {
-            stopG2Audio();
+            stopG2Audio(generation);
             writeRecordingIfAny();
             releaseSherpa();
             releaseLc3();
@@ -415,16 +417,25 @@ public class FaceclawVoiceController {
     }
 
     private boolean startG2Audio(long generation) {
-        FaceclawBleCommunicator currentCommunicator = communicator;
-        if (currentCommunicator == null) {
-            return false;
+        synchronized (lock) {
+            FaceclawBleCommunicator currentCommunicator = communicator;
+            if (!isGenerationRunningLocked(generation) || currentCommunicator == null) {
+                return false;
+            }
+            resetAudioStats();
+            synchronized (audioQueueLock) {
+                audioQueue.clear();
+            }
+            activeAudioCommunicator = currentCommunicator;
+            activeAudioGeneration = generation;
+            boolean startedCapture = currentCommunicator.startG2AudioCapture(
+                    (data, arm, arrivalMs) -> queueAudioPacket(generation, data, arm, arrivalMs));
+            if (!startedCapture && activeAudioGeneration == generation) {
+                activeAudioCommunicator = null;
+                activeAudioGeneration = 0;
+            }
+            return startedCapture;
         }
-        resetAudioStats();
-        synchronized (audioQueueLock) {
-            audioQueue.clear();
-        }
-        return currentCommunicator.startG2AudioCapture(
-                (data, arm, arrivalMs) -> queueAudioPacket(generation, data, arm, arrivalMs));
     }
 
     private void processG2Audio(long generation, VoiceInputMode currentMode) {
@@ -478,6 +489,10 @@ public class FaceclawVoiceController {
 
     private boolean isGenerationRunning(long generation) {
         return started && currentGeneration == generation;
+    }
+
+    private boolean isGenerationRunningLocked(long generation) {
+        return started && currentGeneration == generation && workerThread == Thread.currentThread();
     }
 
     private void processKeywordSpotter(OnlineStream currentStream) {
@@ -704,8 +719,16 @@ public class FaceclawVoiceController {
     }
 
 
-    private void stopG2Audio() {
-        FaceclawBleCommunicator currentCommunicator = communicator;
+    private void stopG2Audio(long generation) {
+        FaceclawBleCommunicator currentCommunicator;
+        synchronized (lock) {
+            if (activeAudioGeneration != generation) {
+                return;
+            }
+            currentCommunicator = activeAudioCommunicator;
+            activeAudioCommunicator = null;
+            activeAudioGeneration = 0;
+        }
         if (currentCommunicator != null) {
             currentCommunicator.stopG2AudioCapture();
         }

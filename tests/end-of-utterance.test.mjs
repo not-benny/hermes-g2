@@ -210,4 +210,7 @@ test("native capture callbacks and teardown are fenced by the exact generation",
   assert.match(controllerSource, /isGenerationRunning\(generation\)/);
   assert.match(controllerSource, /currentListener\.onPcm\(generation, le\)/);
   assert.match(controllerSource, /currentListener\.onTranscript\(generation, text, isFinal\)/);
+  assert.match(controllerSource, /private boolean startG2Audio\(long generation\) \{[\s\S]*synchronized \(lock\)[\s\S]*isGenerationRunningLocked\(generation\)[\s\S]*activeAudioGeneration = generation/);
+  assert.match(controllerSource, /private void stopG2Audio\(long generation\)/);
+  assert.match(controllerSource, /if \(activeAudioGeneration != generation\)/);
 });
