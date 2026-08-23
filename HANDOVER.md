@@ -27,13 +27,17 @@ JDK 21 / Android SDK 35 debug build and release-artifact verifier pass. The
 exact 195,740,952-byte debug APK at
 `platforms/android/app/build/outputs/apk/debug/app-debug.apk` has SHA-256
 `491e8f53cd24754aeeae4427ed6d8209dc3b3e1250549c64694d70ae2eda9979`.
-`adb devices -l` returned no attached device, so there is no A32 install/launch,
-scripted fixture, live microphone, optical readability, disconnect,
-background-stop or privacy-safe logcat evidence yet. No pairing, permission
-dialog, firmware, provisioning, reset, wipe, power, NVM or destructive command
-was attempted. Independent frozen-candidate review, PR/CI delivery and serialized
-A32/G2 verification remain the next gates; do not infer hardware success from
-the build.
+The authorised Samsung A32 later appeared over its existing wireless ADB pairing.
+The exact APK upgrade-installed and launched with version 1000002 /
+1.0.0-preview.2 and a live process. PID-filtered launch logs contained no fatal,
+JavaScript, credential or transcript-content marker. The G2 transport repeatedly
+failed before session readiness, so no caption frame, optical readability,
+fixture, disconnect or stop/clear result is claimed. Android app-ops reported
+microphone `ignore`; no permission dialog was accepted and no live-mic test ran.
+No pairing, firmware, provisioning, reset, wipe, power, NVM or destructive
+command was attempted. A serialized ready-G2 window and separately approved
+visible microphone permission remain the next gates; do not infer hardware
+success from install, process or build evidence.
 
 The first independent frozen-candidate review blocked provider/PTT sharing,
 unmatched release, non-transactional startup, unbounded non-Soniox queues,
@@ -44,7 +48,7 @@ transactional, bounds every cloud queue, restarts continuous capture on setting
 changes with effective-provider disclosure, emits incremental final token
 deltas, measures matching-revision lag, falls back to current source, derives
 partial labels without mutating committed state, truncates fixed chrome, and
-adds executable mock-Soniox fixtures. Final re-review remains required.
+adds executable mock-Soniox fixtures.
 
 Later re-review also found and the current source closes failed Soniox
 end-of-audio retry, stale generation rollback in the lens layer, missing
@@ -55,15 +59,16 @@ input and an executable final-delta/stream-finish regression. Independent
 adversarial re-review of exact source commit
 `55740b49725f1b078d00ba7549c9e5efab50c8c4` returned **PASS** across the
 final-token path and all earlier lifecycle, provider, translation, queue and
-disclosure blockers. Operational hardware authorization remains NO-GO until an
-A32/G2 is attached and the documented non-private checks run.
+disclosure blockers. Operational hardware authorization remains NO-GO until the
+G2 reaches session readiness and the documented approved checks run.
 
 PR [#63](https://github.com/not-benny/hermes-g2/pull/63) is open from
-`feat/live-captions-translation` to `main`. At remote head `3ba2eac`,
+`feat/live-captions-translation` to `main`. At remote head `6890df1`,
 `release-gate`, `codeql-javascript`, `codeql-java`, and aggregate `codeql` all
 passed. The PR is intentionally unmerged because the required serialized A32/G2
 fixture, visible live-mic, stop/clear/background, disconnect, optical
-readability, and privacy-safe logcat evidence remains unavailable. Merge only
+readability, and caption/session-specific privacy-safe logcat evidence remains
+unavailable. Merge only
 after that exact-candidate hardware gate passes; do not treat green CI as device
 evidence.
 

@@ -24,9 +24,13 @@ Current as of 22 August 2026. `main` is the canonical branch.
   pass. The exact 195,740,952-byte APK has SHA-256
   `491e8f53cd24754aeeae4427ed6d8209dc3b3e1250549c64694d70ae2eda9979`.
   Independent adversarial review of exact source commit `55740b4` passed.
-  No ADB device was attached, so A32 install/launch, scripted/live microphone,
-  real-G2 readability, disconnect, background-stop and privacy-safe logcat
-  evidence remain required before DONE. See `docs/live-captions.md`.
+  The exact APK later upgrade-installed and launched on the authorised wireless
+  A32 with the expected version and a live process. The G2 transport repeatedly
+  failed before session readiness, and Android reported microphone app-op
+  `ignore`; no permission dialog was accepted. Scripted/live microphone,
+  real-G2 readability, stop/clear/background, disconnect and caption-specific
+  privacy-safe logcat evidence remain required before DONE. See
+  `docs/live-captions.md`.
 
 ### Notification priority and digests
 
