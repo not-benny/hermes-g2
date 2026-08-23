@@ -20,7 +20,7 @@ but unrestored mutations, and restores them before accepting WSS. The external
 HA endpoint remains responsible for durable operation-ID reservation and
 non-redispatch across a host crash.
 
-Automated coverage passes all 372 host tests, TypeScript typechecking, the JDK
+Automated coverage passes all 373 host tests, TypeScript typechecking, the JDK
 21 / Android SDK 35 build, and untrusted release-artifact verification. The
 verified debug APK SHA-256 is
 `a0951201006b651ee3e3558f46a1670127932dc48ca646a58c2653fd3725aa62`.

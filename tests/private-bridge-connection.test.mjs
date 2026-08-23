@@ -87,3 +87,28 @@ test("every newer utterance retires the old phone turn and reconnects before tri
   assert.equal(closed.at(-1).code, 1012);
   assert.equal(sent.some((frame) => frame.type === "turn-error" && frame.turnId === "turn-2"), false);
 });
+
+test("two completed turns share one initialized phone MCP server on the same socket", async () => {
+  const sent = [];
+  const runs = [];
+  const connection = new PrivateBridgeConnection({
+    expectedToken: "correct-private-token", connectionGeneration: "socket-shared",
+    send: (frame) => sent.push(structuredClone(frame)), closeSocket: () => {}, triggerPhrase: "open living room",
+    createTurn: ({ identity }) => ({ async run() { runs.push(identity.turnGeneration); return { actions: 1, reason: "complete" }; } }),
+  });
+  await connection.receive({ v: 1, chan: "ctl", type: "hello", version: 1, token: "correct-private-token",
+    deviceName: "Hermes G2", capabilities: ["chat", "mcp"] });
+  await connection.receive({ v: 1, chan: "chat", type: "utterance", turnId: "turn-1", text: "open living room" });
+  await tick();
+  const initialize = sent.find((frame) => frame.msg?.method === "initialize");
+  await connection.receive({ v: 1, chan: "mcp", msg: { jsonrpc: "2.0", id: initialize.msg.id,
+    result: { protocolVersion: "2025-06-18" } } });
+  await tick();
+  assert.deepEqual(runs, ["turn-1"]);
+
+  await connection.receive({ v: 1, chan: "chat", type: "utterance", turnId: "turn-2", text: "open living room" });
+  await tick();
+  assert.deepEqual(runs, ["turn-1", "turn-2"]);
+  assert.equal(sent.filter((frame) => frame.msg?.method === "initialize").length, 1);
+  assert.equal(sent.filter((frame) => frame.type === "turn-done").length, 2);
+});

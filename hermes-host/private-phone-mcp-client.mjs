@@ -11,15 +11,22 @@ export class PrivatePhoneMcpClient {
   #closed = false;
   #initialized = false;
 
-  constructor({ send, turnId, connectionGeneration, requestTimeoutMs = 15_000 }) {
-    if (typeof send !== "function" || typeof turnId !== "string" || !turnId ||
+  constructor({ send, turnId = null, connectionGeneration, requestTimeoutMs = 15_000 }) {
+    if (typeof send !== "function" || (turnId !== null && (typeof turnId !== "string" || !turnId)) ||
         (typeof connectionGeneration !== "string" && typeof connectionGeneration !== "number")) {
-      throw new Error("exact phone MCP connection and turn are required");
+      throw new Error("exact phone MCP connection is required");
     }
     this.#send = send;
     this.#turnId = turnId;
     this.#connectionGeneration = String(connectionGeneration);
     this.#requestTimeoutMs = requestTimeoutMs;
+  }
+
+  bindTurn(turnId) {
+    if (this.#closed || typeof turnId !== "string" || !/^[A-Za-z0-9._-]{1,80}$/.test(turnId) || this.#pending.size) {
+      throw new Error("phone MCP turn cannot be rebound");
+    }
+    this.#turnId = turnId;
   }
 
   async initialize() {
@@ -109,7 +116,7 @@ export class PrivatePhoneMcpClient {
   }
 
   #sendFrame(msg) {
-    if (this.#closed) throw new Error("phone MCP connection is closed");
+    if (this.#closed || !this.#turnId) throw new Error("phone MCP connection has no live turn");
     this.#send({ v: 1, chan: "mcp", turnId: this.#turnId, msg });
   }
 }

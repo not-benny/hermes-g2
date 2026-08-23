@@ -18,7 +18,7 @@ export class PrivateDynamicHaTurn {
   #now;
   #maxSessionMs;
 
-  constructor({ runtime, phone, pollIntervalMs = 250, sleep = defaultSleep, now = Date.now, maxSessionMs = 300_000 }) {
+  constructor({ runtime, phone, pollIntervalMs = 250, sleep = defaultSleep, now = Date.now, maxSessionMs = 120_000 }) {
     if (!runtime || !phone?.callTool || typeof sleep !== "function") throw new Error("private dynamic turn dependencies are required");
     this.#runtime = runtime;
     this.#phone = phone;

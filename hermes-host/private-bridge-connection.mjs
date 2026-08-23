@@ -21,8 +21,10 @@ export class PrivateBridgeConnection {
   #onAuthenticated;
   #authenticated = false;
   #retired = false;
+  #closed = false;
   #device = null;
   #active = null;
+  #client;
 
   constructor({ expectedToken, connectionGeneration, send, closeSocket, adapter = null, createTurn = null,
     triggerPhrase = "open private living room controls", onAuthenticated = async () => {} }) {
@@ -40,6 +42,12 @@ export class PrivateBridgeConnection {
     this.#createTurn = createTurn ?? (({ phone }) => {
       const runtime = new DynamicGlassesRuntime({ adapter, phone });
       return new PrivateDynamicHaTurn({ runtime, phone });
+    });
+    this.#client = new PrivatePhoneMcpClient({
+      connectionGeneration: this.#connectionGeneration,
+      send: (frame) => {
+        if (!this.#retired && this.#active?.turnId === frame.turnId) this.#send(frame);
+      },
     });
   }
 
@@ -98,22 +106,22 @@ export class PrivateBridgeConnection {
   }
 
   async close(reason = "connection retired") {
-    if (this.#retired) return;
+    if (this.#closed) return;
+    this.#closed = true;
     this.#retired = true;
     if (this.#active) {
       this.#active.controller.abort();
-      this.#active.client.close(reason);
+      this.#client.close(reason);
       await this.#active.promise;
+    } else {
+      this.#client.close(reason);
     }
   }
 
   #startTurn(turnId) {
     const controller = new AbortController();
-    const client = new PrivatePhoneMcpClient({
-      turnId,
-      connectionGeneration: this.#connectionGeneration,
-      send: (frame) => { if (!this.#retired && this.#active?.turnId === turnId) this.#send(frame); },
-    });
+    const client = this.#client;
+    client.bindTurn(turnId);
     const identity = { tenant: "private-evaluation", device: this.#device,
       connectionGeneration: this.#connectionGeneration, turnGeneration: turnId };
     const turn = this.#createTurn({ phone: client, identity });
@@ -137,7 +145,6 @@ export class PrivateBridgeConnection {
           this.#closeSocket(1011, "private evaluation recovery required");
         }
       } finally {
-        client.close("turn finished");
         if (this.#active === active) this.#active = null;
       }
     })();
