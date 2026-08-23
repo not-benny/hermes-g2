@@ -15,13 +15,17 @@ export class HomeAssistantError extends Error {
   }
 }
 
-export function createHomeAssistantTransport({ baseUrl, getToken, fetchImpl = globalThis.fetch, atomicMutationPath = null }) {
+export function createHomeAssistantTransport({ baseUrl, getToken, fetchImpl = globalThis.fetch,
+  atomicMutationPath = null, requestTimeoutMs = 15_000 }) {
   let origin;
   try { origin = new URL(baseUrl); } catch { throw new Error("Home Assistant requires a valid HTTPS URL"); }
   if (origin.protocol !== "https:" || origin.username || origin.password || origin.search || origin.hash) {
     throw new Error("Home Assistant requires a credential-free HTTPS origin");
   }
   if (typeof getToken !== "function" || typeof fetchImpl !== "function") throw new Error("Home Assistant transport is not configured");
+  if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 10 || requestTimeoutMs > 60_000) {
+    throw new Error("Home Assistant request timeout is invalid");
+  }
   if (atomicMutationPath !== null && (typeof atomicMutationPath !== "string" || !atomicMutationPath.startsWith("/api/") || atomicMutationPath.length > 160)) {
     throw new Error("Home Assistant atomic mutation path is invalid");
   }
@@ -32,25 +36,48 @@ export function createHomeAssistantTransport({ baseUrl, getToken, fetchImpl = gl
         throw new HomeAssistantError("request rejected");
       }
       let response;
+      const controller = new AbortController();
+      let rejectInterrupt;
+      const interrupt = new Promise((_, reject) => { rejectInterrupt = reject; });
+      const onAbort = () => {
+        rejectInterrupt(new HomeAssistantError("request cancelled"));
+        controller.abort();
+      };
+      const timer = setTimeout(() => {
+        rejectInterrupt(new HomeAssistantError("request timeout"));
+        controller.abort();
+      }, requestTimeoutMs);
+      const cleanup = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      if (signal?.aborted) onAbort();
+      else signal?.addEventListener("abort", onAbort, { once: true });
       try {
         const token = getToken();
         if (typeof token !== "string" || token.length < 8) throw new HomeAssistantError("credential unavailable");
-        response = await fetchImpl(`${root}${path}`, {
+        response = await Promise.race([fetchImpl(`${root}${path}`, {
           method,
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: body === undefined ? undefined : JSON.stringify(body),
           redirect: "error",
-          signal,
-        });
+          signal: controller.signal,
+        }), interrupt]);
       } catch (error) {
+        cleanup();
         if (error instanceof HomeAssistantError) throw error;
         throw new HomeAssistantError("unreachable");
       }
       if (!response?.ok) {
+        cleanup();
         const code = response?.status === 401 || response?.status === 403 ? "authorization failed" : "request failed";
         throw new HomeAssistantError(code);
       }
-      try { return await response.json(); } catch { throw new HomeAssistantError("response malformed"); }
+      try { return await Promise.race([response.json(), interrupt]); }
+      catch (error) {
+        if (error instanceof HomeAssistantError) throw error;
+        throw new HomeAssistantError("response malformed");
+      } finally { cleanup(); }
     },
   };
   transport.mutateBinaryCapability = async (request, signal) => {

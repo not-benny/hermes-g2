@@ -323,6 +323,43 @@ test("fetch transport keeps credentials server-side, requires HTTPS, blocks redi
   assert.equal(seen[0].options.headers.Authorization, "Bearer sentinel-token");
 });
 
+test("Home Assistant transport bounds a non-cooperative request independently of turn cancellation", async () => {
+  const transport = createHomeAssistantTransport({
+    baseUrl: "https://ha.invalid", getToken: () => "private-token", requestTimeoutMs: 10,
+    fetchImpl: async () => new Promise(() => {}),
+  });
+  await assert.rejects(() => transport.request({ method: "GET", path: "/api/states" }), /timeout/i);
+});
+
+test("Home Assistant transport bounds response bodies and aborts immediately with its turn", async () => {
+  const bodyTransport = createHomeAssistantTransport({
+    baseUrl: "https://ha.invalid", getToken: () => "private-token", requestTimeoutMs: 10,
+    fetchImpl: async () => ({ ok: true, json: async () => new Promise(() => {}) }),
+  });
+  await assert.rejects(() => bodyTransport.request({ method: "GET", path: "/api/states" }), /timeout/i);
+
+  const controller = new AbortController();
+  const cancelledTransport = createHomeAssistantTransport({
+    baseUrl: "https://ha.invalid", getToken: () => "private-token", requestTimeoutMs: 1_000,
+    fetchImpl: async () => new Promise(() => {}),
+  });
+  const pending = cancelledTransport.request({ method: "GET", path: "/api/states", signal: controller.signal });
+  controller.abort();
+  await assert.rejects(() => pending, /cancelled/i);
+});
+
+test("Home Assistant cancellation reason wins the race against a cooperative fetch abort", async () => {
+  const controller = new AbortController();
+  const transport = createHomeAssistantTransport({
+    baseUrl: "https://ha.invalid", getToken: () => "private-token", requestTimeoutMs: 1_000,
+    fetchImpl: async (_url, options) => new Promise((_, reject) =>
+      options.signal.addEventListener("abort", () => reject(new Error("fetch aborted")), { once: true })),
+  });
+  const pending = transport.request({ method: "GET", path: "/api/states", signal: controller.signal });
+  controller.abort();
+  await assert.rejects(() => pending, /cancelled/i);
+});
+
 test("runtime renders a provider-neutral living-room app and executes only exact current opaque actions once", async () => {
   const { transport, calls } = fakeHa();
   let handleN = 0;
