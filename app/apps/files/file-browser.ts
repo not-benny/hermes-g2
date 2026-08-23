@@ -506,7 +506,7 @@ export class FileBrowserLayer implements Layer {
   private placeItem(label: string, path: string): EntryItem {
     return {
       kind: "entry",
-      entry: { name: label, path, isDirectory: true, sizeBytes: 0, modifiedMs: 0 },
+      entry: { name: label, path, isDirectory: true, isSymbolicLink: false, sizeBytes: 0, modifiedMs: 0 },
       label,
       icon: "hard-drive",
       supported: true,
@@ -521,7 +521,7 @@ export class FileBrowserLayer implements Layer {
       const name = basename(path);
       return {
         kind: "entry",
-        entry: { name, path, isDirectory: false, sizeBytes: 0, modifiedMs: 0 },
+        entry: { name, path, isDirectory: false, isSymbolicLink: false, sizeBytes: 0, modifiedMs: 0 },
         label: `${name} (missing)`,
         icon: "file",
         supported: false,

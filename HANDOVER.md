@@ -1,5 +1,19 @@
 # Hermes G2 handover — 23 August 2026
 
+## Privacy-scoped universal search candidate
+
+PR #64 adds a native, memory-only Search app over bounded local providers for
+apps, upcoming calendar events, active notifications, one non-symbolic bookmark
+level, and explicitly shared synchronized Hermes cockpit sessions. Provider
+failures/timeouts are isolated; outputs are inert and bounded; action handles
+are exact-generation, one-shot and revalidated immediately before opening.
+Hostile provider arrays/getters/species and reentrant replacement searches are
+contained to their source. Query/results/filters are not persisted or logged,
+and unavailable Roam/terminal/media/health authorities are shown honestly rather
+than broadened. Frozen review, focused/full tests, typecheck and Android build
+pass; connected-G2 navigation evidence remains NO-GO rather than inferred. See
+`docs/universal-search.md`.
+
 ## Canonical repository and release governance
 
 `main` is the only canonical development branch. Current protected baseline is

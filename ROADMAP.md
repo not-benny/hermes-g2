@@ -6,6 +6,16 @@ Current as of 23 August 2026. `main` is the canonical branch.
 
 ## Now
 
+### Privacy-scoped universal search
+
+- **IMPLEMENTED / HARDWARE EVIDENCE PENDING (23 August 2026).** A native
+  memory-only Search app provides bounded opt-in apps/calendar/notifications/
+  bookmark/shared-Hermes providers with isolated deadlines and exact one-shot
+  open handles. Hostile provider objects and reentrant generations fail closed;
+  query/results are not persisted or logged. Static review and the full build
+  matrix pass. Connected-G2 navigation/open/back/filter evidence remains pending.
+  See `docs/universal-search.md`.
+
 ### Native Hermes agent cockpit
 
 - **IMPLEMENTED / END-TO-END HARDWARE AND BRIDGE DEPLOYMENT BLOCKED (23 August
