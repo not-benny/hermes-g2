@@ -71,7 +71,14 @@ export class DurableCompanionJournal {
     if (!existing) throw new Error("companion operation was not reserved");
     if (existing.status === "complete") return existing.outcome === outcome;
     this.#records.set(operationId, { ...existing, status: "complete", outcome });
-    this.#save();
+    try { this.#save(); }
+    catch (error) {
+      // An in-memory completion must never outrun its durable tombstone.
+      // Restore the reserved state so a retry after storage recovery really
+      // persists the outcome instead of falsely returning success.
+      this.#records.set(operationId, existing);
+      throw error;
+    }
     return true;
   }
 

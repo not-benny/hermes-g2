@@ -91,3 +91,19 @@ test("durable duplicate replay never redispatches and failed reservation is iner
     operation_id: "operation_denied_1234" }, () => { dispatches++; }), null);
   assert.equal(dispatches, 1);
 });
+
+test("provider identity projections are pruned after a session leaves the bounded snapshot", () => {
+  let sequence = 0;
+  const adapter = new HermesCompanionAdapter({
+    now: () => 1_000,
+    createOpaque: (prefix) => `${prefix}_projection_${++sequence}`,
+  });
+  adapter.connect("connection_adapter_1234");
+  const provider = { status: "ready", capabilities: {}, sessions: [
+    { id: "private-session", generation: 1, updated_at_ms: 900, state: "completed", resumable: true },
+  ] };
+  const first = adapter.snapshot(provider).sessions[0].session_id;
+  adapter.snapshot({ status: "ready", capabilities: {}, sessions: [] });
+  const second = adapter.snapshot(provider).sessions[0].session_id;
+  assert.notEqual(second, first);
+});

@@ -147,6 +147,9 @@ export class HermesCompanionEndpoint {
     const socket = this.socket;
     if (!socket || socket.readyState !== 1 || !this.phoneGeneration) return;
     const id = this.createRequestId();
+    // Only the latest projection request can restore current authority. A late
+    // reply to an older request is ignored, and its ID is not retained forever.
+    this.snapshotRequests.clear();
     this.snapshotRequests.add(id);
     socket.send(JSON.stringify({ jsonrpc: "2.0", id, method: "companion.snapshot", params: this.adapter.snapshotParams() }));
   }

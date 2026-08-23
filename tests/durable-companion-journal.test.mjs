@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -36,4 +36,28 @@ test("companion journal rejects linked storage", async (t) => {
   const linked = join(directory, "linked.json");
   await symlink(target, linked);
   assert.throws(() => new DurableCompanionJournal({ path: linked }), /owner-only regular non-linked/);
+});
+
+test("failed completion persistence rolls back in-memory success", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "hermes-companion-rollback-"));
+  t.after(async () => {
+    await chmod(directory, 0o700).catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  });
+  const path = join(directory, "operations.json");
+  const operationId = "operation_rollback_1234";
+  const fingerprint = "b".repeat(64);
+  const journal = new DurableCompanionJournal({ path });
+  assert.equal(journal.reserve({ operationId, fingerprint, status: "reserved" }), true);
+
+  await chmod(directory, 0o500);
+  assert.throws(() => journal.complete(operationId, "accepted"));
+  await chmod(directory, 0o700);
+  assert.deepEqual(new DurableCompanionJournal({ path }).records(), [
+    { operationId, fingerprint, status: "reserved" },
+  ]);
+
+  assert.equal(journal.complete(operationId, "accepted"), true);
+  const persisted = JSON.parse(await readFile(path, "utf8"));
+  assert.deepEqual(persisted.records[0], { operationId, fingerprint, status: "complete", outcome: "accepted" });
 });

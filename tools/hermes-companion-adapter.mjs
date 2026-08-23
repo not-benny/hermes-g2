@@ -102,6 +102,12 @@ export class HermesCompanionAdapter {
     for (const [publicId, value] of this.#sessionByPublic) {
       if (!seen.has(value.hermesId)) this.#sessionByPublic.delete(publicId);
     }
+    // No historical provider identity is needed once it leaves the current
+    // authoritative projection. Pruning also bounds a gateway that rotates
+    // private session IDs over the lifetime of this process.
+    for (const hermesId of this.#publicByHermes.keys()) {
+      if (!seen.has(hermesId)) this.#publicByHermes.delete(hermesId);
+    }
     const metadataAllowed = source.metadata_redacted === true;
     const voice = capabilities.voice ? this.#voice(source.voice, metadataAllowed) : null;
     const toolActivity = capabilities.tool_activity ? this.#activity(source.tool_activity) : null;
