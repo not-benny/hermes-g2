@@ -80,13 +80,15 @@ Current as of 22 August 2026. `main` is the canonical branch.
   `docs/audit-remediation-2026-08-21.md` and
   `docs/release-security.md`.
 
-- **DONE — enforced release governance (22 August 2026).** The merged PR #40
-  follow-up removes signing secrets and APK publication from PR jobs, gives
-  untrusted builds an isolated debug identity, and separates secret-free `main`
-  validation from a source-free protected signing job. Vulnerability alerts and
-  automated security fixes are enabled. GitHub still returned the private-plan
-  branch-protection HTTP 403 at 02:39 UTC after the owner reported upgrading to
-  Pro; protection remains pending entitlement propagation and API read-back.
+- **DONE — enforced release governance (verified 23 August 2026).** The
+  Benny-authorized public repository has API-verified `main` protection:
+  strict `release-gate` and `codeql`, one stale-dismissed approving review,
+  conversation resolution, enforced admins, linear history, and blocked
+  force-push/deletion. `PROTECTED_RELEASE_ENABLED=true`. Protected Release
+  Validation run `32604871016` succeeded at canonical
+  `main@712cb644d9dd017158a6359ea494ec2ab6beb9b1`, including the isolated
+  source-free `protected-release` signing job. PR builds still receive no
+  signing credentials or publishable APK.
 
 - **DONE — history consolidation.** The original release history, reviewed
   integration history, remaining PR heads, and superseded startup-race attempt
@@ -181,24 +183,22 @@ Current as of 22 August 2026. `main` is the canonical branch.
 - **DONE — turn and connection binding.** External calls require a live
   connection and exact claimed originating turn, or an explicitly gated
   proactive call. Disconnect and cancellation retire owned work.
-- **PARTIAL — generic dynamic glasses apps (22 August 2026).** A versioned,
-  provider-neutral rich view/action protocol now supports bounded lifecycle,
-  CAS update/patch/close, stable component IDs, acknowledged event cursors,
-  deterministic G2 rendering, and exact socket/turn/action ownership. The
-  Hermes-hosted reference runtime keeps Home Assistant credentials and entity
-  IDs server-side, discovers the Living Room at runtime, and permits only
-  revision-checked explicit light/switch target states with conservative
-  restoration. All 281 host tests, typecheck, and Android build pass. The exact
-  APK installed/launched on the A32 and established a live two-arm G2 session
-  with ordinary shell-frame transport ACKs. Dynamic-view/HA scroll and reversible
-  private WSS hello/ack is now verified; dynamic-view/HA scroll and reversible
-  toggle evidence remains blocked by unavailable private HA credentials and
-  missing exact-candidate hardware execution; no such result is inferred. See
-  `docs/dynamic-glasses-apps.md`.
+- **IN PROGRESS — dedicated read-only contextual dashboards (23 August 2026).**
+  The superseding V2 outcome is restricted to the dedicated `even-g2` profile.
+  It opens an ACK-backed loading view before direct read-only gathering, streams
+  bounded summary-first sections with typed source/freshness/uncertainty, and
+  uses exact dashboard/presentation/refresh/revision identities. Ring actions
+  are fixed phone-local refresh/pin/unpin/section/follow-up only; no provider
+  mutation or remote action handle is accepted. Up to five encrypted pins retain
+  bounded intent and refresh policy but no responses or rendered values. The
+  permanent Liverpool Lime Street projector renders all destinations ordered by
+  expected departure. Host-focused tests and TypeScript pass; the final full
+  matrix, independent review, PR/CI and exact-candidate A32/G2 timing/visual/input
+  proof remain gates. See `docs/dynamic-glasses-apps.md`.
 - **BLOCKED — public MCP/skill publication.** No public skill or untrusted remote
   rendering until authenticated `wss://` server identity, compatible licensed
-  adapter, credentials, generic-client behaviour, mutation/privacy gates, and
-  real-G2 tool-specific evidence all pass.
+  generic client, credential/retry/privacy gates, and real-G2 contextual-
+  dashboard evidence all pass. Smart-home mutations are a later project.
 - **TODO — private end-to-end bridge validation.** Exercise wakeword → bridge →
   agent → bounded tool → reply on a disposable private deployment, including
   cancellation, reconnect, stale-turn rejection, and certificate failure.

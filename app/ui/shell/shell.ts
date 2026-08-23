@@ -262,6 +262,7 @@ class Shell {
   private alertRevision = 0;
   private remoteViewLayer: ShellRemoteViewLayer | null = null;
   private dynamicAppLayer: ShellDynamicAppLayer | null = null;
+  private contextDashboardVoicePrefix: string | null = null;
   private escapeMenuTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly actions: LayerActions = { ...noopActions };
   private config: ShellConfig = {
@@ -796,6 +797,11 @@ class Shell {
       }
       if (this.dynamicAppLayer) {
         const layer = this.dynamicAppLayer;
+        if (this.contextDashboardVoicePrefix) {
+          this.startEscapeMenuTimer();
+          this.openVoiceDialog({ defaultTarget: "assistant" });
+          return { shell: true, window: false };
+        }
         layer.close();
         this.startEscapeMenuTimer();
         return { shell: true, window: false };
@@ -1153,7 +1159,9 @@ class Shell {
       targets.push({
         id: "assistant",
         label: "Send to Assistant",
-        onSend: (text) => this.sendToAssistant(text),
+        onSend: (text) => this.sendToAssistant(this.contextDashboardVoicePrefix
+          ? `${this.contextDashboardVoicePrefix}\nWearer follow-up: ${text}`
+          : text),
       });
     }
     if (this.foregroundWindow()?.receiveTextInput) {
@@ -1445,9 +1453,14 @@ class Shell {
       throw new Error("The dynamic app operation is stale.");
     }
     const prior = this.dynamicAppLayer;
+    const priorContextPrefix = this.contextDashboardVoicePrefix;
     const layer = new ShellDynamicAppLayer(state, onInput, onClose);
     if (prior) this.stack.remove(prior);
     this.dynamicAppLayer = layer;
+    const contextState = state as DynamicAppState & { contextIntent?: string; dashboardId?: string };
+    this.contextDashboardVoicePrefix = contextState.dashboardId && contextState.contextIntent
+      ? `Context dashboard intent: ${contextState.contextIntent}. Focused item: ${state.components[state.scrollOffset]?.id ?? "summary"}.`
+      : null;
     this.stack.push(layer);
     const isOwner = () =>
       this.dynamicAppLayer === layer &&
@@ -1465,6 +1478,7 @@ class Shell {
       this.stack.remove(layer);
       if (this.dynamicAppLayer === layer) {
         this.dynamicAppLayer = prior;
+        this.contextDashboardVoicePrefix = priorContextPrefix;
         if (prior) this.stack.push(prior);
       }
       try { await this.config.requestShellRender(); } catch { /* preserve delivery error */ }
@@ -1477,6 +1491,7 @@ class Shell {
     if (!layer || layer.state.viewId !== identity.viewId || layer.state.revision !== identity.revision) return;
     this.stack.remove(layer);
     this.dynamicAppLayer = null;
+    this.contextDashboardVoicePrefix = null;
     this.config.requestShellRender();
   }
 

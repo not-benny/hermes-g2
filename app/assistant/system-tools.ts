@@ -6,6 +6,8 @@ import { MAX_ALERT_TEXT_LENGTH } from "./display-policy";
 import { createShowAlertHandler } from "./display-alert-handler";
 import { RenderViewManager } from "./render-view";
 import { DYNAMIC_APP_CAPABILITIES, DynamicAppManager } from "./dynamic-app";
+import { CONTEXT_DASHBOARD_CAPABILITIES, ContextDashboardManager } from "./context-dashboard";
+import { loadContextDashboardPins, saveContextDashboardPins } from "./context-dashboard-persistence";
 import { toolRegistry, type ToolRegistry, type ToolResult } from "./tool-registry";
 
 declare const java: any;
@@ -156,6 +158,142 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
     clear: (identity) => shell.clearDynamicApp(identity),
   });
   registry.onExecutionOwnerClosed((owner) => dynamicApps.closeOwner(owner));
+
+  let contextDashboards: ContextDashboardManager;
+  contextDashboards = new ContextDashboardManager({
+    isDisplayAvailable: () => shell.isScreenOn(),
+    createId: () => String(java.util.UUID.randomUUID()).replace(/-/g, ""),
+    deliver: (state, signal, isAllowed) => shell.showDynamicApp(
+      state,
+      signal,
+      isAllowed,
+      (input, foreground) => contextDashboards.handleInput(input, foreground),
+      () => contextDashboards.closeView(state.viewId, state.revision),
+    ),
+    clear: (identity) => shell.clearDynamicApp(identity),
+    loadPins: loadContextDashboardPins,
+    savePins: saveContextDashboardPins,
+  });
+  registry.onExecutionOwnerClosed((owner) => contextDashboards.closeConnection(owner));
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.context_dashboard.capabilities",
+      description: "Query the dedicated even-g2 read-only contextual-dashboard protocol, limits, and local actions.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      proactive: true,
+    },
+    () => ok(JSON.stringify(CONTEXT_DASHBOARD_CAPABILITIES)),
+  );
+
+  const contextIdentitySchema = {
+    operation_id: { type: "string", minLength: 1, maxLength: 64 },
+    dashboard_id: { type: "string", minLength: 16, maxLength: 128 },
+    presentation_generation: { type: "integer", minimum: 1 },
+    refresh_generation: { type: "integer", minimum: 1 },
+    expected_revision: { type: "integer", minimum: 1 },
+  };
+  const contextSpecSchema = {
+    type: "object",
+    description: "Versioned read-only dashboard; execution applies independent exact-field, byte, source, section, and record validation.",
+    properties: {
+      version: { type: "integer", minimum: 2, maximum: 2 },
+      dashboard_key: { type: "string", minLength: 1, maxLength: 64 },
+      title: { type: "string", minLength: 1, maxLength: 48 },
+      state: { type: "string", enum: ["loading", "partial", "ready", "empty", "error", "offline"] },
+      privacy: { type: "string", enum: ["public", "private", "sensitive"] },
+      summary: { type: "object" },
+      sections: { type: "array", minItems: 1, maxItems: 4, items: { type: "object" } },
+      sources: { type: "array", minItems: 1, maxItems: 3, items: { type: "object" } },
+      local_actions: { type: "array", maxItems: 3, items: { type: "object" } },
+      announcement: { type: "object" },
+      ttl_seconds: { type: "integer", minimum: 30, maximum: 3600 },
+    },
+    required: ["version", "dashboard_key", "title", "state", "privacy", "summary", "sections", "sources", "local_actions", "ttl_seconds"],
+    additionalProperties: false,
+  };
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.context_dashboard.begin",
+      description: "Atomically replace the ephemeral contextual dashboard and acknowledge a loading frame before read-only gathering.",
+      inputSchema: { type: "object", properties: {
+        operation_id: contextIdentitySchema.operation_id,
+        dashboard_key: { type: "string", minLength: 1, maxLength: 64 },
+        title: { type: "string", minLength: 1, maxLength: 48 },
+        privacy: { type: "string", enum: ["public", "private", "sensitive"] },
+        intent: { type: "string", minLength: 1, maxLength: 240 },
+        refresh_policy: { type: "object", properties: {
+          mode: { type: "string", enum: ["manual", "on_visible"] },
+          min_interval_seconds: { type: "integer", minimum: 30, maximum: 86400 },
+        }, required: ["mode", "min_interval_seconds"], additionalProperties: false },
+        ttl_seconds: { type: "integer", minimum: 30, maximum: 3600 },
+      }, required: ["operation_id", "dashboard_key", "title", "privacy", "intent", "refresh_policy", "ttl_seconds"], additionalProperties: false },
+      timeoutMs: 15_000,
+    },
+    (args, signal, isAllowed, context) => contextDashboards.begin(args, signal, isAllowed, context),
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.context_dashboard.publish",
+      description: "CAS-publish one independently validated read-only dashboard revision for the exact presentation and refresh generation.",
+      inputSchema: { type: "object", properties: { ...contextIdentitySchema, spec: contextSpecSchema },
+        required: ["operation_id", "dashboard_id", "presentation_generation", "refresh_generation", "expected_revision", "spec"], additionalProperties: false },
+      timeoutMs: 15_000,
+    },
+    (args, signal, isAllowed, context) => contextDashboards.publish(args, signal, isAllowed, context),
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.context_dashboard.start_refresh",
+      description: "Start a fresh exact-turn read-only refresh generation while retaining prior data as visibly refreshing.",
+      inputSchema: { type: "object", properties: {
+        operation_id: contextIdentitySchema.operation_id,
+        dashboard_id: contextIdentitySchema.dashboard_id,
+        presentation_generation: contextIdentitySchema.presentation_generation,
+        expected_revision: contextIdentitySchema.expected_revision,
+      }, required: ["operation_id", "dashboard_id", "presentation_generation", "expected_revision"], additionalProperties: false },
+      timeoutMs: 15_000,
+    },
+    (args, signal, isAllowed, context) => contextDashboards.startRefresh(args, signal, isAllowed, context),
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.context_dashboard.pins",
+      description: "List up to five encrypted phone-local dashboard intents and refresh policies; never returns raw tool responses.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      proactive: true,
+    },
+    () => ok(JSON.stringify({ pins: contextDashboards.listPins() })),
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.context_dashboard.read_events",
+      description: "Read the queue head of fixed phone-local refresh, section, or follow-up intents; never returns provider actions.",
+      inputSchema: { type: "object", properties: {
+        dashboard_id: contextIdentitySchema.dashboard_id,
+        presentation_generation: contextIdentitySchema.presentation_generation,
+        revision: contextIdentitySchema.expected_revision,
+        after_event_id: { type: ["string", "null"], maxLength: 180 },
+      }, required: ["dashboard_id", "presentation_generation", "revision"], additionalProperties: false },
+    },
+    (args, _signal, _isAllowed, context) => contextDashboards.readEvents(context, String(args.dashboard_id),
+      Number(args.presentation_generation), Number(args.revision), typeof args.after_event_id === "string" ? args.after_event_id : null),
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.context_dashboard.ack_events",
+      description: "Acknowledge exactly one processed local contextual-dashboard event; duplicate acknowledgement is historical only.",
+      inputSchema: { type: "object", properties: { through_event_id: { type: "string", minLength: 1, maxLength: 180 } },
+        required: ["through_event_id"], additionalProperties: false },
+    },
+    (args, _signal, _isAllowed, context) => contextDashboards.ackEvents(context, String(args.through_event_id)),
+  );
 
   registry.registerSystemTool(
     {

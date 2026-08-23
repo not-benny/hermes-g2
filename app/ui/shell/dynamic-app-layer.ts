@@ -40,7 +40,8 @@ export class ShellDynamicAppLayer implements Layer {
     image.fillRoundedRect(X, top, WIDTH, HEIGHT, 1, 10);
     image.drawRoundedRect(X, top, WIDTH, HEIGHT, 100, 10);
     image.drawText(font, X + PAD, top + 9, truncateText(font, this.state.title, WIDTH - PAD * 2 - 70), 245);
-    image.drawText(font, X + WIDTH - PAD - font.measureText(this.state.state), top + 9, this.state.state, this.state.state === "ready" ? 160 : 210);
+    const displayedState = (this.state as DynamicAppState & { dashboardState?: string }).dashboardState ?? this.state.state;
+    image.drawText(font, X + WIDTH - PAD - font.measureText(displayedState), top + 9, displayedState, displayedState === "ready" ? 160 : 210);
 
     const actionHandles = this.state.components.flatMap(componentHandles);
     const selectedHandle = actionHandles[this.state.selectedAction] ?? null;
