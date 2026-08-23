@@ -22,7 +22,12 @@ type SessionRow = {
 };
 
 const visible = (value: boolean): Visibility => value ? "visible" : "collapse";
-const whole = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 0 });
+
+function whole(value: number): string {
+  const digits = String(Math.trunc(value));
+  const sign = digits.startsWith("-") ? "-" : "";
+  return sign + digits.slice(sign.length).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
 
 function ageLabel(timestamp: number | null | undefined, now: number): string {
   if (timestamp === null || timestamp === undefined) return "Never";
@@ -139,7 +144,7 @@ export class HermesViewModel extends Observable {
   get voiceUnavailableVisibility(): Visibility { return visible(!this.companion.data?.capabilities.voice); }
   get voiceSummaryLabel(): string {
     const voice = this.companion.data?.voice;
-    return voice ? `${whole.format(voice.utterance_count)} utterances · ${Math.round(voice.audio_ms / 60_000)} min captured` : "Not reported";
+    return voice ? `${whole(voice.utterance_count)} utterances · ${Math.round(voice.audio_ms / 60_000)} min captured` : "Not reported";
   }
   get voiceProviderLabel(): string { return this.companion.data?.voice?.stt_provider ?? "Not reported"; }
   get captureStateLabel(): string { return this.companion.data?.voice?.capture_state ?? "Unavailable"; }
@@ -149,11 +154,11 @@ export class HermesViewModel extends Observable {
   get usageUnavailableVisibility(): Visibility { return visible(!this.companion.data?.capabilities.usage); }
   get dayUsageLabel(): string {
     const item = this.companion.data?.usage?.day;
-    return item ? `${whole.format(item.total_tokens)} tokens · ${money(item.cost_micros, item.currency)}` : "Unavailable";
+    return item ? `${whole(item.total_tokens)} tokens · ${money(item.cost_micros, item.currency)}` : "Unavailable";
   }
   get weekUsageLabel(): string {
     const item = this.companion.data?.usage?.seven_days;
-    return item ? `${whole.format(item.total_tokens)} tokens · ${money(item.cost_micros, item.currency)}` : "Unavailable";
+    return item ? `${whole(item.total_tokens)} tokens · ${money(item.cost_micros, item.currency)}` : "Unavailable";
   }
 
   get sessions(): SessionRow[] {

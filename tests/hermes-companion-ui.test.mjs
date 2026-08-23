@@ -42,6 +42,7 @@ test("page is capability-aware and binds only redacted companion projections", (
   assert.match(viewModel, /generatedAtMs[\s\S]*2 \* 60_000/);
   assert.match(viewModel, /support === "unsupported"/);
   assert.match(viewModel, /does not advertise Hermes companion support/);
+  assert.doesNotMatch(viewModel, /\bIntl\b/);
   assert.doesNotMatch(xml, /password|credential|bearer|raw_payload|prompt/i);
   assert.doesNotMatch(viewModel, /api-keys|tokenInput|prompt|raw_payload|tool\.args|tool\.result/i);
 });

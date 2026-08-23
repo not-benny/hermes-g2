@@ -170,6 +170,27 @@ function result(content: object): ToolResult { return { ok: true, content: JSON.
 function fail(error: string): ToolResult { return { ok: false, error }; }
 function validRefreshPolicy(value: unknown): value is RefreshPolicy { return record(value) && exact(value, ["mode", "min_interval_seconds"]) && ["manual", "on_visible"].includes(String(value.mode)) && Number.isInteger(value.min_interval_seconds) && Number(value.min_interval_seconds) >= 30 && Number(value.min_interval_seconds) <= 86400; }
 
+function lastSundayAtOneUtc(year: number, month: number): number {
+  const last = new Date(Date.UTC(year, month + 1, 0));
+  return Date.UTC(year, month, last.getUTCDate() - last.getUTCDay(), 1);
+}
+
+function londonTime(timestampMs: number): string {
+  const DateTimeFormat = (globalThis as any).Intl?.DateTimeFormat;
+  if (typeof DateTimeFormat === "function") {
+    try {
+      return new DateTimeFormat("en-GB", {
+        timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hour12: false,
+      }).format(new Date(timestampMs));
+    } catch { /* NativeScript may not ship Intl or time-zone data. */ }
+  }
+  const instant = new Date(timestampMs);
+  const year = instant.getUTCFullYear();
+  const bst = timestampMs >= lastSundayAtOneUtc(year, 2) && timestampMs < lastSundayAtOneUtc(year, 9);
+  const london = new Date(timestampMs + (bst ? 60 * 60_000 : 0));
+  return `${String(london.getUTCHours()).padStart(2, "0")}:${String(london.getUTCMinutes()).padStart(2, "0")}`;
+}
+
 function componentsFor(spec: ContextDashboardSpec, pinned: boolean, nowMs: number): DynamicAppComponent[] {
   const uncertainty = (value: Uncertainty) => value === "estimated" ? " · Est." : value === "unknown" ? " · Uncertain" : "";
   const components: DynamicAppComponent[] = [{ id: "summary", type: "heading", text: `${spec.summary.primary}${uncertainty(spec.summary.uncertainty)}` }];
@@ -180,8 +201,7 @@ function componentsFor(spec: ContextDashboardSpec, pinned: boolean, nowMs: numbe
     if (section.load_state === "pending") components.push({ id: `${section.id}-pending`, type: "text", text: "Loading…" });
     else if (section.load_state === "error") components.push({ id: `${section.id}-error`, type: "status", label: section.title ?? "Section", value: section.error_code ?? "unavailable", tone: "warning" });
     else if (section.type === "departures") for (const row of section.rows) {
-      const time = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hour12: false })
-        .format(new Date(row.expected_departure_ms ?? row.scheduled_departure_ms));
+      const time = londonTime(row.expected_departure_ms ?? row.scheduled_departure_ms);
       const suffix = row.status === "on_time" ? time : row.status === "unknown" ? `${time} ?` : `${time} ${row.status}`;
       components.push({ id: `${section.id}-${row.id}`, type: "status", label: row.destination, value: row.platform ? `${suffix} P${row.platform}` : suffix, tone: row.status === "cancelled" ? "critical" : row.status === "delayed" ? "warning" : "neutral" });
     } else if (section.type === "status_grid") for (const row of section.rows) components.push({ id: `${section.id}-${row.id}`, type: "status", label: row.label, value: row.value, tone: row.tone });

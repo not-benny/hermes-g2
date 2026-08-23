@@ -321,7 +321,7 @@ function stateStatus(state: CaptionStateEvent["state"]): string {
 }
 
 function graphemes(text: string): string[] {
-  const Segmenter = (Intl as any).Segmenter;
+  const Segmenter = (globalThis as any).Intl?.Segmenter;
   if (Segmenter) {
     return Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(text), (entry: any) => entry.segment);
   }
