@@ -1,6 +1,6 @@
 # Hermes G2 roadmap
 
-Current as of 22 August 2026. `main` is the canonical branch.
+Current as of 23 August 2026. `main` is the canonical branch.
 
 **Status key:** DONE · IN PROGRESS · PARTIAL · TODO · RESEARCH · BLOCKED
 
@@ -8,29 +8,44 @@ Current as of 22 August 2026. `main` is the canonical branch.
 
 ### Accessibility-first live captions and translation
 
-- **IMPLEMENTED / HARDWARE EVIDENCE PENDING — volatile foreground captions (23 August 2026).**
-  The Transcribe app is now an accessibility-first Captions window with
-  visual-only microphone/network/provider/translation states, grapheme-safe
-  bounded wrapping, bottom anchoring, history scrollback, pause/resume, clear,
-  and source-preserving split/full translation layouts. Capture, permission
-  continuations, Java/cloud callbacks, PCM delivery, provider swaps and teardown
-  are generation-bound; background, screen-off, pause and close stop capture.
-  Soniox supplies optional one-way translation and evidence-backed speaker
-  labels with bounded PCM buffering/reconnect/drop metrics. Phone settings bound
-  languages, layout, font, spacing, lines, speaker labels and local-only
-  unsupported vocabulary while disclosing local/cloud processing. Captions are
-  memory-only and transcript-only remains credential-independent. Focused 25/25
-  and full 357/357 host tests, TypeScript and the JDK 21 / SDK 35 Android build
-  pass. The exact 195,740,952-byte APK has SHA-256
-  `491e8f53cd24754aeeae4427ed6d8209dc3b3e1250549c64694d70ae2eda9979`.
-  Independent adversarial review of exact source commit `55740b4` passed.
-  The exact APK later upgrade-installed and launched on the authorised wireless
-  A32 with the expected version and a live process. The G2 transport repeatedly
-  failed before session readiness, and Android reported microphone app-op
-  `ignore`; no permission dialog was accepted. Scripted/live microphone,
-  real-G2 readability, stop/clear/background, disconnect and caption-specific
-  privacy-safe logcat evidence remain required before DONE. See
-  `docs/live-captions.md`.
+- **IMPLEMENTED / HARDWARE EVIDENCE PENDING (23 August 2026).** Transcribe now
+  provides volatile foreground/screen-owned captions, exact generation-bound
+  capture, visual-only failure states, bounded rolling text and optional
+  translation/speaker evidence. Duplicate/stale provider events fail closed and
+  no transcript is logged or persisted. Static review and the full build matrix
+  pass; connected-G2 readability/stop/privacy and approved live-mic evidence
+  remain pending. See `docs/live-captions.md`.
+
+### Privacy-scoped universal search
+
+- **IMPLEMENTED / HARDWARE EVIDENCE PENDING (23 August 2026).** A native
+  memory-only Search app provides bounded opt-in apps/calendar/notifications/
+  bookmark/shared-Hermes providers with isolated deadlines and exact one-shot
+  open handles. Hostile provider objects and reentrant generations fail closed;
+  query/results are not persisted or logged. Static review and the full build
+  matrix pass. Connected-G2 navigation/open/back/filter evidence remains pending.
+  See `docs/universal-search.md`.
+
+### Native Hermes agent cockpit
+
+- **IMPLEMENTED / END-TO-END HARDWARE AND BRIDGE DEPLOYMENT BLOCKED (23 August
+  2026).** A provider-neutral `cockpit-v1` channel now rides the authenticated
+  private WSS bridge and exposes only explicitly shared opaque session
+  projections. The native Hermes glasses app provides active work, compact
+  transcript/tool rows, a pending inbox, reviewed listed answers, deny-default
+  exact one-shot permissions, twice-reviewed voice steering, exact-generation
+  interrupt, and explicit terminal states. Sequence gaps, reconnect, expiry,
+  duplicate taps, replacement generations, answered-elsewhere prompts, terminal
+  runs, and unsupported approval scopes fail closed. The metadata-only Hermes
+  adapter maps current TUI gateway events/actions without exporting provider IDs,
+  prompts, reasoning, tool arguments/results, credentials, or unshared work; a
+  deterministic JSON-lines fake and adversarial fixtures cover ordering and
+  privacy. All 376 host tests, TypeScript typecheck, and the JDK 21 / SDK 35
+  Android build pass. The exact debug APK SHA-256 is
+  `be226031aa95fbf3b731d32a92d54c4b7935f3fa60892e379cb9144d567ea7d0`.
+  No A32/G2 was attached and the private bridge was not upgraded in this run, so
+  real question/deny/allow-once/steer/interrupt/completion evidence remains open.
+  See `docs/hermes-agent-cockpit.md`.
 
 ### Notification priority and digests
 
@@ -60,10 +75,11 @@ Current as of 22 August 2026. `main` is the canonical branch.
   outcome, first-finish wins across Java/TS, and multi-message frames complete
   only after every application ACK. Host tests pass 266/266, typecheck/build
   pass, and an installed USB A32 candidate received both ACKs for a real
-  two-message G2 image before reporting `sent`. A clean fixed-duration candidate
-  percentile remains open because another concurrent device installer replaced
-  the package during the run; do not claim the target from contaminated or
-  zero-frame samples. No firmware/texture-cache device command was added.
+  two-message G2 image before reporting `sent`. A later clean 60-second Fold7
+  run recorded 43 valid phone frames, 2.326% jank and p99/max 19.547 ms, closing
+  the phone-jank percentile target. Its only changed G2 frame still took 819 ms,
+  dominated by worker scheduling before compression, so end-to-end G2 latency
+  remains open. No firmware/texture-cache device command was added.
 
 ### Repository and release
 
@@ -83,16 +99,17 @@ Current as of 22 August 2026. `main` is the canonical branch.
   than closeable in quick-close mode and tap hides it; the launcher is labelled
   pinned.
 
-- **IMPLEMENTED / FOLD7 VISUAL AND POSTURE VALIDATION BLOCKED — foldable phone UI (22 August 2026).**
+- **PARTIAL — Fold7 cover/rotation validated; posture matrix open (23 August 2026).**
   Preview 2 removes the portrait lock, handles live cover/unfolded/rotation/
   tabletop/multi-window bounds, bounds wide content, preserves platform font
   scaling and 48dp controls, and retains the existing G2 compositor contract.
   Host fixture, build, APK, ABI, signing, and 16 KiB evidence are required for
   publication. The exact debug APK installed and ran as a live process on an
-  SM-F966B with Android 16. Both G2 arms later reached session ready and direct
-  R1 BLE connected, but no R1 HUD indicator was visible. Unlocked Hermes-phone
-  visual, physical fold-transition, rotation, tabletop, and multi-window proof
-  remains blocked.
+  SM-F966B with Android 16. The exact contextual-dashboard candidate later
+  passed unlocked cover visuals, forced landscape/rotation, two-arm session
+  readiness and direct R1 operation. That run found and fixed a wide-layout
+  gesture-label wrapping defect under focused RED/GREEN coverage. Physical
+  unfold transitions, tabletop and true multi-window proof remain blocked.
 
 - **DONE — full audit remediation and release path (21 August 2026).** The
   merged PR #28 implementation removes private-data logging, encrypts credential
@@ -106,13 +123,15 @@ Current as of 22 August 2026. `main` is the canonical branch.
   `docs/audit-remediation-2026-08-21.md` and
   `docs/release-security.md`.
 
-- **DONE — enforced release governance (22 August 2026).** The merged PR #40
-  follow-up removes signing secrets and APK publication from PR jobs, gives
-  untrusted builds an isolated debug identity, and separates secret-free `main`
-  validation from a source-free protected signing job. Vulnerability alerts and
-  automated security fixes are enabled. GitHub still returned the private-plan
-  branch-protection HTTP 403 at 02:39 UTC after the owner reported upgrading to
-  Pro; protection remains pending entitlement propagation and API read-back.
+- **DONE — enforced release governance (verified 23 August 2026).** The
+  Benny-authorized public repository has API-verified `main` protection:
+  strict `release-gate` and `codeql`, one stale-dismissed approving review,
+  conversation resolution, enforced admins, linear history, and blocked
+  force-push/deletion. `PROTECTED_RELEASE_ENABLED=true`. Protected Release
+  Validation run `32604871016` succeeded at canonical
+  `main@712cb644d9dd017158a6359ea494ec2ab6beb9b1`, including the isolated
+  source-free `protected-release` signing job. PR builds still receive no
+  signing credentials or publishable APK.
 
 - **DONE — history consolidation.** The original release history, reviewed
   integration history, remaining PR heads, and superseded startup-race attempt
@@ -207,27 +226,36 @@ Current as of 22 August 2026. `main` is the canonical branch.
 - **DONE — turn and connection binding.** External calls require a live
   connection and exact claimed originating turn, or an explicitly gated
   proactive call. Disconnect and cancellation retire owned work.
-- **PARTIAL — generic dynamic glasses apps (22 August 2026).** A versioned,
-  provider-neutral rich view/action protocol now supports bounded lifecycle,
-  CAS update/patch/close, stable component IDs, acknowledged event cursors,
-  deterministic G2 rendering, and exact socket/turn/action ownership. The
-  Hermes-hosted reference runtime keeps Home Assistant credentials and entity
-  IDs server-side, discovers the Living Room at runtime, and permits only
-  revision-checked explicit light/switch target states with conservative
-  restoration. All 281 host tests, typecheck, and Android build pass. The exact
-  APK installed/launched on the A32 and established a live two-arm G2 session
-  with ordinary shell-frame transport ACKs. Dynamic-view/HA scroll and reversible
-  private WSS hello/ack is now verified; dynamic-view/HA scroll and reversible
-  toggle evidence remains blocked by unavailable private HA credentials and
-  missing exact-candidate hardware execution; no such result is inferred. See
-  `docs/dynamic-glasses-apps.md`.
+- **PARTIAL / DEPLOYED BOUNDARY PASS — dedicated read-only contextual dashboards (23 August 2026).**
+  The superseding V2 outcome is restricted to the dedicated `even-g2` profile.
+  It opens an ACK-backed loading view before direct read-only gathering, streams
+  bounded summary-first sections with typed source/freshness/uncertainty, and
+  uses exact dashboard/presentation/refresh/revision identities. Ring actions
+  are fixed phone-local refresh/pin/unpin/section/follow-up only; no provider
+  mutation or remote action handle is accepted. Up to five encrypted pins retain
+  bounded intent and refresh policy but no responses or rendered values. The
+  permanent Liverpool Lime Street projector renders all destinations ordered by
+  expected departure. The final 360-test/typecheck/Android-build matrix passes;
+  the exact APK is installed on Fold7 with live G2/R1 sessions. The deployment-
+  local bridge at `0b3743c` adds exact turn/proactive authorization, final-lock
+  generation checks, bounded profile claims, malformed-ID rejection, peer-safe
+  logs and a default-deny tool allowlist; 29 bridge tests and independent review
+  pass. Live WSS/MCP capabilities succeed and proactive `begin` is denied.
+  Exact-turn loading/useful latency, rail data, wearer controls and optical proof
+  remain gates. See `docs/dynamic-glasses-apps.md`.
 - **BLOCKED — public MCP/skill publication.** No public skill or untrusted remote
   rendering until authenticated `wss://` server identity, compatible licensed
-  adapter, credentials, generic-client behaviour, mutation/privacy gates, and
-  real-G2 tool-specific evidence all pass.
-- **TODO — private end-to-end bridge validation.** Exercise wakeword → bridge →
-  agent → bounded tool → reply on a disposable private deployment, including
-  cancellation, reconnect, stale-turn rejection, and certificate failure.
+  generic client, credential/retry/privacy gates, and real-G2 contextual-
+  dashboard evidence all pass. Smart-home mutations are a later project.
+- **PARTIAL — private end-to-end bridge validation.** Certificate failure,
+  authenticated capabilities, reconnect, profile isolation, stale/proactive
+  rejection and exact phone/G2 transport pass. Exercise one exact G2 utterance
+  through loading → read-only gather → useful publish → wearer actions/reply.
+- **PARTIAL / PRIVATE EVALUATION ONLY — dynamic Home Assistant harness.** PR #65
+  merged authenticated private WSS, a durable mutation ledger, bounded provider
+  transport and a reversible-evaluation harness. It is read-only by default and
+  remains separate from the contextual-dashboard product; production mutation
+  authorization and private deployment evidence remain gated.
 
 ## Firmware
 

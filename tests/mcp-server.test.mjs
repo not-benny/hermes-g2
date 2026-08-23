@@ -82,6 +82,21 @@ test("MCP rejects a delayed side effect whose claimed turn is no longer active",
   assert.equal(sent.at(-1).result.isError, true);
 });
 
+test("MCP tool calls work when the Android runtime lacks AbortController", async () => {
+  const original = globalThis.AbortController;
+  try {
+    globalThis.AbortController = undefined;
+    const { server, sent, calls } = setup(); initialize(server);
+    server.handleMessage({ jsonrpc: "2.0", id: 20, method: "tools/call", params: { name: "test.echo", arguments: { text: "android" } } },
+      { turnGeneration: "turn-1" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(calls(), 1);
+    assert.equal(sent.at(-1).result.content[0].text, "android");
+  } finally {
+    globalThis.AbortController = original;
+  }
+});
+
 test("MCP rejects missing authorization and close aborts connection-owned calls", async () => {
   const sent = []; const registry = new ToolRegistry(); let calls = 0; let aborted = false;
   registry.registerSystemTool({ name: "test.slow", description: "slow", inputSchema: { type: "object", properties: {}, additionalProperties: false } },

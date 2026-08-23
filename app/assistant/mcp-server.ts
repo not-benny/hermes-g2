@@ -15,6 +15,28 @@ const MCP_PROTOCOL_VERSION = "2025-06-18";
 /** Proactive display actions are rate-limited to this many per minute. */
 const PROACTIVE_CALLS_PER_MINUTE = 6;
 
+function createAbortController(): AbortController {
+  const NativeController = (globalThis as any).AbortController;
+  if (typeof NativeController === "function") return new NativeController();
+  const listeners = new Set<() => void>();
+  const signal = {
+    aborted: false,
+    addEventListener(type: string, listener: () => void) { if (type === "abort") listeners.add(listener); },
+    removeEventListener(type: string, listener: () => void) { if (type === "abort") listeners.delete(listener); },
+  } as unknown as AbortSignal;
+  return {
+    signal,
+    abort() {
+      if (signal.aborted) return;
+      (signal as unknown as { aborted: boolean }).aborted = true;
+      for (const listener of [...listeners]) {
+        try { listener(); } catch { /* one bad listener must not block cancellation */ }
+      }
+      listeners.clear();
+    },
+  } as AbortController;
+}
+
 export type McpServerOptions = {
   send: (msg: object) => void;
   /** Whether a voice turn is currently in flight (calls outside one are "proactive"). */
@@ -27,6 +49,10 @@ export type McpServerOptions = {
   isHealthCallerTrusted?: () => boolean;
   /** Unique generation of the connection owning this MCP server. */
   connectionGeneration?: string | number;
+  /** Authenticated deployment profile bound to this MCP server. */
+  profileId?: string;
+  /** Dynamic authenticated profile claim from the completed bridge handshake. */
+  getProfileId?: () => string | null;
   /** Revalidates that this server's connection is still the live one. */
   isConnectionGenerationActive?: () => boolean;
   registry?: ToolRegistry;
@@ -90,7 +116,7 @@ export class AssistantMcpServer {
         if (!validId) return;
         if (!this.requireInitialized(id)) return;
         this.reply(id, {
-          tools: this.registry.listTools().filter((spec) => this.isHealthVisible(spec.name)).map((spec) => ({
+          tools: this.registry.listTools().filter((spec) => this.isHealthVisible(spec.name) && this.profilePolicyError(spec.name) === null).map((spec) => ({
             name: spec.name,
             description: spec.description,
             inputSchema: spec.inputSchema,
@@ -132,11 +158,16 @@ export class AssistantMcpServer {
     authorization?: McpCallAuthorization,
   ): Promise<void> {
     const epoch = this.epoch;
-    const callController = new AbortController();
+    const callController = createAbortController();
     this.activeCallControllers.set(requestKey, callController);
     try {
       const name = typeof params?.name === "string" ? params.name : "";
       const args = params?.arguments ?? {};
+      const profileDenied = this.profilePolicyError(name);
+      if (profileDenied) {
+        this.replyToolError(id, profileDenied);
+        return;
+      }
       const healthDenied = this.healthPolicyError(name);
       if (healthDenied) {
         this.replyToolError(id, healthDenied);
@@ -183,6 +214,7 @@ export class AssistantMcpServer {
         signal: callController.signal,
         executionContext: {
           caller: "mcp",
+          profileId: this.options.getProfileId?.() ?? this.options.profileId,
           connectionGeneration: this.options.connectionGeneration,
           turnGeneration,
         },
@@ -203,6 +235,13 @@ export class AssistantMcpServer {
 
   private isHealthVisible(name: string): boolean {
     return name !== "health.get_ring_data" || this.healthPolicyError(name) === null;
+  }
+
+  private profilePolicyError(name: string): string | null {
+    if (!name.startsWith("glasses.context_dashboard.")) return null;
+    return (this.options.getProfileId?.() ?? this.options.profileId) !== "even-g2"
+      ? "Context dashboards are available only to the authenticated even-g2 profile"
+      : null;
   }
 
   private healthPolicyError(name: string, expectedTurnGeneration?: string | null): string | null {
@@ -267,6 +306,7 @@ export class AssistantMcpServer {
     if (this.options.connectionGeneration !== undefined) {
       this.registry.closeExecutionOwner({
         caller: "mcp",
+        profileId: this.options.getProfileId?.() ?? this.options.profileId,
         connectionGeneration: this.options.connectionGeneration,
         turnGeneration: null,
       });

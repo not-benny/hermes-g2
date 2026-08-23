@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "description": "Deterministic metadata-only Hermes cockpit adapter scenarios; strings prefixed privacy-sentinel must never cross projected frames.",
+  "cases": [
+    { "name": "ordered-run", "events": ["snapshot", "tool.start", "tool.complete", "session.completed"] },
+    { "name": "duplicate-question", "events": ["clarify.request", "clarify.request"] },
+    { "name": "answered-elsewhere", "events": ["clarify.request", "clarify.expire"] },
+    { "name": "stale-generation", "events": ["snapshot:g1", "snapshot:g2", "answer:g1"] },
+    { "name": "expired-request", "events": ["approval.request", "clock:+60001", "permission_decide"] },
+    { "name": "disconnect-reconnect", "events": ["disconnect", "offline-action", "snapshot"] },
+    { "name": "interrupt-completion-race", "events": ["interrupt", "late-tool.complete", "session.interrupted"] },
+    { "name": "process-death", "events": ["reserved-command", "restart", "outcome_unknown"] },
+    { "name": "malformed-oversized", "events": ["unknown-frame", "oversized-text", "sequence-gap"] },
+    { "name": "privacy-sentinel", "events": ["tool.start:privacy-sentinel-args", "reasoning.delta:privacy-sentinel-reasoning"] }
+  ]
+}

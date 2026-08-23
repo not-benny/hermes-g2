@@ -3,6 +3,8 @@ import launcherApp from "./launcher";
 import healthApp from "./health";
 import timerApp from "./timer";
 import terminalApp from "./terminal";
+import agentCockpitApp from "./agent-cockpit";
+import universalSearchApp from "./universal-search";
 import filesApp from "./files";
 import musicApp from "./music";
 import nightscoutApp from "./nightscout";
@@ -31,6 +33,8 @@ export const ALL_APPS: readonly AppDefinition[] = [
   healthApp,
   timerApp,
   terminalApp,
+  agentCockpitApp,
+  universalSearchApp,
   filesApp,
   musicApp,
   nightscoutApp,

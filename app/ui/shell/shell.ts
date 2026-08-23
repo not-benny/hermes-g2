@@ -40,6 +40,7 @@ import type { RenderViewState } from "../../assistant/render-view";
 import type { DynamicAppState } from "../../assistant/dynamic-app";
 import { ShellRemoteViewLayer } from "./render-view-layer";
 import { ShellDynamicAppLayer } from "./dynamic-app-layer";
+import { shouldRestoreDisplacedAssistant } from "./dynamic-app-rollback";
 import {
   MIN_WINDOW_HEIGHT,
   minWindowTop,
@@ -260,10 +261,13 @@ class Shell {
   private musicCard: MusicCardLayer | null = null;
   private musicCardWokeScreen = false;
   private assistantLayer: AssistantLayer | null = null;
+  /** Assistant displaced by a context dashboard but still owning an active turn. */
+  private detachedAssistantLayer: AssistantLayer | null = null;
   private alertLayer: ShellAlertLayer | null = null;
   private alertRevision = 0;
   private remoteViewLayer: ShellRemoteViewLayer | null = null;
   private dynamicAppLayer: ShellDynamicAppLayer | null = null;
+  private contextDashboardVoicePrefix: string | null = null;
   private escapeMenuTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly actions: LayerActions = { ...noopActions };
   private config: ShellConfig = {
@@ -547,6 +551,9 @@ class Shell {
     // transition in retained manager state or reappear after wake.
     this.remoteViewLayer?.close();
     this.dynamicAppLayer?.close();
+    const detachedAssistant = this.detachedAssistantLayer;
+    this.detachedAssistantLayer = null;
+    detachedAssistant?.onRemoved();
     this.screenOn = false;
     this.stack.clearToBase();
     // clearToBase pops the card and fires its onRemoved (timers cleared); null
@@ -798,6 +805,14 @@ class Shell {
       }
       if (this.dynamicAppLayer) {
         const layer = this.dynamicAppLayer;
+        if (this.contextDashboardVoicePrefix) {
+          const contextState = layer.state as DynamicAppState & { contextIntent?: string };
+          const focusedId = contextState.components[contextState.scrollOffset]?.id ?? "summary";
+          this.contextDashboardVoicePrefix = `Context dashboard intent: ${contextState.contextIntent}. Focused item: ${focusedId}.`;
+          this.startEscapeMenuTimer();
+          this.openVoiceDialog({ defaultTarget: "assistant" });
+          return { shell: true, window: false };
+        }
         layer.close();
         this.startEscapeMenuTimer();
         return { shell: true, window: false };
@@ -1158,7 +1173,9 @@ class Shell {
       targets.push({
         id: "assistant",
         label: "Send to Assistant",
-        onSend: (text) => this.sendToAssistant(text),
+        onSend: (text) => this.sendToAssistant(this.contextDashboardVoicePrefix
+          ? `${this.contextDashboardVoicePrefix}\nWearer follow-up: ${text}`
+          : text),
       });
     }
     if (this.foregroundWindow()?.receiveTextInput) {
@@ -1261,6 +1278,9 @@ class Shell {
     if (!this.screenOn) this.wake("sidebar");
     let layer = this.assistantLayer;
     if (!layer) {
+      const detached = this.detachedAssistantLayer;
+      this.detachedAssistantLayer = null;
+      detached?.onRemoved();
       const created = new AssistantLayer(this.config.actions, {
         onFollowUp: () => this.startAssistantFollowUp(),
         onCancel: () => this.assistantSession?.cancel(),
@@ -1291,10 +1311,12 @@ class Shell {
       onTurnDone: () => {
         void playEventBeep("assistantReply", this.config.actions.playBuzzerSequence);
         layer.onTurnDone();
+        if (this.detachedAssistantLayer === layer) this.detachedAssistantLayer = null;
       },
       onError: (message) => {
         void playEventBeep("assistantError", this.config.actions.playBuzzerSequence);
         layer.onError(message);
+        if (this.detachedAssistantLayer === layer) this.detachedAssistantLayer = null;
       },
     });
   }
@@ -1452,10 +1474,31 @@ class Shell {
     if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
       throw new Error("The dynamic app operation is stale.");
     }
-    const prior = this.dynamicAppLayer;
+    let prior = this.dynamicAppLayer;
+    if (prior && prior.state.viewId !== state.viewId) {
+      // A different manager/view is claiming the one remote-app surface. Tell
+      // the displaced owner first so its timers/events cannot remain live.
+      prior.close();
+      prior = null;
+    }
+    const priorContextPrefix = prior ? this.contextDashboardVoicePrefix : null;
     const layer = new ShellDynamicAppLayer(state, onInput, onClose);
+    const contextState = state as DynamicAppState & { contextIntent?: string; dashboardId?: string };
+    // A dashboard opened by the current assistant turn must become visible
+    // before that turn can continue. Detach the assistant overlay without its
+    // onRemoved cancellation hook; callbacks may finish the still-live turn in
+    // the background while the dashboard owns the lenses.
+    const displacedAssistant = contextState.dashboardId ? this.assistantLayer : null;
+    if (displacedAssistant) {
+      this.stack.detach(displacedAssistant);
+      this.assistantLayer = null;
+      this.detachedAssistantLayer = displacedAssistant;
+    }
     if (prior) this.stack.remove(prior);
     this.dynamicAppLayer = layer;
+    this.contextDashboardVoicePrefix = contextState.dashboardId && contextState.contextIntent
+      ? `Context dashboard intent: ${contextState.contextIntent}. Focused item: ${state.components[state.scrollOffset]?.id ?? "summary"}.`
+      : null;
     this.stack.push(layer);
     const isOwner = () =>
       this.dynamicAppLayer === layer &&
@@ -1470,10 +1513,24 @@ class Shell {
       }
       return { status: "acknowledged", frameId: receipt.frameId };
     } catch (error) {
+      const ownsLayer = this.dynamicAppLayer === layer;
       this.stack.remove(layer);
-      if (this.dynamicAppLayer === layer) {
+      if (ownsLayer) {
         this.dynamicAppLayer = prior;
+        this.contextDashboardVoicePrefix = priorContextPrefix;
         if (prior) this.stack.push(prior);
+        if (displacedAssistant && shouldRestoreDisplacedAssistant({
+          ownsLayer,
+          screenOn: this.screenOn,
+          displayAvailable: !this.config.isDisplayAvailable || this.config.isDisplayAvailable(),
+          operationCurrent: !signal?.aborted && (!isSideEffectAllowed || isSideEffectAllowed()),
+          assistantSlotEmpty: !this.assistantLayer,
+          assistantRetained: this.detachedAssistantLayer === displacedAssistant,
+        })) {
+          this.detachedAssistantLayer = null;
+          this.assistantLayer = displacedAssistant;
+          this.stack.push(displacedAssistant);
+        }
       }
       try { await this.config.requestShellRender(); } catch { /* preserve delivery error */ }
       throw error;
@@ -1485,6 +1542,7 @@ class Shell {
     if (!layer || layer.state.viewId !== identity.viewId || layer.state.revision !== identity.revision) return;
     this.stack.remove(layer);
     this.dynamicAppLayer = null;
+    this.contextDashboardVoicePrefix = null;
     this.config.requestShellRender();
   }
 

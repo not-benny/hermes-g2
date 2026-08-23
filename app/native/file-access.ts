@@ -17,6 +17,7 @@ export type DirectoryEntry = {
   name: string;
   path: string;
   isDirectory: boolean;
+  isSymbolicLink: boolean;
   sizeBytes: number;
   /** Last-modified time in epoch ms; 0 when unknown. */
   modifiedMs: number;
@@ -61,6 +62,7 @@ export function listDirectory(path: string): DirectoryEntry[] | null {
         name: String(file.getName()),
         path: String(file.getAbsolutePath()),
         isDirectory: Boolean(file.isDirectory()),
+        isSymbolicLink: Boolean(java.nio.file.Files.isSymbolicLink(file.toPath())),
         sizeBytes: Number(file.length()),
         modifiedMs: Number(file.lastModified()),
       });
@@ -70,8 +72,8 @@ export function listDirectory(path: string): DirectoryEntry[] | null {
       return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1;
     });
     return entries;
-  } catch (error) {
-    console.warn(`listDirectory failed for ${path}: ${error}`);
+  } catch {
+    console.warn("file directory listing failed");
     return null;
   }
 }
@@ -85,11 +87,21 @@ export function statPath(path: string): DirectoryEntry | null {
       name: String(file.getName()),
       path: String(file.getAbsolutePath()),
       isDirectory: Boolean(file.isDirectory()),
+      isSymbolicLink: Boolean(java.nio.file.Files.isSymbolicLink(file.toPath())),
       sizeBytes: Number(file.length()),
       modifiedMs: Number(file.lastModified()),
     };
-  } catch (error) {
-    console.warn(`statPath failed for ${path}: ${error}`);
+  } catch {
+    console.warn("file metadata read failed");
+    return null;
+  }
+}
+
+/** Resolve one existing path for bookmark-confinement checks; null on failure. */
+export function canonicalPath(path: string): string | null {
+  try {
+    return String(new java.io.File(path).getCanonicalPath());
+  } catch {
     return null;
   }
 }
@@ -112,8 +124,8 @@ export function writeTextToDownloads(filename: string, text: string): string | n
       stream.close();
     }
     return String(file.getAbsolutePath());
-  } catch (error) {
-    console.warn(`writeTextToDownloads failed for ${filename}: ${error}`);
+  } catch {
+    console.warn("file download write failed");
     return null;
   }
 }
@@ -129,8 +141,8 @@ export function readTextFile(path: string): string | null {
     const bytes = java.nio.file.Files.readAllBytes(file.toPath());
     const text = String(new java.lang.String(bytes, "UTF-8"));
     return text.length > MAX_TEXT_CHARS ? text.slice(0, MAX_TEXT_CHARS) : text;
-  } catch (error) {
-    console.warn(`readTextFile failed for ${path}: ${error}`);
+  } catch {
+    console.warn("file text read failed");
     return null;
   }
 }

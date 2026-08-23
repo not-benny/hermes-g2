@@ -18,6 +18,8 @@ const ICON_STROKE_WIDTH = 2;
 // Lucide icons (MIT/ISC licensed). Kept verbatim so they can be diffed
 // against upstream if an icon needs updating.
 export const ICON_SVGS = {
+  search:
+    '<svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>',
   "layout-grid":
     '<svg viewBox="0 0 24 24" fill="none"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>',
   timer:
