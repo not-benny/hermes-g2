@@ -1,82 +1,98 @@
-# Dynamic glasses-app threat model — 22 August 2026
+# Contextual-dashboard threat model — 23 August 2026
 
 ## Trust boundary
 
-Hermes owns provider credentials, provider-specific IDs, authorization policy,
-opaque action mappings, and provider mutation receipts. The A32 and glasses
-receive a bounded declarative model and random action handles. Provider content,
-phone frames, MCP messages, device notifications, and repository text are data,
-not instructions.
+Hermes is trusted orchestration, but tool/web/provider output is untrusted data.
+Only the dedicated authenticated `even-g2` profile may invoke the contextual
+surface. The phone independently validates a bounded read-only model and owns
+layout, fixed local actions, encrypted pin intent storage and current G2
+transport receipts. The glasses receive pixels and wearer-input handling; they
+receive no credential, provider connection data, executable code, generic tool
+name or external capability handle.
 
 ## Lifecycle identities
 
-| Object | Authority | Live identity | Tombstone / fail-closed rule |
+| Object | Authority | Live identity | Fail-closed rule |
 |---|---|---|---|
-| Bridge | authenticated server | connection generation | replacement rejects all old callbacks/results |
-| Assistant turn | Hermes routing | internal turn generation | no fallback from unmatched external IDs |
-| Dynamic view | phone manager | owner + view ID + revision | close, sleep, TTL, cancellation, or disconnect clears exact revision |
-| UI action | Hermes runtime | owner + view revision + random handle | one-shot after use; replacement never reuses handle |
-| Provider catalog | adapter | discovery generation | refresh clears old mappings; issued handles are never reused |
-| Entity snapshot | adapter | capability + provider revision | mutation rejects a changed/unavailable entity |
-| Mutation | Hermes adapter | payload-bound operation ID | same payload returns history; conflicting payload fails |
-| Input event | phone manager | view revision + event ID | retained until explicit acknowledgement |
+| Profile | authenticated Hermes deployment | literal `even-g2` + device | no default-profile fallback or cross-profile cache |
+| Bridge | authenticated server | connection generation | replacement tombstones old turns, runs, views and receipts |
+| Turn | MCP server | internal turn generation | every begin/publish/refresh call must be the exact active turn |
+| Dashboard | phone | random dashboard ID | new ephemeral dashboard replaces the old presentation |
+| Presentation | phone | dashboard + presentation generation | close/reopen never revives prior callbacks or events |
+| Refresh | host/phone CAS | refresh generation | newer refresh rejects every older result and timer |
+| Revision | phone CAS | presentation + revision | only acknowledged current frame commits |
+| Local event | phone | presentation + revision + event ID | queue-head-only, fixed enum, exact acknowledgement |
+| Pin | phone secure store | profile + dashboard key | max five; intent/policy only; corrupt store fails closed |
+
+A dashboard may outlive the turn that created it, but the old turn gains no
+continuing authority. A later refresh uses a new exact current turn plus the
+current dashboard/presentation/refresh/revision tuple. There is no fallback to
+"whatever turn is active."
 
 ## Security invariants
 
-1. Every create/update/patch/action/close is authorized by the exact connection
-   and turn generation. A later turn on the same socket is foreign.
-2. View publication is committed only after a current transport `sent` receipt.
-   Timeout, discard, disconnect, cancellation, or supersession is failure.
-3. Phone action events are inert. Labels, component IDs, and action handles never
-   select provider methods directly.
-4. Hermes revalidates owner, view, action, discovery, entity, provider revision,
-   and policy immediately before an explicit provider mutation.
-5. Action, capability, and view IDs are random opaque values; provider IDs and
-   arguments are not encoded in them.
-6. Provider credentials and raw responses never enter phone payloads, logs,
-   errors, handles, idempotency keys, or committed evidence.
-7. Home Assistant mutations target exactly one already-displayed light/switch,
-   use explicit `turn_on`/`turn_off`, verify current state, and never broaden to
-   an area or generic service.
-8. Evaluation restoration is receipt/CAS based and refuses to overwrite a newer
-   human or automation revision.
-9. Text is inert and bounded; markup, URLs, scripts, executable payloads, raw
-   pixels, arbitrary icons, and unknown schema fields fail closed.
-10. Long-press and double-click remain shell escape paths. Remote content cannot
-    trap wearer input or wake/focus the display.
+1. Release 1 has no external actions. Only phone-local refresh, pin, unpin,
+   section and follow-up intents exist.
+2. Host adapters project allowlisted typed fields; raw objects are never copied
+   into the model, persistence, logs, errors, handles or receipts.
+3. Host and phone reject unknown fields, duplicate IDs, invalid source links,
+   excessive bytes/counts, non-finite/timestamp errors, markup/URLs, controls,
+   bidi overrides and arbitrary actions.
+4. Source/freshness/uncertainty are structured fields. The phone derives age and
+   stale state from its own clock; provider-written confidence prose is inert.
+5. Loading and useful publication succeed only after the current connected G2
+   transport returns `sent`. Enqueue, local render and stale/discarded outcomes
+   are not success or lens-visibility evidence.
+6. Every delayed gather, timeout, patch, receipt, close and event revalidates the
+   exact profile/socket/presentation/refresh/revision authority immediately
+   before publication.
+7. Pin storage is encrypted and contains only bounded intent, key/title/privacy
+   and refresh policy. `sensitive` views, rendered values, raw responses,
+   provider IDs, handles and receipts are never persisted.
+8. Local refresh reruns current authorised read-only gathering from saved intent;
+   it never replays an old tool payload or response.
+9. Disconnect/owner close clears transient events and presentation authority.
+   Pins retain no current data and reopen through a fresh authorised gather.
+10. Long-press is shell-owned contextual voice; double-click remains shell-owned
+    close. Remote data cannot trap, redirect or redefine wearer input.
+11. Errors crossing the boundary are fixed bounded codes/copy, never provider or
+    exception text.
+12. No firmware, pairing, ownership, provisioning, NVM, reset, wipe, destructive
+    BLE, smart-home mutation or generic terminal authority is introduced.
 
 ## Adversarial coverage
 
-Permanent tests cover malformed/unsupported/oversized models, deep expansion by
-bounded flat component shapes, duplicate IDs, URL/markup rejection, non-finite
-progress, stale socket/turn/view/revision/action, operation conflicts,
-historical create replay, delivery failure, close-vs-pending-update/TTL races,
-physical disconnect tombstones, queue-head-only acknowledged event cursors,
-off-screen action focus and distinct confirmation choices, stale provider
-generations, area-membership revocation, excluded/unavailable HA entities,
-revision races, concurrent operation reservation, lost authorization before
-service dispatch, explicit service allowlisting, retained outcome-unknown
-failures, provider-side atomic scope/revision mutation, causality-proven
-conservative restoration, HTTPS/redirect handling,
-sanitized transport errors, cross-owner replay rejection, concurrent open/close,
-multi-device action generations, and bounded end-to-end opaque projection.
+Permanent tests exercise:
 
-Before publication, extend the external server suite with concurrent duplicate
-mutations across sockets, crash-after-reservation reconciliation, credential
-rotation, non-cooperative cancellation, certificate mismatch, WSS owner lease
-replacement, process restart, backpressure, and generic MCP clients. Use unique
-secret sentinels in credentials, provider labels/errors/headers/redirects, phone
-frames, logcat, persistence, telemetry, screenshots, and support exports; every
-surface must contain zero sentinel occurrences.
+- executable/URL/unknown-field/action-kind rejection;
+- source-reference, count, byte and record bounds;
+- loading acknowledgement before blocked gathering;
+- deterministic all-destination Liverpool departure ordering, fallback time,
+  cancellations and departed-row exclusion;
+- exact socket with safe later-turn refresh and stale generation rejection;
+- fixed local refresh queue head, duplicate acknowledgement and bounded intent;
+- pin projection proving rendered/source/announcement data is absent;
+- dedicated-profile rejection before phone calls; and
+- existing MCP cancellation, owner teardown, discarded transport receipt,
+  reconnect and dynamic-view races in the full suite.
 
-## Verdict
+Final review must additionally probe blocked interleavings for begin replacement,
+publish vs close, refresh A/B reordering, disconnect during frame delivery,
+process restart, corrupt/sixth pins, event replay after reconnect, clock skew,
+backpressure and timer resurrection. Secret sentinels must be injected into
+provider labels, headers, errors, redirects, nested fields and persistence, with
+zero occurrences in host output, phone payload, logcat, storage, telemetry,
+screenshot metadata or support exports.
 
-Static local boundary: implemented and testable, pending final independent
-review of the frozen candidate.
+## Verdict boundary
 
-Operational authorization: NO-GO until a private authenticated WSS peer, Home
-Assistant credentials, and real A32 + G2 evidence are available. A phone build
-or one transport ACK is not lens visibility or dual-lens applied proof.
+Static review: pending independent review of the final frozen candidate.
 
-Publication/licensing: BLOCKED pending generic-client, server identity,
-credential, retry/idempotency, licensing, and hardware evidence.
+Operational authorization: NO-GO until authenticated `even-g2` bridge and real
+A32/G2 evidence prove latency, scroll/focus, local refresh/pin/contextual voice,
+disconnect/restart handling and sentinel-clean operation. A source build or one
+ordinary frame ACK is not optical or dual-lens proof.
+
+Publication/licensing: BLOCKED pending authenticated generic-client
+interoperability, deployment credential/retry evidence, licensing review and the
+real-G2 evidence above.

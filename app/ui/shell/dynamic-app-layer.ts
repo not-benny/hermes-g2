@@ -40,10 +40,15 @@ export class ShellDynamicAppLayer implements Layer {
     image.fillRoundedRect(X, top, WIDTH, HEIGHT, 1, 10);
     image.drawRoundedRect(X, top, WIDTH, HEIGHT, 100, 10);
     image.drawText(font, X + PAD, top + 9, truncateText(font, this.state.title, WIDTH - PAD * 2 - 70), 245);
-    image.drawText(font, X + WIDTH - PAD - font.measureText(this.state.state), top + 9, this.state.state, this.state.state === "ready" ? 160 : 210);
+    const displayedState = (this.state as DynamicAppState & { dashboardState?: string }).dashboardState ?? this.state.state;
+    image.drawText(font, X + WIDTH - PAD - font.measureText(displayedState), top + 9, displayedState, displayedState === "ready" ? 160 : 210);
 
     const actionHandles = this.state.components.flatMap(componentHandles);
-    const selectedHandle = actionHandles[this.state.selectedAction] ?? null;
+    const isContextDashboard = Boolean((this.state as DynamicAppState & { dashboardId?: string }).dashboardId);
+    const focusedComponent = this.state.components[this.state.scrollOffset];
+    const selectedHandle = isContextDashboard
+      ? (focusedComponent ? componentHandles(focusedComponent)[0] ?? null : null)
+      : actionHandles[this.state.selectedAction] ?? null;
     const start = Math.max(0, Math.min(this.state.scrollOffset, Math.max(0, this.state.components.length - 1)));
     let y = top + BODY_TOP;
     let omitted = 0;
@@ -63,8 +68,9 @@ export class ShellDynamicAppLayer implements Layer {
       const label = `… ${omitted} more — scroll`;
       image.drawText(font, X + PAD, top + HEIGHT - FOOTER_HEIGHT - font.lineHeight, truncateText(font, label, WIDTH - PAD * 2), 125);
     }
+    const selectedActionIndex = selectedHandle ? actionHandles.indexOf(selectedHandle) : -1;
     const footer = actionHandles.length
-      ? `${this.state.selectedAction + 1}/${actionHandles.length} · click select · ${GESTURE_DOUBLE_CLICK} close`
+      ? `${selectedActionIndex >= 0 ? selectedActionIndex + 1 : "–"}/${actionHandles.length} · click select · ${GESTURE_DOUBLE_CLICK} close`
       : `scroll · ${GESTURE_DOUBLE_CLICK} close`;
     image.drawText(font, X + PAD, top + HEIGHT - 13, truncateText(font, footer, WIDTH - PAD * 2), 100);
     return image;

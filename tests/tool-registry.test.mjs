@@ -88,6 +88,27 @@ test("timeouts abort in-flight handlers and hide dependency details", async () =
   assert.equal(signal.aborted, true);
 });
 
+test("AbortController fallback isolates throwing listeners during timeout cleanup", async () => {
+  const original = globalThis.AbortController;
+  let secondListenerRan = false;
+  try {
+    globalThis.AbortController = undefined;
+    const registry = new ToolRegistry();
+    registry.registerSystemTool({ name: "test.abort-listeners", description: "test", timeoutMs: 5,
+      inputSchema: { type: "object", properties: {}, additionalProperties: false } }, (_args, signal) => {
+      signal.addEventListener("abort", () => { throw new Error("listener failure"); });
+      signal.addEventListener("abort", () => { secondListenerRan = true; });
+      return new Promise(() => {});
+    });
+    const result = await registry.callTool("test.abort-listeners", {});
+    assert.equal(result.ok, false);
+    assert.match(result.error, /timed out/);
+    assert.equal(secondListenerRan, true);
+  } finally {
+    globalThis.AbortController = original;
+  }
+});
+
 test("side-effect handlers receive the live-turn guard at invocation", async () => {
   const registry = new ToolRegistry();
   let allowed = true;
