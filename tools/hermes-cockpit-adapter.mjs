@@ -19,6 +19,11 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function monotonicNow() {
+  if (globalThis.performance?.now) return globalThis.performance.now();
+  return Number(process.hrtime.bigint() / 1_000_000n);
+}
+
 /**
  * Metadata-only projection between Hermes' authenticated TUI gateway RPC and
  * the existing private WSS bridge. This module deliberately has no logger and
@@ -35,8 +40,9 @@ export class HermesCockpitAdapter {
 
   constructor(options = {}) {
     this.now = options.now ?? (() => Date.now());
-    this.monotonicNow = options.monotonicNow ?? this.now;
+    this.monotonicNow = options.monotonicNow ?? monotonicNow;
     this.createOpaque = options.createOpaque ?? opaque;
+    this.reserveCommand = options.reserveCommand ?? (() => true);
     for (const record of options.journal ?? []) this.#journal.set(record.commandId, clone(record));
   }
 
@@ -50,6 +56,8 @@ export class HermesCockpitAdapter {
     if (typeof publicSessionId !== "string" || typeof hermesSessionId !== "string" ||
         !Number.isSafeInteger(generation) || generation < 0) throw new Error("invalid explicit share");
     const old = this.#byPublic.get(publicSessionId);
+    const existingPublic = this.#publicByHermes.get(hermesSessionId);
+    if (existingPublic && existingPublic !== publicSessionId) throw new Error("Hermes session is already explicitly shared");
     if (old && old.hermesSessionId !== hermesSessionId && generation <= old.generation) throw new Error("replacement identity requires a newer generation");
     if (old && old.hermesSessionId !== hermesSessionId) this.#publicByHermes.delete(old.hermesSessionId);
     if (old && (old.generation !== generation || old.hermesSessionId !== hermesSessionId)) this.#retirePending(publicSessionId);
@@ -59,9 +67,9 @@ export class HermesCockpitAdapter {
       generation,
       revision: (old?.revision ?? 0) + 1,
       title: boundedText(title, 160) ?? "Shared Hermes session",
-      state: "running",
+      state: old?.hermesSessionId === hermesSessionId && old.generation === generation ? old.state : "running",
       updatedAtMs: this.now(),
-      summary: null,
+      summary: old?.hermesSessionId === hermesSessionId && old.generation === generation ? old.summary : null,
       timeline: old?.generation === generation ? old.timeline : [],
     };
     this.#byPublic.set(publicSessionId, session);
@@ -176,6 +184,7 @@ export class HermesCockpitAdapter {
     if (!rpc || !this.#connectionGeneration || command.connection_generation !== this.#connectionGeneration ||
         this.#byPublic.get(command.session_id) !== session || session.generation !== command.generation) return null;
     const record = { commandId: command.command_id, fingerprint: createHash("sha256").update(JSON.stringify(command)).digest("hex"), status: "reserved" };
+    if (this.reserveCommand(clone(record)) !== true) return null;
     this.#journal.set(command.command_id, record);
     this.#consumed.add(command.command_id);
     try {
@@ -195,9 +204,23 @@ export class HermesCockpitAdapter {
   commandReceipt(command, outcome, code) {
     if (!this.#connectionGeneration || !command || command.connection_generation !== this.#connectionGeneration ||
         !["accepted", "rejected", "duplicate", "outcome_unknown"].includes(outcome)) return null;
+    const record = this.#journal.get(command.command_id);
+    if (record) {
+      record.status = "complete";
+      record.outcome = outcome;
+    }
     return { v: 1, chan: "cockpit", type: "command_receipt", sequence: ++this.#sequence,
       command_id: command.command_id, session_id: command.session_id, generation: command.generation, outcome,
       ...(typeof code === "string" && code ? { code: boundedText(code, 80) ?? "rejected" } : {}) };
+  }
+
+  replayReceipt(command) {
+    if (!this.#connectionGeneration || !command || command.connection_generation !== this.#connectionGeneration) return null;
+    const record = this.#journal.get(command.command_id);
+    if (!record) return null;
+    const fingerprint = createHash("sha256").update(JSON.stringify(command)).digest("hex");
+    if (record.fingerprint !== fingerprint) return null;
+    return this.commandReceipt(command, record.outcome ?? "outcome_unknown", record.outcome ? "duplicate" : "reserved_before_restart");
   }
 
   #rpc(id, method, params) {

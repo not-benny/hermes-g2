@@ -143,7 +143,10 @@ test("same-generation identity rebind is rejected and interrupt or terminal stat
   adapter.handleCommand(stop, (rpc) => rpc);
   adapter.observeSession("hermes-private-session", { state: "completed" });
   assert.equal(adapter.snapshot().sessions[0].state, "interrupted");
+  adapter.share({ publicSessionId: "session_public_1234", hermesSessionId: "hermes-private-session", generation: 3, title: "Reconnect" });
+  assert.equal(adapter.snapshot().sessions[0].state, "interrupted", "same generation cannot revive on reconnect");
   assert.equal(adapter.observeSession("hermes-private-session", { state: "running" }), null);
+  assert.throws(() => adapter.share({ publicSessionId: "session_alias_12345", hermesSessionId: "hermes-private-session", generation: 4, title: "Alias" }));
 });
 
 test("monotonic expiry, redacted text projection, and restart journal fail closed", () => {

@@ -230,7 +230,7 @@ export class CockpitViewModel {
     const session = this.currentRun();
     if (!session) return { mode: "detail", title: "RUN RETIRED", body: ["This exact run generation is no longer current."],
       rows: [], selected: 0, footer: "double-click back" };
-    const body = session.timeline.slice(-8).map((row) => `${row.kind.toUpperCase()} ${row.status === "running" ? "…" : row.status === "failed" ? "×" : "✓"} ${row.text}`);
+    const body = session.timeline.slice(-2).map((row) => `${row.kind.toUpperCase()} ${row.status === "running" ? "…" : row.status === "failed" ? "×" : "✓"} ${row.text}`);
     if (session.summary) body.push(`${session.state.toUpperCase()} ${session.summary}`);
     const rows: CockpitScreen["rows"] = session.pending.map((item) => ({
       label: `${item.kind === "permission" ? "!" : "?"} ${item.title}`, tone: "attention",
@@ -238,7 +238,7 @@ export class CockpitViewModel {
     if (!TERMINAL.has(session.state)) rows.push({ label: "Interrupt run", tone: "attention" });
     this.selected = Math.min(this.selected, Math.max(0, rows.length - 1));
     return { mode: "detail", title: `${session.title} · ${session.state.toUpperCase()}`, body, rows,
-      selected: this.selected, ...this.viewport(rows.length, 5),
+      selected: this.selected, ...this.viewport(rows.length, 3),
       footer: TERMINAL.has(session.state) ? "double-click back" : "click review · voice via long-press" };
   }
 
@@ -248,6 +248,7 @@ export class CockpitViewModel {
     this.selected = Math.min(this.selected, request.choices.length - 1);
     return { mode: "question", title: "QUESTION", body: [request.title],
       rows: request.choices.map((choice) => ({ label: choice.label })), selected: this.selected,
+      ...this.viewport(request.choices.length, 5),
       footer: "click review · double-click back" };
   }
 

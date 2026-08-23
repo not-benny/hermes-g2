@@ -85,9 +85,12 @@ The endpoint integration sequence is:
 
 1. instantiate `HermesCockpitEndpoint` with a loopback WebSocket URL, gateway
    token, explicit shares, bridge `emit` callback, and content-free durable
-   command journal recovered from the prior process;
+   command journal recovered from the prior process; its required synchronous
+   `reserveCommand` callback must durably reserve the hash before returning;
 2. maintain an operator-selected allowlist of session/task IDs;
-3. feed allowlisted gateway events into `HermesCockpitAdapter.ingest`;
+3. feed allowlisted gateway events into `HermesCockpitAdapter.ingest`; each event
+   must carry the producing execution's exact `cockpit_generation`, otherwise the
+   endpoint drops it rather than relabelling it as current;
 4. send returned frames over the already authenticated private WSS `cockpit`
    channel;
 5. pass phone commands to the endpoint's `handleCommand`; the adapter revalidates

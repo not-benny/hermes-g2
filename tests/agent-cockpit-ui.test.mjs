@@ -145,6 +145,27 @@ test("detail pending rows open review and interrupt requires an explicit confirm
   assert.deepEqual(calls, [["interrupt", "session_running_123", 2]]);
 });
 
+test("question choices and detail actions keep bounded visible viewports", () => {
+  const { model } = setup();
+  const eightChoices = Array.from({ length: 8 }, (_, index) => ({ id: `choice_many_${index}_1234`, label: `Choice ${index}` }));
+  model.update({ ...state, sessions: [{ ...sessions[1], pending: [{ ...question, choices: eightChoices }] }] });
+  model.click();
+  model.click();
+  for (let index = 0; index < 10; index++) model.scroll(1);
+  let screen = model.screen();
+  assert.equal(screen.selected, 7);
+  assert.ok(screen.selected < screen.scrollOffset + screen.visibleRows);
+
+  model.back(); model.back();
+  model.update({ ...state, sessions: [{ ...sessions[0], timeline: Array.from({ length: 40 }, (_, index) => ({
+    id: `timeline_many_${index}`, kind: "tool", text: `Tool row ${index}`, status: "done",
+  })) }] });
+  model.click();
+  screen = model.screen();
+  assert.ok(screen.body.length <= 3);
+  assert.ok(screen.visibleRows <= 3);
+});
+
 test("native app is launcher-registered, subscribes to the main-isolate controller, and keeps voice steering reviewed", () => {
   const apps = readFileSync(new URL("../app/apps/all-apps.ts", import.meta.url), "utf8");
   const index = readFileSync(new URL("../app/apps/agent-cockpit/index.ts", import.meta.url), "utf8");

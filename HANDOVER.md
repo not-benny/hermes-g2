@@ -36,12 +36,12 @@ restart command reservations, dispatch-at-final-revalidation, exact receipt
 correlation/error UI, bounded list viewports, actionable detail prompts, explicit
 interrupt confirmation, and a loopback-only production Hermes endpoint core.
 
-Verification from the current worktree: focused cockpit coverage passes 30/30;
-the full host suite passes 374/374 after a clean `npm ci`; TypeScript typecheck
+Verification from the current worktree: focused cockpit coverage passes 31/31;
+the full host suite passes 375/375 after a clean `npm ci`; TypeScript typecheck
 passes after platform preparation; and the JDK 21 / Android SDK 35 build passes.
 The exact debug APK at
 `platforms/android/app/build/outputs/apk/debug/app-debug.apk` has SHA-256
-`f0dba7840f7116053db25656d4ad0996f1fdf1f4d446d27ec1ff2d70ddf01866` and package
+`be226031aa95fbf3b731d32a92d54c4b7935f3fa60892e379cb9144d567ea7d0` and package
 metadata `com.faceclaw.app`, version code 1000002 / version
 `1.0.0-preview.2`, min SDK 24, target/compile SDK 35. No A32 or other ADB device
 was attached, and the private bridge deployment was not upgraded from this

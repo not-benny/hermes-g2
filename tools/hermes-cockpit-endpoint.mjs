@@ -19,13 +19,19 @@ export class HermesCockpitEndpoint {
       throw new Error("Hermes cockpit gateway must be loopback WebSocket");
     }
     if (typeof options.token !== "string" || !options.token) throw new Error("Hermes gateway token is required");
+    if (typeof options.reserveCommand !== "function") throw new Error("durable command reservation callback is required");
     this.gatewayUrl = url;
     this.token = options.token;
     this.shares = Array.isArray(options.shares) ? options.shares.map((share) => ({ ...share })) : [];
+    if (new Set(this.shares.map((share) => share.publicSessionId)).size !== this.shares.length ||
+        new Set(this.shares.map((share) => share.hermesSessionId)).size !== this.shares.length) {
+      throw new Error("explicit cockpit shares must be one-to-one");
+    }
     this.createSocket = options.createSocket ?? ((address) => new WebSocket(address));
     this.emit = options.emit;
     this.createConnectionGeneration = options.createConnectionGeneration ?? connectionId;
-    this.adapter = new HermesCockpitAdapter({ now: options.now, monotonicNow: options.monotonicNow, journal: options.journal });
+    this.adapter = new HermesCockpitAdapter({ now: options.now, monotonicNow: options.monotonicNow,
+      journal: options.journal, reserveCommand: options.reserveCommand });
     this.generationByHermes = new Map(this.shares.map((share) => [share.hermesSessionId, share.generation]));
     this.pendingCommands = new Map();
     this.socket = null;
@@ -52,6 +58,11 @@ export class HermesCockpitEndpoint {
   handleCommand(command) {
     const socket = this.socket;
     if (!socket || socket.readyState !== 1) return false;
+    const replay = this.adapter.replayReceipt(command);
+    if (replay) {
+      this.emit(replay);
+      return true;
+    }
     const result = this.adapter.handleCommand(command, (rpc) => {
       // The adapter performs its final identity/generation/policy check
       // immediately before this synchronous send boundary.
@@ -87,17 +98,20 @@ export class HermesCockpitEndpoint {
     try { frame = JSON.parse(raw); } catch { return; }
     if (!frame || typeof frame !== "object") return;
     if (frame.method === "event" && frame.params && typeof frame.params === "object") {
-      const generation = this.generationByHermes.get(frame.params.session_id);
-      if (generation === undefined) return;
-      const projected = this.adapter.ingest(frame.params, generation);
+      const configuredGeneration = this.generationByHermes.get(frame.params.session_id);
+      if (configuredGeneration === undefined || frame.params.cockpit_generation !== configuredGeneration) return;
+      const projected = this.adapter.ingest(frame.params, frame.params.cockpit_generation);
       if (projected) this.emit(projected);
       return;
     }
-    if (typeof frame.id !== "string") return;
+    if (frame.jsonrpc !== "2.0" || typeof frame.id !== "string" || !("result" in frame) && !("error" in frame)) return;
     const command = this.pendingCommands.get(frame.id);
     if (!command) return;
     this.pendingCommands.delete(frame.id);
-    const outcome = frame.error ? "rejected" : "accepted";
+    const result = frame.result;
+    const applicationRejected = result && typeof result === "object" &&
+      [result.accepted, result.resolved, result.ok].some((value) => value === false);
+    const outcome = frame.error || applicationRejected ? "rejected" : "accepted";
     const code = frame.error && typeof frame.error.code !== "undefined" ? `rpc_${String(frame.error.code)}` : undefined;
     const receipt = this.adapter.commandReceipt(command, outcome, code);
     if (receipt) this.emit(receipt);
