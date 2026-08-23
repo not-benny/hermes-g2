@@ -11,11 +11,11 @@ import {
 // windowIds unique.
 let nextDocumentSerial = 1;
 
-function openTextDocumentWindow(ctx: AppContext, title: string, text: string): void {
+function openTextDocumentWindow(ctx: AppContext, title: string, text: string, sourceUri?: string): void {
   const windowId = `files:doc:${nextDocumentSerial++}`;
   void ctx
     .launchInProcessApp(windowId, `window:${windowId}`, (options) =>
-      createTextDocumentWindow(windowId, title, text, options),
+      createTextDocumentWindow(windowId, title, text, options, sourceUri),
     )
     .catch((error) => {
       ctx.appendLog(`text document window failed: ${error}`);
@@ -41,12 +41,12 @@ const filesApp: AppDefinition = {
     ctx.launchInProcessApp(FILES_WINDOW_ID, FILES_SURFACE_ID, (options) =>
       createFilesAppWindow({
         ...options,
-        openDocumentWindow: (title, text) => openTextDocumentWindow(ctx, title, text),
+        openDocumentWindow: (title, text, sourceUri) => openTextDocumentWindow(ctx, title, text, sourceUri),
         openImageWindow: (title, path) => openImageDocumentWindow(ctx, title, path),
       }),
     ),
   // A document arriving via Android's Share intent opens as its own window.
-  openSharedText: (ctx, title, text) => openTextDocumentWindow(ctx, title, text),
+  openSharedText: (ctx, title, text, sourceUri) => openTextDocumentWindow(ctx, title, text, sourceUri),
 };
 
 export default filesApp;

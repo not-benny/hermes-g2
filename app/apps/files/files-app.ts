@@ -19,7 +19,7 @@ const TEXT_FILE = /\.(txt|md|log)$/i;
 
 export type FilesAppOptions = InProcessAppOptions & {
   /** Open a text document as its own shell window (also used by the share intent). */
-  openDocumentWindow: (title: string, text: string) => void;
+  openDocumentWindow: (title: string, text: string, sourceUri?: string) => void;
   /** Open an image file as its own shell window. */
   openImageWindow: (title: string, path: string) => void;
 };
@@ -66,16 +66,21 @@ export function createTextDocumentWindow(
   title: string,
   text: string,
   options: InProcessAppOptions,
+  sourceUri?: string,
 ): InProcessWindow {
+  const reader = new TextViewerLayer(text, title, sourceUri);
   return createInProcessWindow({
     appId: "files",
     windowId,
-    title,
+    // Keep filenames out of assistant window-state metadata; the local surface
+    // still renders the title inside the reader.
+    title: "Reader",
     iconLetter: "F",
     icon: "file-text",
     closeable: true,
+    menuItems: () => reader.buildMenuItems(),
     actions: options.actions,
-    baseLayer: new YieldAtRootLayer(new TextViewerLayer(text, title)),
+    baseLayer: new YieldAtRootLayer(reader),
     submitFrame: options.submitFrame,
     setSurfaceVisible: options.setSurfaceVisible,
     removeSurface: options.removeSurface,
