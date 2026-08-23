@@ -61,6 +61,43 @@ test("bad token and privileged pre-auth traffic fail closed", async () => {
   assert.equal(JSON.stringify(other.sent).includes("correct-private-token"), false);
 });
 
+test("companion endpoint attaches only after authenticated capability negotiation and detaches on socket close", async () => {
+  const sent = [], closed = [], calls = [];
+  const companionEndpoint = {
+    attach(generation, emit) { calls.push({ type: "attach", generation }); this.emit = emit; },
+    detach(generation) { calls.push({ type: "detach", generation }); return true; },
+    handleCommand(frame, generation) { calls.push({ type: "command", frame, generation }); return true; },
+  };
+  const connection = new PrivateBridgeConnection({
+    expectedToken: "correct-private-token", connectionGeneration: "connection_socket_1234",
+    send: (frame) => sent.push(structuredClone(frame)), closeSocket: (code, reason) => closed.push({ code, reason }),
+    createTurn: () => ({ async run() { return { actions: 0, reason: "complete" }; } }), companionEndpoint,
+  });
+  const preAuth = { v: 1, chan: "companion", type: "refresh", operation_id: "operation_refresh_1234",
+    connection_generation: "connection_socket_1234" };
+  assert.equal(await connection.receive(preAuth), false);
+  assert.equal(calls.length, 0);
+  assert.equal(closed.at(-1).code, 1008);
+
+  const active = new PrivateBridgeConnection({
+    expectedToken: "correct-private-token", connectionGeneration: "connection_socket_5678",
+    send: (frame) => sent.push(structuredClone(frame)), closeSocket: () => {},
+    createTurn: () => ({ async run() { return { actions: 0, reason: "complete" }; } }), companionEndpoint,
+  });
+  await active.receive({ v: 1, chan: "ctl", type: "hello", version: 1, token: "correct-private-token",
+    deviceName: "Hermes G2", capabilities: ["chat", "mcp", "hermes-companion-v1"] });
+  assert.equal(sent.at(-1).type, "hello-ack");
+  assert.deepEqual(sent.at(-1).capabilities, ["hermes-companion-v1"]);
+  assert.deepEqual(calls.at(-1), { type: "attach", generation: "connection_socket_5678" });
+  const command = { ...preAuth, connection_generation: "connection_socket_5678" };
+  assert.equal(await active.receive(command), true);
+  assert.equal(calls.at(-1).type, "command");
+  companionEndpoint.emit({ v: 1, chan: "companion", type: "snapshot", connection_generation: "connection_socket_5678" });
+  assert.equal(sent.at(-1).chan, "companion");
+  await active.close();
+  assert.deepEqual(calls.at(-1), { type: "detach", generation: "connection_socket_5678" });
+});
+
 test("connection retirement cancels the owned turn and stale replies stay rejected", async () => {
   const { connection, sent, runs } = setup();
   await connection.receive({ v: 1, chan: "ctl", type: "hello", version: 1, token: "correct-private-token", deviceName: "Hermes G2", capabilities: ["chat", "mcp"] });

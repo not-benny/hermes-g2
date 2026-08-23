@@ -9,6 +9,9 @@
         <TabViewItem title="Controls">
             <Frame defaultPage="phone-ui/glasses-controls-page" />
         </TabViewItem>
+        <TabViewItem title="Hermes">
+            <Frame defaultPage="phone-ui/hermes-page" />
+        </TabViewItem>
         <TabViewItem title="Settings">
             <Frame defaultPage="phone-ui/settings-page" />
         </TabViewItem>

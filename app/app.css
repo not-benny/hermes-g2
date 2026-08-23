@@ -103,7 +103,7 @@ ActivityIndicator {
   color: #57D8A6;
 }
 
-/* Bottom tab bar (the 4-tab shell) */
+/* Bottom tab bar (the five short-label companion tabs) */
 TabView {
   tab-background-color: #101512;
   tab-text-color: #9BB0A5;
@@ -261,6 +261,32 @@ SegmentedBar {
   width: 100%;
   max-width: 840;
   horizontal-align: center;
+}
+
+/* --- Hermes mobile companion -------------------------------------------- */
+.hermes-companion-content {
+  padding-bottom: 24;
+}
+.hermes-status-strip {
+  min-height: 48;
+  padding: 4 0;
+}
+.hermes-session-row,
+.hermes-activity-row {
+  min-height: 48;
+  padding: 10 0;
+  border-bottom-color: #24312A;
+  border-bottom-width: 1;
+}
+.hermes-session-row Button {
+  min-width: 48;
+  margin: 3;
+}
+.hermes-summary-wide StackLayout {
+  padding: 4 12;
+}
+.hermes-half-card {
+  margin: 0 4;
 }
 
 /* --- Even Health: metric tiles (direct-BLE ring dashboard) --------------- */

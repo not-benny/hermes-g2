@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { isReviewedPrivateAddress } from "../hermes-host/private-dynamic-ha-server.mjs";
 
@@ -12,7 +13,17 @@ test("private end-to-end server documents exact WSS, durable ledger, trigger, an
   assert.match(help.stdout, /durable-ledger/i);
   assert.match(help.stdout, /say exactly/i);
   assert.match(help.stdout, /receipt-restored/i);
+  assert.match(help.stdout, /loopback Hermes companion gateway/i);
+  assert.match(help.stdout, /does not create another HTTP surface/i);
   assert.equal(/HA_TOKEN|PRIVATE_BRIDGE_TOKEN/.test(help.stdout), false);
+});
+
+test("optional companion is injected into the same authenticated WSS owner", () => {
+  const source = readFileSync(server, "utf8");
+  assert.match(source, /new HermesCompanionEndpoint/);
+  assert.match(source, /companionEndpoint,/);
+  assert.match(source, /new DurableCompanionJournal/);
+  assert.match(source, /createSocket: \(address\) => new WebSocket\(address\)/);
 });
 
 test("private end-to-end server refuses incomplete configuration without echoing values", () => {

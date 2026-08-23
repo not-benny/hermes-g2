@@ -1,0 +1,120 @@
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" loaded="loaded" unloaded="unloaded">
+    <ActionBar title="Hermes" />
+    <ScrollView>
+        <StackLayout class="phone-content hermes-companion-content p-20">
+            <GridLayout columns="auto,*" class="hermes-status-strip">
+                <Label col="0" text="●" class="{{ statusDotClass }}" verticalAlignment="center" />
+                <StackLayout col="1" class="m-l-8">
+                    <Label text="{{ statusLabel }}" class="value" />
+                    <Label text="{{ statusDetail }}" class="muted" textWrap="true" />
+                </StackLayout>
+            </GridLayout>
+
+            <StackLayout class="card m-t-12 hermes-offline-banner" visibility="{{ offlineVisibility }}">
+                <Label text="Offline or stale" class="section-label" />
+                <Label text="Session actions are disabled. Nothing will be queued for reconnect." class="muted m-t-4" textWrap="true" />
+            </StackLayout>
+
+            <StackLayout visibility="{{ compactVisibility }}" class="card m-t-12">
+                <Label text="BACKEND" class="section-label" />
+                <Label text="Model" class="muted m-t-8" />
+                <Label text="{{ modelLabel }}" textWrap="true" />
+                <Label text="Profile" class="muted m-t-8" />
+                <Label text="{{ profileLabel }}" textWrap="true" />
+                <Label text="Last connection" class="muted m-t-8" />
+                <Label text="{{ lastConnectionLabel }}" />
+            </StackLayout>
+            <GridLayout visibility="{{ wideVisibility }}" columns="*,*,*" class="card m-t-12 hermes-summary-wide">
+                <StackLayout col="0"><Label text="MODEL" class="section-label" /><Label text="{{ modelLabel }}" textWrap="true" /></StackLayout>
+                <StackLayout col="1"><Label text="PROFILE" class="section-label" /><Label text="{{ profileLabel }}" textWrap="true" /></StackLayout>
+                <StackLayout col="2"><Label text="LAST CONNECTION" class="section-label" /><Label text="{{ lastConnectionLabel }}" /></StackLayout>
+            </GridLayout>
+
+            <GridLayout columns="*,*" class="m-t-12">
+                <Button col="0" text="Refresh" tap="{{ onRefreshTap }}" isEnabled="{{ refreshEnabled }}" />
+                <Button col="1" text="New voice session" tap="{{ onNewVoiceTap }}" isEnabled="{{ newVoiceEnabled }}" class="btn-primary" />
+            </GridLayout>
+            <Label text="{{ operationStatusLabel }}" class="muted m-t-4" textWrap="true" />
+
+            <StackLayout class="card m-t-12">
+                <Label text="RECENT SESSIONS" class="section-label" />
+                <Label text="No recent sessions were reported." class="muted m-t-8" visibility="{{ sessionsEmptyVisibility }}" />
+                <Repeater items="{{ sessions }}" visibility="{{ compactVisibility }}">
+                    <Repeater.itemTemplate>
+                        <StackLayout class="hermes-session-row">
+                            <Label text="{{ title }}" textWrap="true" />
+                            <Label text="{{ detail }}" class="muted" />
+                            <GridLayout columns="*,*" rows="auto,auto" class="m-t-4">
+                                <Button row="0" col="0" text="Open" tap="{{ onOpenTap }}" isEnabled="{{ actionEnabled }}" visibility="{{ openVisibility }}" />
+                                <Button row="0" col="1" text="Resume" tap="{{ onResumeTap }}" isEnabled="{{ actionEnabled }}" visibility="{{ resumeVisibility }}" />
+                                <Button row="1" colSpan="2" text="Cancel" tap="{{ onCancelTap }}" isEnabled="{{ actionEnabled }}" visibility="{{ cancelVisibility }}" class="btn-danger" />
+                            </GridLayout>
+                        </StackLayout>
+                    </Repeater.itemTemplate>
+                </Repeater>
+                <Repeater items="{{ sessions }}" visibility="{{ wideVisibility }}">
+                    <Repeater.itemTemplate>
+                        <GridLayout columns="*,auto,auto,auto" class="hermes-session-row">
+                            <StackLayout col="0" verticalAlignment="center"><Label text="{{ title }}" textWrap="true" /><Label text="{{ detail }}" class="muted" /></StackLayout>
+                            <Button col="1" text="Open" tap="{{ onOpenTap }}" isEnabled="{{ actionEnabled }}" visibility="{{ openVisibility }}" />
+                            <Button col="2" text="Resume" tap="{{ onResumeTap }}" isEnabled="{{ actionEnabled }}" visibility="{{ resumeVisibility }}" />
+                            <Button col="3" text="Cancel" tap="{{ onCancelTap }}" isEnabled="{{ actionEnabled }}" visibility="{{ cancelVisibility }}" class="btn-danger" />
+                        </GridLayout>
+                    </Repeater.itemTemplate>
+                </Repeater>
+            </StackLayout>
+
+            <StackLayout visibility="{{ compactVisibility }}">
+                <StackLayout class="card m-t-12">
+                    <Label text="VOICE" class="section-label" />
+                    <StackLayout visibility="{{ voiceVisibility }}">
+                        <Label text="{{ voiceSummaryLabel }}" class="m-t-8" textWrap="true" />
+                        <Label text="STT · {{ voiceProviderLabel }}" class="muted m-t-4" textWrap="true" />
+                        <Label text="Capture · {{ captureStateLabel }}" class="muted" />
+                    </StackLayout>
+                    <Label text="Voice telemetry is not exposed by this backend." class="muted m-t-8" textWrap="true" visibility="{{ voiceUnavailableVisibility }}" />
+                </StackLayout>
+                <StackLayout class="card m-t-12">
+                    <Label text="USAGE" class="section-label" />
+                    <StackLayout visibility="{{ usageVisibility }}">
+                        <Label text="Today" class="muted m-t-8" /><Label text="{{ dayUsageLabel }}" textWrap="true" />
+                        <Label text="7 days" class="muted m-t-8" /><Label text="{{ weekUsageLabel }}" textWrap="true" />
+                    </StackLayout>
+                    <Label text="Token and cost summaries are not exposed by this backend." class="muted m-t-8" textWrap="true" visibility="{{ usageUnavailableVisibility }}" />
+                </StackLayout>
+            </StackLayout>
+            <GridLayout columns="*,*" class="m-t-12 hermes-two-column" visibility="{{ wideVisibility }}">
+                <StackLayout col="0" class="card hermes-half-card">
+                    <Label text="VOICE" class="section-label" />
+                    <StackLayout visibility="{{ voiceVisibility }}">
+                        <Label text="{{ voiceSummaryLabel }}" class="m-t-8" textWrap="true" />
+                        <Label text="STT · {{ voiceProviderLabel }}" class="muted m-t-4" textWrap="true" />
+                        <Label text="Capture · {{ captureStateLabel }}" class="muted" />
+                    </StackLayout>
+                    <Label text="Voice telemetry is not exposed by this backend." class="muted m-t-8" textWrap="true" visibility="{{ voiceUnavailableVisibility }}" />
+                </StackLayout>
+                <StackLayout col="1" class="card hermes-half-card">
+                    <Label text="USAGE" class="section-label" />
+                    <StackLayout visibility="{{ usageVisibility }}">
+                        <Label text="Today" class="muted m-t-8" /><Label text="{{ dayUsageLabel }}" textWrap="true" />
+                        <Label text="7 days" class="muted m-t-8" /><Label text="{{ weekUsageLabel }}" textWrap="true" />
+                    </StackLayout>
+                    <Label text="Token and cost summaries are not exposed by this backend." class="muted m-t-8" textWrap="true" visibility="{{ usageUnavailableVisibility }}" />
+                </StackLayout>
+            </GridLayout>
+
+            <StackLayout class="card m-t-12">
+                <Label text="RECENT TOOL ACTIVITY" class="section-label" />
+                <Repeater items="{{ activity }}" visibility="{{ activityVisibility }}">
+                    <Repeater.itemTemplate><GridLayout columns="*,auto" class="hermes-activity-row"><Label col="0" text="{{ label }}" textWrap="true" /><Label col="1" text="{{ detail }}" class="muted" /></GridLayout></Repeater.itemTemplate>
+                </Repeater>
+                <Label text="Redacted tool activity is not exposed by this backend." class="muted m-t-8" textWrap="true" visibility="{{ activityUnavailableVisibility }}" />
+            </StackLayout>
+
+            <StackLayout class="card m-t-12" visibility="{{ errorsVisibility }}">
+                <Label text="RECENT ERRORS" class="section-label" />
+                <Repeater items="{{ errors }}"><Repeater.itemTemplate><GridLayout columns="*,auto" class="hermes-activity-row"><Label col="0" text="{{ label }}" textWrap="true" /><Label col="1" text="{{ detail }}" class="muted" /></GridLayout></Repeater.itemTemplate></Repeater>
+            </StackLayout>
+        </StackLayout>
+    </ScrollView>
+</Page>

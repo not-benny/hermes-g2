@@ -19,6 +19,8 @@ export class PrivateBridgeConnection {
   #createTurn;
   #triggerPhrase;
   #onAuthenticated;
+  #companionEndpoint;
+  #companionAttached = false;
   #authenticated = false;
   #retired = false;
   #closed = false;
@@ -27,18 +29,23 @@ export class PrivateBridgeConnection {
   #client;
 
   constructor({ expectedToken, connectionGeneration, send, closeSocket, adapter = null, createTurn = null,
-    triggerPhrase = "open private living room controls", onAuthenticated = async () => {} }) {
+    companionEndpoint = null, triggerPhrase = "open private living room controls", onAuthenticated = async () => {} }) {
     if (typeof expectedToken !== "string" || expectedToken.length < 16 || typeof send !== "function" ||
         typeof closeSocket !== "function" || typeof onAuthenticated !== "function") {
       throw new Error("private bridge connection configuration is invalid");
     }
     if (!createTurn && !adapter) throw new Error("private bridge requires a Home Assistant adapter");
+    if (companionEndpoint && (typeof companionEndpoint.attach !== "function" ||
+        typeof companionEndpoint.detach !== "function" || typeof companionEndpoint.handleCommand !== "function")) {
+      throw new Error("private bridge companion endpoint is invalid");
+    }
     this.#expectedToken = expectedToken;
     this.#connectionGeneration = String(connectionGeneration);
     this.#send = send;
     this.#closeSocket = closeSocket;
     this.#triggerPhrase = triggerPhrase;
     this.#onAuthenticated = onAuthenticated;
+    this.#companionEndpoint = companionEndpoint;
     this.#createTurn = createTurn ?? (({ phone }) => {
       const runtime = new DynamicGlassesRuntime({ adapter, phone });
       return new PrivateDynamicHaTurn({ runtime, phone });
@@ -64,7 +71,21 @@ export class PrivateBridgeConnection {
       await this.#onAuthenticated();
       if (this.#retired) return false;
       this.#authenticated = true;
-      this.#send({ v: 1, chan: "ctl", type: "hello-ack", version: 1, serverName: "private-dynamic-ha-evaluation" });
+      const companionEnabled = Boolean(this.#companionEndpoint && frame.capabilities.includes("hermes-companion-v1"));
+      this.#send({ v: 1, chan: "ctl", type: "hello-ack", version: 1, serverName: "private-dynamic-ha-evaluation",
+        ...(companionEnabled ? { capabilities: ["hermes-companion-v1"] } : {}) });
+      if (companionEnabled) {
+        try {
+          this.#companionEndpoint.attach(this.#connectionGeneration, (projected) => {
+            if (!this.#retired && this.#authenticated) this.#send(projected);
+          });
+          this.#companionAttached = true;
+        } catch {
+          this.#retired = true;
+          this.#closeSocket(1011, "companion endpoint unavailable");
+          return false;
+        }
+      }
       return true;
     }
     if (frame.chan === "ctl" && frame.type === "ping") {
@@ -74,6 +95,10 @@ export class PrivateBridgeConnection {
     if (frame.chan === "mcp") {
       if (!this.#active || (frame.turnId !== undefined && frame.turnId !== this.#active.turnId)) return false;
       return this.#active.client.receive(frame.msg);
+    }
+    if (frame.chan === "companion") {
+      if (!this.#companionAttached) return false;
+      return this.#companionEndpoint.handleCommand(frame, this.#connectionGeneration);
     }
     if (frame.chan !== "chat" || typeof frame.turnId !== "string" || !/^[A-Za-z0-9._-]{1,80}$/.test(frame.turnId)) return false;
     if (frame.type === "cancel") {
@@ -109,6 +134,10 @@ export class PrivateBridgeConnection {
     if (this.#closed) return;
     this.#closed = true;
     this.#retired = true;
+    if (this.#companionAttached) {
+      this.#companionEndpoint.detach(this.#connectionGeneration);
+      this.#companionAttached = false;
+    }
     if (this.#active) {
       this.#active.controller.abort();
       this.#client.close(reason);

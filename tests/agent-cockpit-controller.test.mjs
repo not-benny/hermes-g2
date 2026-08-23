@@ -75,7 +75,7 @@ test("question answers and permission decisions send only store-issued exact han
 test("authenticated bridge multiplexes cockpit frames and retires authority on disconnect", () => {
   const bridge = readFileSync(new URL("../app/assistant/bridge-client.ts", import.meta.url), "utf8");
   assert.match(bridge, /readonly cockpit = new AgentCockpitController/);
-  assert.match(bridge, /capabilities: \["chat", "mcp", "cockpit-v1"\]/);
+  assert.match(bridge, /capabilities: \["chat", "mcp", "cockpit-v1", "hermes-companion-v1"\]/);
   assert.match(bridge, /case "cockpit":\s*\n\s*if \(!this\.requireAuthenticated\(generation\)\) return;\s*\n\s*this\.cockpit\.handleFrame\(frame\)/);
   assert.match(bridge, /this\.cockpit\.disconnect\(\)/);
   assert.match(bridge, /chan: "cockpit"/);
