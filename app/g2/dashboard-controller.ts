@@ -1017,7 +1017,10 @@ class DashboardController {
 
     const addresses = loadDeviceAddresses();
     const ringIdentity = addresses.ring;
-    const isRingIdentityCurrent = () => Boolean(ringIdentity) && loadDeviceAddresses().ring === ringIdentity;
+    let communicator: FaceclawCommunicatorBridge | null = null;
+    const isRingIdentityCurrent = () => Boolean(ringIdentity) &&
+      communicator !== null && this.communicator === communicator &&
+      loadDeviceAddresses().ring === ringIdentity;
     shell.setRingConfigured(isValidMacAddress(addresses.ring));
     if (!addresses.right || !addresses.left) {
       const message = "Configure both left and right arm MAC addresses before connecting.";
@@ -1044,7 +1047,6 @@ class DashboardController {
       `Using configured arms: R=${addresses.right} L=${addresses.left}${addresses.ring ? ` ring=${addresses.ring}` : ""}`,
     );
 
-    let communicator: FaceclawCommunicatorBridge | null = null;
     this.faceclawWakeLeaseSupported = false;
     this.faceclawWakeLeaseState = null;
     this.wearNotifySupported = false;

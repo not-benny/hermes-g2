@@ -25,6 +25,7 @@ test("the status bar keeps a configured R1 visible and shares every valid batter
   assert.match(bridge, /ringBattery:/);
   assert.match(controller, /loadBattery\(ringIdentity\)/);
   assert.match(controller, /isRingIdentityCurrent/);
+  assert.match(controller, /const isRingIdentityCurrent = \(\) =>[\s\S]*communicator !== null && this\.communicator === communicator[\s\S]*loadDeviceAddresses\(\)\.ring === ringIdentity/);
   assert.match(controller, /await ensureBlePermissions\(\);[\s\S]*loadDeviceAddresses\(\)\.ring !== ringIdentity[\s\S]*throw new Error/);
   assert.match(controller, /onRingHealthFrame\([\s\S]*if \(!isRingIdentityCurrent\(\)\) return;[\s\S]*ingestFrame/);
   assert.match(controller, /onBatteryState\([\s\S]*this\.communicator !== communicator[\s\S]*isRingIdentityCurrent\(\)[\s\S]*ringHealthStore\.updateBatteryPercent\(state\.ringBattery\)[\s\S]*ring: isRingIdentityCurrent\(\)/);
