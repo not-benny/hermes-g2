@@ -48,6 +48,11 @@ The second frozen review passed UI/spec scope but found one remaining file gate:
 a bookmarked root could itself be a symlink. The final rework rejects symbolic
 bookmark roots both while collecting results and immediately before opening;
 the synthetic regression proves neither symbolic roots nor entries publish.
+Final independent review of frozen code SHA
+`3b19b941911123efd7a16022ea6c3b48b5063258` returned **Static review: PASS**
+with every notification, file-confinement, timeout, cancellation, in-flight
+action and hostile-getter blocker closed. **Operational authorization: NO-GO**
+remains only because connected-G2 runtime evidence is unavailable.
 
 After a clean `npm ci`, the full host suite passes 396/396; NativeScript Android
 preparation, TypeScript, and the JDK 21 / SDK 35 build pass. The
