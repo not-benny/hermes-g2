@@ -78,10 +78,13 @@ test("phone UI has bounded readable content and accessible touch targets", () =>
   assert.match(read("app/phone-ui/glasses-controls-page.xml"), /class="[^"]*phone-content/);
 });
 
-test("portrait and wide glasses controls both keep gesture labels on one line", () => {
+test("portrait and wide glasses controls reserve enough width for single-line gesture labels", () => {
   const page = read("app/phone-ui/main-page.xml");
+  const model = read("app/phone-ui/main-view-model.ts");
   const css = read("app/app.css");
+  assert.match(page, /columns="\*,320"/);
   assert.equal(page.match(/<GridLayout rows="auto,auto,auto" columns="\*,\*,\*" class="[^"]*gesture-grid[^"]*">/g)?.length, 2);
+  assert.match(model, /const sidePanelWidth = 320/);
   assert.match(css, /\.gesture-grid Button\s*\{[\s\S]*font-size:\s*13[\s\S]*padding:\s*12 4/);
 });
 

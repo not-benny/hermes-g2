@@ -66,7 +66,7 @@
                     <Button text="Allow unrestricted background usage" tap="{{ onAllowBackgroundUsageTap }}" class="-primary" />
                 </StackLayout>
             </StackLayout>
-            <GridLayout row="1" rows="auto,auto,*" columns="*,260">
+            <GridLayout row="1" rows="auto,auto,*" columns="*,320">
                 <StackLayout row="0" col="0" visibility="{{ displayPreviewVisibility }}" horizontalAlignment="left">
                     <Image
                         src="{{ displayPreview }}"

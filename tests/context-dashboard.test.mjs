@@ -197,6 +197,18 @@ test("validator rejects inherited specs and manager rejects non-positive deliver
   assert.equal(denied.ok, false);
 });
 
+test("context dashboard displaces the assistant overlay before strict lens delivery", () => {
+  const layers = readFileSync(new URL("../app/ui/layers.ts", import.meta.url), "utf8");
+  const shell = readFileSync(new URL("../app/ui/shell/shell.ts", import.meta.url), "utf8");
+  assert.match(layers, /detach\(target: Layer\): boolean/);
+  assert.match(shell, /private detachedAssistantLayer: AssistantLayer \| null = null/);
+  assert.match(shell, /const displacedAssistant = contextState\.dashboardId \? this\.assistantLayer : null/);
+  assert.match(shell, /this\.stack\.detach\(displacedAssistant\)/);
+  assert.match(shell, /this\.detachedAssistantLayer = displacedAssistant/);
+  assert.match(shell, /detachedAssistant\?\.onRemoved\(\)/);
+  assert.match(shell, /assistantRetained: this\.detachedAssistantLayer === displacedAssistant/);
+});
+
 test("ring scroll advances through departure rows before reaching fixed local actions", async () => {
   const { manager } = setup();
   const begun = JSON.parse((await manager.begin({ operation_id: "scroll", dashboard_key: baseSpec.dashboard_key, title: baseSpec.title, privacy: "private",

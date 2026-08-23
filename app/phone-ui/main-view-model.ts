@@ -128,7 +128,7 @@ export class MainViewModel extends Observable {
     // Height keeps the vertical footprint the preview had at the old 2:1
     // aspect; the width is derived from it, so a wider lens aspect can't
     // grow the preview past the side panel.
-    const sidePanelWidth = 260;
+    const sidePanelWidth = 320;
     const availableWidth = Math.max(240, Math.floor(this._windowWidth - sidePanelWidth - 56));
     return Math.floor(availableWidth / 2);
   }

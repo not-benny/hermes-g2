@@ -15,6 +15,28 @@ const MCP_PROTOCOL_VERSION = "2025-06-18";
 /** Proactive display actions are rate-limited to this many per minute. */
 const PROACTIVE_CALLS_PER_MINUTE = 6;
 
+function createAbortController(): AbortController {
+  const NativeController = (globalThis as any).AbortController;
+  if (typeof NativeController === "function") return new NativeController();
+  const listeners = new Set<() => void>();
+  const signal = {
+    aborted: false,
+    addEventListener(type: string, listener: () => void) { if (type === "abort") listeners.add(listener); },
+    removeEventListener(type: string, listener: () => void) { if (type === "abort") listeners.delete(listener); },
+  } as unknown as AbortSignal;
+  return {
+    signal,
+    abort() {
+      if (signal.aborted) return;
+      (signal as unknown as { aborted: boolean }).aborted = true;
+      for (const listener of [...listeners]) {
+        try { listener(); } catch { /* one bad listener must not block cancellation */ }
+      }
+      listeners.clear();
+    },
+  } as AbortController;
+}
+
 export type McpServerOptions = {
   send: (msg: object) => void;
   /** Whether a voice turn is currently in flight (calls outside one are "proactive"). */
@@ -136,7 +158,7 @@ export class AssistantMcpServer {
     authorization?: McpCallAuthorization,
   ): Promise<void> {
     const epoch = this.epoch;
-    const callController = new AbortController();
+    const callController = createAbortController();
     this.activeCallControllers.set(requestKey, callController);
     try {
       const name = typeof params?.name === "string" ? params.name : "";

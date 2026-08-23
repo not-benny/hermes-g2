@@ -95,6 +95,28 @@ export type CallToolOptions = {
 
 const DEFAULT_TOOL_TIMEOUT_MS = 10_000;
 
+function createAbortController(): AbortController {
+  const NativeController = (globalThis as any).AbortController;
+  if (typeof NativeController === "function") return new NativeController();
+  const listeners = new Set<() => void>();
+  const signal = {
+    aborted: false,
+    addEventListener(type: string, listener: () => void) { if (type === "abort") listeners.add(listener); },
+    removeEventListener(type: string, listener: () => void) { if (type === "abort") listeners.delete(listener); },
+  } as unknown as AbortSignal;
+  return {
+    signal,
+    abort() {
+      if (signal.aborted) return;
+      (signal as unknown as { aborted: boolean }).aborted = true;
+      for (const listener of [...listeners]) {
+        try { listener(); } catch { /* one bad listener must not block cancellation */ }
+      }
+      listeners.clear();
+    },
+  } as AbortController;
+}
+
 /** One registration as seen by the shell's tool-debug dialog. */
 export type ToolDebugEntry = {
   spec: ToolSpec;
@@ -276,7 +298,7 @@ export class ToolRegistry {
     if (preflight) return preflight;
     const registration = this.registrations.get(name)!;
     const timeoutMs = registration.spec.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
-    const controller = new AbortController();
+    const controller = createAbortController();
     const abortFromOwner = () => controller.abort();
     try {
       options.signal?.addEventListener("abort", abortFromOwner, { once: true });
