@@ -35,12 +35,12 @@ export type LayerActions = {
    * With `endpointing`, the capture also ends itself when the speaker stops
    * (hands-free); otherwise it runs until stopVoiceCapture.
    */
-  startVoiceCapture: (endpointing?: boolean) => Promise<void> | void;
-  /** Stop push-to-talk; for a cloud provider this also commits for a final result. */
-  stopVoiceCapture: () => Promise<void> | void;
-  /** Start continuous capture (Transcribe); shares the mic with push-to-talk. */
-  startContinuousVoiceCapture: () => Promise<void> | void;
-  stopContinuousVoiceCapture: () => Promise<void> | void;
+  startVoiceCapture: (endpointing?: boolean) => number;
+  /** Finish (commit=true) or cancel the exact capture generation. */
+  stopVoiceCapture: (generation: number, commit: boolean) => Promise<void> | void;
+  /** Start isolated continuous capture (Transcribe). */
+  startContinuousVoiceCapture: () => number;
+  stopContinuousVoiceCapture: (generation: number) => Promise<void> | void;
   /** Play a CFW tone-sequencer payload (see sound-effects.ts). */
   playBuzzerSequence: (payload: Uint8Array) => Promise<void> | void;
 };
@@ -51,9 +51,9 @@ export const noopLayerActions: LayerActions = {
   disconnect: () => {},
   startTextSettingEdit: () => {},
   endTextSettingEdit: () => {},
-  startVoiceCapture: () => {},
+  startVoiceCapture: () => 0,
   stopVoiceCapture: () => {},
-  startContinuousVoiceCapture: () => {},
+  startContinuousVoiceCapture: () => 0,
   stopContinuousVoiceCapture: () => {},
   playBuzzerSequence: () => {},
 };
