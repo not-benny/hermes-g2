@@ -25,3 +25,9 @@ licence files under `app/fonts/terminus/` and `app/fonts/terminusv/`.
 
 Hermes G2 remains GPL-3.0 software and retains applicable upstream copyright,
 licence, and attribution notices.
+
+Faceclaw EvenHub compatibility research at upstream commit `6e4ece5` informed
+the local package, bridge, permission, and lifecycle vocabulary. Hermes does
+not copy the upstream WebView, store client, EHPK parser, sensor routers, or
+credential handling; the shipped Local Counter and fail-closed interpreter are
+new GPL-3.0-only implementations.
