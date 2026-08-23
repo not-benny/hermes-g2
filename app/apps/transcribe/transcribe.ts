@@ -25,7 +25,7 @@ import { Layer, type DashboardInputEvent, type LayerContext } from "../../ui/lay
 import { truncateText } from "../../graphics/textwrap";
 
 export type TranscribeLayerOptions = {
-  startCapture: () => void;
+  startCapture: () => Promise<number | null>;
   stopCapture: () => void;
 };
 
@@ -41,6 +41,8 @@ export class TranscribeLayer implements Layer {
   private userPaused = false;
   private voiceInputActive = false;
   private captureRequested = false;
+  private captureGeneration: number | null = null;
+  private captureRequestId = 0;
   private historyOffset = 0;
   private status = "[STOPPED]";
   private requestRender: () => void = () => {};
@@ -56,12 +58,7 @@ export class TranscribeLayer implements Layer {
       requestRender();
     });
     this.unsubscribeStatus = voiceControlBridge.onStatus((state) => {
-      if (!this.captureRequested) return;
-      const currentGeneration = this.captions.snapshot().generation;
-      if (state.generation < currentGeneration) return;
-      if (state.generation > currentGeneration) {
-        this.captions.begin(state.generation, Date.now());
-      }
+      if (!this.captureRequested || state.generation !== this.captureGeneration) return;
       this.status = visualStatus(state.status);
       requestRender();
     });
@@ -184,8 +181,21 @@ export class TranscribeLayer implements Layer {
     const shouldCapture = this.foreground && this.screenOn && !this.userPaused && !this.voiceInputActive;
     if (shouldCapture && !this.captureRequested) {
       this.captureRequested = true;
+      this.captureGeneration = null;
       this.status = "[STARTING]";
-      this.options.startCapture();
+      const requestId = ++this.captureRequestId;
+      void this.options.startCapture().then((generation) => {
+        if (requestId !== this.captureRequestId || !this.captureRequested) return;
+        if (generation === null) {
+          this.captureRequested = false;
+          this.status = "[MIC ERROR] Capture unavailable";
+          this.requestRender();
+          return;
+        }
+        this.captureGeneration = generation;
+        this.captions.begin(generation, Date.now());
+        this.requestRender();
+      });
     } else if (!shouldCapture && this.captureRequested) {
       this.stopCapture();
     }
@@ -193,21 +203,20 @@ export class TranscribeLayer implements Layer {
 
   private stopCapture(): void {
     if (!this.captureRequested) return;
-    const generation = this.captions.snapshot().generation;
+    const generation = this.captureGeneration;
+    this.captureRequestId++;
     this.captureRequested = false;
+    this.captureGeneration = null;
     this.options.stopCapture();
-    if (this.userPaused) this.captions.pause(generation);
-    else this.captions.stop(generation);
+    if (generation !== null) {
+      if (this.userPaused) this.captions.pause(generation);
+      else this.captions.stop(generation);
+    }
     this.status = this.userPaused ? "[PAUSED]" : "[STOPPED]";
   }
 
   private onTranscript(event: VoiceTranscriptEvent): void {
-    if (!this.captureRequested) return;
-    const currentGeneration = this.captions.snapshot().generation;
-    if (event.generation < currentGeneration) return;
-    if (event.generation > currentGeneration) {
-      this.captions.begin(event.generation, event.receivedAtMs);
-    }
+    if (!this.captureRequested || event.generation !== this.captureGeneration) return;
     this.captions.apply({ type: "transcript", ...event });
     if (this.historyOffset === 0) this.historyOffset = 0;
   }

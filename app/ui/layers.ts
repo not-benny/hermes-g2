@@ -39,7 +39,7 @@ export type LayerActions = {
   /** Stop push-to-talk; for a cloud provider this also commits for a final result. */
   stopVoiceCapture: () => Promise<void> | void;
   /** Start continuous capture (Transcribe); shares the mic with push-to-talk. */
-  startContinuousVoiceCapture: () => Promise<void> | void;
+  startContinuousVoiceCapture: () => Promise<number | null> | number | null;
   stopContinuousVoiceCapture: () => Promise<void> | void;
   /** Play a CFW tone-sequencer payload (see sound-effects.ts). */
   playBuzzerSequence: (payload: Uint8Array) => Promise<void> | void;
@@ -53,7 +53,7 @@ export const noopLayerActions: LayerActions = {
   endTextSettingEdit: () => {},
   startVoiceCapture: () => {},
   stopVoiceCapture: () => {},
-  startContinuousVoiceCapture: () => {},
+  startContinuousVoiceCapture: () => null,
   stopContinuousVoiceCapture: () => {},
   playBuzzerSequence: () => {},
 };

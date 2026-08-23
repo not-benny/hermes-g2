@@ -37,7 +37,7 @@ const MIC_ICON = imageFromAsciiArt(
 
 export type TranscribeAppOptions = InProcessAppOptions & {
   /** Begin continuous mic capture (kept on while the window is open). */
-  startContinuousVoiceCapture: () => void;
+  startContinuousVoiceCapture: () => Promise<number | null>;
   stopContinuousVoiceCapture: () => void;
 };
 
@@ -47,9 +47,11 @@ export type TranscribeAppOptions = InProcessAppOptions & {
  * shows a microphone tray icon in the top bar.
  */
 export function createTranscribeAppWindow(options: TranscribeAppOptions): InProcessWindow {
-  const startCapture = () => {
-    options.startContinuousVoiceCapture();
+  const startCapture = async () => {
+    const generation = await options.startContinuousVoiceCapture();
+    if (generation === null) return null;
     shell.setTrayIcon(TRAY_ICON_ID, MIC_ICON);
+    return generation;
   };
   const stopCapture = () => {
     options.stopContinuousVoiceCapture();

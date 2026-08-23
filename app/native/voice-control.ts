@@ -115,8 +115,8 @@ export class FaceclawVoiceControlBridge {
   }
 
   /** Begin continuous capture (Transcribe): the mic stays on until released. */
-  startContinuousCapture(options: PushToTalkOptions): void {
-    this.acquireCapture("continuous", options);
+  startContinuousCapture(options: PushToTalkOptions): number | null {
+    return this.acquireCapture("continuous", options);
   }
 
   stopContinuousCapture(): void {
@@ -127,15 +127,15 @@ export class FaceclawVoiceControlBridge {
     return this.captureHolders.has("continuous");
   }
 
-  private acquireCapture(holder: CaptureHolder, options: PushToTalkOptions): void {
-    if (!global.isAndroid) return;
-    if (this.captureHolders.has(holder)) return;
+  private acquireCapture(holder: CaptureHolder, options: PushToTalkOptions): number | null {
+    if (!global.isAndroid) return null;
+    if (this.captureHolders.has(holder)) return this.activeGeneration;
     if (this.captureHolders.size > 0) {
       // Fail closed rather than sharing providers/transcripts between assistant
       // PTT and accessibility captions. The shell normally preempts captions
       // first; this guard owns races and future alternate callers.
       this.setStatus("Voice capture busy; stop the active capture first.");
-      return;
+      return null;
     }
     const generation = ++this.activeGeneration;
     let cloudClient: CloudSttClient | null = null;
@@ -152,6 +152,7 @@ export class FaceclawVoiceControlBridge {
       this.controller?.start(cloudClient ? "cloud" : "onboard");
       this.started = true;
       this.captureHolders.add(holder);
+      return generation;
     } catch {
       this.activeGeneration++;
       this.started = false;
@@ -160,6 +161,7 @@ export class FaceclawVoiceControlBridge {
       try { cloudClient?.stop(); } catch { /* construction/start failed */ }
       if (this.cloudClient === cloudClient) this.cloudClient = null;
       this.setStatus("Voice capture failed to start.");
+      return null;
     }
   }
 

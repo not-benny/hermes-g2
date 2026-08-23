@@ -290,7 +290,7 @@ test("caption integration exposes foreground and screen lifecycle hooks and remo
   assert.match(windowHost, /onForegroundChanged/);
   assert.match(windowHost, /onScreenChanged/);
   assert.match(windowHost, /onVoiceInputChanged/);
-  assert.match(transcribe, /event\.generation < currentGeneration/);
+  assert.match(transcribe, /event\.generation !== this\.captureGeneration/);
 });
 
 test("phone settings are bounded, disclose cloud use, and keep vocabulary phone-only when unsupported", () => {
@@ -312,7 +312,15 @@ test("capture permission requests and provider callbacks are generation bound", 
   const shell = readFileSync(new URL("../app/ui/shell/shell.ts", import.meta.url), "utf8");
   assert.match(controller, /voiceCaptureRequestEpoch/);
   assert.match(controller, /requestEpoch !== this\.voiceCaptureRequestEpoch\[kind\]/);
+  assert.doesNotMatch(controller, /restartContinuousCaptureAfterSettingsChange\(\): void \{[\s\S]*this\.stopContinuousVoiceCapture\(\);[\s\S]*this\.startContinuousVoiceCapture\(\);/);
+  assert.match(controller, /Caption settings will apply to the next capture session/);
   assert.match(bridge, /generation !== this\.activeGeneration/);
+  const transcribe = readFileSync(new URL("../app/apps/transcribe/transcribe.ts", import.meta.url), "utf8");
+  assert.match(transcribe, /private captureGeneration: number \| null = null/);
+  assert.match(transcribe, /event\.generation !== this\.captureGeneration/);
+  assert.match(transcribe, /state\.generation !== this\.captureGeneration/);
+  assert.doesNotMatch(transcribe, /event\.generation > currentGeneration/);
+  assert.match(bridge, /startContinuousCapture\(options: PushToTalkOptions\): number \| null/);
   assert.match(bridge, /this\.cloudClient !== exactClient/);
   assert.match(bridge, /Voice capture busy; stop the active capture first/);
   assert.doesNotMatch(bridge, /still finish a dangling cloud commit/);

@@ -1514,7 +1514,7 @@ class DashboardController {
    * gate even though the audio source is the G2 mic over BLE.
    */
   private startVoiceCapture(endpointing = false): void {
-    this.beginVoiceCapture("ptt", endpointing);
+    void this.beginVoiceCapture("ptt", endpointing);
   }
 
   private stopVoiceCapture(): void {
@@ -1522,8 +1522,8 @@ class DashboardController {
     voiceControlBridge.stopPushToTalk();
   }
 
-  private startContinuousVoiceCapture(): void {
-    this.beginVoiceCapture("continuous");
+  private startContinuousVoiceCapture(): Promise<number | null> {
+    return this.beginVoiceCapture("continuous");
   }
 
   private stopContinuousVoiceCapture(): void {
@@ -1531,20 +1531,20 @@ class DashboardController {
     voiceControlBridge.stopContinuousCapture();
   }
 
-  private beginVoiceCapture(kind: "ptt" | "continuous", endpointing = false): void {
+  private async beginVoiceCapture(kind: "ptt" | "continuous", endpointing = false): Promise<number | null> {
     const requestEpoch = ++this.voiceCaptureRequestEpoch[kind];
     if (this.phase !== "connected" || !this.communicator) {
       voiceControlBridge.reportStatus("Captions unavailable: glasses disconnected.");
-      return;
+      return null;
     }
     const communicator = this.communicator;
-    void ensureVoicePermissions()
-      .then(() => {
+    try {
+      await ensureVoicePermissions();
         if (
           requestEpoch !== this.voiceCaptureRequestEpoch[kind] ||
           this.phase !== "connected" ||
           this.communicator !== communicator
-        ) return;
+        ) return null;
         const targetLanguage = captionTargetLanguageSetting.get();
         const provider = effectiveCaptionProvider(voiceProviderSetting.get(), {
           deepgram: deepgramApiKeySetting.get().trim().length > 0,
@@ -1567,21 +1567,25 @@ class DashboardController {
         };
         if (kind === "ptt") {
           voiceControlBridge.startPushToTalk(options);
+          return null;
         } else {
-          voiceControlBridge.startContinuousCapture(options);
+          return voiceControlBridge.startContinuousCapture(options);
         }
-      })
-      .catch((error) => {
-        if (requestEpoch !== this.voiceCaptureRequestEpoch[kind]) return;
+    } catch (error) {
+        if (requestEpoch !== this.voiceCaptureRequestEpoch[kind]) return null;
         this.appendLog(`voice permission failed: ${this.formatError(error)}`);
         voiceControlBridge.reportStatus("Microphone permission unavailable.");
-      });
+        return null;
+    }
   }
 
   private restartContinuousCaptureAfterSettingsChange(): void {
     if (!voiceControlBridge.isContinuousCaptureActive()) return;
-    this.stopContinuousVoiceCapture();
-    this.startContinuousVoiceCapture();
+    // Keep the exact lease stable while captions are live. Applying a provider
+    // or language change by restarting behind the Transcribe layer would leave
+    // that layer bound to the retired generation. The next ordinary lifecycle
+    // restart (pause/resume, foreground, screen, or reopen) picks up settings.
+    voiceControlBridge.reportStatus("Caption settings will apply to the next capture session.");
   }
 
   private endTextSettingEdit(): void {
