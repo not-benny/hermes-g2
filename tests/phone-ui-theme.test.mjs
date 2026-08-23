@@ -253,8 +253,15 @@ test("shell touch sizing preserves every required current tab without freezing t
   assert.equal(new Set(titles).size, titles.length, "tab titles must remain unique");
   assert.match(shell, /loaded="loaded"/);
   assert.match(shellCode, /const MIN_TAB_BAR_HEIGHT = 56;/);
-  assert.match(shellCode, /const density = Utils\.layout\.getDisplayDensity\(\);/);
-  assert.match(shellCode, /setMinimumHeight\(Math\.round\(MIN_TAB_BAR_HEIGHT \* density \* density\)\)/);
+  assert.match(shellCode, /Utils\.layout\.toDevicePixels\(MIN_TAB_BAR_HEIGHT\)/);
+  assert.match(shellCode, /setMinimumHeight\(Math\.round\(minimumHeightPixels\)\)/);
+  assert.doesNotMatch(shellCode, /density\s*\*\s*density/,
+    "high-density Fold windows must not multiply the 56-DIP tab height twice");
+  for (const density of [2, 2.625, 3, 4]) {
+    const requestedPixels = Math.round(56 * density);
+    assert.ok(Math.abs(requestedPixels / density - 56) <= 0.2,
+      `one DIP conversion must stay approximately 56 DIP at density ${density}`);
+  }
   for (const page of [
     "phone-ui/main-page",
     "phone-ui/even-health-page",

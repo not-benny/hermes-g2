@@ -13,11 +13,11 @@ export function loaded(args: EventData): void {
   const tabLayout = (tabs as any)?.nativeViewProtected?.tabLayout as
     | { setMinimumHeight(value: number): void }
     | undefined;
-  const density = Utils.layout.getDisplayDensity();
-  if (!tabLayout || !Number.isFinite(density) || density <= 0) return;
-  // NativeScript's Android TabView grid normalizes the native minimum by
-  // density once more. Compensate here so the measured row remains 56 DIP.
-  tabLayout.setMinimumHeight(Math.round(MIN_TAB_BAR_HEIGHT * density * density));
+  const minimumHeightPixels = Utils.layout.toDevicePixels(MIN_TAB_BAR_HEIGHT);
+  if (!tabLayout || !Number.isFinite(minimumHeightPixels) || minimumHeightPixels <= 0) return;
+  // Android View.setMinimumHeight accepts raw pixels. Convert the 56-DIP touch
+  // target exactly once; the native TabView grid measures that pixel value as-is.
+  tabLayout.setMinimumHeight(Math.round(minimumHeightPixels));
 }
 
 void Page;
