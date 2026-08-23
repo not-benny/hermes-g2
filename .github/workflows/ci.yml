@@ -20,6 +20,7 @@ jobs:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       HERMES_SIGNING_MODE: untrusted
+      HERMES_ARTIFACT_VARIANT: debug
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -67,12 +68,19 @@ jobs:
         run: npm run build
       - name: Verify APK integrity, privacy, and native alignment
         run: bash scripts/verify-release-artifacts.sh
-      - name: Record APK and SBOM provenance
+      - name: Build unsigned release variant and verify debug surface is absent
+        env:
+          HERMES_SIGNING_MODE: unsigned
+          HERMES_ARTIFACT_VARIANT: release
         run: |
-          apk=platforms/android/app/build/outputs/apk/debug/app-debug.apk
+          npm run verify:release-unsigned
+          bash scripts/verify-release-artifacts.sh platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
+      - name: Record release APK and SBOM provenance
+        run: |
+          apk=platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
           test -f "$apk"
           sha256sum "$apk" sbom.cdx.json whatsapp-sbom.cdx.json > SHA256SUMS
-          printf 'source=%s\nsize=%s\nsigning_mode=%s\nnode=%s\njava=%s\n' "$GITHUB_SHA" "$(stat -c %s "$apk")" "$HERMES_SIGNING_MODE" "$(node --version)" "$(java -version 2>&1 | sed -n '1p')" > PROVENANCE.txt
+          printf 'source=%s\nsize=%s\nsigning_mode=unsigned\nvariant=release\nnode=%s\njava=%s\n' "$GITHUB_SHA" "$(stat -c %s "$apk")" "$(node --version)" "$(java -version 2>&1 | sed -n '1p')" > PROVENANCE.txt
       - name: Upload untrusted validation evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:

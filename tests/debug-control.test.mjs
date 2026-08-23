@@ -26,7 +26,6 @@ function setup({ online = true } = {}) {
     wake: async () => { calls.push(["wake"]); },
     blank: async () => { calls.push(["blank"]); },
     open: async (appId) => { calls.push(["open", appId]); state.windowId = `${appId}:main`; state.windowGeneration++; },
-    input: async (event) => { calls.push(["input", event]); },
     voiceStart: async (endpointing) => { calls.push(["voiceStart", endpointing]); state.voiceTest = true; state.captureGeneration++; },
     voiceStop: async () => { calls.push(["voiceStop"]); state.voiceTest = false; state.captureGeneration++; },
     fixture: async (fixture) => { calls.push(["fixture", fixture]); return { endpoint: fixture === "speech-envelope-then-silence", transcript: "empty" }; },
@@ -60,12 +59,11 @@ test("only exact versioned commands and arguments execute", async () => {
   assert.equal((await harness.dispatch(request("a-2", "display.blank"))).ok, true);
   assert.equal((await harness.dispatch(request("a-3", "window.open", { appId: "transcribe" }))).ok, true);
   const next = { ...binding, windowGeneration: 4 };
-  assert.equal((await harness.dispatch(request("a-4", "input.inject", { event: "click" }, next))).ok, true);
-  assert.equal((await harness.dispatch(request("a-5", "window.open", { appId: "universal-search" }, next))).ok, true);
+  assert.equal((await harness.dispatch(request("a-4", "window.open", { appId: "universal-search" }, next))).ok, true);
   const cockpit = { ...next, windowGeneration: 5 };
-  assert.equal((await harness.dispatch(request("a-6", "window.open", { appId: "agent-cockpit" }, cockpit))).ok, true);
+  assert.equal((await harness.dispatch(request("a-5", "window.open", { appId: "agent-cockpit" }, cockpit))).ok, true);
   assert.deepEqual(calls, [
-    ["wake"], ["blank"], ["open", "transcribe"], ["input", "click"],
+    ["wake"], ["blank"], ["open", "transcribe"],
     ["open", "universal-search"], ["open", "agent-cockpit"],
   ]);
   for (const raw of [
@@ -77,7 +75,7 @@ test("only exact versioned commands and arguments execute", async () => {
     request("bad-event", "input.inject", { event: "raw-keycode" }),
     request("bad-arg", "display.wake", { shell: "id" }),
   ]) assert.equal((await harness.dispatch(raw)).ok, false);
-  assert.equal(calls.length, 6);
+  assert.equal(calls.length, 5);
 });
 
 test("stale, offline, and replayed requests fail closed", async () => {
@@ -92,6 +90,17 @@ test("stale, offline, and replayed requests fail closed", async () => {
   assert.equal((await offline.harness.dispatch(request("off", "display.wake"))).code, "offline");
   assert.deepEqual(calls, [["wake"]]);
   assert.deepEqual(offline.calls, []);
+});
+
+test("query churn never evicts a mutating-command replay tombstone", async () => {
+  const { harness, calls } = setup();
+  assert.equal((await harness.dispatch(request("wake-once", "display.wake"))).ok, true);
+  for (let index = 0; index < 256; index++) {
+    const query = JSON.stringify({ v: 1, id: `query-${index}`, command: "state", args: {} });
+    assert.equal((await harness.dispatch(query)).ok, true);
+  }
+  assert.equal((await harness.dispatch(request("wake-once", "display.wake"))).code, "replay");
+  assert.deepEqual(calls, [["wake"]]);
 });
 
 test("voice fixtures require a live owned capture and return content-free classifications", async () => {
@@ -127,14 +136,13 @@ test("concurrent commands are serialized so generation changes make queued work 
     state: () => ({ ...state }),
     wake: async () => {}, blank: async () => {},
     open: async () => { calls.push("open"); await openGate; state = { ...state, windowId: "health:main", windowGeneration: 4 }; },
-    input: async () => { calls.push("input"); },
     voiceStart: async () => {}, voiceStop: async () => {}, fixture: async () => ({ endpoint: false, transcript: "empty" }),
   });
   const opening = harness.dispatch(request("open-race", "window.open", { appId: "health" }));
-  const input = harness.dispatch(request("input-race", "input.inject", { event: "click" }));
+  const wake = harness.dispatch(request("wake-race", "display.wake"));
   await new Promise((resolve) => setImmediate(resolve));
   releaseOpen();
   assert.equal((await opening).ok, true);
-  assert.equal((await input).code, "stale");
+  assert.equal((await wake).code, "stale");
   assert.deepEqual(calls, ["open"]);
 });

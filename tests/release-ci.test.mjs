@@ -44,6 +44,8 @@ test("untrusted pull requests cannot publish an APK as release evidence", () => 
   assert.doesNotMatch(ci, /\$\{\{ secrets\./);
   assert.doesNotMatch(ci, /Upload protected release evidence/);
   assert.match(ci, /HERMES_SIGNING_MODE: untrusted/);
+  assert.match(ci, /HERMES_ARTIFACT_VARIANT: debug/);
+  assert.match(ci, /npm run verify:release-unsigned/);
   assert.match(ci, /ANDROID_USER_HOME=%s[^\n]*RUNNER_TEMP[^\n]*hermes-untrusted-android/);
   assert.match(ci, /name: release-gate/);
   const untrustedUpload = ci.match(
@@ -65,11 +67,23 @@ test("untrusted pull requests cannot publish an APK as release evidence", () => 
   assert.match(signingJob, /\/usr\/local\/lib\/android\/sdk\/build-tools\/35\.0\.1\/apksigner/);
   assert.match(signingJob, /ANDROID_SIGNING_KEYSTORE_BASE64/);
   assert.doesNotMatch(signingJob, /actions\/checkout@|npm |gradlew|scripts\//);
-  assert.match(release, /name: Upload protected release evidence[\s\S]*app-debug\.apk/);
+  assert.match(release, /HERMES_SIGNING_MODE: unsigned/);
+  assert.match(release, /HERMES_ARTIFACT_VARIANT: release/);
+  assert.match(release, /npm run verify:release-unsigned/);
+  assert.match(release, /app-release-unsigned\.apk/);
+  assert.match(release, /name: Upload protected release evidence[\s\S]*hermes-g2-release\.apk/);
+  assert.doesNotMatch(signingJob, /app-debug\.apk/);
+  assert.match(signingJob, /verify_release_surface/);
+  assert.match(signingJob, /FaceclawDebugControlReceiver/);
+  assert.match(signingJob, /DEBUG_CONTROL_V1/);
 
   const verifier = read("scripts/verify-release-artifacts.sh");
   assert.match(verifier, /HERMES_SIGNING_MODE/);
   assert.match(verifier, /untrusted/);
+  assert.match(verifier, /unsigned/);
+  assert.match(verifier, /HERMES_ARTIFACT_VARIANT/);
+  assert.match(verifier, /FaceclawDebugControlReceiver/);
+  assert.match(verifier, /DEBUG_CONTROL_V1/);
   assert.match(verifier, /must not use the protected signing certificate/);
 });
 
@@ -88,6 +102,7 @@ test("durable PR and main CI enforce the release safety matrix", () => {
     "npm audit",
     "npm sbom",
     "npm run build",
+    "npm run verify:release-unsigned",
     "verify-release-artifacts.sh",
   ]) assert.match(ci, new RegExp(gate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(ci, /pull_request:/);

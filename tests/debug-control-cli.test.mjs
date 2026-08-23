@@ -69,3 +69,11 @@ test("malformed input, ambiguous targets, stale/offline receipts, and adb failur
     assert.deepEqual(JSON.parse(result.stdout), { ok: false, code });
   }
 });
+
+test("oversized stdin returns one bounded receipt without a runtime warning", () => {
+  const result = run("x".repeat(2050));
+  assert.equal(result.status, 2);
+  assert.deepEqual(JSON.parse(result.stdout), { ok: false, code: "malformed-input" });
+  assert.equal(result.stdout.trim().split("\n").length, 1);
+  assert.equal(result.stderr, "");
+});

@@ -10,7 +10,6 @@ type Controller = {
   snapshot(): DashboardSnapshot;
   subscribe(listener: (snapshot: DashboardSnapshot) => void): () => void;
   launchDebugAllowlistedApp(appId: string): Promise<void>;
-  injectSyntheticRingInput(event: "click" | "double-click" | "scroll-up" | "scroll-down" | "long-press" | "wakeword"): Promise<void>;
 };
 
 let installed = false;
@@ -66,9 +65,6 @@ export function registerDebugControl(controller: Controller): void {
     wake: async () => { shell.wake("sidebar"); },
     blank: async () => { shell.sleep(); },
     open: async (appId) => { await controller.launchDebugAllowlistedApp(appId); refreshWindowGeneration(); },
-    input: async (event) => {
-      await controller.injectSyntheticRingInput(event as "click" | "double-click" | "scroll-up" | "scroll-down" | "long-press" | "wakeword");
-    },
     voiceStart: async (endpointing) => {
       const context = Utils.android.getApplicationContext();
       if (!context) throw new Error("unavailable");

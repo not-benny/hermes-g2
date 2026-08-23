@@ -7,7 +7,7 @@ const MAX_REQUEST_CHARS = 2048;
 const MAX_RECEIPT_CHARS = 1024;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const COMMANDS = new Set([
-  "state", "display.wake", "display.blank", "window.open", "input.inject",
+  "state", "display.wake", "display.blank", "window.open",
   "voice.start", "voice.stop", "voice.fixture",
 ]);
 
@@ -59,13 +59,28 @@ function selectedSerial(devicesOutput, override) {
 
 const raw = await new Promise((resolve) => {
   let input = "";
+  let tooLarge = false;
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    resolve(tooLarge ? "" : input.trim());
+  };
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (chunk) => {
+    if (tooLarge) return;
     input += chunk;
-    if (input.length > MAX_REQUEST_CHARS + 1) process.stdin.destroy();
+    if (input.length > MAX_REQUEST_CHARS) {
+      tooLarge = true;
+      input = "";
+    }
   });
-  process.stdin.on("end", () => resolve(input.trim()));
-  process.stdin.on("error", () => resolve(""));
+  process.stdin.on("end", finish);
+  process.stdin.on("close", finish);
+  process.stdin.on("error", () => {
+    tooLarge = true;
+    finish();
+  });
 });
 
 if (!validRequest(raw)) {

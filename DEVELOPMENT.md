@@ -96,9 +96,13 @@ HERMES_G2_ADB_SERIAL='192.0.2.10:37123' \
 node scripts/hermes-g2-debug-control.mjs --serial '192.0.2.10:37123' < request.json
 ```
 
-The allowlist is limited to display wake/blank, fixed launcher app IDs, synthetic
-ring gestures, and two procedural voice fixtures. There is no arbitrary intent,
-shell, path, URL, keycode, PCM, file, transcript, token, or credential input.
+The allowlist is limited to display wake/blank, fixed launcher app IDs, and two
+procedural voice fixtures. It deliberately exposes no synthetic wearer input:
+clicks, scrolls, long presses, and wakewords can redirect as UI focus changes or
+start production microphone capture. There is no arbitrary intent, shell, path,
+URL, keycode, PCM, file, transcript, token, or credential input. Mutating request
+IDs remain tombstoned for the whole connected debug session; read-only query
+churn cannot evict them, and a full mutation ledger fails closed.
 Receipts contain only bounded state and `empty`/`nonempty` transcript classes.
 Fixtures are generated in memory and traverse the production endpoint detector
 and Moonshine recognizer; neither samples nor recognized content are logged.
@@ -121,11 +125,14 @@ fail closed when credentials are absent. Do not create a verification keystore.
 Inspect the generated release merged manifest and unsigned APK for
 `FaceclawDebugControlReceiver`, `com.faceclaw.app.DEBUG_CONTROL_V1`, and
 `android.permission.DUMP`; all three must be absent.
+The protected main workflow signs that verified release artifact, never the
+debug APK, and repeats the manifest, debuggable, and DEX surface checks both
+before and after signing without checking out repository code beside secrets.
 
 TDD evidence for this feature: the protocol/source-set tests were first recorded
 RED with missing `app/debug/control-protocol.ts`; the CLI suite was recorded RED
 with `MODULE_NOT_FOUND` for `scripts/hermes-g2-debug-control.mjs`; and the
-concurrency regression was recorded RED when a queued old-generation input
+concurrency regression was recorded RED when a queued old-generation command
 executed instead of returning `stale`. The implementation then produced GREEN
 focused suites, followed by the full host suite, typecheck, and both Android
 variants. No hardware action is part of this build-time harness validation.

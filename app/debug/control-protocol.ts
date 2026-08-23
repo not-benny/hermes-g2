@@ -16,7 +16,6 @@ export type DebugControlDependencies = {
   wake(): Promise<void>;
   blank(): Promise<void>;
   open(appId: string): Promise<void>;
-  input(event: string): Promise<void>;
   voiceStart(endpointing: boolean): Promise<void>;
   voiceStop(): Promise<void>;
   fixture(fixture: string): Promise<DebugFixtureResult>;
@@ -25,7 +24,7 @@ export type DebugControlDependencies = {
 type RecordValue = Record<string, unknown>;
 
 const COMMANDS = new Set([
-  "state", "display.wake", "display.blank", "window.open", "input.inject",
+  "state", "display.wake", "display.blank", "window.open",
   "voice.start", "voice.stop", "voice.fixture",
 ]);
 const APPS = new Set([
@@ -34,12 +33,12 @@ const APPS = new Set([
   "roam", "blocks", "minesweeper", "freecell", "pinball", "debug-tests", "settings",
   "universal-search", "agent-cockpit",
 ]);
-const EVENTS = new Set(["click", "double-click", "scroll-up", "scroll-down", "long-press", "wakeword"]);
 const FIXTURES = new Set(["silence-1s", "speech-envelope-then-silence"]);
 const BASE_KEYS = ["v", "id", "command", "processGeneration", "sessionGeneration", "windowGeneration", "captureGeneration", "args"];
 const QUERY_KEYS = ["v", "id", "command", "args"];
 const MAX_ENVELOPE_CHARS = 2048;
-const MAX_REPLAY_IDS = 128;
+const MAX_QUERY_REPLAY_IDS = 128;
+const MAX_MUTATION_REPLAY_IDS = 1024;
 
 function object(value: unknown): value is RecordValue {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -56,14 +55,15 @@ function failure(code: string): RecordValue {
 }
 
 export class DebugControlHarness {
-  private readonly seen = new Set<string>();
-  private readonly seenOrder: string[] = [];
+  private readonly mutationSeen = new Set<string>();
+  private readonly querySeen = new Set<string>();
+  private readonly querySeenOrder: string[] = [];
   private queue: Promise<void> = Promise.resolve();
 
   constructor(private readonly deps: DebugControlDependencies) {}
 
   replaySize(): number {
-    return this.seen.size;
+    return this.mutationSeen.size + this.querySeen.size;
   }
 
   async cleanup(): Promise<void> {
@@ -76,8 +76,9 @@ export class DebugControlHarness {
     if (this.deps.state().voiceTest) {
       try { await this.deps.voiceStop(); } catch { /* fail closed during teardown */ }
     }
-    this.seen.clear();
-    this.seenOrder.length = 0;
+    this.mutationSeen.clear();
+    this.querySeen.clear();
+    this.querySeenOrder.length = 0;
   }
 
   async dispatch(raw: string): Promise<RecordValue> {
@@ -96,11 +97,11 @@ export class DebugControlHarness {
     const query = value.command === "state";
     if (!exactKeys(value, query ? QUERY_KEYS : BASE_KEYS) || !object(value.args)) return failure("malformed");
     if (typeof value.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value.id)) return failure("malformed");
-    if (this.seen.has(value.id)) return failure("replay");
+    if (this.mutationSeen.has(value.id) || this.querySeen.has(value.id)) return failure("replay");
 
     const args = value.args;
     if (!this.validArgs(value.command, args)) return failure("malformed");
-    this.remember(value.id);
+    if (!this.remember(value.id, query)) return failure("capacity");
     const current = this.deps.state();
     if (query) return { ok: true, command: "state", state: current };
     if (!this.boundTo(value, current)) return failure("stale");
@@ -115,7 +116,6 @@ export class DebugControlHarness {
         case "display.wake": await this.deps.wake(); break;
         case "display.blank": await this.deps.blank(); break;
         case "window.open": await this.deps.open(args.appId as string); break;
-        case "input.inject": await this.deps.input(args.event as string); break;
         case "voice.start": await this.deps.voiceStart(args.endpointing as boolean); break;
         case "voice.stop": await this.deps.voiceStop(); break;
         case "voice.fixture": result = await this.deps.fixture(args.fixture as string); break;
@@ -135,7 +135,6 @@ export class DebugControlHarness {
       case "display.blank":
       case "voice.stop": return exactKeys(args, []);
       case "window.open": return exactKeys(args, ["appId"]) && typeof args.appId === "string" && APPS.has(args.appId);
-      case "input.inject": return exactKeys(args, ["event"]) && typeof args.event === "string" && EVENTS.has(args.event);
       case "voice.start": return exactKeys(args, ["endpointing"]) && typeof args.endpointing === "boolean";
       case "voice.fixture": return exactKeys(args, ["fixture"]) && typeof args.fixture === "string" && FIXTURES.has(args.fixture);
       default: return false;
@@ -149,12 +148,18 @@ export class DebugControlHarness {
       request.captureGeneration === state.captureGeneration;
   }
 
-  private remember(id: string): void {
-    this.seen.add(id);
-    this.seenOrder.push(id);
-    if (this.seenOrder.length > MAX_REPLAY_IDS) {
-      const oldest = this.seenOrder.shift();
-      if (oldest) this.seen.delete(oldest);
+  private remember(id: string, query: boolean): boolean {
+    if (!query) {
+      if (this.mutationSeen.size >= MAX_MUTATION_REPLAY_IDS) return false;
+      this.mutationSeen.add(id);
+      return true;
     }
+    this.querySeen.add(id);
+    this.querySeenOrder.push(id);
+    if (this.querySeenOrder.length > MAX_QUERY_REPLAY_IDS) {
+      const oldest = this.querySeenOrder.shift();
+      if (oldest) this.querySeen.delete(oldest);
+    }
+    return true;
   }
 }

@@ -20,7 +20,8 @@ jobs:
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-      HERMES_SIGNING_MODE: untrusted
+      HERMES_SIGNING_MODE: unsigned
+      HERMES_ARTIFACT_VARIANT: release
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -64,16 +65,16 @@ jobs:
         run: |
           npm sbom --sbom-format=cyclonedx > sbom.cdx.json
           npm --prefix App_Resources/Android/whatsapp-node sbom --sbom-format=cyclonedx > whatsapp-sbom.cdx.json
-      - name: Android JDK 21 / SDK 35 build without release credentials
-        run: npm run build
-      - name: Verify unsigned-build integrity, privacy, and native alignment
-        run: bash scripts/verify-release-artifacts.sh
+      - name: Android JDK 21 / SDK 35 unsigned release build
+        run: npm run verify:release-unsigned
+      - name: Verify unsigned release integrity, privacy, and debug-surface exclusion
+        run: bash scripts/verify-release-artifacts.sh platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
       - name: Upload isolated signing input
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: hermes-g2-unsigned-${{ github.sha }}
           path: |
-            platforms/android/app/build/outputs/apk/debug/app-debug.apk
+            platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
             sbom.cdx.json
             whatsapp-sbom.cdx.json
             build/reports/native-alignment.txt
@@ -104,16 +105,48 @@ jobs:
             printf 'Protected Android signing credentials are required and must be complete.\n' >&2
             exit 1
           fi
-          apk=signing-input/platforms/android/app/build/outputs/apk/debug/app-debug.apk
-          if [[ ! -f "$apk" || -L "$apk" ]]; then
+          input=signing-input/platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          apk=signing-input/hermes-g2-release.apk
+          if [[ ! -f "$input" || -L "$input" ]]; then
             printf 'Isolated signing input is missing or invalid.\n' >&2
             exit 1
           fi
           APKSIGNER=/usr/local/lib/android/sdk/build-tools/35.0.1/apksigner
-          if [[ ! -x "$APKSIGNER" ]]; then
-            printf 'Pinned apksigner is unavailable.\n' >&2
+          AAPT=/usr/local/lib/android/sdk/build-tools/35.0.1/aapt
+          if [[ ! -x "$APKSIGNER" || ! -x "$AAPT" ]]; then
+            printf 'Pinned Android artifact tools are unavailable.\n' >&2
             exit 1
           fi
+          if "$APKSIGNER" verify "$input" >/dev/null 2>&1; then
+            printf 'Signing input must be the verified unsigned release artifact.\n' >&2
+            exit 1
+          fi
+          verify_release_surface() {
+            local candidate=$1 manifest
+            manifest=$($AAPT dump xmltree "$candidate" AndroidManifest.xml)
+            for marker in FaceclawDebugControlReceiver com.faceclaw.app.DEBUG_CONTROL_V1 android.permission.DUMP; do
+              if [[ "$manifest" == *"$marker"* ]]; then
+                printf 'Release artifact exposes debug-only manifest surface: %s\n' "$marker" >&2
+                return 1
+              fi
+            done
+            if $AAPT dump badging "$candidate" | grep -F 'application-debuggable' >/dev/null; then
+              printf 'Release artifact is debuggable.\n' >&2
+              return 1
+            fi
+            python3 - "$candidate" <<'PY'
+          import sys, zipfile
+          blocked = (b"FaceclawDebugControlReceiver", b"com.faceclaw.app.DEBUG_CONTROL_V1")
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              for name in archive.namelist():
+                  if name.startswith("classes") and name.endswith(".dex"):
+                      data = archive.read(name)
+                      if any(marker in data for marker in blocked):
+                          raise SystemExit("Release artifact contains debug-only code surface")
+          PY
+          }
+          verify_release_surface "$input"
+          cp "$input" "$apk"
           umask 077
           keystore="$RUNNER_TEMP/hermes-signing.keystore"
           partial="$keystore.part"
@@ -125,6 +158,7 @@ jobs:
           mv "$partial" "$keystore"
           "$APKSIGNER" sign --ks "$keystore" --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD "$apk"
           "$APKSIGNER" verify --verbose "$apk" >/dev/null
+          verify_release_surface "$apk"
           expected=f64ccdb8d462b42c6d143cb1323350b052acebc0a5023e14d05fea86ef7766d4
           actual=$($APKSIGNER verify --print-certs "$apk" | python3 -c 'import sys
           for line in sys.stdin:
@@ -136,13 +170,13 @@ jobs:
           fi
           unzip -t "$apk" >/dev/null
           sha256sum "$apk" signing-input/sbom.cdx.json signing-input/whatsapp-sbom.cdx.json > SHA256SUMS
-          printf 'source=%s\nsize=%s\nsigning_mode=protected\n' "$GITHUB_SHA" "$(stat -c %s "$apk")" > PROVENANCE.txt
+          printf 'source=%s\nsize=%s\nsigning_mode=protected\nvariant=release\n' "$GITHUB_SHA" "$(stat -c %s "$apk")" > PROVENANCE.txt
       - name: Upload protected release evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: hermes-g2-${{ github.sha }}
           path: |
-            signing-input/platforms/android/app/build/outputs/apk/debug/app-debug.apk
+            signing-input/hermes-g2-release.apk
             SHA256SUMS
             PROVENANCE.txt
             signing-input/sbom.cdx.json

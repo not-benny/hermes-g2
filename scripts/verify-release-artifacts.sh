@@ -40,13 +40,33 @@ for tool in "$ZIPALIGN" "$AAPT" "$APKSIGNER"; do
   if [[ ! -x "$tool" ]]; then printf 'required Android build tool not found: %s\n' "$tool" >&2; exit 1; fi
 done
 
-"$APKSIGNER" verify --verbose "$APK" >/dev/null
 EXPECTED_CERT_SHA256=f64ccdb8d462b42c6d143cb1323350b052acebc0a5023e14d05fea86ef7766d4
-actual_cert=$($APKSIGNER verify --print-certs "$APK" | python3 -c 'import sys
+signing_mode=${HERMES_SIGNING_MODE:-protected}
+artifact_variant=${HERMES_ARTIFACT_VARIANT:-release}
+actual_cert=
+case "$signing_mode" in
+  protected|untrusted)
+    if ! "$APKSIGNER" verify --verbose "$APK" >/dev/null; then
+      printf 'signed APK verification failed\n' >&2
+      exit 1
+    fi
+    actual_cert=$($APKSIGNER verify --print-certs "$APK" | python3 -c 'import sys
 for line in sys.stdin:
     if "certificate SHA-256 digest:" in line:
         print(line.rsplit(":",1)[1].strip()); break')
-case "${HERMES_SIGNING_MODE:-protected}" in
+    ;;
+  unsigned)
+    if "$APKSIGNER" verify --verbose "$APK" >/dev/null 2>&1; then
+      printf 'unsigned verification APK must not carry a signing certificate\n' >&2
+      exit 1
+    fi
+    ;;
+  *)
+    printf 'unknown signing verification mode\n' >&2
+    exit 1
+    ;;
+esac
+case "$signing_mode" in
   protected)
     if [[ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]]; then
       printf 'unexpected APK signing certificate\n' >&2
@@ -59,16 +79,45 @@ case "${HERMES_SIGNING_MODE:-protected}" in
       exit 1
     fi
     ;;
-  *)
-    printf 'unknown signing verification mode\n' >&2
-    exit 1
-    ;;
 esac
 badging=$($AAPT dump badging "$APK")
 if [[ "$badging" != *"package: name='com.faceclaw.app' versionCode='1000002' versionName='1.0.0-preview.2'"* ]]; then
   printf 'unexpected APK package identity or version\n' >&2
   exit 1
 fi
+case "$artifact_variant" in
+  debug) ;;
+  release)
+    manifest=$($AAPT dump xmltree "$APK" AndroidManifest.xml)
+    for marker in FaceclawDebugControlReceiver com.faceclaw.app.DEBUG_CONTROL_V1 android.permission.DUMP; do
+      if [[ "$manifest" == *"$marker"* ]]; then
+        printf 'release APK exposes debug-only manifest surface: %s\n' "$marker" >&2
+        exit 1
+      fi
+    done
+    if [[ "$badging" == *"application-debuggable"* ]] ||
+       [[ "$manifest" =~ android:debuggable.*0xffffffff ]]; then
+      printf 'release APK is debuggable\n' >&2
+      exit 1
+    fi
+    python3 - "$APK" <<'PY'
+import sys, zipfile
+blocked = (b"FaceclawDebugControlReceiver", b"com.faceclaw.app.DEBUG_CONTROL_V1")
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    for name in archive.namelist():
+        if name.startswith("classes") and name.endswith(".dex"):
+            data = archive.read(name)
+            for marker in blocked:
+                if marker in data:
+                    print("release APK contains debug-only code surface", file=sys.stderr)
+                    raise SystemExit(1)
+PY
+    ;;
+  *)
+    printf 'unknown APK artifact variant\n' >&2
+    exit 1
+    ;;
+esac
 
 "$ZIPALIGN" -c -P 16 -v 4 "$APK" >> "$REPORT"
 
@@ -105,5 +154,5 @@ raise SystemExit(0 if loads and min(loads) >= 0x4000 else 1)'; then
   fi
 done < <(find "$tmp/lib" -type f -name '*.so' -print | sort)
 
-printf 'verified_apk=%s\nsha256=' "$APK"
+printf 'verified_apk=%s\nsigning_mode=%s\nartifact_variant=%s\nsha256=' "$APK" "$signing_mode" "$artifact_variant"
 sha256sum "$APK" | cut -d' ' -f1

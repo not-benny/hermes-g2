@@ -40,6 +40,9 @@ test("debug runtime exposes only the versioned JSON envelope and bounded content
   assert.match(runtime, /JSON\.stringify/);
   assert.doesNotMatch(runtime, /console\.|transcriptText|audioPath|credential|token/);
   assert.doesNotMatch(protocol, /intent|shell|https?:|file:|password|secret/i);
+  assert.doesNotMatch(protocol, /input\.inject|wakeword|long-press/);
+  assert.doesNotMatch(runtime, /injectSyntheticRingInput/);
+  assert.match(protocol, /MAX_MUTATION_REPLAY_IDS/);
   assert.match(dashboard, /launchDebugAllowlistedApp[\s\S]*ALL_APPS\.some/);
 });
 
