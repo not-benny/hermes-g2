@@ -58,6 +58,15 @@ final-token path and all earlier lifecycle, provider, translation, queue and
 disclosure blockers. Operational hardware authorization remains NO-GO until an
 A32/G2 is attached and the documented non-private checks run.
 
+PR [#63](https://github.com/not-benny/hermes-g2/pull/63) is open from
+`feat/live-captions-translation` to `main`. At remote head `3ba2eac`,
+`release-gate`, `codeql-javascript`, `codeql-java`, and aggregate `codeql` all
+passed. The PR is intentionally unmerged because the required serialized A32/G2
+fixture, visible live-mic, stop/clear/background, disconnect, optical
+readability, and privacy-safe logcat evidence remains unavailable. Merge only
+after that exact-candidate hardware gate passes; do not treat green CI as device
+evidence.
+
 ## Gesture, HUD, R1 battery, and Hermes bridge follow-up
 
 Work on stacked branch `feat/gesture-signal-ring` adds sleeping R1 long-press
