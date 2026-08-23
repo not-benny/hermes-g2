@@ -37,17 +37,18 @@ const MIC_ICON = imageFromAsciiArt(
 
 export type TranscribeAppOptions = InProcessAppOptions & {
   /** Begin continuous mic capture (kept on while the window is open). */
-  startContinuousVoiceCapture: () => void;
-  stopContinuousVoiceCapture: () => void;
+  startContinuousVoiceCapture: () => number;
+  stopContinuousVoiceCapture: (generation: number) => void;
 };
 
 /**
  * The Transcribe app: live speech-to-text in its own window. While open it
- * holds continuous mic capture (so push-to-talk can share the stream) and
+ * owns one isolated continuous mic generation and
  * shows a microphone tray icon in the top bar.
  */
 export function createTranscribeAppWindow(options: TranscribeAppOptions): InProcessWindow {
   const layer = new TranscribeLayer();
+  let generation = 0;
   const app = createInProcessWindow({
     appId: "transcribe",
     windowId: TRANSCRIBE_WINDOW_ID,
@@ -61,15 +62,15 @@ export function createTranscribeAppWindow(options: TranscribeAppOptions): InProc
     setSurfaceVisible: options.setSurfaceVisible,
     removeSurface: options.removeSurface,
     onClosed: () => {
-      options.stopContinuousVoiceCapture();
+      if (generation > 0) options.stopContinuousVoiceCapture(generation);
       shell.setTrayIcon(TRAY_ICON_ID, null);
       options.onClosed();
     },
   });
   // Wire async state changes to this window's renderer, rather than the
   // controller action from which the window-specific actions were derived.
-  layer.start(app.requestRender);
-  options.startContinuousVoiceCapture();
+  generation = options.startContinuousVoiceCapture();
+  layer.start(generation, app.requestRender);
   shell.setTrayIcon(TRAY_ICON_ID, MIC_ICON);
   return app;
 }
