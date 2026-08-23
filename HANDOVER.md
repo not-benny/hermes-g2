@@ -27,6 +27,12 @@ Branch `feat/contextual-g2-dashboards` supersedes the earlier HA-centric dynamic
 mutation objective. Home Assistant and other external mutations are not part of
 this release and remain a later separately authorized project.
 
+Protected main now also contains PR #65's private dynamic-HA evaluation harness.
+That harness is deployment-local, credential-custody and durable-idempotency
+gated, read-only by default, and does not authorize production/public mutations.
+The contextual dashboard surface below remains strictly read-only and does not
+expose the private harness or broaden its authority.
+
 The candidate adds a provider-neutral V2 contextual-dashboard boundary for the
 dedicated authenticated `even-g2` Hermes profile:
 

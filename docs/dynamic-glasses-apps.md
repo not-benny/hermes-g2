@@ -174,6 +174,16 @@ and concrete rail-reader credential/configuration remain deployment-local. They
 must keep external mutation/generic shell tools absent and route no unmatched
 output to a current turn. No public MCP skill is published by this change.
 
+### Separate private Home Assistant evaluation harness
+
+Protected main includes a private-only harness in
+`hermes-host/private-dynamic-ha-server.mjs` and its bounded WSS/phone/provider
+peers. It keeps credentials deployment-local, uses a durable payload-bound
+mutation ledger, defaults to read-only, and requires explicit reversible
+mutation authorization. It is not called by the contextual-dashboard tools,
+does not change this V2 schema's local-action allowlist, and is not production or
+public MCP authorization.
+
 ## Evidence and remaining gates
 
 Permanent host tests cover the V2 bounds, executable/action rejection, source

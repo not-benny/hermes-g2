@@ -210,6 +210,11 @@ Current as of 22 August 2026. `main` is the canonical branch.
   authenticated capabilities, reconnect, profile isolation, stale/proactive
   rejection and exact phone/G2 transport pass. Exercise one exact G2 utterance
   through loading → read-only gather → useful publish → wearer actions/reply.
+- **PARTIAL / PRIVATE EVALUATION ONLY — dynamic Home Assistant harness.** PR #65
+  merged authenticated private WSS, a durable mutation ledger, bounded provider
+  transport and a reversible-evaluation harness. It is read-only by default and
+  remains separate from the contextual-dashboard product; production mutation
+  authorization and private deployment evidence remain gated.
 
 ## Firmware
 
