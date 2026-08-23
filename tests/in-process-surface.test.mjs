@@ -79,7 +79,8 @@ test("in-process adapter registers, gates, invokes, notifies, and tears down too
   assert.equal((await registry.callTool("app.same.open", {})).content, "old");
 
   assert.match(window, /\(\) => shell\.foregroundWindow\(\)\?\.windowId === options\.windowId/);
-  assert.match(window, /if \(closed\) return;\s*closed = true;\s*removeTools\(\);/);
+  assert.match(window, /if \(closed\) return;\s*closed = true;\s*try \{ removeTools\(\); \} catch/);
+  assert.match(window, /try \{ options\.onClosed\?\.\(\); \} catch[\s\S]*try \{ options\.removeSurface\?\.\(\); \} catch/);
   assert.match(window, /setForeground: \(foreground\) => \{[\s\S]*toolRegistry\.fireToolsChanged\(\);/);
 });
 
