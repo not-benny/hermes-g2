@@ -16,8 +16,9 @@ Current as of 23 August 2026. `main` is the canonical branch.
   source-labelled and bounded; Unicode-aware ranking/deduplication is stable;
   provider deadlines and query generations isolate slow/erroring sources and
   prevent stale publication. Memory-only one-shot action handles revalidate the
-  exact app, event ID/start time, notification key, bookmarked file path/modified
-  time, or public Hermes session ID/execution generation before opening. Query,
+  exact app, event ID/start time, notification key/post time, non-symbolic
+  bookmark root plus canonical file path/modified time, or public Hermes session
+  ID/execution generation before opening. Query,
   result and filter history is not persisted or logged. Roam, terminal, media and
   health remain visibly unavailable because safe bounded search/exact-action
   identities do not yet exist; no shell, URL, notification mutation, Roam write,
@@ -28,8 +29,10 @@ Current as of 23 August 2026. `main` is the canonical branch.
   G2 transport had no active connection, so glasses navigation/open/back/filter
   evidence is not claimed. Final independent review of frozen code SHA `3b19b94`
   returned static PASS; operational authorization remains NO-GO pending connected
-  G2 evidence. CI and remote PR read-back also remain gates. See
-  `docs/universal-search.md`.
+  G2 evidence. PR #64 is open against cockpit PR #62; the remote implementation
+  head passed release-gate and all JavaScript/Java CodeQL checks, and remote
+  base/head/files/body/checks/state were read back. Merge remains gated on #62,
+  repository review and connected-G2 evidence. See `docs/universal-search.md`.
 
 ### Native Hermes agent cockpit
 

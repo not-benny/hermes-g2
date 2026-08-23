@@ -20,8 +20,9 @@ before aborting a replaced query. Provider failure, permission denial, offline
 state and timeout remain independent. Closed action descriptors never reach the
 view: they become memory-only one-shot handles bound to the exact query
 generation and trusted provider. Immediately before open, adapters revalidate
-the local app registry, calendar event ID/start time, notification access/key,
-bookmark scope plus file path/modified time, or synchronized public Hermes
+the local app registry, calendar event ID/start time, notification
+access/key/post time, exact non-symbolic bookmark root plus canonical file
+path/modified time, or synchronized public Hermes
 session ID/execution generation. Search exposes no arbitrary URL/shell/terminal
 command, notification action/dismissal, Roam write, media control, health-history
 read, cockpit answer/permission/steer/interrupt, or remote-defined UI.
@@ -66,8 +67,13 @@ fatal/JavaScript marker. The app reported no active glasses connection, so no
 real-G2 Search render, ring/touch navigation, source filtering, exact open/back,
 offline-source or privacy-safe connected logcat evidence is inferred. No
 Bluetooth setting, pairing, ownership, permission, firmware, provisioning,
-reset, wipe or other destructive operation was performed. Independent
-frozen-SHA review, connected-G2 evidence, CI and remote PR read-back remain.
+reset, wipe or other destructive operation was performed. GitHub PR
+[#64](https://github.com/not-benny/hermes-g2/pull/64) targets the cockpit branch
+from `feat/universal-search-launcher`. Remote implementation head
+`1c64a0eb206be720f26b875d4b62853dbd38fa3d` passed `release-gate`,
+`codeql-javascript`, `codeql-java`, and aggregate `codeql`; remote base/head,
+files, body, checks and open state were read back. Merge remains gated on PR #62,
+repository review approval and connected-G2 evidence.
 See `docs/universal-search.md`.
 
 ## Native Hermes agent cockpit candidate
