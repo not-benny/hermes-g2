@@ -1,17 +1,17 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" unloaded="unloaded">
     <ActionBar title="Media Sources" />
-    <GridLayout rows="auto,auto,*,auto" class="p-20">
-        <Label row="0" text="{{ status }}" textWrap="true" />
-        <Button row="1" text="Refresh media sources" tap="{{ onRefreshTap }}" class="m-t-8" />
+    <GridLayout rows="auto,auto,*,auto" class="screen-content">
+        <Label row="0" text="{{ status }}" textWrap="true" class="status-banner status-info" />
+        <Button row="1" text="Refresh media sources" tap="{{ onRefreshTap }}" class="-secondary m-t-8" />
         <ListView row="2" items="{{ apps }}" itemTap="{{ onMediaAppTap }}" class="m-t-12">
             <ListView.itemTemplate>
-                <GridLayout columns="auto,*" rows="auto,auto" padding="10">
+                <GridLayout columns="auto,*" rows="auto,auto" class="list-row">
                     <Label col="0" rowSpan="2" text="{{ enabledGlyph }}" class="m-r-12" />
-                    <Label col="1" row="0" text="{{ appName }}" />
-                    <Label col="1" row="1" text="{{ packageName }}" class="text-muted" />
+                    <Label col="1" row="0" text="{{ appName }}" class="list-row-title" />
+                    <Label col="1" row="1" text="{{ packageName }}" class="supporting-text" />
                 </GridLayout>
             </ListView.itemTemplate>
         </ListView>
-        <Button row="3" text="Back" tap="{{ onBackTap }}" class="m-t-12" />
+        <Button row="3" text="Back" tap="{{ onBackTap }}" class="-secondary m-t-12" />
     </GridLayout>
 </Page>

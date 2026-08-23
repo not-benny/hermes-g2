@@ -43,3 +43,11 @@ test("page is capability-aware and binds only redacted companion projections", (
   assert.doesNotMatch(xml, /password|credential|bearer|raw_payload|prompt/i);
   assert.doesNotMatch(viewModel, /api-keys|tokenInput|prompt|raw_payload|tool\.args|tool\.result/i);
 });
+
+test("dynamic Hermes state is announced without exposing its decorative status dot", () => {
+  const xml = read("app/phone-ui/hermes-page.xml");
+  assert.match(xml, /class="hermes-status-strip" accessibilityLiveRegion="polite"/);
+  assert.match(xml, /text="●"[^>]*accessibilityHidden="true"/);
+  assert.match(xml, /class="card m-t-12 hermes-offline-banner"[\s\S]*?accessibilityRole="alert" accessibilityLiveRegion="assertive"/);
+  assert.match(xml, /text="\{\{ operationStatusLabel \}\}"[^>]*accessibilityLiveRegion="polite"/);
+});

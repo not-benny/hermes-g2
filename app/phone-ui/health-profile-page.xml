@@ -6,13 +6,13 @@
                    class="muted" textWrap="true" />
 
             <Label text="Weight (kg)" class="section-label m-t-20" />
-            <TextField text="{{ weight }}" keyboardType="number" hint="75" class="input m-t-4" />
+            <TextField text="{{ weight }}" keyboardType="number" hint="75" class="input m-t-4" accessibilityLabel="Weight in kilograms" />
 
             <Label text="Age (years)" class="section-label m-t-20" />
-            <TextField text="{{ age }}" keyboardType="number" hint="30" class="input m-t-4" />
+            <TextField text="{{ age }}" keyboardType="number" hint="30" class="input m-t-4" accessibilityLabel="Age in years" />
 
             <Label text="Sex" class="section-label m-t-20" />
-            <SegmentedBar items="{{ sexItems }}" selectedIndex="{{ sexIndex }}" class="m-t-4" />
+            <SegmentedBar items="{{ sexItems }}" selectedIndex="{{ sexIndex }}" class="m-t-4" accessibilityLabel="Sex used for calorie estimate" />
 
             <Button text="Save" tap="{{ onSaveTap }}" class="-primary m-t-24" />
             <Label text="{{ status }}" class="muted text-center m-t-8" textWrap="true" />

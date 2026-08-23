@@ -1,50 +1,59 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" loaded="loaded">
     <ActionBar title="API Keys &amp; Bridge" />
     <ScrollView>
-        <StackLayout class="p-20">
-            <Label text="{{ status }}" textWrap="true" />
-            <Label text="Leave blank to keep an existing value. Saved secrets are never shown here." textWrap="true" class="m-t-8" />
+        <StackLayout class="screen-content">
+            <Label text="{{ status }}" textWrap="true" class="status-banner status-info" />
+            <Label text="Leave blank to keep an existing value. Saved secrets are never shown here." textWrap="true" class="supporting-text m-t-8" />
 
-            <Label text="Hermes Agent bridge" class="h2 m-t-20" />
-            <Label text="Host" class="m-t-8" />
-            <TextField text="{{ bridgeHost }}" textChange="{{ onBridgeHostTextChange }}" autocorrect="false" autocapitalizationType="none" />
-            <Label text="Port" class="m-t-8" />
-            <TextField text="{{ bridgePort }}" textChange="{{ onBridgePortTextChange }}" keyboardType="number" />
-            <Label text="{{ bridgeTokenConfigured }}" class="m-t-8" />
-            <TextField hint="Bridge token — leave blank to keep" textChange="{{ onBridgeTokenTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
-            <Button text="Clear bridge token" tap="{{ onClearBridgeTokenTap }}" />
+            <StackLayout class="surface-card m-t-20">
+                <Label text="Hermes Agent bridge" class="section-heading" />
+                <Label text="Host" class="field-label" />
+                <TextField text="{{ bridgeHost }}" textChange="{{ onBridgeHostTextChange }}" autocorrect="false" autocapitalizationType="none" accessibilityLabel="Hermes Agent bridge host" />
+                <Label text="Port" class="field-label" />
+                <TextField text="{{ bridgePort }}" textChange="{{ onBridgePortTextChange }}" keyboardType="number" accessibilityLabel="Hermes Agent bridge port" />
+                <Label text="{{ bridgeTokenConfigured }}" class="field-label" />
+                <TextField hint="Bridge token — leave blank to keep" textChange="{{ onBridgeTokenTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" accessibilityLabel="Hermes Agent bridge token" />
+                <Button text="Clear bridge token" tap="{{ onClearBridgeTokenTap }}" class="-danger m-t-8" />
+            </StackLayout>
 
-            <Label text="Assistant &amp; transcription providers" class="h2 m-t-20" />
-            <Label text="{{ anthropicConfigured }}" class="m-t-8" />
-            <TextField hint="Anthropic API key — leave blank to keep" textChange="{{ onAnthropicTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
-            <Button text="Clear Anthropic key" tap="{{ onClearAnthropicTap }}" />
-            <Label text="{{ openAiConfigured }}" class="m-t-8" />
-            <TextField hint="OpenAI API key — leave blank to keep" textChange="{{ onOpenAiTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
-            <Button text="Clear OpenAI key" tap="{{ onClearOpenAiTap }}" />
-            <Label text="{{ deepgramConfigured }}" class="m-t-8" />
-            <TextField hint="Deepgram API key — leave blank to keep" textChange="{{ onDeepgramTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
-            <Button text="Clear Deepgram key" tap="{{ onClearDeepgramTap }}" />
-            <Label text="{{ elevenLabsConfigured }}" class="m-t-8" />
-            <TextField hint="ElevenLabs API key — leave blank to keep" textChange="{{ onElevenLabsTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
-            <Button text="Clear ElevenLabs key" tap="{{ onClearElevenLabsTap }}" />
-            <Label text="{{ sonioxConfigured }}" class="m-t-8" />
-            <TextField hint="Soniox API key — leave blank to keep" textChange="{{ onSonioxTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
-            <Button text="Clear Soniox key" tap="{{ onClearSonioxTap }}" />
+            <StackLayout class="surface-card m-t-12">
+                <Label text="Assistant &amp; transcription" class="section-heading" />
+                <Label text="{{ anthropicConfigured }}" class="field-label" />
+                <TextField hint="Anthropic API key — leave blank to keep" textChange="{{ onAnthropicTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" accessibilityLabel="Anthropic API key" />
+                <Button text="Clear Anthropic key" tap="{{ onClearAnthropicTap }}" class="-danger m-t-8" />
+                <Label text="{{ openAiConfigured }}" class="field-label" />
+                <TextField hint="OpenAI API key — leave blank to keep" textChange="{{ onOpenAiTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" accessibilityLabel="OpenAI API key" />
+                <Button text="Clear OpenAI key" tap="{{ onClearOpenAiTap }}" class="-danger m-t-8" />
+                <Label text="{{ deepgramConfigured }}" class="field-label" />
+                <TextField hint="Deepgram API key — leave blank to keep" textChange="{{ onDeepgramTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" accessibilityLabel="Deepgram API key" />
+                <Button text="Clear Deepgram key" tap="{{ onClearDeepgramTap }}" class="-danger m-t-8" />
+                <Label text="{{ elevenLabsConfigured }}" class="field-label" />
+                <TextField hint="ElevenLabs API key — leave blank to keep" textChange="{{ onElevenLabsTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" accessibilityLabel="ElevenLabs API key" />
+                <Button text="Clear ElevenLabs key" tap="{{ onClearElevenLabsTap }}" class="-danger m-t-8" />
+                <Label text="{{ sonioxConfigured }}" class="field-label" />
+                <TextField hint="Soniox API key — leave blank to keep" textChange="{{ onSonioxTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" accessibilityLabel="Soniox API key" />
+                <Button text="Clear Soniox key" tap="{{ onClearSonioxTap }}" class="-danger m-t-8" />
+            </StackLayout>
 
-            <Label text="Maps" class="h2 m-t-20" />
-            <Label text="{{ mapboxConfigured }}" class="m-t-8" />
-            <TextField hint="Mapbox token — leave blank to keep" textChange="{{ onMapboxTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" />
-            <Button text="Clear Mapbox token" tap="{{ onClearMapboxTap }}" />
+            <StackLayout class="surface-card m-t-12">
+                <Label text="Maps" class="section-heading" />
+                <Label text="{{ mapboxConfigured }}" class="field-label" />
+                <TextField hint="Mapbox token — leave blank to keep" textChange="{{ onMapboxTextChange }}" secure="true" autocorrect="false" autocapitalizationType="none" accessibilityLabel="Mapbox token" />
+                <Button text="Clear Mapbox token" tap="{{ onClearMapboxTap }}" class="-danger m-t-8" />
+            </StackLayout>
 
-            <Label text="Other integrations" class="h2 m-t-20" />
-            <Button text="Clear Nightscout token" tap="{{ onClearNightscoutTap }}" />
-            <Button text="Clear Roam token" tap="{{ onClearRoamTap }}" />
-            <Button text="Clear Even account &amp; API credentials" tap="{{ onClearEvenTap }}" />
-            <Button text="Clear terminal connection credentials" tap="{{ onClearTerminalTap }}" />
+            <StackLayout class="surface-card m-t-12">
+                <Label text="Other integrations" class="section-heading" />
+                <Label text="These actions immediately clear their saved credentials." class="supporting-text m-t-4" textWrap="true" />
+                <Button text="Clear Nightscout token" tap="{{ onClearNightscoutTap }}" class="-danger m-t-8" />
+                <Button text="Clear Roam token" tap="{{ onClearRoamTap }}" class="-danger m-t-8" />
+                <Button text="Clear Even account &amp; API credentials" tap="{{ onClearEvenTap }}" class="-danger m-t-8" />
+                <Button text="Clear terminal connection credentials" tap="{{ onClearTerminalTap }}" class="-danger m-t-8" />
+            </StackLayout>
 
             <GridLayout columns="*,*" class="m-t-24">
                 <Button col="0" text="Save" tap="{{ onSaveTap }}" class="-primary" />
-                <Button col="1" text="Back" tap="{{ onBackTap }}" />
+                <Button col="1" text="Back" tap="{{ onBackTap }}" class="-secondary" />
             </GridLayout>
         </StackLayout>
     </ScrollView>

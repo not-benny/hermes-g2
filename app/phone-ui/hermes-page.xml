@@ -2,15 +2,16 @@
     <ActionBar title="Hermes" />
     <ScrollView>
         <StackLayout class="phone-content hermes-companion-content p-20">
-            <GridLayout columns="auto,*" class="hermes-status-strip">
-                <Label col="0" text="●" class="{{ statusDotClass }}" verticalAlignment="center" />
+            <GridLayout columns="auto,*" class="hermes-status-strip" accessibilityLiveRegion="polite">
+                <Label col="0" text="●" class="{{ statusDotClass }}" verticalAlignment="center" accessibilityHidden="true" />
                 <StackLayout col="1" class="m-l-8">
                     <Label text="{{ statusLabel }}" class="value" />
                     <Label text="{{ statusDetail }}" class="muted" textWrap="true" />
                 </StackLayout>
             </GridLayout>
 
-            <StackLayout class="card m-t-12 hermes-offline-banner" visibility="{{ offlineVisibility }}">
+            <StackLayout class="card m-t-12 hermes-offline-banner" visibility="{{ offlineVisibility }}"
+                         accessibilityRole="alert" accessibilityLiveRegion="assertive">
                 <Label text="Offline or stale" class="section-label" />
                 <Label text="Session actions are disabled. Nothing will be queued for reconnect." class="muted m-t-4" textWrap="true" />
             </StackLayout>
@@ -34,7 +35,8 @@
                 <Button col="0" text="Refresh" tap="{{ onRefreshTap }}" isEnabled="{{ refreshEnabled }}" />
                 <Button col="1" text="New voice session" tap="{{ onNewVoiceTap }}" isEnabled="{{ newVoiceEnabled }}" class="btn-primary" />
             </GridLayout>
-            <Label text="{{ operationStatusLabel }}" class="muted m-t-4" textWrap="true" />
+            <Label text="{{ operationStatusLabel }}" class="muted m-t-4" textWrap="true"
+                   accessibilityLiveRegion="polite" />
 
             <StackLayout class="card m-t-12">
                 <Label text="RECENT SESSIONS" class="section-label" />
