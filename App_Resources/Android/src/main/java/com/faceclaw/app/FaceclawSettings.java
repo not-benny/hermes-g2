@@ -92,9 +92,16 @@ public final class FaceclawSettings {
         return prefs.getString(key, defaultValue);
     }
 
-    public void setString(String key, String value) {
-        prefs.edit().putString(key, value).apply();
-        notifyChanged(key);
+    public boolean setString(String key, String value) {
+        boolean committed = prefs.edit().putString(key, value).commit();
+        if (committed) notifyChanged(key);
+        return committed;
+    }
+
+    public boolean removeString(String key) {
+        boolean committed = prefs.edit().remove(key).commit();
+        if (committed) notifyChanged(key);
+        return committed;
     }
 
     /**

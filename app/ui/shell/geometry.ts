@@ -30,6 +30,8 @@ export type WindowHeightMode = "min" | "max";
 
 /** Total height (top bar + content) of a min-height window. */
 export const MIN_WINDOW_HEIGHT = 288;
+/** Width of the real G2 optical/EvenHub raster inside the 640px framebuffer. */
+export const G2_VISIBLE_WIDTH = 576;
 /** Farthest down a min-height window can start. */
 export const MIN_WINDOW_MAX_TOP = G2_LENS_HEIGHT - MIN_WINDOW_HEIGHT;
 
@@ -87,4 +89,23 @@ export function appViewportRect(mode: WindowHeightMode): {
     y: windowTop(mode) + TOP_BAR_HEIGHT,
     ...appViewportSize(mode),
   };
+}
+
+/**
+ * App viewport clipped to the horizontally visible 576px G2 raster. The shell
+ * framebuffer is 640px wide, but the wearer-visible image is centred within it;
+ * renderers must not use the hidden side gutters as layout space.
+ */
+export function visibleAppViewportRect(mode: WindowHeightMode): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  const viewport = appViewportRect(mode);
+  const visibleLeft = Math.round((G2_LENS_WIDTH - G2_VISIBLE_WIDTH) / 2);
+  const visibleRight = visibleLeft + G2_VISIBLE_WIDTH;
+  const x = Math.max(viewport.x, visibleLeft);
+  const right = Math.min(viewport.x + viewport.width, visibleRight);
+  return { x, y: viewport.y, width: Math.max(0, right - x), height: viewport.height };
 }

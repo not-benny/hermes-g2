@@ -41,6 +41,9 @@ export type InProcessWindowOptions = {
   setSurfaceVisible: (visible: boolean) => void;
   removeSurface?: () => void;
   onClosed?: () => void;
+  /** App lifecycle hooks; compatibility runtimes use these to quiesce resources. */
+  onForegroundChanged?: (foreground: boolean) => void;
+  onScreenChanged?: (on: boolean) => void;
   /** Optional tools contributed while this in-process window is open. */
   tools?: InProcessTools;
 };
@@ -185,13 +188,13 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
     close: () => {
       if (closed) return;
       closed = true;
-      removeTools();
+      try { removeTools(); } catch (error) { console.error(`${options.windowId} tool cleanup failed: ${error}`); }
       // Fire onRemoved for any pushed layers so they release resources (e.g. a
       // demo that enabled a hardware stream) even when closed from within.
-      stack.clearToBase();
-      stack.notifyBaseRemoved();
-      options.onClosed?.();
-      options.removeSurface?.();
+      try { stack.clearToBase(); } catch (error) { console.error(`${options.windowId} layer cleanup failed: ${error}`); }
+      try { stack.notifyBaseRemoved(); } catch (error) { console.error(`${options.windowId} base cleanup failed: ${error}`); }
+      try { options.onClosed?.(); } catch (error) { console.error(`${options.windowId} close callback failed: ${error}`); }
+      try { options.removeSurface?.(); } catch (error) { console.error(`${options.windowId} surface cleanup failed: ${error}`); }
     },
     drawIcon: windowIcon(options.icon, options.iconLetter),
     handleInput: async (event, frameId) => {
@@ -210,12 +213,14 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
     setForeground: (foreground) => {
       options.setSurfaceVisible(foreground);
       stack.notifyForegroundChanged(foreground);
+      options.onForegroundChanged?.(foreground);
       // Foreground availability is dynamic; notify assistant clients whenever
       // the shell changes this window's focus so their tool list is refreshed.
       toolRegistry.fireToolsChanged();
     },
-    setScreenOn: (screenOn) => {
-      stack.notifyScreenChanged(screenOn);
+    setScreenOn: (on) => {
+      stack.notifyScreenChanged(on);
+      options.onScreenChanged?.(on);
     },
   };
   return { window, stack, requestRender, markSurfaceReady };

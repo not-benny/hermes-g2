@@ -131,6 +131,13 @@ remain app-private but are not all Keystore-encrypted. Android backup is disable
 Development preference pull/push helpers are not a supported credential backup
 path and any output they produce must be treated as secret.
 
+The bundled Local Counter compatibility sample stores only its numeric counter
+in an app-private, package/hash-namespaced document. It has no network,
+account, API key, WebView, raw filesystem, microphone, location, accelerometer,
+notification, assistant-tool, or BLE capability. Its window menu can clear the
+local document; app-data clear or uninstall removes it as well. Store downloads,
+EHPK installation, remote code, and background sensor use are not implemented.
+
 Never commit or publish:
 
 - bridge, provider, Mapbox, Nightscout, or Even credentials
