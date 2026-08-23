@@ -40,6 +40,11 @@ Final independent review of frozen SHA
 all prior lifecycle/security/viewport blockers closed. **Operational
 authorization: NO-GO** remains because the matching private bridge deployment,
 A32 install/launch, and real-G2/Hermes interaction evidence are unavailable.
+GitHub PR [#62](https://github.com/not-benny/hermes-g2/pull/62) targets `main` from
+`feat/hermes-agent-cockpit-main`; its release-gate and JavaScript/Java aggregate
+CodeQL checks passed on delivered implementation head
+`b852db496ae62bba7ea24330fe48462753d53096`. The PR remains open and
+review-required; it was not merged without repository review approval.
 
 Verification from the current worktree: focused cockpit coverage passes 32/32;
 the full host suite passes 376/376 after a clean `npm ci`; TypeScript typecheck
