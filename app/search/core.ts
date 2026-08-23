@@ -280,17 +280,34 @@ export class SearchController {
       const source = state.sources[providerIndex]!;
       if (typeof outcome === "string") {
         source.state = outcome;
-      } else if (!Array.isArray(outcome) || outcome.length > 100) {
-        source.state = "error";
       } else {
-        const parsed = outcome.map((result) => parseResult(provider, result));
-        if (parsed.some((result) => result === null)) {
+        let parsed: (SearchResult | null)[];
+        try {
+          if (!Array.isArray(outcome) || outcome.length > 100) throw new Error("invalid provider result list");
+          // Build a plain host-owned array. Array#map honors a provider-owned
+          // constructor/@@species and could return another hostile proxy.
+          parsed = [];
+          for (let index = 0; index < outcome.length; index++) {
+            parsed.push(parseResult(provider, outcome[index]));
+          }
+        } catch {
+          // Provider-owned arrays can be proxies. Contain every trap to this
+          // source so one malformed adapter cannot reject the whole search.
+          if (generation !== this.generation) return;
           source.state = "error";
           onUpdate(cloneState(state));
           return;
         }
+        if (parsed.some((result) => result === null)) {
+          if (generation !== this.generation) return;
+          source.state = "error";
+          onUpdate(cloneState(state));
+          return;
+        }
+        const privacyClass = provider.privacyClass;
+        if (generation !== this.generation) return;
         source.state = "ready";
-        collected.push(...(parsed as SearchResult[]).map((result) => ({ ...result, privacyClass: provider.privacyClass })));
+        collected.push(...(parsed as SearchResult[]).map((result) => ({ ...result, privacyClass })));
         state.results = rankSearchResults(query, collected, this.options.resultLimit).map((result) => {
           if (!result.action) return result;
           const identity = `${result.sourceId}\u0000${result.resultId}`;
@@ -307,6 +324,7 @@ export class SearchController {
           return { ...result, actionHandle: handle };
         });
       }
+      if (generation !== this.generation) return;
       onUpdate(cloneState(state));
     });
     await Promise.all(runs);
