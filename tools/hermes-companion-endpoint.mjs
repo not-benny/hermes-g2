@@ -1,0 +1,310 @@
+import { randomBytes } from "node:crypto";
+import { HermesCompanionAdapter } from "./hermes-companion-adapter.mjs";
+
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+const SESSION_OPERATIONS = new Set(["open_session", "resume_session", "cancel_session"]);
+const requestId = () => `snapshot_${randomBytes(16).toString("base64url")}`;
+const owns = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+
+/**
+ * Connects outward to a loopback-only Hermes gateway and exposes no listener.
+ * An authenticated private bridge explicitly attaches one phone generation and
+ * receives only the adapter's bounded projections.
+ */
+export class HermesCompanionEndpoint {
+  constructor(options) {
+    const url = new URL(options.gatewayUrl);
+    if (!["ws:", "wss:"].includes(url.protocol) || !LOOPBACK.has(url.hostname)) {
+      throw new Error("Hermes companion gateway must be loopback WebSocket");
+    }
+    if (typeof options.token !== "string" || options.token.length < 16) throw new Error("Hermes gateway token is too short");
+    if (typeof options.reserveOperation !== "function") throw new Error("durable operation reservation callback is required");
+    this.gatewayUrl = url;
+    this.token = options.token;
+    this.createSocket = options.createSocket ?? ((address) => new WebSocket(address));
+    this.createRequestId = options.createRequestId ?? requestId;
+    this.adapter = new HermesCompanionAdapter({ now: options.now, createOpaque: options.createOpaque,
+      journal: options.journal, reserveOperation: options.reserveOperation });
+    this.completeOperation = options.completeOperation ?? (() => true);
+    this.commandTimeoutMs = options.commandTimeoutMs ?? 15_000;
+    if (!Number.isSafeInteger(this.commandTimeoutMs) || this.commandTimeoutMs < 100 || this.commandTimeoutMs > 120_000) {
+      throw new Error("Hermes gateway command timeout is invalid");
+    }
+    this.snapshotTimeoutMs = options.snapshotTimeoutMs ?? 10_000;
+    if (!Number.isSafeInteger(this.snapshotTimeoutMs) || this.snapshotTimeoutMs < 100 || this.snapshotTimeoutMs > 120_000) {
+      throw new Error("Hermes gateway snapshot timeout is invalid");
+    }
+    this.setCommandTimer = options.setCommandTimer ?? ((callback, delay) => {
+      const timer = setTimeout(callback, delay);
+      timer.unref?.();
+      return timer;
+    });
+    this.clearCommandTimer = options.clearCommandTimer ?? ((timer) => clearTimeout(timer));
+    this.setSnapshotTimer = options.setSnapshotTimer ?? ((callback, delay) => {
+      const timer = setTimeout(callback, delay);
+      timer.unref?.();
+      return timer;
+    });
+    this.clearSnapshotTimer = options.clearSnapshotTimer ?? ((timer) => clearTimeout(timer));
+    this.setReconnectTimer = options.setReconnectTimer ?? ((callback, delay) => {
+      const timer = setTimeout(callback, delay);
+      timer.unref?.();
+      return timer;
+    });
+    this.clearReconnectTimer = options.clearReconnectTimer ?? ((timer) => clearTimeout(timer));
+    this.socket = null;
+    this.phoneGeneration = null;
+    this.emit = null;
+    this.pendingCommands = new Map();
+    this.snapshotRequest = null;
+    this.reconnectTimer = null;
+    this.reconnectDelayMs = 1_000;
+    this.stopped = true;
+  }
+
+  start() {
+    this.stopped = false;
+    if (this.reconnectTimer) {
+      this.clearReconnectTimer(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.#connect();
+  }
+
+  #connect() {
+    if (this.stopped || this.socket) return;
+    const address = new URL(this.gatewayUrl);
+    address.searchParams.set("token", this.token);
+    let socket;
+    try { socket = this.createSocket(address.toString()); }
+    catch { this.#scheduleReconnect(); return; }
+    this.socket = socket;
+    socket.addEventListener("open", () => this.#opened(socket));
+    socket.addEventListener("message", (event) => this.#message(socket, event.data));
+    socket.addEventListener("close", () => this.#closed(socket));
+    socket.addEventListener("error", () => this.#closed(socket));
+  }
+
+  stop() {
+    this.stopped = true;
+    if (this.reconnectTimer) {
+      this.clearReconnectTimer(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    const socket = this.socket;
+    this.#closed(socket);
+    try { socket?.close(); } catch { /* already closed */ }
+  }
+
+  attach(connectionGeneration, emit) {
+    if (typeof emit !== "function") throw new Error("authenticated bridge emitter is required");
+    this.detach();
+    this.phoneGeneration = connectionGeneration;
+    this.emit = emit;
+    this.adapter.connect(connectionGeneration);
+    if (this.socket?.readyState === 1) this.#requestSnapshot();
+    else this.#emit(this.adapter.unavailableSnapshot());
+  }
+
+  detach(connectionGeneration = this.phoneGeneration) {
+    if (!this.phoneGeneration || connectionGeneration !== this.phoneGeneration) return false;
+    for (const { command } of [...this.pendingCommands.values()]) {
+      this.#takePending(command.operation_id);
+      this.#settle(command, "outcome_unknown", "phone_detached");
+    }
+    this.phoneGeneration = null;
+    this.emit = null;
+    this.#takeSnapshotRequest();
+    this.adapter.disconnect();
+    return true;
+  }
+
+  handleCommand(command, connectionGeneration) {
+    if (!this.phoneGeneration || connectionGeneration !== this.phoneGeneration ||
+        command?.connection_generation !== connectionGeneration) return false;
+    const replay = this.adapter.replayReceipt(command);
+    if (replay) { this.#emit(replay); return true; }
+    const rejectionCode = this.adapter.preDispatchRejection(command);
+    if (rejectionCode === undefined) return false;
+    if (rejectionCode !== null) {
+      if (!this.adapter.reserveRejection(command)) return false;
+      this.#settle(command, "rejected", rejectionCode);
+      return true;
+    }
+    const socket = this.socket;
+    if (!socket || socket.readyState !== 1) {
+      if (!this.adapter.reserveRejection(command)) return false;
+      this.#settle(command, "rejected", "backend_offline");
+      return true;
+    }
+    let sendFailed = false;
+    const handled = this.adapter.handleCommand(command, (rpc) => {
+      const pending = { command, timer: null };
+      this.pendingCommands.set(command.operation_id, pending);
+      try {
+        socket.send(JSON.stringify(rpc));
+        const timer = this.setCommandTimer(
+          () => this.#commandTimedOut(command.operation_id, command), this.commandTimeoutMs);
+        if (this.pendingCommands.get(command.operation_id) === pending) pending.timer = timer;
+        else this.clearCommandTimer(timer);
+        return true;
+      } catch {
+        this.pendingCommands.delete(command.operation_id);
+        if (pending.timer) this.clearCommandTimer(pending.timer);
+        sendFailed = true;
+        return false;
+      }
+    }) === true;
+    if (sendFailed) {
+      this.#settle(command, "outcome_unknown", "gateway_send_failed");
+      return true;
+    }
+    return handled;
+  }
+
+  exportJournal() { return this.adapter.exportJournal(); }
+
+  #emit(frame) {
+    if (frame && this.emit && frame.connection_generation === this.phoneGeneration) this.emit(frame);
+  }
+
+  #opened(socket) {
+    if (this.socket !== socket) return;
+    this.reconnectDelayMs = 1_000;
+    if (this.phoneGeneration) this.#requestSnapshot();
+  }
+
+  #closed(socket) {
+    if (!socket || this.socket !== socket) return;
+    this.socket = null;
+    for (const { command } of [...this.pendingCommands.values()]) {
+      this.#takePending(command.operation_id);
+      this.#settle(command, "outcome_unknown", "gateway_disconnected");
+    }
+    this.#takeSnapshotRequest();
+    if (this.phoneGeneration) this.#emit(this.adapter.unavailableSnapshot());
+    this.#scheduleReconnect();
+  }
+
+  #scheduleReconnect() {
+    if (this.stopped || this.socket || this.reconnectTimer) return;
+    const delay = this.reconnectDelayMs;
+    this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 60_000);
+    this.reconnectTimer = this.setReconnectTimer(() => {
+      this.reconnectTimer = null;
+      this.#connect();
+    }, delay);
+  }
+
+  #requestSnapshot() {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== 1 || !this.phoneGeneration) return;
+    const id = this.createRequestId();
+    // Only the latest projection request can restore current authority. Its
+    // exact socket and phone generation own the deadline; a replaced, retired,
+    // or timed-out request can never publish a late reply.
+    this.#takeSnapshotRequest();
+    const pending = { id, socket, connectionGeneration: this.phoneGeneration, timer: null };
+    this.snapshotRequest = pending;
+    try {
+      socket.send(JSON.stringify({ jsonrpc: "2.0", id, method: "companion.snapshot", params: this.adapter.snapshotParams() }));
+    } catch {
+      if (this.snapshotRequest === pending) {
+        this.#takeSnapshotRequest(id);
+        this.#emit(this.adapter.unavailableSnapshot());
+      }
+      return;
+    }
+    const timer = this.setSnapshotTimer(() => this.#snapshotTimedOut(pending), this.snapshotTimeoutMs);
+    if (this.snapshotRequest === pending) pending.timer = timer;
+    else this.clearSnapshotTimer(timer);
+  }
+
+  #message(socket, raw) {
+    if (this.socket !== socket || typeof raw !== "string" || raw.length > 64 * 1024) return;
+    let frame;
+    try { frame = JSON.parse(raw); } catch { return; }
+    if (!frame || typeof frame !== "object") return;
+    if (frame.jsonrpc === "2.0" && frame.method === "companion.snapshot") {
+      const snapshot = this.adapter.authoritativeSnapshot(frame.params);
+      if (snapshot) this.#takeSnapshotRequest();
+      this.#emit(snapshot ?? this.adapter.unavailableSnapshot());
+      return;
+    }
+    if (frame.jsonrpc !== "2.0" || typeof frame.id !== "string" || (!owns(frame, "result") && !owns(frame, "error"))) return;
+    const hasError = owns(frame, "error");
+    if (this.#takeSnapshotRequest(frame.id)) {
+      this.#emit(!hasError ? this.adapter.authoritativeSnapshot(frame.result) ?? this.adapter.unavailableSnapshot()
+        : this.adapter.unavailableSnapshot());
+      return;
+    }
+    const command = this.#takePending(frame.id);
+    if (!command) return;
+    if (command.type === "refresh") {
+      const snapshot = !hasError ? this.adapter.authoritativeSnapshot(frame.result) : null;
+      if (snapshot) {
+        this.#emit(snapshot);
+        this.#settle(command, "accepted");
+      } else {
+        this.#emit(this.adapter.unavailableSnapshot());
+        const code = hasError && frame.error && typeof frame.error.code !== "undefined"
+          ? `rpc_${String(frame.error.code)}` : hasError ? "rpc_error" : "invalid_snapshot";
+        this.#settle(command, "rejected", code);
+      }
+      return;
+    }
+    const result = frame.result && typeof frame.result === "object" && !Array.isArray(frame.result)
+      ? frame.result : null;
+    const accepted = result?.accepted === true;
+    const generationConfirmed = !SESSION_OPERATIONS.has(command.type) ||
+      (accepted && result.matched_generation === command.generation);
+    const outcome = !hasError && accepted && generationConfirmed ? "accepted" : "rejected";
+    const code = hasError && frame.error && typeof frame.error.code !== "undefined" ? `rpc_${String(frame.error.code)}`
+      : hasError ? "rpc_error"
+        : result?.accepted === false ? "operation_rejected"
+          : accepted && !generationConfirmed ? "generation_unconfirmed"
+            : !accepted ? "operation_unconfirmed" : undefined;
+    this.#settle(command, outcome, code);
+  }
+
+  #takePending(operationId) {
+    const pending = this.pendingCommands.get(operationId);
+    if (!pending) return null;
+    this.pendingCommands.delete(operationId);
+    if (pending.timer) this.clearCommandTimer(pending.timer);
+    return pending.command;
+  }
+
+  #takeSnapshotRequest(id = null) {
+    const pending = this.snapshotRequest;
+    if (!pending || (id !== null && pending.id !== id)) return null;
+    this.snapshotRequest = null;
+    if (pending.timer !== null) this.clearSnapshotTimer(pending.timer);
+    return pending;
+  }
+
+  #snapshotTimedOut(pending) {
+    if (this.snapshotRequest !== pending || this.socket !== pending.socket ||
+        this.phoneGeneration !== pending.connectionGeneration) return;
+    this.#takeSnapshotRequest(pending.id);
+    this.#emit(this.adapter.unavailableSnapshot());
+  }
+
+  #commandTimedOut(operationId, command) {
+    const owned = this.pendingCommands.get(operationId);
+    if (!owned || owned.command !== command) return;
+    this.#takePending(operationId);
+    this.#settle(command, "outcome_unknown", "gateway_timeout");
+  }
+
+  #settle(command, outcome, code) {
+    let durableOutcome = outcome;
+    try {
+      if (this.completeOperation(command.operation_id, outcome) !== true) durableOutcome = "outcome_unknown";
+    } catch {
+      durableOutcome = "outcome_unknown";
+    }
+    this.#emit(this.adapter.operationReceipt(command, durableOutcome, code));
+    if (command.type !== "refresh" && outcome === "accepted") this.#requestSnapshot();
+  }
+}

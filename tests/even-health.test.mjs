@@ -65,7 +65,8 @@ test("Even Health is a direct-BLE readiness dashboard reachable from the Health 
   assert.match(exp, /FileProvider\.getUriForFile/);
   assert.match(exp, /EXTRA_STREAM/);
   assert.doesNotMatch(exp, /EXTRA_TEXT/);
-  assert.match(exp, /\.\.\.loadHealthDocument\(\), exportedAtMs: Date\.now\(\)/);
+  assert.match(exp, /const \{ battery, \.\.\.document \} = loadHealthDocument\(\)/);
+  assert.match(exp, /\.\.\.document, battery: exportedBattery, exportedAtMs: Date\.now\(\)/);
   assert.doesNotMatch(exp, /Http\.request|method:\s*"POST"|pushHealthToHermes/);
   const persisted = read("app/native/health-store.ts");
   assert.match(persisted, /HEALTH_STORE_KEY = "health\.store\.v1"/);

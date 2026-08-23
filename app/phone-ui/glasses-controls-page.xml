@@ -14,29 +14,29 @@
                     <Label col="0" text="Brightness" class="control-row-label" />
                     <Label col="1" text="{{ brightnessValueLabel }}" class="control-row-value" />
                 </GridLayout>
-                <Slider minValue="0" maxValue="{{ brightnessSliderMax }}" value="{{ brightnessSliderValue }}" class="m-t-4" />
+                <Slider minValue="0" maxValue="{{ brightnessSliderMax }}" value="{{ brightnessSliderValue }}" class="m-t-4" accessibilityLabel="Display brightness" />
             </StackLayout>
             <Button text="{{ timeoutLabel }}" tap="{{ onTimeoutTap }}" class="m-t-8" />
             <GridLayout columns="*,auto" class="control-row">
                 <Label col="0" text="Lock screen" class="control-row-label" />
-                <Switch col="1" checked="{{ lockScreenChecked }}" />
+                <Switch col="1" checked="{{ lockScreenChecked }}" accessibilityLabel="Lock screen" />
             </GridLayout>
             <Button text="{{ verticalPositionLabel }}" tap="{{ onVerticalPositionTap }}" class="m-t-8" />
             <StackLayout class="control-row">
                 <Label text="Clock" class="control-row-label m-b-4" />
-                <SegmentedBar items="{{ timeFormatItems }}" selectedIndex="{{ timeFormatIndex }}" />
+                <SegmentedBar items="{{ timeFormatItems }}" selectedIndex="{{ timeFormatIndex }}" accessibilityLabel="Clock format" />
             </StackLayout>
             <StackLayout class="control-row">
                 <Label text="Battery display" class="control-row-label m-b-4" />
-                <SegmentedBar items="{{ batteryDisplayItems }}" selectedIndex="{{ batteryDisplayIndex }}" />
+                <SegmentedBar items="{{ batteryDisplayItems }}" selectedIndex="{{ batteryDisplayIndex }}" accessibilityLabel="Battery display" />
             </StackLayout>
             <StackLayout class="control-row">
                 <Label text="Dashboard size" class="control-row-label m-b-4" />
-                <SegmentedBar items="{{ dashboardSizeItems }}" selectedIndex="{{ dashboardSizeIndex }}" />
+                <SegmentedBar items="{{ dashboardSizeItems }}" selectedIndex="{{ dashboardSizeIndex }}" accessibilityLabel="Dashboard size" />
             </StackLayout>
             <StackLayout class="control-row">
                 <Label text="Font" class="control-row-label m-b-4" />
-                <SegmentedBar items="{{ uiFontItems }}" selectedIndex="{{ uiFontIndex }}" />
+                <SegmentedBar items="{{ uiFontItems }}" selectedIndex="{{ uiFontIndex }}" accessibilityLabel="Glasses font" />
             </StackLayout>
 
             <Label text="Sensors &amp; connection" class="h2 m-t-20" />
@@ -62,7 +62,7 @@
                     <Label col="0" text="Ring sensitivity" class="control-row-label" />
                     <Label col="1" text="{{ ringSensitivityValueLabel }}" class="control-row-value" />
                 </GridLayout>
-                <Slider minValue="0" maxValue="{{ ringSensitivitySliderMax }}" value="{{ ringSensitivitySliderValue }}" class="m-t-4" />
+                <Slider minValue="0" maxValue="{{ ringSensitivitySliderMax }}" value="{{ ringSensitivitySliderValue }}" class="m-t-4" accessibilityLabel="Ring sensitivity" />
             </StackLayout>
             <Button text="Reconnect R1" tap="{{ onReconnectRingTap }}" isEnabled="{{ canControl }}" class="m-t-8" />
             <Button text="Reconnect glasses" tap="{{ onReconnectGlassesTap }}" class="m-t-8" />
@@ -70,13 +70,13 @@
             <Label text="Voice diagnostics" class="h2 m-t-20" />
             <GridLayout columns="*,auto" class="control-row">
                 <Label col="0" text="Voice control" class="control-row-label" />
-                <Switch col="1" checked="{{ voiceControlChecked }}" />
+                <Switch col="1" checked="{{ voiceControlChecked }}" accessibilityLabel="Voice control" />
             </GridLayout>
             <Button text="{{ voiceProviderLabel }}" tap="{{ onVoiceProviderTap }}" class="m-t-8" />
             <Button text="{{ wakeWordActionLabel }}" tap="{{ onWakeWordActionTap }}" class="m-t-8" />
             <GridLayout columns="*,auto" class="control-row">
                 <Label col="0" text="Save voice recordings" class="control-row-label" />
-                <Switch col="1" checked="{{ saveVoiceRecordingsChecked }}" />
+                <Switch col="1" checked="{{ saveVoiceRecordingsChecked }}" accessibilityLabel="Save voice recordings" />
             </GridLayout>
             <Button text="Test voice input" tap="{{ onTestVoiceInputTap }}" isEnabled="{{ canControl }}" class="m-t-8" />
 
@@ -85,7 +85,7 @@
             <Label text="{{ selectedAppsLabel }}" textWrap="true" class="m-t-8" />
             <StackLayout class="control-row">
                 <Label text="Notification text size" class="control-row-label m-b-4" />
-                <SegmentedBar items="{{ notificationFontSizeItems }}" selectedIndex="{{ notificationFontSizeIndex }}" />
+                <SegmentedBar items="{{ notificationFontSizeItems }}" selectedIndex="{{ notificationFontSizeIndex }}" accessibilityLabel="Notification text size" />
             </StackLayout>
             <Button text="Manage notification apps" tap="{{ onOpenNotificationAppsTap }}" class="m-t-8" />
             <Button text="Manage media sources" tap="{{ onOpenMediaAppsTap }}" class="m-t-8" />

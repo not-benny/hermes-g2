@@ -260,6 +260,16 @@ test("caption wrapping bounds long words without splitting grapheme clusters", (
   assert.deepEqual(wrapCaptionText("a\n\nb", 3, measure), ["a", "", "b"]);
 });
 
+test("caption wrapping falls back safely when the Android runtime has no Intl", () => {
+  const saved = globalThis.Intl;
+  try {
+    globalThis.Intl = undefined;
+    assert.deepEqual(wrapCaptionText("abcd", 2, (value) => Array.from(value).length), ["ab", "cd"]);
+  } finally {
+    globalThis.Intl = saved;
+  }
+});
+
 test("bottom anchoring and history offset keep the newest line stable", () => {
   assert.deepEqual(bottomAnchoredLines(["one"], 3, 0), ["", "", "one"]);
   assert.deepEqual(bottomAnchoredLines(["1", "2", "3", "4"], 3, 0), ["2", "3", "4"]);

@@ -6,17 +6,17 @@
 
         <StackLayout row="1" class="m-t-16">
             <Label text="Right arm MAC" />
-            <TextField text="{{ rightAddress }}" textChange="{{ onRightAddressTextChange }}" autocorrect="false" autocapitalizationType="none" />
+            <TextField text="{{ rightAddress }}" textChange="{{ onRightAddressTextChange }}" autocorrect="false" autocapitalizationType="none" accessibilityLabel="Right glasses Bluetooth address" />
         </StackLayout>
 
         <StackLayout row="2" class="m-t-12">
             <Label text="Left arm MAC" />
-            <TextField text="{{ leftAddress }}" textChange="{{ onLeftAddressTextChange }}" autocorrect="false" autocapitalizationType="none" />
+            <TextField text="{{ leftAddress }}" textChange="{{ onLeftAddressTextChange }}" autocorrect="false" autocapitalizationType="none" accessibilityLabel="Left glasses Bluetooth address" />
         </StackLayout>
 
         <StackLayout row="3" class="m-t-12">
             <Label text="R1 ring MAC (optional)" />
-            <TextField text="{{ ringAddress }}" textChange="{{ onRingAddressTextChange }}" autocorrect="false" autocapitalizationType="none" />
+            <TextField text="{{ ringAddress }}" textChange="{{ onRingAddressTextChange }}" autocorrect="false" autocapitalizationType="none" accessibilityLabel="Ring Bluetooth address" />
         </StackLayout>
 
         <GridLayout row="4" columns="*,*" class="m-t-16">

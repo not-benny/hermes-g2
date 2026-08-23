@@ -2049,7 +2049,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             }
             ringBattery = level;
         }
-        emitBatteryStateSnapshot();
+        emitDirectRingBatteryStateSnapshot(generation);
         logLine("direct ring battery=" + level + "%");
     }
 
@@ -2206,11 +2206,23 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
     /** ~200ms spacing between probe frames so the ring can answer each in turn. */
     private boolean ringProbeGap(int generation) {
-        if (!ringInterruptibleSleep.sleep(200)) {
-            return false;
-        }
-        synchronized (ringLock) {
-            return isRingOperationAllowedLocked(generation);
+        long deadlineMs = SystemClock.elapsedRealtime() + 200;
+        while (true) {
+            long remainingMs = deadlineMs - SystemClock.elapsedRealtime();
+            if (remainingMs <= 0) {
+                synchronized (ringLock) {
+                    return isRingOperationAllowedLocked(generation);
+                }
+            }
+            boolean completed = ringInterruptibleSleep.sleep(remainingMs);
+            synchronized (ringLock) {
+                if (!isRingOperationAllowedLocked(generation)) return false;
+            }
+            if (completed) return true;
+            // Rich health notifications wake this worker so packetAck can
+            // advance the batch. Drain them, then resume the remaining probe
+            // spacing; lifecycle cancellation is distinguished by generation.
+            drainRingPacketAcks();
         }
     }
 
@@ -4150,8 +4162,11 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (current == null) {
             return;
         }
+        final ExactGenerationListenerGuard<FaceclawBleCommunicatorListener> delivery =
+            new ExactGenerationListenerGuard<>(generation, current);
         mainHandler.post(() -> {
-            if (!isRingNotificationDispatchAllowed(generation)) {
+            if (!isRingNotificationDispatchAllowed(generation)
+                    || !delivery.isCurrent(ringConnectionGeneration, listener)) {
                 return;
             }
             try {

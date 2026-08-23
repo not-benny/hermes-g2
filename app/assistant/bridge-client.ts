@@ -3,6 +3,8 @@ import { toolRegistry } from "./tool-registry";
 import { BridgeConnectionGuard } from "./bridge-connection-guard";
 import { AgentCockpitController } from "../agent-cockpit/controller";
 import type { CockpitClientCommand } from "../agent-cockpit/protocol";
+import { HermesCompanionController } from "../hermes-companion/controller";
+import type { HermesCompanionClientCommand } from "../hermes-companion/protocol";
 import type { AssistantContext, AssistantTurnCallbacks, AssistantTurnHandle } from "./types";
 
 declare const com: any;
@@ -11,12 +13,13 @@ declare const com: any;
  * Dial-out websocket client for the Hermes Agent bridge (or another compatible
  * server on the user's machine; see
  * notes/voice-assistant-design.md "External mode"). One JSON object per text
- * frame, four multiplexed channels:
+ * frame, five multiplexed channels:
  *
  *   ctl:  hello/hello-ack auth handshake, ping/pong, error
  *   chat: utterance in, streamed reply out (per-turn)
  *   mcp:  raw MCP JSON-RPC; the phone is the MCP *server* (ToolRegistry)
  *   cockpit: bounded structured Hermes/Kanban events and exact actions
+ *   companion: redacted mobile status/session/usage projections and bounded actions
  *
  * Unlike G2MirrorClient (per-terminal-window, no reconnect), this connection
  * is a long-lived shell service: it stays up while configured so the remote
@@ -59,6 +62,7 @@ type ActiveTurn = {
 
 export class AssistantBridgeClient {
   readonly cockpit = new AgentCockpitController((command) => this.sendCockpit(command));
+  readonly companion = new HermesCompanionController((command) => this.sendCompanion(command));
   private options: AssistantBridgeOptions | null = null;
   private ws: any = null;
   private listenerProxy: any = null;
@@ -73,6 +77,7 @@ export class AssistantBridgeClient {
   private activeTurn: ActiveTurn | null = null;
   private turnSeq = 0;
   private mcpServer: AssistantMcpServer | null = null;
+  private companionSupported = false;
   private authenticatedProfileId: string | null = null;
   private unsubscribeToolsChanged: (() => void) | null = null;
   private readonly connectionGuard = new BridgeConnectionGuard();
@@ -109,6 +114,7 @@ export class AssistantBridgeClient {
   /** Disconnect and stay down until the next configure(). */
   stop(): void {
     this.stopped = true;
+    this.companionSupported = false;
     this.authenticatedProfileId = null;
     this.connectionGuard.invalidateCurrent();
     this.clearReconnectTimer();
@@ -116,6 +122,7 @@ export class AssistantBridgeClient {
     this.clearAuthTimer();
     this.failActiveTurn("Bridge connection closed");
     this.cockpit.disconnect();
+    this.companion.disconnect();
     if (this.unsubscribeToolsChanged) {
       this.unsubscribeToolsChanged();
       this.unsubscribeToolsChanged = null;
@@ -183,7 +190,8 @@ export class AssistantBridgeClient {
         this.setState("connecting", "Authenticating...");
         this.startAuthTimer(generation, socket);
         this.send({ chan: "ctl", type: "hello", version: PROTOCOL_VERSION, token: this.options!.token,
-          deviceName: this.options!.deviceName, capabilities: ["chat", "mcp", "cockpit-v1"] });
+          deviceName: this.options!.deviceName,
+          capabilities: ["chat", "mcp", "cockpit-v1", "hermes-companion-v1"] });
       },
       onTextMessage: (message: string) => {
         if (!this.isCurrentSocket(generation, socket)) return;
@@ -266,6 +274,11 @@ export class AssistantBridgeClient {
         if (!this.requireAuthenticated(generation)) return;
         this.cockpit.handleFrame(frame);
         return;
+      case "companion":
+        if (!this.requireAuthenticated(generation)) return;
+        if (!this.companionSupported) return;
+        this.companion.handleFrame(frame);
+        return;
       default:
         return;
     }
@@ -281,6 +294,9 @@ export class AssistantBridgeClient {
       }
       this.authenticatedProfileId = frame.profile === "even-g2" ? "even-g2" : null;
       if (!this.connectionGuard.authenticate(generation)) { this.authenticatedProfileId = null; return; }
+      this.companionSupported = Array.isArray(frame.capabilities) &&
+        frame.capabilities.includes("hermes-companion-v1");
+      this.companion.setSupported(this.companionSupported);
       this.clearAuthTimer();
       this.reconnectDelayMs = RECONNECT_MIN_MS;
       this.lastTrafficMs = Date.now();
@@ -332,6 +348,7 @@ export class AssistantBridgeClient {
 
   private handleConnectionLost(status: string, generation: number): void {
     if (!this.connectionGuard.invalidate(generation)) return;
+    this.companionSupported = false;
     this.authenticatedProfileId = null;
     this.mcpServer?.close();
     this.mcpServer = null;
@@ -344,6 +361,7 @@ export class AssistantBridgeClient {
     const detail = this.status.startsWith("Bridge error:") ? this.status : status;
     this.failActiveTurn("Bridge connection lost");
     this.cockpit.disconnect();
+    this.companion.disconnect();
     this.setState("failed", detail);
     this.scheduleReconnect();
   }
@@ -437,6 +455,11 @@ export class AssistantBridgeClient {
   private sendCockpit(command: CockpitClientCommand): void {
     if (this.phase !== "connected") return;
     this.send({ ...command, chan: "cockpit" });
+  }
+
+  private sendCompanion(command: HermesCompanionClientCommand): void {
+    if (this.phase !== "connected" || !this.companionSupported) return;
+    this.send({ ...command, chan: "companion" });
   }
 
   private isCurrentSocket(generation: number, socket: any): boolean {

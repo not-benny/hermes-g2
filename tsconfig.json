@@ -15,7 +15,7 @@
       "@/*": ["app/*"]
     }
   },
-  "include": ["app/**/*"],
+  "include": ["app/**/*", "debug-control/**/*"],
   "files": ["./references.d.ts"],
   "exclude": ["node_modules", "platforms"]
 }

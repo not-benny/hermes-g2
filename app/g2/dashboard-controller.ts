@@ -25,7 +25,7 @@ import { registerNavigateTools } from "../assistant/navigate-tools";
 import { registerRoamTools } from "../assistant/roam-tools";
 import { assistantBridge } from "../assistant/bridge-client";
 import { ringHealthStore } from "../health/ring-health-store";
-import { loadActivity, recordActivity } from "../native/health-store";
+import { loadActivity, loadBattery, recordActivity, recordBattery } from "../native/health-store";
 import { playEventBeep } from "../ui/event-beeps";
 import { registerWindowTools } from "../assistant/window-tools";
 import { registerTimerTools } from "../assistant/timer-tools";
@@ -48,6 +48,9 @@ import {
   retireGlassesMotionSession,
 } from "../native/glasses-motion-service";
 import { effectiveCaptionProvider } from "../captions/caption-settings";
+
+declare const __HERMES_DEBUG_CONTROL__: boolean;
+declare function require(id: string): typeof import("../../debug-control/control-runtime");
 
 type ConnectionPhase = DashboardConnectionPhase;
 
@@ -167,7 +170,7 @@ function isMediaSessionActive(s: MediaControllerState): boolean {
 /** Identity-only track key: never includes position/playbackState, so a
  *  play/pause toggle or position tick is not seen as a new track. */
 function mediaTrackKey(s: MediaControllerState): string {
-  return `${s.title} ${s.artist} ${s.album}`;
+  return `${s.title}\u0000${s.artist}\u0000${s.album}`;
 }
 
 class DashboardController {
@@ -341,6 +344,9 @@ class DashboardController {
     // connection stays up (with re-dial) so proactive tool calls work
     // outside voice turns.
     this.syncAssistantBridge();
+    if (__HERMES_DEBUG_CONTROL__) {
+      require("../../debug-control/control-runtime").registerDebugControl(this);
+    }
   }
 
   /** A local shell flag is not device availability; require the live session. */
@@ -1016,6 +1022,11 @@ class DashboardController {
     const connectAttempt = ++this.connectAttemptGeneration;
 
     const addresses = loadDeviceAddresses();
+    const ringIdentity = addresses.ring;
+    let communicator: FaceclawCommunicatorBridge | null = null;
+    const isRingIdentityCurrent = () => Boolean(ringIdentity) &&
+      communicator !== null && this.communicator === communicator &&
+      loadDeviceAddresses().ring === ringIdentity;
     shell.setRingConfigured(isValidMacAddress(addresses.ring));
     if (!addresses.right || !addresses.left) {
       const message = "Configure both left and right arm MAC addresses before connecting.";
@@ -1042,7 +1053,6 @@ class DashboardController {
       `Using configured arms: R=${addresses.right} L=${addresses.left}${addresses.ring ? ` ring=${addresses.ring}` : ""}`,
     );
 
-    let communicator: FaceclawCommunicatorBridge | null = null;
     this.faceclawWakeLeaseSupported = false;
     this.faceclawWakeLeaseState = null;
     this.wearNotifySupported = false;
@@ -1052,6 +1062,9 @@ class DashboardController {
     try {
       await ensureBlePermissions();
       if (!this.isCurrentConnectAttempt(connectAttempt)) return;
+      if (loadDeviceAddresses().ring !== ringIdentity) {
+        throw new Error("Ring configuration changed while connecting. Retry the connection.");
+      }
       startForegroundNotification("Connecting to the glasses");
       communicator = new FaceclawCommunicatorBridge({
         right: addresses.right,
@@ -1136,8 +1149,9 @@ class DashboardController {
         this.handlePhoneLockState(locked);
       });
       this.offBattery = communicator.onBatteryState((state) => {
+        if (this.communicator !== communicator) return;
         this.lastHeadsetBattery = state.battery >= 0 ? state.battery : null;
-        if (state.ringBattery >= 0) {
+        if (isRingIdentityCurrent() && state.ringBattery >= 0) {
           ringHealthStore.updateBatteryPercent(state.ringBattery);
         }
         shell.setBatteryLevels({
@@ -1145,7 +1159,9 @@ class DashboardController {
           headsetCharging: state.chargingStatus > 0,
           // The standard GATT battery service is usually absent on the ring
           // (-1); fall back to the protocol-decoded deviceStatus percent.
-          ring: state.ringBattery >= 0 ? state.ringBattery : ringHealthStore.snapshot().batteryPercent,
+          ring: isRingIdentityCurrent()
+            ? (state.ringBattery >= 0 ? state.ringBattery : ringHealthStore.snapshot().batteryPercent)
+            : null,
           ringCharging: null,
         });
         if ((this.phase === "connected" || this.phase === "charging") && this.communicator) {
@@ -1155,14 +1171,30 @@ class DashboardController {
       });
       ringHealthStore.setLog((line) => this.appendLog(line));
       ringHealthStore.restoreActivity(loadActivity());
+      const persistedBattery = loadBattery(ringIdentity);
+      if (!persistedBattery) {
+        ringHealthStore.clearBattery();
+        shell.setBatteryLevels({ ring: null });
+      } else if (ringHealthStore.snapshot().batteryPercent === null) {
+        ringHealthStore.restoreBattery(persistedBattery.percent, persistedBattery.updatedAtMs);
+        shell.setBatteryLevels({ ring: persistedBattery.percent });
+      }
       this.offRingHealthFrame = communicator.onRingHealthFrame((frame) => {
+        if (!isRingIdentityCurrent()) return;
         ringHealthStore.ingestFrame(frame.data);
       });
       this.offRingHealthChange = ringHealthStore.onChange((snapshot) => {
+        if (!isRingIdentityCurrent()) {
+          shell.setBatteryLevels({ ring: null });
+          return;
+        }
         recordActivity(snapshot.activity);
+        recordBattery(ringIdentity, snapshot.batteryPercent, snapshot.batteryUpdatedAtMs);
         shell.setRingHeartRate(snapshot.currentHr ?? snapshot.heartRate?.avg ?? null);
         if (snapshot.batteryPercent !== null) {
           shell.setBatteryLevels({ ring: snapshot.batteryPercent });
+        } else {
+          shell.setBatteryLevels({ ring: null });
         }
         if ((this.phase === "connected" || this.phase === "charging") && this.communicator) {
           this.requestShellRender();
@@ -1479,6 +1511,14 @@ class DashboardController {
         this.appendLog("Disconnected from the glasses.");
       }
     }
+  }
+
+  /** Debug harness uses the same fixed launcher registry; no arbitrary deep links. */
+  async launchDebugAllowlistedApp(appId: string): Promise<void> {
+    if (!ALL_APPS.some((app) => app.appId === appId)) {
+      throw new Error("app is not allowlisted");
+    }
+    await this.launchApp(appId);
   }
 
   async injectSyntheticRingInput(

@@ -4,10 +4,12 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:https";
 import { isIP } from "node:net";
 import { pathToFileURL } from "node:url";
-import { WebSocketServer } from "hermes-private-ws";
+import { WebSocket, WebSocketServer } from "hermes-private-ws";
 import { acquireDurableLedgerLease, DurableMutationLedger } from "./durable-mutation-ledger.mjs";
+import { DurableCompanionJournal } from "./durable-companion-journal.mjs";
 import { createHomeAssistantTransport, HomeAssistantAdapter } from "./home-assistant-adapter.mjs";
 import { PrivateBridgeConnection } from "./private-bridge-connection.mjs";
+import { HermesCompanionEndpoint } from "../tools/hermes-companion-endpoint.mjs";
 
 const HELP = `Private dynamic-app / WSS / Home Assistant evaluation server
 
@@ -19,6 +21,9 @@ The phone must be configured for this WSS endpoint and private CA. Start the
 server, then say exactly: "open private living room controls". Every wearer
 mutation is receipt-restored before the dynamic view closes. No credentials,
 provider IDs, private addresses, or raw provider errors are printed.
+
+An optional loopback Hermes companion gateway reuses this authenticated WSS
+and an owner-only operation journal. It does not create another HTTP surface.
 `;
 
 function required(name) {
@@ -51,6 +56,11 @@ function parseConfig() {
   }
   const token = required("PRIVATE_BRIDGE_TOKEN");
   if (token.length < 16) throw new Error("bridge token is too short");
+  const companionValues = [process.env.HERMES_COMPANION_GATEWAY_URL,
+    process.env.HERMES_COMPANION_GATEWAY_TOKEN, process.env.HERMES_COMPANION_JOURNAL_PATH];
+  if (companionValues.some(Boolean) && !companionValues.every(Boolean)) {
+    throw new Error("companion gateway configuration is incomplete");
+  }
   return {
     host, port, token,
     certPath: required("PRIVATE_BRIDGE_TLS_CERT"),
@@ -60,6 +70,9 @@ function parseConfig() {
     atomicMutationPath: required("HA_ATOMIC_MUTATION_PATH"),
     ledgerPath: required("HA_MUTATION_LEDGER_PATH"),
     triggerPhrase: process.env.PRIVATE_EVALUATION_PHRASE || "open private living room controls",
+    companion: companionValues.every(Boolean) ? {
+      gatewayUrl: companionValues[0], gatewayToken: companionValues[1], journalPath: companionValues[2],
+    } : null,
   };
 }
 
@@ -77,6 +90,21 @@ async function main() {
   });
   const releaseLedgerLease = await acquireDurableLedgerLease(config.ledgerPath);
   const ledger = new DurableMutationLedger({ path: releaseLedgerLease.canonicalPath });
+  let releaseCompanionLease = null;
+  let companionEndpoint = null;
+  if (config.companion) {
+    releaseCompanionLease = await acquireDurableLedgerLease(config.companion.journalPath);
+    const journal = new DurableCompanionJournal({ path: releaseCompanionLease.canonicalPath });
+    companionEndpoint = new HermesCompanionEndpoint({
+      gatewayUrl: config.companion.gatewayUrl,
+      token: config.companion.gatewayToken,
+      createSocket: (address) => new WebSocket(address),
+      journal: journal.records(),
+      reserveOperation: (record) => journal.reserve(record),
+      completeOperation: (operationId, outcome) => journal.complete(operationId, outcome),
+    });
+    companionEndpoint.start();
+  }
   const adapter = new HomeAssistantAdapter({ transport, ledger });
   const recoverLedger = async () => {
     if (!(await ledger.list()).length) return;
@@ -113,8 +141,9 @@ async function main() {
     let controlQueue = Promise.resolve();
     const connection = new PrivateBridgeConnection({
       expectedToken: config.token,
-      connectionGeneration: `socket-${++generation}`,
+      connectionGeneration: `connection_socket_${++generation}_${Date.now()}`,
       adapter,
+      companionEndpoint,
       triggerPhrase: config.triggerPhrase,
       send: (frame) => { if (webSocket.readyState === webSocket.OPEN) webSocket.send(JSON.stringify(frame)); },
       closeSocket: (code, reason) => webSocket.close(code, reason),
@@ -170,6 +199,8 @@ async function main() {
     for (const socket of sockets.clients) socket.close(1001, "server stopping");
     await new Promise((resolve) => sockets.close(resolve));
     await new Promise((resolve) => server.close(resolve));
+    companionEndpoint?.stop();
+    if (releaseCompanionLease) await releaseCompanionLease();
     await releaseLedgerLease();
   };
   process.once("SIGINT", () => { void stop().finally(() => { process.exitCode = 130; }); });

@@ -51,6 +51,28 @@ function setup() {
   return { manager, deliveries, persisted };
 }
 
+test("departure rendering falls back safely when the Android runtime has no Intl", async () => {
+  const saved = globalThis.Intl;
+  try {
+    globalThis.Intl = undefined;
+    const { manager, deliveries } = setup();
+    const begun = JSON.parse((await manager.begin({
+      operation_id: "begin-no-intl", dashboard_key: baseSpec.dashboard_key, title: baseSpec.title,
+      privacy: "private", intent: "Train departures",
+      refresh_policy: { mode: "manual", min_interval_seconds: 30 }, ttl_seconds: 300,
+    }, undefined, () => true, owner)).content);
+    const published = await manager.publish({
+      operation_id: "publish-no-intl", dashboard_id: begun.dashboard_id,
+      presentation_generation: begun.presentation_generation, refresh_generation: begun.refresh_generation,
+      expected_revision: begun.revision, spec: baseSpec,
+    }, undefined, () => true, owner);
+    assert.equal(published.ok, true);
+    assert.match(deliveries.at(-1).components.find((component) => component.id === "departures-service-1").value, /^\d{2}:\d{2}/);
+  } finally {
+    globalThis.Intl = saved;
+  }
+});
+
 test("V2 contextual dashboard schema is read-only, bounded, and provenance-explicit", () => {
   assert.equal(validateContextDashboardSpec(baseSpec), null);
   assert.equal(CONTEXT_DASHBOARD_CAPABILITIES.protocolVersion, 2);

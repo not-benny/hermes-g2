@@ -136,6 +136,41 @@ test("deviceStatus response populates the ring battery percent", () => {
   assert.equal(store.snapshot().batteryPercent, 97);
 });
 
+test("deviceStatus accepts only the verified ACK status", () => {
+  for (const status of [0, 1, 2, 4]) {
+    const store = new RingHealthStore();
+    for (const frame of fragments(buildInner(1, 0, 1, status, new Uint8Array([97])))) store.ingestFrame(frame);
+    assert.equal(store.snapshot().batteryPercent, null, `status ${status} must be rejected`);
+  }
+});
+
+test("a persisted battery is restored until deviceStatus replaces it", () => {
+  const store = new RingHealthStore(() => 2_000);
+  store.restoreBattery(81, 1_000);
+  assert.equal(store.snapshot().batteryPercent, 81);
+  assert.equal(store.snapshot().batteryUpdatedAtMs, 1_000);
+  assert.equal(store.snapshot().updatedAtMs, null, "battery restore must not impersonate fresh rich health data");
+
+  const inner = buildInner(1, 0, 1, 3, new Uint8Array([79, 0, 0]));
+  for (const frame of fragments(inner)) store.ingestFrame(frame);
+  assert.equal(store.snapshot().batteryPercent, 79);
+  assert.equal(store.snapshot().batteryUpdatedAtMs, 2_000);
+  assert.equal(store.snapshot().updatedAtMs, null);
+});
+
+test("a standard-GATT battery shares the timestamped Health and HUD state", () => {
+  let nowMs = 3_000;
+  const store = new RingHealthStore(() => nowMs);
+  store.updateBatteryPercent(76);
+  assert.equal(store.snapshot().batteryPercent, 76);
+  assert.equal(store.snapshot().batteryUpdatedAtMs, 3_000);
+  assert.equal(store.snapshot().updatedAtMs, null);
+
+  nowMs = 4_000;
+  store.updateBatteryPercent(76);
+  assert.equal(store.snapshot().batteryUpdatedAtMs, 4_000, "a repeated verified read refreshes staleness");
+});
+
 test("deviceInfo response populates the read-only ring firmware version", () => {
   const store = new RingHealthStore();
   const version = new TextEncoder().encode("2.2.8.0002");

@@ -3,35 +3,36 @@
         <NavigationButton text="Back" tap="{{ onBackTap }}" />
     </ActionBar>
     <ScrollView>
-        <StackLayout class="p-20 phone-content">
+        <StackLayout class="screen-content phone-content">
             <Label text="Privacy &amp; processing" class="section-label" />
-            <Label text="{{ disclosure }}" textWrap="true" class="muted m-t-4" />
+            <Label text="{{ disclosure }}" textWrap="true" class="supporting-text m-t-4" />
             <Label text="Captions remain in memory only and clear when the window closes. Translation never hides source text when it is late or unavailable."
-                   textWrap="true" class="muted m-t-8" />
+                   textWrap="true" class="supporting-text m-t-8" />
 
             <Label text="Languages" class="section-label m-t-20" />
-            <Button text="Source: {{ sourceLanguage }}" tap="{{ onSourceTap }}" class="m-t-8" />
-            <Button text="Translate to: {{ targetLanguage }}" tap="{{ onTargetTap }}" class="m-t-8" />
-            <Button text="Layout: {{ layout }}" tap="{{ onLayoutTap }}" class="m-t-8" />
+            <Button text="Source: {{ sourceLanguage }}" tap="{{ onSourceTap }}" class="-secondary m-t-8" />
+            <Button text="Translate to: {{ targetLanguage }}" tap="{{ onTargetTap }}" class="-secondary m-t-8" />
+            <Button text="Layout: {{ layout }}" tap="{{ onLayoutTap }}" class="-secondary m-t-8" />
 
             <Label text="Readability" class="section-label m-t-20" />
-            <Button text="Font: {{ fontSize }}" tap="{{ onFontTap }}" class="m-t-8" />
-            <Button text="Line spacing: {{ lineSpacing }}" tap="{{ onSpacingTap }}" class="m-t-8" />
-            <Button text="Maximum lines: {{ maxLines }}" tap="{{ onMaxLinesTap }}" class="m-t-8" />
+            <Button text="Font: {{ fontSize }}" tap="{{ onFontTap }}" class="-secondary m-t-8" />
+            <Button text="Line spacing: {{ lineSpacing }}" tap="{{ onSpacingTap }}" class="-secondary m-t-8" />
+            <Button text="Maximum lines: {{ maxLines }}" tap="{{ onMaxLinesTap }}" class="-secondary m-t-8" />
 
             <Label text="Provider evidence" class="section-label m-t-20" />
             <GridLayout columns="*,auto" class="control-row">
-                <Label col="0" text="Speaker labels" verticalAlignment="center" />
-                <Switch col="1" checked="{{ speakerLabels }}" isEnabled="{{ speakerLabelsAvailable }}" />
+                <Label col="0" text="Speaker labels" class="control-row-label" verticalAlignment="center" />
+                <Switch col="1" checked="{{ speakerLabels }}" isEnabled="{{ speakerLabelsAvailable }}" accessibilityLabel="Speaker labels" />
             </GridLayout>
             <Label text="Speaker labels appear only when the provider supplies a documented speaker identifier; Hermes never guesses."
-                   textWrap="true" class="muted m-t-4" />
+                   textWrap="true" class="supporting-text m-t-4" />
 
             <Label text="Custom vocabulary" class="section-label m-t-20" />
             <TextField text="{{ vocabulary }}" textChange="{{ onVocabularyTextChange }}"
-                       hint="Comma-separated words" autocorrect="false" autocapitalizationType="none" />
-            <Button text="Save bounded vocabulary" tap="{{ onSaveVocabularyTap }}" class="m-t-8" />
-            <Label text="{{ vocabularyStatus }}" textWrap="true" class="muted m-t-4" />
+                       hint="Comma-separated words" autocorrect="false" autocapitalizationType="none"
+                       accessibilityLabel="Custom caption vocabulary" />
+            <Button text="Save bounded vocabulary" tap="{{ onSaveVocabularyTap }}" class="-primary m-t-8" />
+            <Label text="{{ vocabularyStatus }}" textWrap="true" class="supporting-text m-t-4" />
         </StackLayout>
     </ScrollView>
 </Page>

@@ -10,7 +10,13 @@ import { loadHealthDocument } from "./health-store";
 
 /** The full canonical local document plus the explicit export timestamp. */
 function healthExportDocument(): string {
-  return JSON.stringify({ ...loadHealthDocument(), exportedAtMs: Date.now() }, null, 2);
+  const { battery, ...document } = loadHealthDocument();
+  // The app-private ring identity scopes stale-battery rejection, but it is not
+  // health data and must not be copied into a user-shared export.
+  const exportedBattery = battery
+    ? { percent: battery.percent, updatedAtMs: battery.updatedAtMs }
+    : null;
+  return JSON.stringify({ ...document, battery: exportedBattery, exportedAtMs: Date.now() }, null, 2);
 }
 
 /** Write the history to a JSON file in the app documents dir; returns the path. */
