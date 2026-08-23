@@ -58,6 +58,7 @@ export class HermesCockpitAdapter {
     const old = this.#byPublic.get(publicSessionId);
     const existingPublic = this.#publicByHermes.get(hermesSessionId);
     if (existingPublic && existingPublic !== publicSessionId) throw new Error("Hermes session is already explicitly shared");
+    if (old && generation !== old.generation && generation <= old.generation) throw new Error("replacement generation must increase");
     if (old && old.hermesSessionId !== hermesSessionId && generation <= old.generation) throw new Error("replacement identity requires a newer generation");
     if (old && old.hermesSessionId !== hermesSessionId) this.#publicByHermes.delete(old.hermesSessionId);
     if (old && (old.generation !== generation || old.hermesSessionId !== hermesSessionId)) this.#retirePending(publicSessionId);
@@ -150,6 +151,8 @@ export class HermesCockpitAdapter {
     if (!session || session.generation !== command.generation || ["completed", "failed", "interrupted"].includes(session.state)) return null;
 
     let rpc = null;
+    let pendingRequestId = null;
+    let interruptAfterReservation = false;
     if (command.type === "answer" || command.type === "permission_decide") {
       const pending = this.#pending.get(command.request_id);
       if (!pending || pending.publicSessionId !== session.publicSessionId || pending.generation !== session.generation ||
@@ -169,22 +172,26 @@ export class HermesCockpitAdapter {
           choice: command.decision === "allow_once" ? "once" : "deny", all: false,
         });
       }
-      this.#pending.delete(command.request_id);
+      pendingRequestId = command.request_id;
     } else if (command.type === "steer") {
       const text = boundedText(command.text, 500);
       if (!text || session.state !== "running") return null;
       rpc = this.#rpc(command.command_id, "session.steer", { session_id: session.hermesSessionId, text });
     } else if (command.type === "interrupt") {
       if (!["running", "waiting_human"].includes(session.state)) return null;
-      session.state = "interrupting";
-      session.revision++;
-      this.#retirePending(session.publicSessionId);
+      interruptAfterReservation = true;
       rpc = this.#rpc(command.command_id, "session.interrupt", { session_id: session.hermesSessionId });
     }
     if (!rpc || !this.#connectionGeneration || command.connection_generation !== this.#connectionGeneration ||
         this.#byPublic.get(command.session_id) !== session || session.generation !== command.generation) return null;
     const record = { commandId: command.command_id, fingerprint: createHash("sha256").update(JSON.stringify(command)).digest("hex"), status: "reserved" };
     if (this.reserveCommand(clone(record)) !== true) return null;
+    if (pendingRequestId) this.#pending.delete(pendingRequestId);
+    if (interruptAfterReservation) {
+      session.state = "interrupting";
+      session.revision++;
+      this.#retirePending(session.publicSessionId);
+    }
     this.#journal.set(command.command_id, record);
     this.#consumed.add(command.command_id);
     try {

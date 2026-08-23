@@ -36,8 +36,8 @@ restart command reservations, dispatch-at-final-revalidation, exact receipt
 correlation/error UI, bounded list viewports, actionable detail prompts, explicit
 interrupt confirmation, and a loopback-only production Hermes endpoint core.
 
-Verification from the current worktree: focused cockpit coverage passes 31/31;
-the full host suite passes 375/375 after a clean `npm ci`; TypeScript typecheck
+Verification from the current worktree: focused cockpit coverage passes 32/32;
+the full host suite passes 376/376 after a clean `npm ci`; TypeScript typecheck
 passes after platform preparation; and the JDK 21 / Android SDK 35 build passes.
 The exact debug APK at
 `platforms/android/app/build/outputs/apk/debug/app-debug.apk` has SHA-256

@@ -145,6 +145,7 @@ test("same-generation identity rebind is rejected and interrupt or terminal stat
   assert.equal(adapter.snapshot().sessions[0].state, "interrupted");
   adapter.share({ publicSessionId: "session_public_1234", hermesSessionId: "hermes-private-session", generation: 3, title: "Reconnect" });
   assert.equal(adapter.snapshot().sessions[0].state, "interrupted", "same generation cannot revive on reconnect");
+  assert.throws(() => adapter.share({ publicSessionId: "session_public_1234", hermesSessionId: "hermes-private-session", generation: 2, title: "Regression" }));
   assert.equal(adapter.observeSession("hermes-private-session", { state: "running" }), null);
   assert.throws(() => adapter.share({ publicSessionId: "session_alias_12345", hermesSessionId: "hermes-private-session", generation: 4, title: "Alias" }));
 });
@@ -176,6 +177,24 @@ test("monotonic expiry, redacted text projection, and restart journal fail close
   restarted.connect("connection_A_12345");
   restarted.share({ publicSessionId: "session_public_1234", hermesSessionId: "hermes-private-session", generation: 3, title: "Disposable" });
   assert.equal(restarted.handleCommand(steer, (rpc) => rpc), null, "reserved command never redispatches after restart");
+});
+
+test("durable reservation failure leaves pending requests and interrupt state unchanged", () => {
+  const adapter = new HermesCockpitAdapter({ reserveCommand: () => false, now: () => 1000, monotonicNow: () => 1000 });
+  adapter.connect("connection_A_12345");
+  adapter.share({ publicSessionId: "session_public_1234", hermesSessionId: "hermes-private-session", generation: 3, title: "Disposable" });
+  const opened = adapter.ingest({ type: "approval.request", session_id: "hermes-private-session", data: {
+    request_id: "provider-reserve-fail", cockpit_scope: { action: "read_file", target: "README.md", effect: "Read one file" },
+  } }, 3);
+  const decide = { v: 1, chan: "cockpit", type: "permission_decide", command_id: "command_reserve_fail",
+    connection_generation: "connection_A_12345", session_id: "session_public_1234", generation: 3,
+    request_id: opened.request.request_id, nonce: opened.request.nonce, decision: "allow_once" };
+  assert.equal(adapter.handleCommand(decide, (rpc) => rpc), null);
+  assert.equal(adapter.snapshot().sessions[0].pending.length, 1);
+  const stop = { v: 1, chan: "cockpit", type: "interrupt", command_id: "command_stop_reserve",
+    connection_generation: "connection_A_12345", session_id: "session_public_1234", generation: 3 };
+  assert.equal(adapter.handleCommand(stop, (rpc) => rpc), null);
+  assert.equal(adapter.snapshot().sessions[0].state, "waiting_human");
 });
 
 test("deterministic fake fixture covers duplicate, reconnect, expiry, malformed, cancellation, and process death", () => {
