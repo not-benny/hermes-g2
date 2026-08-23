@@ -2,6 +2,7 @@ import { Frame, Observable } from "@nativescript/core";
 
 import { ensureBlePermissions } from "../g2/android-permissions";
 import { isValidMacAddress, loadDeviceAddresses, normalizeMacAddress, saveDeviceAddresses } from "../g2/device-addresses";
+import { ringHealthStore } from "../health/ring-health-store";
 import { buildAddressSet, DeviceDiscoveryBridge } from "../native/device-discovery";
 
 type TextChangeArgs = { value?: string; object?: { text?: string } };
@@ -168,7 +169,9 @@ export class ConfigViewModel extends Observable {
       return false;
     }
 
+    const previous = loadDeviceAddresses();
     saveDeviceAddresses({ right, left, ring });
+    if (previous.ring !== ring) ringHealthStore.clearBattery();
     this.rightAddress = right;
     this.leftAddress = left;
     this.ringAddress = ring;
