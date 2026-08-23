@@ -44,8 +44,8 @@ unmatched release, non-transactional startup, unbounded non-Soniox queues,
 Soniox send/reconnect identity, cumulative-stream truncation, stale provider
 disclosure, translation lag/source fallback, repeated-partial speaker labels,
 and status/footer overflow. The follow-up makes capture single-owner and
-transactional, bounds every cloud queue, restarts continuous capture on setting
-changes with effective-provider disclosure, emits incremental final token
+transactional, bounds every cloud queue, defers live provider/language setting
+changes until the next lifecycle-owned capture, emits incremental final token
 deltas, measures matching-revision lag, falls back to current source, derives
 partial labels without mutating committed state, truncates fixed chrome, and
 adds executable mock-Soniox fixtures.
@@ -57,13 +57,15 @@ revision, and Soniox final-token loss in ordinary assistant/voice input. The
 last fix introduces one provider-neutral transcript accumulator shared by voice
 input and an executable final-delta/stream-finish regression. Independent
 adversarial re-review of exact source commit
-`55740b49725f1b078d00ba7549c9e5efab50c8c4` returned **PASS** across the
-final-token path and all earlier lifecycle, provider, translation, queue and
-disclosure blockers. Operational hardware authorization remains NO-GO until the
+`95f96abb181423a7eec21cd4837f5428312ffe80` returned **PASS** after additionally
+binding the caption layer to the exact successful continuous-capture lease so
+late or concurrent assistant generations cannot be adopted. Operational
+hardware authorization remains NO-GO until the
 G2 reaches session readiness and the documented approved checks run.
 
 PR [#63](https://github.com/not-benny/hermes-g2/pull/63) is open from
-`feat/live-captions-translation` to `main`. At remote head `6890df1`,
+`feat/live-captions-translation` to `main`. At reviewed code head
+`95f96abb181423a7eec21cd4837f5428312ffe80`,
 `release-gate`, `codeql-javascript`, `codeql-java`, and aggregate `codeql` all
 passed. The PR is intentionally unmerged because the required serialized A32/G2
 fixture, visible live-mic, stop/clear/background, disconnect, optical
