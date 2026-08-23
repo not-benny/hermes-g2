@@ -35,11 +35,14 @@ test("successful replacement and hard transport failure start a clean generation
   assert.ok(failure.indexOf("invalidateRingPacketAckStateLocked()") < failure.indexOf("bleManager.disconnect(rightAddress)"));
 });
 
-test("final packetAck write is serialized with lifecycle retirement", () => {
+test("final packetAck write uses a generation token without blocking state reads", () => {
   const send = methodBody("private void sendRingPacketAck(RingPacketAckCursor cursor)");
-  assert.match(send, /synchronized \(ringLock\)/);
-  assert.match(send, /isRingOperationAllowedLocked\(cursor\.generation\)/);
-  assert.ok(send.indexOf("isRingOperationAllowedLocked") < send.indexOf('sendRingCommand("packetAck"'));
+  assert.match(send, /sendRingCommandForGeneration\(cursor\.generation/);
+  const operation = methodBody("private <T> T withRingManagerOperation(int generation, RingManagerOperation<T> operation)");
+  assert.ok(operation.indexOf("ringOperationGate.begin(generation)") < operation.indexOf("operation.run()"));
+  assert.ok(operation.indexOf("operation.run()") < operation.indexOf("ringOperationGate.finish(token)"));
+  const monitorEnd = operation.indexOf("\n        }", operation.indexOf("synchronized (ringLock)"));
+  assert.ok(monitorEnd < operation.indexOf("operation.run()"));
 });
 
 test("queue remains bounded and callback enqueue cannot write", () => {

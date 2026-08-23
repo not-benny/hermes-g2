@@ -19,6 +19,7 @@ import { noteStaleDataUsed, renderPassAllowsStaleData } from "../util/render-fre
 import { type DashboardInputEvent, type Layer, type LayerContext, type PaintBelow } from "./layers";
 import { VoiceInputLayer } from "./shell/voice-input";
 import { notificationFontSizeSetting } from "./dashboard-settings";
+import { notificationTriageController, notificationTriageReason } from "../notifications/triage-controller";
 
 const PAGE_X = 12;
 const PAGE_Y = 12;
@@ -78,8 +79,70 @@ type DetailMenuItem =
 
 export type SingleNotificationLayerOrigin = "notifications-list" | "new-notification-modal";
 
+export class NotificationDigestLayer implements Layer {
+  private selectedIndex = 0;
+
+  constructor(
+    private readonly entries: readonly { key: string; revision: string; reason: string }[],
+    private readonly closeModal: (ctx: LayerContext) => void,
+  ) {}
+
+  paint(ctx: LayerContext): GrayImage {
+    const font = notificationFont();
+    const { width, height } = ctx.stack.getBaseSize();
+    const image = new GrayImage(width, height, 0);
+    const active = readActiveNotifications(MAX_NOTIFICATIONS);
+    const live = this.entries
+      .map((entry) => ({ entry, notification: active.find((item) => item.key === entry.key) }))
+      .filter((item): item is { entry: { key: string; revision: string; reason: string }; notification: AndroidNotification } =>
+        Boolean(item.notification) && notificationTriageController.isCurrent(item.entry.key, item.entry.revision));
+    if (!live.length) {
+      this.closeModal(ctx);
+      return image;
+    }
+    this.selectedIndex = clamp(this.selectedIndex, 0, live.length - 1);
+    image.drawText(font, 18, 14, `Digest ${this.selectedIndex + 1}/${live.length}`, 230);
+    let y = 42;
+    for (let index = 0; index < live.length && y < height - 24; index++) {
+      const item = live[index]!;
+      const selected = index === this.selectedIndex;
+      image.drawText(font, 18, y, `${selected ? ">" : " "} ${item.notification.appName}: ${notificationTitle(item.notification)}`, selected ? 240 : 150);
+      y += lineHeightFor(font);
+      if (selected) {
+        image.drawText(font, 34, y, `Why: ${item.entry.reason}`, 170);
+        y += lineHeightFor(font);
+      }
+    }
+    image.drawText(font, 18, height - 22, "Click review · Double-click dismiss", 120);
+    return image;
+  }
+
+  handleInput(event: DashboardInputEvent, ctx: LayerContext): void {
+    const active = readActiveNotifications(MAX_NOTIFICATIONS);
+    const live = this.entries.filter((entry) =>
+      active.some((item) => item.key === entry.key) && notificationTriageController.isCurrent(entry.key, entry.revision));
+    if (event.type === "double-click") {
+      this.closeModal(ctx);
+      return;
+    }
+    if (!live.length) return;
+    this.selectedIndex = clamp(this.selectedIndex, 0, live.length - 1);
+    if (event.type === "scroll-up" || event.type === "scroll-down") {
+      const direction = event.type === "scroll-down" ? 1 : -1;
+      this.selectedIndex = (this.selectedIndex + direction + live.length) % live.length;
+    } else if (event.type === "click") {
+      const selected = live[this.selectedIndex]!;
+      ctx.stack.push(new SingleNotificationLayer(selected.key, {
+        origin: "notifications-list",
+        expectedRevision: selected.revision,
+      }));
+    }
+  }
+}
+
 type SingleNotificationLayerOptions = {
   origin: SingleNotificationLayerOrigin;
+  expectedRevision?: string;
   /** Close hook for the modal origin (the layer is the modal stack's base, so pop() cannot close it). */
   closeModal?: (ctx: LayerContext) => void;
 };
@@ -205,7 +268,8 @@ export class SingleNotificationLayer implements Layer {
     const image = new GrayImage(width, height, 0);
     const notification = readActiveNotifications(MAX_NOTIFICATIONS).find((item) => item.key === this.notificationKey);
 
-    if (!notification) {
+    if (!notification || (this.options.expectedRevision
+      && !notificationTriageController.isCurrent(this.notificationKey, this.options.expectedRevision))) {
       return this.closeUnavailableNotification(ctx, paintBelow);
     }
 
@@ -218,7 +282,8 @@ export class SingleNotificationLayer implements Layer {
 
   handleInput(event: DashboardInputEvent, ctx: LayerContext): void {
     const notification = readActiveNotifications(MAX_NOTIFICATIONS).find((item) => item.key === this.notificationKey);
-    if (!notification) {
+    if (!notification || (this.options.expectedRevision
+      && !notificationTriageController.isCurrent(this.notificationKey, this.options.expectedRevision))) {
       this.closeUnavailableNotification(ctx);
       return;
     }
@@ -253,6 +318,7 @@ export class SingleNotificationLayer implements Layer {
         }
       }
     } else if (item.kind === "dismiss") {
+      notificationTriageController.dismiss(this.notificationKey);
       dismissNotification(this.notificationKey);
       this.closeUnavailableNotification(ctx);
     }
@@ -413,6 +479,8 @@ function drawDetailContent(
     lines.push("");
     lines.push(...wrapText(font, meta, contentWidth));
   }
+  lines.push("");
+  lines.push(...wrapText(font, `Why: ${notificationTriageReason(notification.key)}`, contentWidth));
 
   const lineHeight = lineHeightFor(font);
   const maxLines = Math.max(1, ((height - 64 - lineHeight) / lineHeight) | 0);

@@ -17,6 +17,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.service.notification.NotificationListenerService;
+
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 
@@ -88,7 +89,10 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
 
     @Override
     public void onNotificationPosted(StatusBarNotification statusBarNotification) {
-        super.onNotificationPosted(statusBarNotification);
+        handleNotificationPosted(statusBarNotification);
+    }
+
+    private void handleNotificationPosted(StatusBarNotification statusBarNotification) {
         if (!shouldShowNotificationInList(this, statusBarNotification)) {
             forgetActiveNotificationWakeKey(statusBarNotification);
             return;
@@ -101,6 +105,9 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
     @Override
     public void onNotificationRemoved(StatusBarNotification statusBarNotification) {
         forgetActiveNotificationWakeKey(statusBarNotification);
+        if (statusBarNotification != null) {
+            emitNotificationRemoved(statusBarNotification.getKey());
+        }
         super.onNotificationRemoved(statusBarNotification);
     }
 
@@ -190,12 +197,8 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
             }
             Drawable drawable = loadNotificationIcon(service, statusBarNotification.getNotification());
             if (drawable == null) {
-                Log.i(TAG, "icon skipped (no drawable): " + statusBarNotification.getPackageName());
                 continue;
             }
-            Log.i(TAG, "icon[" + emitted + "] pkg=" + statusBarNotification.getPackageName()
-                    + " drawable=" + drawable.getClass().getSimpleName()
-                    + " intrinsic=" + drawable.getIntrinsicWidth() + "x" + drawable.getIntrinsicHeight());
             appendIconGrayBytes(drawable, size, out, service, emitted, statusBarNotification.getPackageName());
             if (dedupeGroupKey != null) {
                 emittedGroupKeys.add(dedupeGroupKey);
@@ -278,6 +281,21 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
             }
         }
         return out.toString();
+    }
+
+    /** One current notification snapshot for triage; empty object when the key is gone. */
+    public static String getNotificationJsonForKey(String key) {
+        FaceclawMediaNotificationListenerService service = activeService;
+        StatusBarNotification item = findActiveNotificationByKey(service, key);
+        if (service == null || item == null || !shouldShowNotificationInList(service, item)) {
+            return "{}";
+        }
+        try {
+            return buildNotificationJson(service, item).toString();
+        } catch (Throwable t) {
+            Log.w(TAG, "failed to serialize notification snapshot", t);
+            return "{}";
+        }
     }
 
     /** Re-evaluate active tray/modal keys after a phone-side filter change. */
@@ -485,6 +503,21 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
                     listener.onNotificationPosted(key);
                 } catch (Throwable t) {
                     Log.w(TAG, "notification listener failed", t);
+                }
+            });
+        }
+    }
+
+    private static void emitNotificationRemoved(String key) {
+        if (key == null || key.isEmpty() || notificationListeners.isEmpty()) {
+            return;
+        }
+        for (FaceclawNotificationListener listener : notificationListeners) {
+            mainHandler.post(() -> {
+                try {
+                    listener.onNotificationRemoved(key);
+                } catch (Throwable t) {
+                    Log.w(TAG, "notification removal listener failed", t);
                 }
             });
         }
@@ -708,7 +741,6 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
     private static void appendIconGrayBytes(Drawable drawable, int size, ByteArrayOutputStream out,
             FaceclawMediaNotificationListenerService service, int index, String packageName) {
         Bitmap bitmap = renderIconScaled(drawable, size);
-        dumpIconDebugPng(service, index, packageName, bitmap);
         for (int y = 0; y < size; y++) {
             for (int x = 0; x < size; x++) {
                 int color = bitmap.getPixel(x, y);
@@ -748,30 +780,6 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
         return bitmap;
     }
 
-    /**
-     * Debug aid for garbled-icon reports: saves each rendered icon to
-     * <externalFilesDir>/debug-icons/ (adb-pullable) so extraction problems can
-     * be told apart from downstream compositing/transmission problems. Cheap:
-     * runs at most once per icon-cache refresh on tiny bitmaps.
-     */
-    private static void dumpIconDebugPng(FaceclawMediaNotificationListenerService service, int index, String packageName, Bitmap bitmap) {
-        if (index < 0) {
-            return;
-        }
-        try {
-            java.io.File dir = new java.io.File(service.getExternalFilesDir(null), "debug-icons");
-            if (!dir.exists() && !dir.mkdirs()) {
-                return;
-            }
-            String safeName = packageName == null ? "unknown" : packageName.replaceAll("[^A-Za-z0-9._-]", "_");
-            java.io.File file = new java.io.File(dir, "icon-" + index + "-" + safeName + ".png");
-            try (java.io.FileOutputStream stream = new java.io.FileOutputStream(file)) {
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream);
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "failed to dump debug icon", t);
-        }
-    }
 
     private static StatusBarNotification findActiveNotificationByKey(FaceclawMediaNotificationListenerService service, String key) {
         if (service == null || key == null || key.isEmpty()) {
@@ -806,6 +814,12 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
         out.put("postTime", statusBarNotification.getPostTime());
         out.put("when", notification.when);
         putString(out, "category", notification.category);
+        putString(out, "channelId", android.os.Build.VERSION.SDK_INT >= 26 ? notification.getChannelId() : "");
+        putString(out, "groupKey", statusBarNotification.getGroupKey());
+        putString(out, "sender", notificationSender(service, notification));
+        out.put("importance", notificationImportance(service, statusBarNotification));
+        out.put("clearable", statusBarNotification.isClearable());
+        out.put("groupSummary", (notification.flags & Notification.FLAG_GROUP_SUMMARY) != 0);
         if (extras != null) {
             putCharSequence(out, "title", firstNonEmpty(
                     extras.getCharSequence(Notification.EXTRA_TITLE_BIG),
@@ -857,6 +871,25 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
         }
         out.put("actions", actionsJson);
         return out;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static String notificationSender(FaceclawMediaNotificationListenerService service, Notification notification) {
+        try {
+            Notification.Style recovered = Notification.Builder.recoverBuilder(service, notification).getStyle();
+            if (!(recovered instanceof Notification.MessagingStyle)) {
+                return "";
+            }
+            Notification.MessagingStyle style = (Notification.MessagingStyle) recovered;
+            if (style.getMessages() == null || style.getMessages().isEmpty()) return "";
+            Notification.MessagingStyle.Message message = style.getMessages().get(style.getMessages().size() - 1);
+            if (android.os.Build.VERSION.SDK_INT >= 28 && message.getSenderPerson() != null) {
+                return charSequenceToString(message.getSenderPerson().getName());
+            }
+            return charSequenceToString(message.getSender());
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     private static String getNotificationAppName(FaceclawMediaNotificationListenerService service, StatusBarNotification statusBarNotification) {

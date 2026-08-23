@@ -267,7 +267,6 @@ public class FaceclawBleManager {
             return true;
         }
 
-        long startMs = System.currentTimeMillis();
         synchronized (gattLock(address)) {
             BluetoothGatt gatt = requireGatt(address);
             BluetoothGattCharacteristic characteristic = requireCharacteristic(gatt, characteristicUuid);
@@ -279,8 +278,6 @@ public class FaceclawBleManager {
                 }
             }
         }
-        int totalSize = frames.stream().mapToInt(frame -> frame != null ? frame.length : 0).sum();
-        Log.i(TAG, "writeFrames wrote " + frames.size() + " frames totaling " + totalSize + " bytes in " + (System.currentTimeMillis() - startMs) + "ms");
         return true;
     }
 

@@ -34,6 +34,7 @@ const SECRET_SETTING_KEYS = new Set([
   "integrations.nightscout.apiToken",
   "terminal.newConnectionDraft",
   "terminal.connections",
+  "motion.deviceBindingSalt",
 ]);
 
 function getJava(): any {

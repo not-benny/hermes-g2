@@ -1,13 +1,13 @@
 import { Application, ImageSource } from "@nativescript/core";
 import { EvenAIStatus, EvenAIStatusName, EventSourceType, EventSourceTypeName, OsEventTypeList, OsEventTypeName } from "./events";
-import { loadDeviceAddresses } from "./device-addresses";
+import { isValidMacAddress, loadDeviceAddresses } from "./device-addresses";
 import { ensureBlePermissions, ensureVoicePermissions } from "./android-permissions";
-import { FaceclawCommunicatorBridge, type RawInputEvent, type RingConnectionState } from "../native/faceclaw-communicator";
+import { FaceclawCommunicatorBridge, type ConnectionHealthSnapshot, type RawInputEvent, type RingConnectionState } from "../native/faceclaw-communicator";
 import * as frameTimings from "../native/frame-timings";
 import { startForegroundNotification, stopForegroundNotification, updateForegroundNotification } from "../native/foreground-service";
 import { mediaControllerBridge, type MediaControllerState } from "../native/media-controller";
 import { nightscoutBridge } from "../native/nightscout-bridge";
-import { onAndroidNotificationPosted } from "../native/notification-icons";
+import { onAndroidNotificationEvent, type AndroidNotificationEvent } from "../native/notification-icons";
 import { openEvenAppSettings, readEvenAppNotificationState } from "../native/even-app-conflict";
 import { grayImageToPreviewSource } from "../native/gray-image-preview";
 import { firmwareIncompatibilityMessage } from "./firmware-compat";
@@ -37,9 +37,16 @@ import { loadPersistedOpenApps, savePersistedOpenApps } from "../ui/shell/open-a
 import { loadHealthTabHidden, saveHealthTabHidden } from "../ui/shell/health-tab-persistence";
 import { appViewportRect, type WindowHeightMode } from "../ui/shell/geometry";
 import { type LayerActions } from "../ui/layers";
-import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
+import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, resolveAssistantBridgePort, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "../native/battery-optimization";
 import { shouldFinalizeCommunicatorClose, type DashboardConnectionPhase } from "./connection-state-lifecycle";
+import { notificationTriageController } from "../notifications/triage-controller";
+import type { NotificationTriageEffect } from "../notifications/triage-policy";
+import {
+  bindGlassesMotionService,
+  glassesMotionService,
+  retireGlassesMotionSession,
+} from "../native/glasses-motion-service";
 
 type ConnectionPhase = DashboardConnectionPhase;
 
@@ -67,6 +74,7 @@ export type DashboardSnapshot = {
   glassesWorn: boolean | null;
   glassesLocked: boolean;
   ringConnectionState: RingConnectionState;
+  connectionHealth: ConnectionHealthSnapshot;
 };
 
 type DashboardListener = (snapshot: DashboardSnapshot) => void;
@@ -91,6 +99,10 @@ const BRIGHTNESS_DEBOUNCE_MS = 200;
 const LOW_BATTERY_PERCENT = 5;
 const EVEN_APP_DETECTED_MESSAGE =
   "The Even Realities app appears to be running. If Hermes G2 has trouble connecting, open its app settings and force stop it.";
+
+function isSuccessfulFrameOutcome(outcome: string | null): boolean {
+  return outcome !== null && outcome.startsWith("sent");
+}
 
 // The launcher grid's app list; also fixes the app ids apps.launch accepts.
 const LAUNCHABLE_APPS = ALL_APPS.filter((app) => app.showInLauncher !== false);
@@ -188,6 +200,7 @@ class DashboardController {
   private static readonly MEDIA_CARD_DEBOUNCE_MS = 600;
 
   private communicator: FaceclawCommunicatorBridge | null = null;
+  private connectAttemptGeneration = 0;
   private shellRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private previewTimer: ReturnType<typeof setInterval> | null = null;
   private screenTimeoutTimer: ReturnType<typeof setInterval> | null = null;
@@ -216,9 +229,12 @@ class DashboardController {
   private offEvenAppConflict: (() => void) | null = null;
   private offFrameMetrics: (() => void) | null = null;
   private offFirmwareInfo: (() => void) | null = null;
+  private motionSessionNeedsWarmReassert = false;
   private offVoiceStatus: (() => void) | null = null;
   private offVoiceWakeWord: (() => void) | null = null;
   private offAndroidNotification: (() => void) | null = null;
+  private notificationDigestTimer: ReturnType<typeof setInterval> | null = null;
+  private notificationPresentationChain: Promise<void> = Promise.resolve();
   private lastInput = "waiting...";
   private lastSys = "none yet";
   private shellRenderInProgress = false;
@@ -291,11 +307,14 @@ class DashboardController {
     for (const app of ALL_APPS) {
       app.boot?.(this.buildAppContext(app));
     }
-    this.offAndroidNotification = onAndroidNotificationPosted((notificationKey) => {
-      void this.handleAndroidNotificationPosted(notificationKey).catch((error) => {
-        this.appendLog(`notification wake failed: ${this.formatError(error)}`);
-      });
+    this.offAndroidNotification = onAndroidNotificationEvent((event) => {
+      this.enqueueNotificationPresentation(() => this.handleAndroidNotificationEvent(event));
     });
+    this.notificationDigestTimer = setInterval(() => {
+      this.enqueueNotificationPresentation(() =>
+        this.handleNotificationTriageEffects(notificationTriageController.tick()),
+      );
+    }, 60_000);
     // Screen-off now-playing card on track change. The bridge replays the
     // current snapshot synchronously on subscribe, seeding the baseline so a
     // track already playing at boot never spuriously drops a card.
@@ -353,7 +372,7 @@ class DashboardController {
     }
     assistantBridge.configure({
       host,
-      port: parseInt(assistantBridgePortSetting.get(), 10) || 8790,
+      port: resolveAssistantBridgePort(),
       token,
       deviceName: "hermes-g2",
       allowProactive: () => assistantAllowProactiveSetting.get(),
@@ -388,6 +407,9 @@ class DashboardController {
   }
 
   private handleScreenStateChanged(on: boolean): void {
+    // Sensor ownership follows the shell state synchronously, before any
+    // delayed compositor/session work can run.
+    glassesMotionService.setScreenOn(on);
     if (on) {
       this.cancelEvenHubSuspendTimer();
       void this.ensureEvenHubSessionActive().catch((error) => {
@@ -819,6 +841,14 @@ class DashboardController {
     return loadDeviceAddresses().ring ? "idle" : "not-configured";
   }
 
+  private connectionHealth(): ConnectionHealthSnapshot {
+    return this.communicator?.getConnectionHealthSnapshot() ?? {
+      g2State: this.phase, r1State: loadDeviceAddresses().ring ? "idle" : "not-configured",
+      failure: "none", r1RetryInMs: 0, g2Reconnects: 0, r1Reconnects: 0,
+      acks: 0, ackTimeouts: 0, staleWork: 0, lockLatencyLatestMs: 0, lockLatencyMaxMs: 0,
+    };
+  }
+
   /** Request an immediate safe retry of the optional direct R1 BLE link. */
   async reconnectRing(): Promise<boolean> {
     const communicator = this.communicator;
@@ -856,6 +886,7 @@ class DashboardController {
       glassesWorn: this.glassesWorn,
       glassesLocked: this.glassesLocked,
       ringConnectionState: this.ringConnectionState(),
+      connectionHealth: this.connectionHealth(),
     };
   }
 
@@ -970,12 +1001,18 @@ class DashboardController {
     this.previewOrRenderAfterTextSettingChange();
   }
 
+  private isCurrentConnectAttempt(generation: number): boolean {
+    return generation === this.connectAttemptGeneration && this.phase === "connecting" && this.communicator === null;
+  }
+
   async connect(): Promise<void> {
     // Retained ownership is authoritative until Java positively completes
     // deferred worker and BLE cleanup.
     if (this.phase !== "disconnected" || this.communicator !== null) return;
+    const connectAttempt = ++this.connectAttemptGeneration;
 
     const addresses = loadDeviceAddresses();
+    shell.setRingConfigured(isValidMacAddress(addresses.ring));
     if (!addresses.right || !addresses.left) {
       const message = "Configure both left and right arm MAC addresses before connecting.";
       this.setPhase("disconnected");
@@ -1010,6 +1047,7 @@ class DashboardController {
 
     try {
       await ensureBlePermissions();
+      if (!this.isCurrentConnectAttempt(connectAttempt)) return;
       startForegroundNotification("Connecting to the glasses");
       communicator = new FaceclawCommunicatorBridge({
         right: addresses.right,
@@ -1021,6 +1059,7 @@ class DashboardController {
         this.appendLog(line);
       });
       this.offState = communicator.onStateChange((state) => {
+        if (this.communicator !== communicator) return;
         const mappedPhase =
           state.phase === "connected"
             ? "connected"
@@ -1037,6 +1076,9 @@ class DashboardController {
           void this.communicator?.setG2ScreenOn(false).catch(() => {});
         }
         if (mappedPhase === "connected" && this.phase !== "connected") {
+          bindGlassesMotionService(communicator!, addresses.right);
+          glassesMotionService.setScreenOn(shell.isScreenOn());
+          this.motionSessionNeedsWarmReassert = true;
           // A transport reconnect starts with a live EvenHub lifecycle again;
           // if the shell is asleep, begin a fresh five-second grace period.
           this.evenHubSessionSuspended = false;
@@ -1050,6 +1092,8 @@ class DashboardController {
           this.pushBrightness(true);
         }
         if (mappedPhase !== "connected") {
+          if (this.phase === "connected") retireGlassesMotionSession(communicator);
+          this.motionSessionNeedsWarmReassert = false;
           // A wear snapshot is session-scoped. CFW reports a fresh value when
           // the transport comes back, so do not make lock decisions from a
           // stale pre-disconnect value in the meantime.
@@ -1087,6 +1131,9 @@ class DashboardController {
       });
       this.offBattery = communicator.onBatteryState((state) => {
         this.lastHeadsetBattery = state.battery >= 0 ? state.battery : null;
+        if (state.ringBattery >= 0) {
+          ringHealthStore.updateBatteryPercent(state.ringBattery);
+        }
         shell.setBatteryLevels({
           headset: state.battery,
           headsetCharging: state.chargingStatus > 0,
@@ -1126,6 +1173,10 @@ class DashboardController {
         this.emit();
       });
       this.offFrameMetrics = communicator.onFrameMetrics(() => {
+        if (this.motionSessionNeedsWarmReassert) {
+          this.motionSessionNeedsWarmReassert = false;
+          glassesMotionService.reassertSourceState();
+        }
         if (this.phase === "connected") {
           this.setStatus("Connected.");
           // A rendered frame means the session is warmed up (fixedLayoutCreated),
@@ -1228,7 +1279,10 @@ class DashboardController {
         this.updateCompositePreview();
         this.updateConnectedForegroundNotification();
       }, SHELL_REFRESH_INTERVAL_MS);
-      this.previewTimer = setInterval(() => this.updateCompositePreview(), PREVIEW_INTERVAL_MS);
+      this.previewTimer = setInterval(() => {
+        this.updateCompositePreview();
+        this.emit();
+      }, PREVIEW_INTERVAL_MS);
       this.screenTimeoutTimer = setInterval(() => {
         if (this.phase !== "connected" || !this.communicator) return;
         if (!shell.applyScreenTimeout()) return;
@@ -1237,6 +1291,10 @@ class DashboardController {
       }, SCREEN_TIMEOUT_CHECK_MS);
     } catch (error) {
       const message = this.formatError(error);
+      // A connected callback may have bound motion before later setup failed.
+      // Retire its generation before listeners or the communicator are closed.
+      retireGlassesMotionSession(communicator);
+      this.motionSessionNeedsWarmReassert = false;
       this.offState?.();
       this.offState = null;
       this.offLog?.();
@@ -1323,6 +1381,7 @@ class DashboardController {
   }
 
   async disconnect(): Promise<void> {
+    ++this.connectAttemptGeneration;
     this.clearEvenAppReleasePoll();
     if (this.phase === "disconnected") return;
 
@@ -1353,6 +1412,7 @@ class DashboardController {
     };
 
     const communicator = this.communicator;
+    retireGlassesMotionSession(communicator);
     this.lockSurfaceConfigured = false;
     this.evenHubSessionSuspended = false;
     this.evenHubResumePromise = null;
@@ -1832,7 +1892,11 @@ class DashboardController {
    * one queued.
    */
   requestShellRender(): Promise<void> {
-    return this.requestShellDelivery().then(() => undefined).catch(() => undefined);
+    if (this.shellRenderInProgress) {
+      this.shellRenderQueued = true;
+      return (this.shellRenderPromise ?? Promise.resolve()).catch(() => undefined);
+    }
+    return this.requestShellDelivery().catch(() => undefined);
   }
 
   /** Strict shell delivery used only by user-visible remote operations. */
@@ -1852,10 +1916,15 @@ class DashboardController {
     this.shellRenderPromise = (async () => {
       let receipt = { frameId: 0, outcome: "discarded: no render" };
       try {
-        do {
-          this.shellRenderQueued = false;
+        this.shellRenderQueued = false;
+        if (isAllowed) {
           receipt = await this.renderShell(isAllowed);
-        } while (this.shellRenderQueued);
+        } else {
+          do {
+            this.shellRenderQueued = false;
+            receipt = await this.renderShell();
+          } while (this.shellRenderQueued);
+        }
         return receipt;
       } catch (error) {
         this.appendLog(`shell render failed: ${this.formatError(error)}`);
@@ -1863,6 +1932,10 @@ class DashboardController {
       } finally {
         this.shellRenderInProgress = false;
         this.shellRenderPromise = null;
+        if (isAllowed && this.shellRenderQueued) {
+          this.shellRenderQueued = false;
+          void this.requestShellRender();
+        }
       }
     })();
     return this.shellRenderPromise;
@@ -1911,15 +1984,15 @@ class DashboardController {
     if (this.communicator !== communicator || this.phase !== "connected") {
       throw new Error("The glasses session changed while sending the alert frame.");
     }
-    const outcome = (await communicator.waitForFrameFinished(frameId, FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS)) ?? "";
-    if (requireSent && (!outcome || outcome.startsWith("discarded:"))) {
-      throw new Error("The shell frame was not acknowledged by the glasses transport.");
+    const outcome = await communicator.waitForFrameFinished(frameId, FRAME_TRANSMIT_BACKPRESSURE_TIMEOUT_MS);
+    if (requireSent && !isSuccessfulFrameOutcome(outcome)) {
+      throw new Error(`The alert frame was not delivered (${outcome ?? "receipt timeout"}).`);
     }
     if (this.communicator !== communicator || this.phase !== "connected") {
       throw new Error("The glasses session changed before the alert frame completed.");
     }
     this.updateCompositePreview();
-    return { frameId, outcome };
+    return { frameId, outcome: outcome ?? "" };
   }
 
   private async handleWakeWord(keyword: string): Promise<void> {
@@ -1991,26 +2064,78 @@ class DashboardController {
     }
   }
 
-  private async handleAndroidNotificationPosted(notificationKey: string): Promise<void> {
-    if (!notificationKey) {
-      this.requestShellRender();
-      return;
-    }
-    // New notifications open a shell modal over the app viewport; if the
-    // screen was off, wake for it and go back to sleep when it is closed.
-    // Waking while already on would steal focus, so only wake from sleep.
-    const wokeScreen = shell.isScreenOn() ? false : shell.wake("sidebar");
-    if (wokeScreen) {
-      this.appendLog("android notification woke the screen");
-    }
-    shell.openNotificationModal(notificationKey, wokeScreen);
-    // Beep alongside the modal the user actually sees (this handler already runs
-    // only for notifications that surface), rate-limited against bursts.
-    if (Date.now() - this.lastNotificationBeepMs > 1500) {
-      this.lastNotificationBeepMs = Date.now();
-      void playEventBeep("notification", (p) => this.playBuzzerSequence(p));
+  private async handleAndroidNotificationEvent(event: AndroidNotificationEvent): Promise<void> {
+    const effects = notificationTriageController.handleAndroidEvent(event);
+    await this.handleNotificationTriageEffects(effects);
+    if (event.kind === "posted") {
+      await this.handleNotificationTriageEffects(notificationTriageController.tick());
     }
     this.requestShellRender();
+  }
+
+  private enqueueNotificationPresentation(work: () => Promise<void>): void {
+    this.notificationPresentationChain = this.notificationPresentationChain.then(work, work).catch((error) => {
+      this.appendLog(`notification presentation failed: ${this.formatError(error)}`);
+    });
+  }
+
+  private async handleNotificationTriageEffects(effects: readonly NotificationTriageEffect[]): Promise<void> {
+    for (const effect of effects) {
+      if (effect.kind === "removed" || effect.kind === "dismiss-all") {
+        this.requestShellRender();
+        continue;
+      }
+      let digestItems = effect.kind === "digest-ready"
+        ? effect.items.filter((item) => notificationTriageController.isCurrent(item.key, item.revision, true))
+        : [];
+      if (effect.kind === "immediate" && !notificationTriageController.isCurrent(effect.key, effect.revision)) {
+        notificationTriageController.presentationFailed(effect.key);
+        continue;
+      }
+      if (effect.kind === "digest-ready" && !digestItems.length) continue;
+      const wokeScreen = shell.isScreenOn() ? false : shell.wake("sidebar");
+      if (wokeScreen) {
+        const ready = await this.ensureEvenHubSessionActive();
+        if (!ready || !shell.isScreenOn()) {
+          if (effect.kind === "immediate") notificationTriageController.presentationFailed(effect.key);
+          if (shell.isScreenOn()) shell.sleep();
+          continue;
+        }
+      }
+      if (effect.kind === "immediate") {
+        if (!notificationTriageController.isCurrent(effect.key, effect.revision)) {
+          notificationTriageController.presentationFailed(effect.key);
+          if (wokeScreen) shell.sleep();
+          continue;
+        }
+        const delivered = await shell.openNotificationModal(effect.key, effect.revision, wokeScreen);
+        if (!delivered) {
+          notificationTriageController.presentationFailed(effect.key);
+          continue;
+        }
+      } else if (effect.kind === "digest-ready") {
+        digestItems = digestItems.filter((item) => notificationTriageController.isCurrent(item.key, item.revision, true));
+        if (!digestItems.length) {
+          if (wokeScreen) shell.sleep();
+          continue;
+        }
+        const delivered = await shell.openNotificationDigest(
+          digestItems.map((item) => ({
+            key: item.key,
+            revision: item.revision,
+            reason: notificationTriageController.reasonFor(item.key),
+          })),
+          wokeScreen,
+        );
+        if (!delivered) continue;
+        notificationTriageController.acknowledgeDigest(digestItems);
+      }
+      if (Date.now() - this.lastNotificationBeepMs > 1500) {
+        this.lastNotificationBeepMs = Date.now();
+        void playEventBeep("notification", (payload) => this.playBuzzerSequence(payload));
+      }
+      this.requestShellRender();
+    }
   }
 
   private async playBuzzerSequence(payload: Uint8Array): Promise<void> {
@@ -2038,6 +2163,7 @@ class DashboardController {
   private clearDashboardTimer(): void {
     this.cancelEvenHubSuspendTimer();
     this.clearBrightnessDebounceTimer();
+
     if (this.shellRefreshTimer) {
       clearInterval(this.shellRefreshTimer);
       this.shellRefreshTimer = null;
