@@ -9,14 +9,14 @@ import { AssistantLayer } from "./assistant";
 import { AssistantSession, type AssistantBackendConfig } from "../../assistant/session";
 import { resolveAssistantModel } from "../../assistant/models";
 import type { AssistantContext } from "../../assistant/types";
-import { SingleNotificationLayer } from "../notifications";
+import { NotificationDigestLayer, SingleNotificationLayer } from "../notifications";
 import { assistantBridge, type AssistantBridgePhase } from "../../assistant/bridge-client";
 import {
   anthropicApiKeySetting,
   assistantBackendSetting,
   assistantBridgeHostSetting,
-  assistantBridgePortSetting,
   assistantBridgeTokenSetting,
+  resolveAssistantBridgePort,
   assistantModelSetting,
   assistantSkipConfirmationSetting,
   batteryDisplayModeSetting,
@@ -247,6 +247,8 @@ class Shell {
     ring: null,
     ringCharging: null,
   };
+  /** A configured R1 stays visible in the HUD even while its battery is unknown. */
+  private ringConfigured = false;
   private attention = new Map<string, boolean>();
   // App-provided top-bar tray icons, keyed by owner id; drawn between the
   // notification icons and the battery indicators.
@@ -471,6 +473,12 @@ class Shell {
     this.config.requestShellRender();
   }
 
+  setRingConfigured(configured: boolean): void {
+    if (configured === this.ringConfigured) return;
+    this.ringConfigured = configured;
+    this.config.requestShellRender();
+  }
+
   setBatteryLevels(levels: Partial<ShellChromeState["battery"]>): void {
     this.battery = { ...this.battery, ...levels };
   }
@@ -583,8 +591,8 @@ class Shell {
    * notification woke the screen, closing the modal goes back to sleep
    * (matching the old sleep-popup behavior).
    */
-  openNotificationModal(notificationKey: string, wokeScreen: boolean): void {
-    if (!this.screenOn) return;
+  async openNotificationModal(notificationKey: string, revision: string, wokeScreen: boolean): Promise<boolean> {
+    if (!this.screenOn || !this.config.requestShellDelivery) return false;
     // A notification preempts an active music card. Evict the card first (it is
     // always top when active) and inherit its wake ownership, so closing the
     // notification still re-sleeps if the card is what woke the screen. Without
@@ -600,12 +608,50 @@ class Shell {
     const modal: ShellModalLayer = new ShellModalLayer(
       new SingleNotificationLayer(notificationKey, {
         origin: "new-notification-modal",
+        expectedRevision: revision,
         closeModal: () => this.closeNotificationModal(modal, owned),
       }),
       this.config.actions,
     );
     this.stack.push(modal);
-    this.config.requestShellRender();
+    try {
+      await this.config.requestShellDelivery(() =>
+        this.screenOn && this.stack.topMatches((layer) => layer === modal),
+      );
+      return true;
+    } catch {
+      this.closeNotificationModal(modal, owned);
+      return false;
+    }
+  }
+
+  async openNotificationDigest(
+    entries: readonly { key: string; revision: string; reason: string }[],
+    wokeScreen: boolean,
+  ): Promise<boolean> {
+    if (!this.screenOn || !entries.length || !this.config.requestShellDelivery) return false;
+    let owned = wokeScreen;
+    if (this.musicCard) {
+      const card = this.musicCard;
+      this.stack.popIfTop((layer) => layer === card);
+      if (this.musicCardWokeScreen) owned = true;
+      this.musicCard = null;
+      this.musicCardWokeScreen = false;
+    }
+    const modal: ShellModalLayer = new ShellModalLayer(
+      new NotificationDigestLayer(entries, () => this.closeNotificationModal(modal, owned)),
+      this.config.actions,
+    );
+    this.stack.push(modal);
+    try {
+      await this.config.requestShellDelivery(() =>
+        this.screenOn && this.stack.topMatches((layer) => layer === modal),
+      );
+      return true;
+    } catch {
+      this.closeNotificationModal(modal, owned);
+      return false;
+    }
   }
 
   /** Whether the screen-off now-playing card is currently up. */
@@ -646,7 +692,7 @@ class Shell {
   }
 
   private closeNotificationModal(modal: ShellModalLayer, wokeScreen: boolean): void {
-    this.stack.popIfTop((layer) => layer === modal);
+    this.stack.remove(modal);
     if (wokeScreen) {
       this.sleep();
     }
@@ -714,6 +760,17 @@ class Shell {
     // stream moved on), so the escape countdown stops.
     if (event.type !== "long-press") {
       this.cancelEscapeMenuTimer();
+    }
+
+    // A sleeping long-press is push-to-talk for the assistant. Route it before
+    // the generic screen-off short circuit; the matching release below ends
+    // capture. The master voice switch remains authoritative.
+    if (!this.screenOn && event.type === "long-press" && voiceControlEnabledSetting.get()) {
+      this.wake("sidebar");
+      if (!this.activeVoiceLayer) {
+        this.openVoiceDialog({ defaultTarget: "assistant" });
+      }
+      return { shell: true, window: false };
     }
 
     if (!this.screenOn) {
@@ -883,11 +940,13 @@ class Shell {
           return { shell: true, window: false };
         case "click": {
           const window = this.windows[this.selectedIndex];
-          if (window && window.closeable !== false) {
+          if (window === this.healthWindow) {
+            this.setHealthHidden(true);
+          } else if (window && window.closeable !== false) {
             this.closeWindow(window.windowId);
-            // Stay armed while there is still something to close; else exit.
-            if (!this.hasCloseableWindow()) this.closingActive = false;
           }
+          // Stay armed while there is still something to close; else exit.
+          if (!this.hasCloseableWindow()) this.closingActive = false;
           this.config.requestShellRender();
           return { shell: true, window: false };
         }
@@ -1158,7 +1217,7 @@ class Shell {
       const host = assistantBridgeHostSetting.get().trim();
       const token = assistantBridgeTokenSetting.get();
       if (!host || !token) return null;
-      const port = parseInt(assistantBridgePortSetting.get(), 10) || 8790;
+      const port = resolveAssistantBridgePort();
       return { kind: "external", bridge: { host, port, token } };
     }
     const llm = resolveAssistantModel(assistantModelSetting.get(), {
@@ -1507,6 +1566,13 @@ class Shell {
       focus: this.focus,
       sidebarBounceY: this.sidebarBounce.offsetPx(),
       closing: this.closingActive,
+      closingAction:
+        this.windows[this.selectedIndex] === this.healthWindow
+          ? "hide"
+          : this.windows[this.selectedIndex]?.closeable === false
+            ? "pinned"
+            : "close",
+      ringConfigured: this.ringConfigured,
       ...this.reorderChromeState(),
       foregroundHeightMode: this.foregroundWindow()?.heightMode ?? "min",
       battery: this.battery,

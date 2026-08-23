@@ -1,7 +1,7 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" unloaded="unloaded">
     <ActionBar title="Settings" />
     <ScrollView>
-        <StackLayout class="p-20">
+        <StackLayout class="p-20 phone-content">
             <StackLayout visibility="{{ previewModeVisibility }}">
                 <Label text="Preview mode" class="section-label" />
                 <Label text="You are exploring Hermes with anonymous demo data and no glasses connected. Exit preview to set up your real glasses; all demo data is deleted."

@@ -1,17 +1,20 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" unloaded="unloaded">
     <ActionBar title="Notification Apps" />
-    <GridLayout rows="auto,auto,*,auto" class="p-20">
+    <GridLayout rows="auto,auto,auto,auto,*,auto" class="p-20">
         <Label row="0" text="{{ status }}" textWrap="true" />
-        <Button row="1" text="Refresh installed apps" tap="{{ onRefreshTap }}" class="m-t-8" />
-        <ListView row="2" items="{{ apps }}" itemTap="{{ onNotificationAppTap }}" class="m-t-12">
+        <Label row="1" text="Precedence: sender → channel → category → app → Default. Urgent can bypass quiet hours; Digest and capped bursts wait locally." textWrap="true" class="text-muted m-t-8" />
+        <Button row="2" text="Refresh installed apps" tap="{{ onRefreshTap }}" class="m-t-8" />
+        <Button row="3" text="Reset app priorities" tap="{{ onResetPrioritiesTap }}" class="m-t-8" />
+        <ListView row="4" items="{{ apps }}" itemTap="{{ onNotificationAppTap }}" class="m-t-12">
             <ListView.itemTemplate>
-                <GridLayout columns="auto,*" rows="auto,auto" padding="10">
+                <GridLayout columns="auto,*,auto" rows="auto,auto" padding="10">
                     <Label col="0" rowSpan="2" text="{{ enabledGlyph }}" class="m-r-12" />
                     <Label col="1" row="0" text="{{ appName }}" />
                     <Label col="1" row="1" text="{{ packageName }}" class="text-muted" />
+                    <Button col="2" rowSpan="2" text="{{ tierLabel }}" tap="{{ onTierTap }}" />
                 </GridLayout>
             </ListView.itemTemplate>
         </ListView>
-        <Button row="3" text="Back" tap="{{ onBackTap }}" class="m-t-12" />
+        <Button row="5" text="Back" tap="{{ onBackTap }}" class="m-t-12" />
     </GridLayout>
 </Page>

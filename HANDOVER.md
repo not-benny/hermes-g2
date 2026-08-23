@@ -1,5 +1,138 @@
 # Hermes G2 handover — 22 August 2026
 
+## Gesture, HUD, R1 battery, and Hermes bridge follow-up
+
+Work on stacked branch `feat/gesture-signal-ring` adds sleeping R1 long-press
+push-to-talk for the assistant, an explicit quick-close instruction bar, bounded
+phone cellular-signal bars, and a persistent configured-R1 HUD identity that
+shows `--` until a battery value is known. R1 `deviceStatus` battery is requested
+before rich history traffic, and either standard-GATT or protocol battery values
+feed the same Health/HUD store. The existing generation, command allowlist,
+pairing/provisioning, firmware, and destructive-operation gates are unchanged.
+
+The Hermes `even-g2` gateway bridge now serves certificate-validated WSS on its
+dedicated private-tunnel endpoint. The app migrates the exact legacy default
+port 8790 to the WSS deployment on 8791 while preserving custom ports. The app
+bundles only the private CA public certificate; the CA/server private keys remain
+deployment-local and outside the repository. The custom bridge protocol,
+bearer-token authentication, exact-turn guards, and proactive-action gates are
+unchanged. A real WSS hello/hello-ack
+smoke test passed. Host verification has 302 tests, TypeScript, Android build,
+and APK verification passing. The exact 195,708,625-byte debug APK has SHA-256
+`05752f99271eec1e29c58779a11e3167bd2111c62e80883b7ad589d3eb2951d4`.
+Independent adversarial review of the final app code candidate and bridge commit
+`fdd84de85c82706104428db3e7d0eacb91480b2a` returned static PASS and private,
+non-destructive deployment GO. The exact APK upgrade-installed and launched on
+the authorised Fold7 with the expected version and a live process; no fatal,
+JavaScript, or TLS/certificate failure marker appeared. The exact legacy bridge
+port migrated to 8791, and the live Hermes gateway authenticated `hermes-g2` and
+listed 33 phone MCP tools. After both G2 arms were physically recycled, the exact
+candidate reached `session ready`; direct R1 BLE reached ready at MTU 247 with
+both notify channels active and emitted live data notifications. The duplicate
+bridge reconnect loop was traced to the A32 running the same identity; the A32
+was restored enabled with its assistant backend set to direct, leaving the Fold7
+as the single stable bridge owner. The ring lacks the standard battery service,
+and repeated protocol `deviceStatus` GET writes still produced no decoded
+battery value initially; it arrived after the ready session and the wearer
+confirmed the same percentage in both HUD and Health. The wearer also confirmed
+sleep long-press opens voice capture, phone signal bars are visible, and the
+quick-close guidance is clear. The wearer then verified the selected Health tab
+says `HIDE HEALTH / tap hide` and hides on tap rather than implying the pinned
+tab can be closed; the launcher is explicitly labelled pinned.
+
+## Fold7 development-preview candidate
+
+Work on `feat/fold7-compat` from canonical baseline
+`c4e512509d30a587f511896b87415b8d29f7b4f8` adds a pure live-window size-class
+contract and Fold7-like cover/unfolded/landscape/tabletop/split fixtures, removes
+the portrait lock, marks the activity resizable with IME resize, replaces
+physical-screen calculations with page bounds, bounds phone content at 840dp,
+and enforces 48dp controls. It does not touch G2/R1 pairing, permissions,
+firmware, BLE ownership, or glasses compositor geometry. Focused tests were RED
+on the baseline and are GREEN after implementation. The candidate is version
+1000002 / 1.0.0-preview.2. Final lifecycle hardening coalesces live-resize
+callbacks, cancels queued callbacks on unload, ignores unchanged bounds, and
+releases each main-page dashboard subscription. The focused 8-test contract and
+full 291-test suite pass. The final 195,664,501-byte debug APK built from
+`444e4032b3d630962047f6d3a2ef4e472164bff0` has SHA-256
+`1d61d96548ed721c5c84ec36b738e92435bada0179d9c4eba03a9145b678f067`.
+The immediate predecessor (`d26f01795863b6f4ab1fe0f6e7e3966a818e7b19c7f9c0a96bd57676e2a022f8`)
+reproduced a launch crash when NativeScript reported a transient 0×0 page during
+fragment construction. A focused regression was observed RED, the strict
+classifier gained a non-throwing deferred-layout wrapper, and the focused/full
+suites returned GREEN. The exact final APK then upgrade-installed and launched
+on an authorised Galaxy Z Fold7 SM-F966B (`q7q`), Android 16 / SDK 36. Package
+metadata reported the expected version, the process remained live, and the
+PID-filtered post-launch log contained no `FATAL EXCEPTION`, zero-size-bounds,
+or `onCreateView` failure marker. The phone was locked/Dozing, so there is no
+unlocked Hermes-phone visual, physical fold-posture transition, rotation,
+tabletop, or multi-window evidence; none may be inferred from install/process
+proof. After Bluetooth was enabled, the app connected both G2
+arms and logged `session ready`; the direct R1 BLE session also connected. Benny
+observed that the ring was not shown on the glasses HUD, so no R1-HUD success is
+claimed. No pairing, provisioning, permission, firmware, wake, or unlock action
+was performed. After merging canonical `main` at
+`18f99767bd6336e0fc5106d5cf4342ff2bae4ba5`, the combined tree passes 298 host
+tests, TypeScript, diff hygiene and the JDK 21 / SDK 35 Android build. Its exact
+195,701,531-byte debug APK has SHA-256
+`d04fc94fa07281a414241d904bcc99309e3bd77b49f71d46b47d5719fe77116e`.
+
+## Renderer-jank candidate
+
+The `perf/glasses-renderer-jank` candidate starts from canonical `main` at
+`f02d8f88bb44e147dad213e36a2ab16ad304aebe`. It adds a non-destructive,
+privacy-allowlisted 60-second USB A32 benchmark (`scripts/run-render-benchmark.sh`)
+that records phone framestats, PSS, GC lines, and the existing per-frame paint,
+fingerprint, bitmap snapshot/bridge, composite, 4-bpp pack, compression/plan,
+Bluetooth-send, and application-ACK landmarks. It auto-discovers USB and does
+not publish device identifiers, pair/reconnect, clear data, toggle Bluetooth,
+or send a new device command.
+
+The measured fixes are deliberately small: ordinary shell render bursts now
+coalesce to one follow-up while strict alert deliveries keep separate receipts;
+idle frame submission avoids an approximately 18 ms timer hop; typed-array
+snapshot copying uses the native `slice` path; an already queued image blocks a
+redundant heartbeat; and repetitive successful frame, GATT-write, image-plan,
+enqueue, and ACK logs are removed from release hot paths. The scheduling/copy
+changes are provenance-compatible ports of isolated Faceclaw commit
+`f6035ea9ecdabd13cc85af1e26ef518ae64d3d6b`; no texture-cache firmware modes or
+device commands were ported.
+
+Delivery semantics are stronger, not weaker: strict operations accept only
+ACK-backed `sent` outcomes and reject queued-image deduplication, missing, or
+failed receipts; only the first communicator terminal frame result reaches TypeScript; and
+multi-message images report `sent` only after every distinct application ACK,
+including out-of-order ACKs. Ordinary redraw work cannot inherit or extend a
+strict owner's receipt, and the inline Java-call fast path remains busy across
+synchronous reentrancy. Focused RED/GREEN contracts pass 7/7 and the full
+host suite passes 266/266. TypeScript and the JDK 21 / SDK 35 Android build pass.
+Independent adversarial review of frozen `c8fa3b1` passed all static receipt,
+queue, timeout, and coalescing gates; operational performance authorization
+remains NO-GO because the fixed-duration candidate run was contaminated and the
+371–374 ms hardware floor exceeds the 50 ms target.
+The final debug APK SHA-256 is
+`98c87fa58d96f8386a526759807adb5c92337e64668a979d8ce3f6edbec41425`.
+
+The frozen preview.1 idle observation reproduced the reported phone-jank floor:
+33/45 frames janky (73.333%), p90 20.498 ms, p99/max 24.643 ms, PSS
+245217→244282 KiB. A later candidate idle interval produced no phone frames and
+therefore no valid jank percentile; PSS fell 276480→180944 KiB rather than
+growing. The candidate APK was installed and launched on the USB Samsung A32.
+A real two-message G2 image reached application ACKs and only then completed its
+receipt (`frame#10`, 4353 ms including initial connect/warm-up), proving the
+all-ACK path on hardware. Its measured stages were paint 7 ms, fingerprint
+0 ms, 8-bpp copy 0 ms, bridge snapshot 1 ms, Java submit 10 ms, composite 5 ms,
+4-bpp pack 1 ms, compression/plan 249 ms, first Bluetooth write at 4191 ms,
+last write at 4221 ms, and final application ACK at 4353 ms. Later connected
+frames completed in 374 ms and 371 ms; this is an honest hardware/radio floor,
+not a claim that the requested 50 ms end-to-end threshold was met.
+The fixed-duration post-change run was contaminated by
+another concurrent A32 installer replacing the package, so it is not used to
+claim the below-10% / p99-under-50-ms target. The remaining measured floor is
+startup/radio/compression work, not phone paint, snapshot, composite, or pack.
+No firmware, DFU, OTA, pairing, provisioning, reset, wipe,
+power, or NVM operation was performed.
+
 ## Repository state
 
 `main` is the canonical development branch. The original release lineage and the
@@ -38,49 +171,128 @@ the newer implementations in the final tree.
 Do not resume work from the old `hermes-g2`, `integration/`, `work/`, `wt/`,
 `fix/`, or dated cleanup branches. Create new feature branches from `main`.
 
-## Voice end-of-utterance candidate
-
-The `feat/voice-end-of-utterance` candidate adds provider-neutral local
-end-of-utterance detection over decoded 16 kHz G2 PCM. The pure Java detector
-uses fixed 20 ms analysis frames, onset/release hysteresis, minimum speech,
-adaptive background-noise tracking, 900 ms trailing silence, a 6 s no-speech
-timeout, and a 30 s utterance cap. Empty accepts and BLE packet-arrival gaps do
-not advance its sample clock. A ring click remains a visible manual finish and
-double-click remains cancellation; no wakeword firmware behavior changed.
-
-Voice capture now allocates an exact monotonic generation before Android
-permission work. That identity follows native PCM/status/transcript/endpoint
-callbacks, cloud-provider callbacks, finish/cancel, fallback timers, and the
-single submit claim. A cancelled, failed, replaced, or stale generation cannot
-start late, feed a replacement provider, finalize a replacement turn, or submit.
-The native worker refuses replacement while an old worker is still stopping,
-and final cloud PCM is forwarded before the endpoint notification can commit the
-provider. Continuous Transcribe capture is isolated rather than sharing an
-utterance stream.
-
-Deterministic host fixtures cover quiet and ordinary speech, steady and rising
-background noise, speech over noise, natural pauses, onset spikes, sub-minimum
-speech, no-speech and maximum-duration endpoints, packet-gap invariance,
-one-shot/reset reuse, manual/automatic finish races, cancellation, provider
-failure, delayed permission completion, and stale new-turn events. `npm test`
-passes 268/268, `npm run typecheck` passes, and the JDK 21 / SDK 35 Android debug
-build passes. Independent final static reviews pass the lifecycle and detector
-candidate at `78f8f8c22d8af6d4dcf8f42e2b12ecae2dc35d94`, including explicit
-200/220/240/260 ms minimum-speech boundary probes. The resulting APK installed
-and launched on the USB Samsung A32;
-the phone showed `Connected.` and PID-filtered logs showed live G2
-GATT traffic. The application has no phone-microphone PCM route: `RECORD_AUDIO`
-is a consent gate while voice PCM comes from the G2 LC3 stream, so no phone-mic
-result can truthfully be claimed. A final on-device capture attempt reached the
-generation-scoped permission/model path, then failed closed with `Could not start
-G2 microphone input` / `Voice capture stopped unexpectedly` because the EvenHub
-display path was not ready; a later synthetic wakeword did not enter capture.
-No live reply/cancel/follow-up or decoded G2 PCM was therefore claimed, and real
-G2 endpoint behavior remains pending despite the connected transport. No
-pairing, ownership, firmware, reset, wipe, provisioning, NVM, or other
-destructive operation was performed.
-
 ## Current verified implementation
+
+### Notification triage candidate (22 August 2026)
+
+Branch `feat/notification-priority-digests` now includes canonical
+`main@5b6947c78c7d89fd881ddcc7a76cb97803079fe5` after PRs #46 and #49
+merged. It adds a local-only pure
+notification reducer with sender/channel/category/app/default precedence;
+urgent/immediate/digest/mute routing; quiet hours; deduplication, cooldown and
+global/per-app caps; fair bounded digest selection; same-key replacement; Android
+removal; dismiss/clear tombstones; and restart/wall/timezone protections. Existing
+all-installed-app names and allow/block toggles remain; each app also has a priority
+cycle and reset. Immediate and digest glasses views explain why an item was routed.
+
+Observed notification content, Android keys, senders and app/channel identity remain
+volatile; explicitly user-authored rule selectors are normalized bounded local
+configuration. Only bounded aggregate runtime queue metadata is persisted; restart never wakes
+for the existing active set. Android removal prunes Hermes state. The production
+external icon-debug dump and package/icon detail logging were removed. Detailed
+behavior and rollback are in `docs/notification-triage.md`.
+
+Current evidence: focused notification policy/integration tests pass 8/8; the final
+post-integration host suite passes 344/344; TypeScript typecheck and the JDK 21 /
+SDK 35 Android build pass. The earlier MessagingStyle compatibility fix uses the
+public recovered-builder API. Seven adversarial review passes drove API-24,
+privacy bounds, queued deduplication, revision/tombstone identity, delivery receipt,
+scheduler lifetime, modal cleanup, input-index and concurrent-presentation fixes;
+the final staged-diff verdict has no security or logic blockers. The candidate APK
+installed and launched on a Samsung A32 over USB; notification access remained granted and only reversible
+synthetic `com.android.shell` notifications were used. The final APK produced the
+expected aggregate-only transitions: a new synthetic post was accepted with no
+queued item, a same-key synthetic update moved one revision into the digest queue,
+and Android snooze/removal returned the queue to zero while decreasing the active
+count. The user’s Selected-app filter was temporarily changed to All from a
+force-stopped private-settings backup, then restored byte-for-byte to Selected;
+synthetic items were snoozed and temporary files removed. This verifies the A32
+listener → NativeScript → policy → bounded-metadata post/update/removal path. Real-G2
+digest rendering was unavailable and remains unverified. No personal notification
+content was read or logged; no pairing, firmware, provisioning, reset, wipe, or
+destructive command ran.
+
+### Shared G2 motion service candidate (22 August 2026)
+
+Branch `feat/imu-compass-service` replaces app-owned IMU/compass controls with
+one process-wide lease service. It aggregates low/interactive IMU demand and
+compass demand, binds callbacks to the exact communicator/session generation,
+coalesces queued native controls, snapshots Java listeners before main-thread
+delivery, rejects stale/non-finite/wrong-source samples, and disables both
+streams synchronously with screen-off or final release. The first warmed frame
+reasserts retained demand because native connectivity becomes visible before
+the EvenHub session accepts IMU control. Compass and accelerometer UI values
+expire after three seconds; unchanged freshness polls no longer repaint.
+
+Pure calibration/filter state handles circular wraparound, discontinuity-based
+possible-interference detection, bounded gravity orientation, level/posture
+derivation, and versioned opaque-device-bound persistence. A secret
+install-local salt pseudonymises the arm identity before ordinary persistence.
+Persistence contains only a neutral vector, zero boresight offset,
+schema/algorithm versions, timestamp and
+quality; it stores no raw motion history. Uncalibrated posture remains
+`unknown`, and the compass labels non-good values approximate rather than exact.
+The supplied upstream hash `6e4ece5` is album-art work, not compass work; the
+relevant ancestor `12bb76b` was reviewed for ideas but its unversioned scalar
+offset, stale-reading and false-completion behavior was not copied.
+
+Independent review of the first frozen candidate found and the final source fixes
+IMU shutdown/retry, exact native-generation delivery, connect-failure retirement,
+calibration-start provenance, sustained-turn reacquisition, timestamp/offset
+validation, verified-save ordering, raw-address persistence, and misleading
+wearer-alignment labels. A final review pass also closed overlapping-connect
+publication/retirement and rejected legacy persisted `good` quality. Firmware
+completion can now establish at most `fair` sensor/neutral quality; without
+wearer alignment the UI remains approximate.
+
+A follow-up blocker was reproduced on the authorised worn/moving A32/G2 run:
+the exact installed APK SHA-256
+`9ecd9e6128ebaae49fb133135a69c5a4fa7deaf3121fcd3e661e7a3e9bc77e21`
+rendered `188° S`, live level, and 54 accepted samples, but remained
+`uncalibrated` because the firmware emitted headings without calibration
+start/complete events. The branch now adds an explicit phone-side Compass click
+action that collects for at most 30 seconds, requires 24 filtered headings over
+six 45-degree sectors plus eight level-neutral IMU samples, and can be cancelled.
+It sends no new BLE command. Verified local completion persists only the existing
+compact summary at `poor`; only a matched firmware start/complete can reach
+`fair`, and neither path claims boresight alignment or exact heading. Firmware
+start safely supersedes local collection, while timeout, stale callbacks,
+session replacement, screen-off, and restart cannot persist partial data. See
+`docs/g2-local-motion-calibration.md`.
+
+Acceptance for this follow-up is source/build complete only when focused and full
+host tests, TypeScript, the 576×288 Compass viewport test, and the JDK 21 Android
+build pass at the pushed SHA. Hardware validation remains pending: no device is
+touched by this follow-up task, so the new start/progress/cancel/success UI and
+persisted `poor` restart state must still be exercised with the exact candidate
+on the authorised worn G2 before the operational gate is closed.
+
+Final independent adversarial review passed the source at
+`4624c5f7a874cc748e65918dde630e4445aed304`. Static review is **PASS**; operational
+authorization remains **NO-GO** only for the missing worn/moving heading and
+calibration evidence described below.
+
+Final local verification passes 303/303 host tests, TypeScript typechecking,
+`git diff --check`, and the JDK 21 / Android SDK 35 debug build. On USB Samsung
+A32 with both G2 arms live on firmware 2.2.8.4, a cold process restart first
+logged the expected pre-ready IMU skip, then the warmed-session reassertion
+queued IMU pace 500 plus compass enable and both controls ACKed. The phone/G2
+UI accepted eight motion samples in the bounded capture and truthfully rendered
+`Cal: uncalibrated ... samples: 8`; the stock compass emitted no heading or
+calibration-complete event while the glasses were off-head/resting, so no
+heading, posture-calibration, or exact-level hardware claim is made. The final
+review-fixed APK cold-started with both controls deferred before readiness,
+reasserted/ACKed both after warmup, then screen-off queued IMU and compass disable
+at 06:10:10 local and both ACKed within 185 ms. Native shutdown now also forces
+an IMU disable ahead of queue flush and fails the transport closed on disable
+timeout. The final UI transition settled without the previous 400 ms repaint
+stream.
+Across the USB-powered bounded run the phone stayed at 100% with charge counter
+2,946,000 µAh, so short-run battery delta was below device reporting resolution;
+this is traffic/lifecycle evidence, not a battery-life estimate. Screenshot
+evidence is local at `/tmp/hermes-compass-final-live.png` and contains no private
+content. No pairing, permission, coordinate/device-setting, firmware,
+provisioning, reset, wipe, credential, or destructive action was performed.
 
 The audit remediation delivered from canonical `main` baseline
 `f37168cf007450cb2a58513b1f2624aee0b6d6af` adds permanent PR/main CI,
@@ -96,6 +308,14 @@ runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
 - Exact-GATT and generation ownership protect BLE connect, operation, timeout,
   disconnect, stale-callback, and replacement lifecycles.
 - Display and R1 workers have separate bounded teardown ownership.
+- Optional R1 connect/discovery/subscription/health work runs only on
+  `FaceclawRingLink`. Blocking Android BLE calls execute outside the short R1
+  lifecycle monitor under generation tokens, so connection-health reads stay
+  responsive and retired work cannot publish into a replacement generation.
+- Phone Controls exposes independent G2 and R1 state, a safe R1 failure class,
+  monotonic retry countdown and explicit retry, plus saturating redacted
+  reconnect/ACK/timeout/stale-work/lock-latency counters. The fixed-width health
+  snapshot contains no identifier, UUID, payload, or exception text.
 - The constructor-time disconnected-state race no longer tears down a live
   connection; the final implementation was verified on both G2 arms with the
   phone reporting Connected, frame delivery acknowledged, and wearer input
@@ -111,6 +331,16 @@ runtime gates remain open. See `docs/audit-remediation-2026-08-21.md` and
   It never wakes or changes focus.
 - External MCP calls require a live connection and exact originating turn (or an
   explicitly gated proactive call); cancellation reaches delayed side effects.
+
+Current reliability-candidate verification uses deterministic Java harnesses:
+the R1 state snapshot completes below 100 ms while synthetic BLE work is blocked,
+retirement rejects that completion, and the display worker source contract has no
+R1 connect call. After merging canonical `main` through
+`76adcd5e443a9ee9295a3683f1f8a149be669d7a`, the complete host suite passes
+290/290, TypeScript typechecking passes, and the JDK 21 / SDK 35 Android debug
+build passes. Two stale source-contract expectations that required the old
+blocking monitor design were replaced with generation-token and
+non-blocking-monitor assertions.
 
 The dynamic-glasses-app candidate is based directly on canonical `main`
 `f02d8f88bb44e147dad213e36a2ab16ad304aebe`. It adds a versioned generic
@@ -159,15 +389,37 @@ claim is made. The private read-only/default and explicitly gated reversible
 harness is runnable at `hermes-host/private-evaluation.mjs`; the exact missing
 peer contract and remaining gates are documented in the developer guide.
 
-Local candidate verification passed the complete 259-test host suite after the
-two stale branding expectations were updated for the now-lockfile-pinned CLI,
-TypeScript, JDK 21 / SDK 35 / NDK 27.2.12479018 / CMake 3.22.1 Android build,
-ZIP integrity, private-content/path scan, ZIP 16 KiB alignment, and APK-wide ELF
-LOAD alignment. The disabled WhatsApp/Node runtime is excluded. The arm64-only
-debug APK is 194,871,195 bytes, versionCode 1000001 / versionName
-1.0.0-preview.1, and its
-final SHA-256 is
-`03a82652986aff42ba70619eb87e28430fdce7fd55d1fbe6a384a54c5d9b8347`.
+The first frozen adversarial review found and blocked two issues: a G2 arm loss
+retired the R1 generation without retiring its ready flags/GATT, and diagnostics
+counted initial attempts as reconnects while mixing packetAck writes into the G2
+ACK population. The follow-up retires and disconnects the exact R1 lifecycle on
+arm/transport loss, makes reset/disconnect health transitions explicit, counts
+only replacement attempts as reconnects, labels the coherent G2 ACK population,
+and preserves timeout/protocol failure classes without exposing exception text.
+The second review found three remaining diagnostic reset inconsistencies; organic
+R1 disconnect now publishes a bounded transport backoff, no-address arm/transport
+loss remains `not-configured`, and idle/not-configured resets clear stale failure
+and countdown fields.
+The third review found one final callback-order race; R1 connect publication now
+captures and revalidates the pre-connect R1 generation, while a delayed connected
+callback preserves already-published notification readiness. A disconnect racing
+setup therefore cancels publication instead of resurrecting a retired session.
+Final independent adversarial review passed frozen reliability source commit
+`16881e50b39d37d21b8952cb35201b9807ada327`. Operational GO is limited to
+non-destructive app delivery; every pairing, firmware, reset, wipe, provisioning,
+NVM, power-control, and ownership gate remains NO-GO. Canonical `main` at
+`f02d8f88bb44e147dad213e36a2ab16ad304aebe` was then merged without rebasing;
+the only manual conflict was this handover, and the post-merge
+288-test/typecheck/build matrix passed.
+
+The debug APK installed/launched over USB on the authorised Samsung A32
+`RFCR707RQGV`. PID-filtered runtime evidence (PID 27349) shows a live two-arm G2
+session with render, heartbeat, settings, shutdown and warmup ACKs; the R1 then
+connected independently, subscribed at MTU 247, completed the read-only session
+open/device-info/health GET flow, delivered health notifications, and accepted a
+generation-bound packetAck. The Controls page rendered normally on the phone.
+No pairing, ownership, NVM, firmware/DFU, reset, wipe, permission, or Even-app
+Bluetooth state was changed.
 
 The integrated release-governance follow-up passes 283 host tests, TypeScript,
 the root high-severity and WhatsApp runtime audits, workflow `actionlint`, diff

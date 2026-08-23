@@ -2,15 +2,23 @@ import { Frame, Observable, ObservableArray } from "@nativescript/core";
 
 import {
   notificationAllowedPackagesSetting,
+  notificationAppTiersSetting,
   onAnySettingChanged,
+  parseNotificationAppTiers,
   parseNotificationAllowedPackages,
+  setNotificationAppTier,
+  type NotificationAppTier,
 } from "../ui/dashboard-settings";
 import { readInstalledNotificationApps, type AndroidNotificationApp } from "../native/notification-icons";
 
 type NotificationAppRow = AndroidNotificationApp & {
   enabledGlyph: string;
   detail: string;
+  tierLabel: string;
+  onTierTap: () => void;
 };
+
+const TIER_ORDER: NotificationAppTier[] = ["default", "immediate", "digest", "urgent", "mute"];
 
 export class NotificationAppsViewModel extends Observable {
   private readonly _apps = new ObservableArray<NotificationAppRow>();
@@ -57,6 +65,13 @@ export class NotificationAppsViewModel extends Observable {
     this.refreshRows();
   }
 
+  onResetPrioritiesTap(): void {
+    notificationAppTiersSetting.set("{}");
+    this._status = "Per-app priorities reset to Default.";
+    this.notifyPropertyChange("status", this._status);
+    this.refreshRows();
+  }
+
   onBackTap(): void {
     Frame.topmost()?.goBack();
   }
@@ -76,12 +91,25 @@ export class NotificationAppsViewModel extends Observable {
 
   private replaceRows(apps: readonly AndroidNotificationApp[]): void {
     const selected = new Set(parseNotificationAllowedPackages());
+    const tiers = parseNotificationAppTiers();
     const rows = apps
-      .map((app): NotificationAppRow => ({
-        ...app,
-        enabledGlyph: selected.has(app.packageName) ? "✓" : "○",
-        detail: `${app.appName || app.packageName} · ${app.packageName}`,
-      }))
+      .map((app): NotificationAppRow => {
+        const tier = tiers[app.packageName] ?? "default";
+        return {
+          ...app,
+          enabledGlyph: selected.has(app.packageName) ? "✓" : "○",
+          detail: `${app.appName || app.packageName} · ${app.packageName}`,
+          tierLabel: `Priority: ${tier[0]!.toUpperCase()}${tier.slice(1)}`,
+          onTierTap: () => {
+            const current = parseNotificationAppTiers()[app.packageName] ?? "default";
+            const next = TIER_ORDER[(TIER_ORDER.indexOf(current) + 1) % TIER_ORDER.length]!;
+            setNotificationAppTier(app.packageName, next);
+            this._status = `${app.appName} priority: ${next}.`;
+            this.notifyPropertyChange("status", this._status);
+            this.refreshRows();
+          },
+        };
+      })
       .sort((a, b) => a.appName.localeCompare(b.appName));
     this._apps.splice(0, this._apps.length, ...rows);
     this.notifyPropertyChange("apps", this.apps);

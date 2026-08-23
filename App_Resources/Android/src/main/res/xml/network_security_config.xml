@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">10.144.1.174</domain>
+        <domain includeSubdomains="false">192.168.2.183</domain>
+        <domain includeSubdomains="false">winbox</domain>
+        <trust-anchors>
+            <certificates src="system"/>
+            <certificates src="@raw/hermes_g2_bridge_ca"/>
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

@@ -1,5 +1,6 @@
 import { NotificationsListLayer } from "../../ui/notifications";
-import { dismissAllNotifications, onAndroidNotificationPosted } from "../../native/notification-icons";
+import { dismissAllNotifications, onAndroidNotificationEvent } from "../../native/notification-icons";
+import { notificationTriageController } from "../../notifications/triage-controller";
 import {
   createInProcessWindow,
   YieldAtRootLayer,
@@ -29,6 +30,7 @@ export function createNotificationsAppWindow(options: InProcessAppOptions): InPr
     menuItems: () => [{
       label: "Dismiss all",
       onSelect: (ctx) => {
+        notificationTriageController.clearAll(`glasses-${Date.now()}`);
         dismissAllNotifications();
         ctx.stack.pop();
         // cancelNotification is asynchronous in Android's status bar service;
@@ -46,6 +48,6 @@ export function createNotificationsAppWindow(options: InProcessAppOptions): InPr
       options.onClosed();
     },
   });
-  offNotificationPosted = onAndroidNotificationPosted(() => created.requestRender());
+  offNotificationPosted = onAndroidNotificationEvent(() => created.requestRender());
   return created;
 }

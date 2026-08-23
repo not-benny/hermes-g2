@@ -82,6 +82,20 @@ Notification direct replies are delivered through Android's `RemoteInput` to the
 notification's originating app. Hermes G2 does not operate an intermediary
 messaging service.
 
+Notification priority, quiet hours, cooldown, rate caps, and digest selection are
+deterministic local-phone operations. They never call the assistant or upload
+notification data. Observed title, body, sender, Android key, app/channel identity,
+icons, actions, and grouping remain volatile. A sender/channel/category selector
+the user explicitly authors is local app-private configuration, normalized to a
+bounded 256-rule/32 KiB document; it is not inferred into persistence automatically.
+Persisted runtime triage state is bounded aggregate
+metadata only (schema/save time and active/queued/clear counts), so process restart
+does not resurrect stale content. Removing a notification from Android removes it
+from Hermes state. Clear-all removes queued state and suppresses late callbacks.
+Hermes does not write notification icons to external debug files or log notification
+sender, title, body, key, action, or icon/package details. See
+`docs/notification-triage.md`.
+
 ## Location and external services
 
 Navigate uses precise location and a user-provided Mapbox token for maps,

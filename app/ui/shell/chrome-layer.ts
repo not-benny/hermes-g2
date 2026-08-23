@@ -5,6 +5,7 @@ import { batteryLabelIcon, bridgeStatusIcon, drawBrightnessBadge, HEART_ICON } f
 import type { AssistantBridgePhase } from "../../assistant/bridge-client";
 import { readActiveNotificationIcons } from "../../native/notification-icons";
 import { readPhoneBatteryState } from "../../native/phone-battery";
+import { readPhoneSignalLevel } from "../../native/phone-signal";
 import { noteStaleDataUsed, renderPassAllowsStaleData } from "../../util/render-freshness";
 import { renderIcon, renderIconWithGlyph, type IconName } from "../../graphics/icons";
 import { batteryDisplayModeSetting, brightnessSetting, timeFormatSetting } from "../dashboard-settings";
@@ -66,6 +67,10 @@ export type ShellChromeState = {
   reordering: boolean;
   /** Quick-close mode: the selected card shows a close marker; a tap closes it. */
   closing: boolean;
+  /** Action a close-mode tap performs for the selected sidebar item. */
+  closingAction: "close" | "hide" | "pinned";
+  /** A configured R1 remains represented even before a battery reply arrives. */
+  ringConfigured: boolean;
   /** While reordering, whether the picked-up tab can still move up / down. */
   reorderCanMoveUp: boolean;
   reorderCanMoveDown: boolean;
@@ -268,6 +273,18 @@ export class ShellChromeLayer implements Layer {
     image.fillRect(SIDEBAR_WIDTH, barTop, G2_LENS_WIDTH - SIDEBAR_WIDTH, TOP_BAR_HEIGHT, SHELL_OPAQUE_BLACK);
     image.drawLine(SIDEBAR_WIDTH, barTop + TOP_BAR_HEIGHT - 1, G2_LENS_WIDTH - 1, barTop + TOP_BAR_HEIGHT - 1, BORDER_VALUE);
 
+    if (state.closing) {
+      const hintFont = getDefaultSmallFont();
+      const hint = state.closingAction === "hide"
+        ? "HIDE HEALTH   swipe choose   tap hide   dbl exit"
+        : state.closingAction === "pinned"
+          ? "PINNED APP   swipe choose   cannot close   dbl exit"
+          : "CLOSE MODE   swipe choose   tap close   dbl exit";
+      const hintY = barTop + Math.max(0, ((TOP_BAR_HEIGHT - hintFont.lineHeight) / 2) | 0);
+      image.drawText(hintFont, SIDEBAR_WIDTH + 10, hintY, hint, 235);
+      return;
+    }
+
     const now = new Date();
     const clock = `${WEEKDAYS[now.getDay()]} ${now.getDate()} ${MONTHS[now.getMonth()]} ` +
       formatClockTime(now);
@@ -306,7 +323,7 @@ export class ShellChromeLayer implements Layer {
     const font = getDefaultSmallFont();
     const percentageMode = batteryDisplayModeSetting.get() === "percentage";
     type BatteryKind = "phone" | "glasses" | "ring";
-    type BatteryItem = { kind: BatteryKind; percent: number; charging: boolean };
+    type BatteryItem = { kind: BatteryKind; percent: number | null; charging: boolean };
     const items: BatteryItem[] = [];
     const phone = readPhoneBatteryState();
     if (phone.battery !== null && Number.isFinite(phone.battery)) {
@@ -315,8 +332,11 @@ export class ShellChromeLayer implements Layer {
     if (state.battery.headset !== null && Number.isFinite(state.battery.headset)) {
       items.push({ kind: "glasses", percent: state.battery.headset, charging: Boolean(state.battery.headsetCharging) });
     }
-    if (state.battery.ring !== null && Number.isFinite(state.battery.ring)) {
-      items.push({ kind: "ring", percent: state.battery.ring, charging: Boolean(state.battery.ringCharging) });
+    if (state.ringConfigured) {
+      const ringPercent = state.battery.ring !== null && Number.isFinite(state.battery.ring)
+        ? state.battery.ring
+        : null;
+      items.push({ kind: "ring", percent: ringPercent, charging: Boolean(state.battery.ringCharging) });
     }
 
     const centerY = (height: number) => barTop + Math.max(0, ((TOP_BAR_HEIGHT - height) / 2) | 0);
@@ -326,13 +346,13 @@ export class ShellChromeLayer implements Layer {
     let x = G2_LENS_WIDTH - 8;
     for (let index = items.length - 1; index >= 0; index--) {
       const item = items[index]!;
-      const percentText = `${Math.max(0, Math.min(100, Math.round(item.percent)))}%`;
-      const valueWidth = percentageMode ? font.measureText(percentText) : BATTERY_ICON_WIDTH;
+      const percentText = item.percent === null ? "--" : `${Math.max(0, Math.min(100, Math.round(item.percent)))}%`;
+      const valueWidth = percentageMode || item.percent === null ? font.measureText(percentText) : BATTERY_ICON_WIDTH;
       const labelIcon = batteryLabelIcon(item.kind);
       x -= labelIcon.width + labelGap + valueWidth;
       image.bitBlt(labelIcon, x, centerY(labelIcon.height), { transparentZero: true });
       const valueX = x + labelIcon.width + labelGap;
-      if (percentageMode) {
+      if (percentageMode || item.percent === null) {
         if (item.charging) {
           // Inverted text marks charging, matching the dashboard card.
           image.fillRect(valueX - 2, textY - 1, valueWidth + 4, font.lineHeight + 2, 255);
@@ -365,6 +385,13 @@ export class ShellChromeLayer implements Layer {
       image.bitBlt(bridge, leftEdge, centerY(bridge.height), { transparentZero: true });
     }
 
+    const signalLevel = readPhoneSignalLevel();
+    if (signalLevel !== null) {
+      const signalWidth = 22;
+      leftEdge -= 10 + signalWidth;
+      drawPhoneSignalBars(image, signalLevel, leftEdge, centerY(14));
+    }
+
     // Ring heart rate, leftmost in the block: a small heart plus the live bpm,
     // or "--" when there is no live reading (the heart stays put either way).
     const hr = state.ringHeartRate;
@@ -373,6 +400,16 @@ export class ShellChromeLayer implements Layer {
     image.bitBlt(HEART_ICON, leftEdge, centerY(HEART_ICON.height), { transparentZero: true });
     image.drawText(font, leftEdge + HEART_ICON.width + labelGap, textY, bpmText, 200);
     return leftEdge;
+  }
+}
+
+/** Four ascending cellular bars; inactive bars remain faint so zero is visible. */
+function drawPhoneSignalBars(image: GrayImage, level: number, x: number, y: number): void {
+  const bounded = Math.max(0, Math.min(4, Math.round(level)));
+  for (let index = 0; index < 4; index++) {
+    const height = 4 + index * 3;
+    const value = index < bounded ? 210 : 45;
+    image.fillRect(x + index * 6, y + 14 - height, 4, height, value);
   }
 }
 

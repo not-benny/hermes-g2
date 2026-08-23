@@ -366,9 +366,9 @@ New "Assistant" section in dashboard settings:
 
 ## Security notes
 
-- Bridge auth: bearer token in the `hello` frame, TLS optional because the
-  expected transport is tailscale (same stance as g2mirror); document that
-  plainly.
+- Bridge auth: bearer token in the `hello` frame inside certificate-validated
+  WSS. TLS is mandatory for every non-loopback bind; private-tunnel transport
+  does not replace server identity.
 - The phone enforces all tool gating (proactive flags, rate limits,
   timeouts). The bridge and agent are treated as honest-but-fallible.
 - Tool results may contain private data (calendar, notifications); external
