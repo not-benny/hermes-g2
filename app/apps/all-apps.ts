@@ -20,6 +20,7 @@ import freecellApp from "./freecell";
 import pinballApp from "./pinball";
 import debugTestsApp from "./debug-tests";
 import settingsApp from "./settings";
+import evenHubSampleApp from "./evenhub-sample";
 
 /**
  * Every app, in launcher-grid order (the launcher itself is first but hidden
@@ -47,5 +48,6 @@ export const ALL_APPS: readonly AppDefinition[] = [
   freecellApp,
   pinballApp,
   debugTestsApp,
+  evenHubSampleApp,
   settingsApp,
 ];
