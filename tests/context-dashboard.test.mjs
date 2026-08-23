@@ -104,7 +104,7 @@ test("phone integration exposes only read-only contextual dashboard publication 
   assert.match(shell, /this\.openVoiceDialog\(\{ defaultTarget: "assistant" \}\)/);
   assert.match(shell, /prior\.state\.viewId !== state\.viewId[\s\S]*?prior\.close\(\)/);
   assert.match(mcp, /profilePolicyError/);
-  assert.match(mcp, /this\.options\.profileId !== "even-g2"/);
+  assert.match(mcp, /this\.options\.getProfileId\?\.\(\) \?\? this\.options\.profileId/);
 });
 
 test("local refresh emits one replay-safe read-only rerun intent and pin persistence contains no rendered data", async () => {

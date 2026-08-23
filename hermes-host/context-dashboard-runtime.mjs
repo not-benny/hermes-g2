@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from "node:crypto";
+
 const ID = /^[A-Za-z0-9._-]{1,64}$/;
 const SAFE_TEXT = /^[^\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069<>`]+$/u;
 
@@ -18,11 +20,16 @@ function exactIdentity(identity) {
 }
 
 function timeLabel(epochMs) {
-  return new Date(epochMs).toISOString().slice(11, 16);
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(epochMs));
 }
 
 function derivedOperationId(base, suffix) {
-  return `${base.slice(0, 64 - suffix.length)}${suffix}`;
+  if (base.length + suffix.length <= 64) return `${base}${suffix}`;
+  return `op-${createHash("sha256").update(`${base}\0${suffix}`).digest("base64url").slice(0, 48)}${suffix}`;
+}
+
+function eventOperationId(eventId) {
+  return `evt-${createHash("sha256").update(eventId).digest("base64url").slice(0, 48)}`;
 }
 
 function normalizeDeparture(value) {
@@ -108,7 +115,7 @@ export class ContextDashboardAgent {
     const intent = boundedText(question, 240);
     if (/^when is the next train at liverpool lime street\??$/iu.test(intent)) {
       return this.#runtime.open(identity, {
-        operationId: `rail-${Date.now().toString(36)}`,
+        operationId: `rail-${randomUUID().replace(/-/g, "").slice(0, 32)}`,
         dashboardKey: "rail-liverpool-lime-street",
         title: "Liverpool Lime Street",
         privacy: "private",
@@ -135,13 +142,15 @@ export class ContextDashboardRuntime {
   #phone;
   #now;
   #deadlineMs;
+  #loadingDeadlineMs;
   #active = null;
 
-  constructor({ phone, now = Date.now, usefulDeadlineMs = 5_000 }) {
+  constructor({ phone, now = Date.now, loadingDeadlineMs = 1_000, usefulDeadlineMs = 5_000 }) {
     if (!phone?.callTool) throw new Error("phone MCP client is required");
     this.#phone = phone;
     this.#now = now;
     this.#deadlineMs = usefulDeadlineMs;
+    this.#loadingDeadlineMs = loadingDeadlineMs;
   }
 
   async open(identity, options) {
@@ -158,9 +167,20 @@ export class ContextDashboardRuntime {
     if (prior) prior.cancelled = true;
     const active = { owner, cancelled: false, startedAtMs: this.#now(), request };
     this.#active = active;
-    const begin = await this.#phone.callTool("glasses.context_dashboard.begin", request, { signal: options.signal });
-    if (this.#active !== active || active.cancelled) throw new Error("stale contextual dashboard open");
-    if (begin?.status !== "acknowledged" || typeof begin.dashboard_id !== "string" || !Number.isSafeInteger(begin.presentation_generation) || !Number.isSafeInteger(begin.refresh_generation) || begin.revision !== 1) throw new Error("phone did not acknowledge loading dashboard");
+    const beginController = new AbortController();
+    const abortBegin = () => beginController.abort(); options.signal?.addEventListener("abort", abortBegin, { once: true });
+    const beginTimer = setTimeout(() => beginController.abort(), this.#loadingDeadlineMs);
+    let begin;
+    try { begin = await this.#phone.callTool("glasses.context_dashboard.begin", request, { signal: beginController.signal }); }
+    finally { clearTimeout(beginTimer); options.signal?.removeEventListener("abort", abortBegin); }
+    if (beginController.signal.aborted) throw new Error("loading dashboard deadline elapsed or was cancelled");
+    if (begin?.status !== "acknowledged" || typeof begin.dashboard_id !== "string" || !Number.isSafeInteger(begin.presentation_generation) || begin.presentation_generation < 1 ||
+        !Number.isSafeInteger(begin.refresh_generation) || begin.refresh_generation < 1 || begin.revision !== 1 || !Number.isSafeInteger(begin.frame_id) || begin.frame_id <= 0) throw new Error("phone did not acknowledge loading dashboard");
+    if (this.#active !== active || active.cancelled) {
+      await this.#phone.callTool("glasses.context_dashboard.close", { operation_id: `close-${randomUUID().replace(/-/g, "").slice(0, 32)}`,
+        dashboard_id: begin.dashboard_id, presentation_generation: begin.presentation_generation, expected_revision: begin.revision });
+      throw new Error("stale contextual dashboard open");
+    }
     active.identity = begin;
     active.loadingAckMs = Math.max(0, this.#now() - active.startedAtMs);
 
@@ -170,7 +190,9 @@ export class ContextDashboardRuntime {
     options.signal?.addEventListener("abort", abortGather, { once: true });
     let spec;
     try {
-      const timeout = new Promise((_, reject) => { timer = setTimeout(() => { reject(new Error("deadline")); gatherController.abort(); }, this.#deadlineMs); });
+      const remainingMs = Math.max(0, active.startedAtMs + this.#deadlineMs - this.#now());
+      const gatherBudgetMs = Math.max(0, remainingMs - Math.min(750, Math.max(1, Math.floor(remainingMs * 0.2))));
+      const timeout = new Promise((_, reject) => { timer = setTimeout(() => { reject(new Error("deadline")); gatherController.abort(); }, gatherBudgetMs); });
       const raw = await Promise.race([Promise.resolve().then(() => options.gather({ signal: gatherController.signal })), timeout]);
       if (this.#active !== active || active.cancelled || options.signal?.aborted) throw new Error("stale contextual dashboard gather");
       spec = options.project(raw);
@@ -200,12 +222,18 @@ export class ContextDashboardRuntime {
     const active = { owner, cancelled: false, startedAtMs: this.#now(), request: { intent } };
     this.#active = active;
     const refreshed = await this.#phone.callTool("glasses.context_dashboard.start_refresh", {
-      operation_id: options.operationId, dashboard_id: event.dashboard_id, presentation_generation: event.presentation_generation,
+      operation_id: eventOperationId(event.event_id), dashboard_id: event.dashboard_id, presentation_generation: event.presentation_generation,
       expected_revision: event.revision,
     }, { signal: options.signal });
-    if (this.#active !== active || active.cancelled || refreshed?.status !== "acknowledged" || refreshed.dashboard_id !== event.dashboard_id ||
-        refreshed.presentation_generation !== event.presentation_generation || refreshed.refresh_generation < 2 || refreshed.revision !== event.revision + 1) {
+    if (this.#active !== active || active.cancelled || !["acknowledged", "historical_acknowledgement"].includes(refreshed?.status) || refreshed.dashboard_id !== event.dashboard_id ||
+        refreshed.presentation_generation !== event.presentation_generation || refreshed.refresh_generation < 2 || refreshed.revision !== event.revision + 1 ||
+        !Number.isSafeInteger(refreshed.frame_id) || refreshed.frame_id <= 0) {
       throw new Error("phone did not acknowledge current local refresh");
+    }
+    if (refreshed.status === "historical_acknowledgement") {
+      await this.#ackLocalEvent(event, options.signal);
+      return { dashboardId: event.dashboard_id, presentationGeneration: event.presentation_generation,
+        refreshGeneration: refreshed.refresh_generation, revision: refreshed.revision, historical: true };
     }
     active.identity = refreshed;
     active.loadingAckMs = Math.max(0, this.#now() - active.startedAtMs);
@@ -215,7 +243,9 @@ export class ContextDashboardRuntime {
     let timer;
     let spec;
     try {
-      const timeout = new Promise((_, reject) => { timer = setTimeout(() => { reject(new Error("deadline")); gatherController.abort(); }, this.#deadlineMs); });
+      const remainingMs = Math.max(0, active.startedAtMs + this.#deadlineMs - this.#now());
+      const gatherBudgetMs = Math.max(0, remainingMs - Math.min(750, Math.max(1, Math.floor(remainingMs * 0.2))));
+      const timeout = new Promise((_, reject) => { timer = setTimeout(() => { reject(new Error("deadline")); gatherController.abort(); }, gatherBudgetMs); });
       const raw = await Promise.race([options.gather({ intent, signal: gatherController.signal }), timeout]);
       if (this.#active !== active || active.cancelled || options.signal?.aborted) throw new Error("stale local refresh gather");
       spec = options.project(raw);
@@ -228,23 +258,67 @@ export class ContextDashboardRuntime {
       options.signal?.removeEventListener("abort", abortGather);
     }
     const receipt = await this.#publish(active, options.operationId, spec);
+    await this.#ackLocalEvent(event, options.signal);
+    return receipt;
+  }
+
+  async reopenPinned(identity, pin, { gather, project, signal } = {}) {
+    const owner = exactIdentity(identity);
+    if (!pin || typeof pin.dashboard_key !== "string" || !ID.test(pin.dashboard_key) || !pin.refresh_policy ||
+        !["manual", "on_visible"].includes(pin.refresh_policy.mode) || typeof gather !== "function" || typeof project !== "function") {
+      throw new Error("invalid pinned dashboard refresh request");
+    }
+    if (signal?.aborted) throw new Error("pinned dashboard reopen was cancelled");
+    const prior = this.#active; if (prior) prior.cancelled = true;
+    const active = { owner, cancelled: false, startedAtMs: this.#now(), request: { intent: boundedText(pin.intent, 240) } };
+    this.#active = active;
+    const opened = await this.#phone.callTool("glasses.context_dashboard.open_pin", {
+      operation_id: `pin-${randomUUID().replace(/-/g, "").slice(0, 32)}`, dashboard_key: pin.dashboard_key, ttl_seconds: 300,
+    }, { signal });
+    if (this.#active !== active || active.cancelled || opened?.status !== "acknowledged" || opened.revision !== 1 ||
+        !Number.isSafeInteger(opened.frame_id) || opened.frame_id <= 0) throw new Error("phone did not acknowledge pinned dashboard reopen");
+    active.identity = opened; active.loadingAckMs = Math.max(0, this.#now() - active.startedAtMs);
+    const controller = new AbortController(); const abort = () => controller.abort(); signal?.addEventListener("abort", abort, { once: true });
+    let timer; let spec;
+    try {
+      const remainingMs = Math.max(0, active.startedAtMs + this.#deadlineMs - this.#now());
+      const gatherBudgetMs = Math.max(0, remainingMs - Math.min(750, Math.max(1, Math.floor(remainingMs * 0.2))));
+      const timeout = new Promise((_, reject) => { timer = setTimeout(() => { reject(new Error("deadline")); controller.abort(); }, gatherBudgetMs); });
+      const raw = await Promise.race([gather({ intent: pin.intent, signal: controller.signal }), timeout]);
+      spec = project(raw);
+    } catch (error) {
+      if (signal?.aborted || this.#active !== active) throw new Error("stale pinned dashboard reopen");
+      spec = normalizedFailure({ dashboardKey: pin.dashboard_key, title: boundedText(pin.title, 48), privacy: pin.privacy,
+        code: error instanceof Error && error.message === "deadline" ? "timeout" : "unavailable", now: this.#now() });
+    } finally {
+      if (timer) clearTimeout(timer); signal?.removeEventListener("abort", abort);
+    }
+    return this.#publish(active, `pin-${pin.dashboard_key}`, spec);
+  }
+
+  async #ackLocalEvent(event, signal) {
     const acknowledgement = await this.#phone.callTool("glasses.context_dashboard.ack_events", {
       dashboard_id: event.dashboard_id, presentation_generation: event.presentation_generation, revision: event.revision,
       through_event_id: event.event_id,
-    }, { signal: options.signal });
-    if (acknowledgement?.status !== "acknowledged" && acknowledgement?.status !== "historical_acknowledgement") {
-      throw new Error("phone did not acknowledge processed local dashboard event");
-    }
-    return receipt;
+    }, { signal });
+    if (acknowledgement?.status !== "acknowledged" && acknowledgement?.status !== "historical_acknowledgement") throw new Error("phone did not acknowledge processed local dashboard event");
+    return acknowledgement.status;
   }
 
   async #publish(active, operationId, spec) {
     const args = { operation_id: derivedOperationId(operationId, ".useful"), dashboard_id: active.identity.dashboard_id,
       presentation_generation: active.identity.presentation_generation, refresh_generation: active.identity.refresh_generation,
       expected_revision: active.identity.revision, spec };
-    const receipt = await this.#phone.callTool("glasses.context_dashboard.publish", args);
+    const remainingMs = Math.max(0, active.startedAtMs + this.#deadlineMs - this.#now());
+    if (remainingMs <= 0) throw new Error("useful dashboard deadline elapsed before publication");
+    const publishController = new AbortController();
+    const timer = setTimeout(() => publishController.abort(), remainingMs);
+    let receipt;
+    try { receipt = await this.#phone.callTool("glasses.context_dashboard.publish", args, { signal: publishController.signal }); }
+    finally { clearTimeout(timer); }
     if (this.#active !== active || active.cancelled || receipt?.status !== "acknowledged" || receipt.dashboard_id !== active.identity.dashboard_id ||
-        receipt.presentation_generation !== active.identity.presentation_generation || receipt.refresh_generation !== active.identity.refresh_generation || receipt.revision !== active.identity.revision + 1) {
+        receipt.presentation_generation !== active.identity.presentation_generation || receipt.refresh_generation !== active.identity.refresh_generation || receipt.revision !== active.identity.revision + 1 ||
+        !Number.isSafeInteger(receipt.frame_id) || receipt.frame_id <= 0 || publishController.signal.aborted || this.#now() - active.startedAtMs > this.#deadlineMs) {
       throw new Error("phone did not acknowledge current useful dashboard");
     }
     active.identity = receipt;
@@ -255,11 +329,12 @@ export class ContextDashboardRuntime {
   async close(identity) {
     const owner = exactIdentity(identity);
     const active = this.#active;
-    if (!active || active.owner !== owner || !active.identity) return;
+    if (!active || active.owner !== owner) return;
     active.cancelled = true;
     this.#active = null;
+    if (!active.identity) return;
     const receipt = await this.#phone.callTool("glasses.context_dashboard.close", {
-      operation_id: `close-${Date.now().toString(36)}`,
+      operation_id: `close-${randomUUID().replace(/-/g, "").slice(0, 32)}`,
       dashboard_id: active.identity.dashboard_id,
       presentation_generation: active.identity.presentation_generation,
       expected_revision: active.identity.revision,

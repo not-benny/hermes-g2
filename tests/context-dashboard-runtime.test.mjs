@@ -21,7 +21,7 @@ test("Liverpool acceptance projector keeps all destinations and sorts by expecte
   assert.deepEqual(projected.sections[0].rows.map((row) => row.destination), [
     "Manchester Airport", "Wigan North Western", "Chester", "London Euston",
   ]);
-  assert.equal(projected.summary.primary, "Next: 00:30 Manchester Airport");
+  assert.equal(projected.summary.primary, "Next: 01:30 Manchester Airport");
   assert.equal(projected.announcement.policy, "once_when_useful");
   assert.deepEqual(projected.local_actions.map((action) => action.kind), ["refresh", "pin", "follow_up"]);
 });

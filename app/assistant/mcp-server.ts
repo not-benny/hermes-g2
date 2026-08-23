@@ -29,6 +29,8 @@ export type McpServerOptions = {
   connectionGeneration?: string | number;
   /** Authenticated deployment profile bound to this MCP server. */
   profileId?: string;
+  /** Dynamic authenticated profile claim from the completed bridge handshake. */
+  getProfileId?: () => string | null;
   /** Revalidates that this server's connection is still the live one. */
   isConnectionGenerationActive?: () => boolean;
   registry?: ToolRegistry;
@@ -190,7 +192,7 @@ export class AssistantMcpServer {
         signal: callController.signal,
         executionContext: {
           caller: "mcp",
-          profileId: this.options.profileId,
+          profileId: this.options.getProfileId?.() ?? this.options.profileId,
           connectionGeneration: this.options.connectionGeneration,
           turnGeneration,
         },
@@ -215,7 +217,7 @@ export class AssistantMcpServer {
 
   private profilePolicyError(name: string): string | null {
     if (!name.startsWith("glasses.context_dashboard.")) return null;
-    return this.options.profileId !== "even-g2"
+    return (this.options.getProfileId?.() ?? this.options.profileId) !== "even-g2"
       ? "Context dashboards are available only to the authenticated even-g2 profile"
       : null;
   }
@@ -282,7 +284,7 @@ export class AssistantMcpServer {
     if (this.options.connectionGeneration !== undefined) {
       this.registry.closeExecutionOwner({
         caller: "mcp",
-        profileId: this.options.profileId,
+        profileId: this.options.getProfileId?.() ?? this.options.profileId,
         connectionGeneration: this.options.connectionGeneration,
         turnGeneration: null,
       });

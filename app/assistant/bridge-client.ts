@@ -69,6 +69,7 @@ export class AssistantBridgeClient {
   private activeTurn: ActiveTurn | null = null;
   private turnSeq = 0;
   private mcpServer: AssistantMcpServer | null = null;
+  private authenticatedProfileId: string | null = null;
   private unsubscribeToolsChanged: (() => void) | null = null;
   private readonly connectionGuard = new BridgeConnectionGuard();
   private readonly stateListeners = new Set<(state: AssistantBridgeState) => void>();
@@ -104,6 +105,7 @@ export class AssistantBridgeClient {
   /** Disconnect and stay down until the next configure(). */
   stop(): void {
     this.stopped = true;
+    this.authenticatedProfileId = null;
     this.connectionGuard.invalidateCurrent();
     this.clearReconnectTimer();
     this.clearKeepalive();
@@ -164,6 +166,7 @@ export class AssistantBridgeClient {
 
   private connect(): void {
     if (this.stopped || this.ws || !this.options) return;
+    this.authenticatedProfileId = null;
     const generation = this.connectionGuard.beginConnection();
     const { host, port } = this.options;
     const url = `wss://${host}:${port}`;
@@ -201,9 +204,9 @@ export class AssistantBridgeClient {
         // The configured WSS endpoint has no repository-owned deployment or
         // runtime server-proof evidence; sensitive health remains fail-closed.
         isHealthCallerTrusted: () => false,
-        // This certificate-authenticated bridge endpoint is dedicated to the
-        // even-g2 deployment profile; callers cannot supply or override it.
-        profileId: "even-g2",
+        // Bound only after the token/TLS-authenticated peer explicitly claims
+        // its deployment profile in hello-ack; custom peers get no fallback.
+        getProfileId: () => this.authenticatedProfileId,
         connectionGeneration: generation,
         isConnectionGenerationActive: () => this.connectionGuard.isCurrent(generation),
         allowProactive: this.options!.allowProactive,
@@ -267,7 +270,8 @@ export class AssistantBridgeClient {
         try { socket?.close(1002, "protocol version mismatch"); } catch { /* already torn down */ }
         return;
       }
-      if (!this.connectionGuard.authenticate(generation)) return;
+      this.authenticatedProfileId = frame.profile === "even-g2" ? "even-g2" : null;
+      if (!this.connectionGuard.authenticate(generation)) { this.authenticatedProfileId = null; return; }
       this.clearAuthTimer();
       this.reconnectDelayMs = RECONNECT_MIN_MS;
       this.lastTrafficMs = Date.now();
@@ -319,6 +323,7 @@ export class AssistantBridgeClient {
 
   private handleConnectionLost(status: string, generation: number): void {
     if (!this.connectionGuard.invalidate(generation)) return;
+    this.authenticatedProfileId = null;
     this.mcpServer?.close();
     this.mcpServer = null;
     this.ws = null;

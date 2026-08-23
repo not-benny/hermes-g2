@@ -240,11 +240,15 @@ export class ContextDashboardManager {
       return fail("dashboard close owner or presentation is stale");
     }
     const identity = { dashboard_id: this.current.dashboardId, presentation_generation: this.current.presentationGeneration, revision: this.current.revision };
+    if (this.pending?.connectionKey === connection && this.pending.dashboardId === this.current.dashboardId) {
+      this.pending.cancelled = true;
+      this.deps.clear({ viewId: this.pending.dashboardId, revision: this.pending.revision });
+    }
     this.closeCurrent();
     return result({ status: "closed", ...identity });
   }
   private enqueue(task: () => Promise<ToolResult>): Promise<ToolResult> { const pending = this.queue.then(task); this.queue = pending.catch(() => undefined); return pending; }
-  private replay(turn: string, operationId: string, args: unknown): ToolResult | null { const key = `${turn}:${operationId}`; const fingerprint = JSON.stringify(args); const prior = this.operations.get(key); if (!prior) return null; if (prior.fingerprint !== fingerprint) return fail("operation_id was reused with different arguments"); if (!prior.value.ok) return prior.value; const parsed = JSON.parse(prior.value.content ?? "{}"); if (parsed.dashboard_id && (!this.current || this.current.dashboardId !== parsed.dashboard_id || this.current.revision < parsed.revision)) return result({ ...parsed, status: "historical_acknowledgement" }); return prior.value; }
+  private replay(owner: string, operationId: string, args: unknown): ToolResult | null { const key = `${owner}:${operationId}`; const fingerprint = JSON.stringify(args); const prior = this.operations.get(key); if (!prior) return null; if (prior.fingerprint !== fingerprint) return fail("operation_id was reused with different arguments"); if (!prior.value.ok) return prior.value; const parsed = JSON.parse(prior.value.content ?? "{}"); if (parsed.dashboard_id && (!this.current || this.current.dashboardId !== parsed.dashboard_id || this.current.revision !== parsed.revision)) return result({ ...parsed, status: "historical_acknowledgement" }); return prior.value; }
   private remember(turn: string, operationId: string, args: unknown, value: ToolResult): ToolResult { this.operations.set(`${turn}:${operationId}`, { fingerprint: JSON.stringify(args), value }); if (this.operations.size > 256) this.operations.delete(this.operations.keys().next().value!); return value; }
 
   private async beginOnce(args: unknown, signal?: AbortSignal, isAllowed?: () => boolean, context?: ToolExecutionContext): Promise<ToolResult> {
@@ -294,7 +298,11 @@ export class ContextDashboardManager {
   private async refreshOnce(args: unknown, signal?: AbortSignal, isAllowed?: () => boolean, context?: ToolExecutionContext): Promise<ToolResult> {
     const turn = turnKey(context); const connection = connectionKey(context);
     if (!turn || !connection || !record(args) || !exact(args, ["operation_id", "dashboard_id", "presentation_generation", "expected_revision"]) || typeof args.operation_id !== "string" || !ID.test(args.operation_id)) return fail("refresh arguments or exact owner are invalid");
-    const replay = this.replay(turn, args.operation_id, args); if (replay) return replay;
+    const replay = this.replay(connection, args.operation_id, args);
+    if (replay) {
+      if (replay.ok && this.current) this.current.turnKey = turn;
+      return replay;
+    }
     const current = this.current;
     if (!current || current.connectionKey !== connection || current.dashboardId !== args.dashboard_id || current.presentationGeneration !== args.presentation_generation || current.revision !== args.expected_revision) return fail("dashboard presentation or revision is stale");
     const lastRefresh = this.lastRefreshAt.get(current.dashboardKey) ?? 0;
@@ -302,7 +310,7 @@ export class ContextDashboardManager {
     const spec = { ...current.spec, state: "loading" as const, summary: { ...current.spec.summary, secondary: "Refreshing current authorised sources", uncertainty: "unknown" as const } };
     const delivered = await this.deliver(spec, { dashboardId: current.dashboardId, presentationGeneration: current.presentationGeneration, refreshGeneration: current.refreshGeneration + 1, revision: current.revision + 1 }, connection, turn, current.intent, current.refreshPolicy, current.pinned, signal, isAllowed);
     if (delivered.ok) this.lastRefreshAt.set(current.dashboardKey, this.now());
-    return this.remember(turn, args.operation_id, args, delivered);
+    return this.remember(connection, args.operation_id, args, delivered);
   }
 
   private async deliver(spec: ContextDashboardSpec, identity: Identity, connection: string, turn: string, intent: string, refreshPolicy: RefreshPolicy, pinned: boolean, signal?: AbortSignal, isAllowed?: () => boolean): Promise<ToolResult> {
@@ -367,7 +375,7 @@ export class ContextDashboardManager {
   readEvents(context: ToolExecutionContext | undefined, dashboardId: string, presentationGeneration: number, revision: number, afterEventId: string | null): ToolResult {
     const connection = connectionKey(context);
     if (!connection || !this.current || this.current.connectionKey !== connection || this.current.dashboardId !== dashboardId ||
-        this.current.presentationGeneration !== presentationGeneration || this.current.revision !== revision) return fail("dashboard event owner or presentation is stale");
+        this.current.presentationGeneration !== presentationGeneration || revision < 1 || revision > this.current.revision) return fail("dashboard event owner or presentation is stale");
     if (afterEventId && !this.acknowledgedEvents.has(afterEventId)) return fail("dashboard event cursor is not acknowledged");
     return result({ dashboard_id: dashboardId, presentation_generation: presentationGeneration, revision, events: this.events.slice(0, 1) });
   }
