@@ -296,6 +296,7 @@ class DashboardController {
       getScreenTimeoutMs: () => screenTimeoutSettingToMs(screenTimeoutSetting.get()),
       requestShellRender: () => this.requestShellRender(),
       requestShellDelivery: (isAllowed) => this.requestShellDelivery(isAllowed),
+      waitForShellRenderIdle: () => this.waitForShellRenderIdle(),
       isDisplayAvailable: () => this.isDisplayAvailable(),
       onWindowsChanged: () => this.persistOpenApps(),
       onHealthHiddenChanged: (hidden) => saveHealthTabHidden(hidden),
@@ -1109,6 +1110,7 @@ class DashboardController {
         this.setPhase(mappedPhase);
         this.setStatus(state.status);
         if (mappedPhase === "connected") {
+          shell.retryPendingAssistantResult();
           this.syncEvenHubScreenOffSetting();
           this.ensureWearStateTracking();
         } else if (mappedPhase !== "charging") {
@@ -1949,6 +1951,15 @@ class DashboardController {
       return (this.shellRenderPromise ?? Promise.resolve()).catch(() => undefined);
     }
     return this.requestShellDelivery().catch(() => undefined);
+  }
+
+  /** Drain every active/queued ordinary shell render before strict UI mutates the layer stack. */
+  private async waitForShellRenderIdle(): Promise<void> {
+    while (this.shellRenderInProgress) {
+      const active = this.shellRenderPromise;
+      if (!active) return;
+      await active.catch(() => undefined);
+    }
   }
 
   /** Strict shell delivery used only by user-visible remote operations. */

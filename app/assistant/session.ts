@@ -4,6 +4,7 @@ import {
   describeAssistantContext,
 } from "../prompts";
 import { assistantBridge } from "./bridge-client";
+import { shouldInstallReturnedTurnHandle } from "./turn-handle";
 import { DirectAssistantBackend } from "./direct-backend";
 import type { LlmMessage, LlmToolDefinition } from "./llm-protocol";
 import type { ResolvedAssistantModel } from "./models";
@@ -108,7 +109,15 @@ export class AssistantSession {
     if (this.config.kind === "external") {
       // History and the agent loop live on the agent's machine; the phone just
       // streams this turn. The overlay keeps its own display state.
-      this.turnHandle = assistantBridge.sendUtterance(text, ctx, wrappedCallbacks);
+      // Install a provisional handle before entering the bridge because an
+      // unavailable bridge reports its error synchronously. Only adopt the
+      // returned handle if that callback did not already retire this turn.
+      const provisional: AssistantTurnHandle = { cancel: () => {} };
+      this.turnHandle = provisional;
+      const returned = assistantBridge.sendUtterance(text, ctx, wrappedCallbacks);
+      if (shouldInstallReturnedTurnHandle(this.turnHandle, provisional)) {
+        this.turnHandle = returned;
+      }
       return;
     }
 

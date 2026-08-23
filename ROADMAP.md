@@ -6,6 +6,19 @@ Current as of 23 August 2026. `main` is the canonical branch.
 
 ## Now
 
+### Background assistant tasks
+
+- **IMPLEMENTED / HOST VERIFIED; G2 EVIDENCE PENDING (23 August 2026).** The
+  assistant yields its overlay during tool work without cancelling the turn,
+  returns short outcomes through serial ACK-backed alerts, and restores the
+  conversation for interactive, long, empty, or failed outcomes. Exact turn,
+  render, display-session, capture, and displaced-overlay ownership prevent
+  stale delivery or duplicate UI. The code-only refresh is based on exact
+  `origin/main@b762846c5c0652c0e67f8828209b40d148447272`; its stable patch ID
+  matches the verified port. Fresh focused tests pass 70/70, the full host suite
+  passes 508/508, and TypeScript typechecking passes. No APK installation or
+  combined Fold7/G2 runtime evidence is claimed.
+
 ### Accessibility-first live captions and translation
 
 - **IMPLEMENTED / HARDWARE EVIDENCE PENDING (23 August 2026).** Transcribe now
