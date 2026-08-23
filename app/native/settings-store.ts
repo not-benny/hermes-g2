@@ -58,8 +58,13 @@ export function setStringSetting(key: string, value: string): void {
   if (SECRET_SETTING_KEYS.has(key)) {
     if (!getJava().setSecret(key, value)) throw new Error("secure setting write failed");
   } else {
-    getJava().setString(key, value);
+    if (!getJava().setString(key, value)) throw new Error("setting write failed");
   }
+}
+
+export function removeStringSetting(key: string): void {
+  if (SECRET_SETTING_KEYS.has(key)) throw new Error("secret settings require secure removal");
+  if (!getJava().removeString(key)) throw new Error("setting removal failed");
 }
 
 export function removeSecretSetting(key: string): void {
