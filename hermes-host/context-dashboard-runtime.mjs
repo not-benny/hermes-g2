@@ -308,6 +308,7 @@ export class ContextDashboardRuntime {
   }
 
   async #publish(active, operationId, spec, externalSignal) {
+    if (externalSignal?.aborted) throw new Error("contextual dashboard publication was cancelled");
     const args = { operation_id: derivedOperationId(operationId, ".useful"), dashboard_id: active.identity.dashboard_id,
       presentation_generation: active.identity.presentation_generation, refresh_generation: active.identity.refresh_generation,
       expected_revision: active.identity.revision, spec };
@@ -316,6 +317,7 @@ export class ContextDashboardRuntime {
     const publishController = new AbortController();
     active.controller = publishController;
     const abortPublish = () => publishController.abort(); externalSignal?.addEventListener("abort", abortPublish, { once: true });
+    if (externalSignal?.aborted) publishController.abort();
     const timer = setTimeout(() => publishController.abort(), remainingMs);
     let receipt;
     try { receipt = await this.#phone.callTool("glasses.context_dashboard.publish", args, { signal: publishController.signal }); }
