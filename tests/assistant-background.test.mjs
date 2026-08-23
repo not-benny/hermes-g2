@@ -22,8 +22,13 @@ test("short tool results stay in the background while conversational replies nee
   assert.equal(assistantReplyNeedsOverlay("Pick bedroom or kitchen."), true);
   assert.equal(assistantReplyNeedsOverlay("Select lamp one or lamp two."), true);
   assert.equal(assistantReplyNeedsOverlay("Respond with red or blue."), true);
+  assert.equal(assistantReplyNeedsOverlay("Please provide your postcode."), true);
+  assert.equal(assistantReplyNeedsOverlay("Please enter the six-digit code."), true);
+  assert.equal(assistantReplyNeedsOverlay("I need your approval to proceed."), true);
+  assert.equal(assistantReplyNeedsOverlay("Your approval is required to proceed."), true);
   assert.equal(assistantReplyNeedsOverlay("Confirmed, bedroom light is on."), false);
   assert.equal(assistantReplyNeedsOverlay("Confirmation email sent."), false);
+  assert.equal(assistantReplyNeedsOverlay("Your approval was recorded."), false);
   assert.equal(assistantReplyNeedsOverlay("Your reservation confirmation was sent."), false);
   assert.equal(assistantReplyNeedsOverlay("I need you to know the timer finished."), false);
   assert.equal(assistantReplyNeedsOverlay("Please choose one of the following options."), true);
