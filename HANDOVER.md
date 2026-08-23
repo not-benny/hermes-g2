@@ -24,7 +24,7 @@ branches:
   modules.
 
 The open PR heads are historical inputs only. The combined branch is the
-authoritative delivery vehicle. Its complete host suite passes 575/575, the
+authoritative delivery vehicle. Its complete host suite passes 578/578, the
 cross-feature completion matrix passes 74/74, TypeScript typechecking and diff
 hygiene pass, and all 18 phone XML files parse. Debug, unsigned-release, signed-
 release and same-certificate Fold7 evidence is recorded against the frozen
@@ -32,6 +32,47 @@ artifact candidate before merge. A real configured/licensed Hermes gateway
 remains an external deployment evidence gate; the repository provides a
 certificate-validated loopback WSS/RPC integration without inventing provider
 or deployment claims.
+
+## Ultra completion verification
+
+The frozen artifact source is
+`8fbdab9a7a19bf2b5543d26787b9660b9ca304d7`. With the locked dependency graph,
+JDK 21, Android SDK/build tools 35.0.1 and NDK 27.2:
+
+- the full host suite passes 578/578, the cross-feature matrix passes 74/74,
+  typechecking and `git diff --check` pass, and all 18 phone XML files parse;
+- the protected-cert debug APK is 195,906,735 bytes with SHA-256
+  `358402611921874324945928c2671321a67e14f2ac89d7d4c2a55fa7c3dace30`;
+- that exact debug artifact upgrade-installed over USB on the Fold7, launched
+  without a fatal marker and reached an online G2 session. Exact-generation
+  debug receipts proved replay rejection, Search/Transcribe/Cockpit opening,
+  procedural endpoint fixtures, owned fixture stop, and display blank/wake.
+  No wearer-input injection or live microphone capture was used;
+- the same artifact completed four ordered
+  battery→HR→SpO2→HRV→activity→sleep R1 polls while 26 packet acknowledgements
+  were interleaved, closing the packet-ACK starvation regression on hardware;
+- the Fold7 cover display reported 420 dpi (2.625 density). Its native tab strip
+  measured 147 pixels, exactly 56 DIP; the inner item row retained a 126-pixel
+  (48-DIP) touch surface after the 8-DIP gesture inset. The Hermes phone page
+  rendered its bounded Refresh, New voice, sessions, voice and usage surfaces;
+- the positively attested unsigned production APK is 185,723,703 bytes with
+  SHA-256 `74cd0ff5f03124d3eed895a88bf9364c9a6050b9758129168197f64886d5bc50`;
+  it is non-debuggable, has no signature material and contains no debug-control
+  manifest, DEX or JavaScript surface; and
+- the locally protected-signed release APK is 185,774,026 bytes with SHA-256
+  `b2d8b2cebf4e596a85fcc930c9023a92a4be441609f4c25ef9ba5273809b3fc9`.
+  It verifies under the expected certificate with v2/v3 signatures and
+  debuggable signing forbidden. The USB-installed base APK reproduced that exact
+  digest, Android denied `run-as` as non-debuggable, the debug receiver/action
+  were absent, the process launched, and the G2 session reached ready.
+
+Repeated debug/release swaps left the optional direct R1 link in bounded retry
+backoff on the final signed-process observation; no false final-session R1 claim
+is made. The identical frozen code in the exact debug artifact already supplied
+the ordered four-poll proof above. Real licensed Hermes-provider deployment,
+wearer-optical caption/search/cockpit review, TalkBack and the remaining physical
+Fold posture matrix stay explicit operational evidence gates rather than code or
+artifact blockers.
 
 ## Background assistant tasks on protected main
 

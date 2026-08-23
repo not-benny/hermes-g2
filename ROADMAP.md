@@ -8,18 +8,19 @@ Current as of 23 August 2026. `main` is the canonical branch.
 
 ### Ultra completion bundle
 
-- **IMPLEMENTED / ARTIFACT AND DEVICE EVIDENCE IN PROGRESS (23 August 2026).** The
+- **DONE / EXTERNAL DEPLOYMENT EVIDENCE EXPLICIT (23 August 2026).** The
   branch based on exact protected `origin/main@38c9ce1623aea4bfa0ac6d5eb556b23186e66d21`
   consolidates open issues #59, #66 and #67 plus the maintained work from stale
   PRs #51, #53, #54 and #56. Code-complete scope includes the mobile Hermes
   companion, exact-R1 timestamped battery persistence, ACK-resistant polling,
   the current health parity matrix, modern phone/glasses design contracts, and
   a debug-only ADB harness with release artifact exclusion. The complete host
-  suite passes 575/575, the cross-feature matrix passes 74/74, typechecking and
-  diff hygiene pass, and all 18 phone XML files parse. Artifact and same-
-  certificate Fold7 upgrade evidence is recorded before merge. Real licensed
-  Hermes-provider deployment and wearer-optical evidence remain explicit
-  external gates rather than inferred successes.
+  suite passes 578/578, the cross-feature matrix passes 74/74, typechecking and
+  diff hygiene pass, and all 18 phone XML files parse. Exact protected debug,
+  unsigned production, signed release and same-certificate Fold7 upgrade proofs
+  are recorded in `HANDOVER.md`. Real licensed Hermes-provider deployment and
+  wearer-optical evidence remain explicit external gates rather than inferred
+  successes.
 
 ### Background assistant tasks
 
@@ -147,13 +148,16 @@ Current as of 23 August 2026. `main` is the canonical branch.
 
 ### Repository and release
 
-- **IMPLEMENTED / FINAL FOLD7 MEASUREMENT PENDING — quiet technical phone UI
+- **IMPLEMENTED / FOLD7 COVER MEASURED — quiet technical phone UI
   (23 August 2026).** Semantic palette, type, spacing, bounded surfaces, status
   banners, accessible control labels and 48-DIP actions now cover current phone
   settings, captions, credentials, installed-app lists, Glasses/Health warnings,
   reader and the Hermes companion. Android tab minimum height performs exactly
   one DIP-to-pixel conversion, and destructive Hermes actions meet normal-text
-  contrast. See `docs/phone-ui-design-language.md`.
+  contrast. The Fold7 cover measured the native strip at exactly 56 DIP and the
+  inset item surface at 48 DIP; the Hermes page rendered its bounded controls.
+  Remaining physical postures and TalkBack are operational evidence gates. See
+  `docs/phone-ui-design-language.md`.
 
 - **IMPLEMENTED — protected release consumes only a release variant (23 August
   2026).** PR CI compiles debug code separately, then assembles and verifies an
