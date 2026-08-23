@@ -64,18 +64,18 @@ is in `notes/dynamic-glasses-app-threat-model-2026-08-22.md`.
 ## Current candidate verification
 
 Baseline for the candidate is exact `origin/main@712cb644d9dd017158a6359ea494ec2ab6beb9b1`.
-The final source head is `99756224d7ebc33ed1adba83c806029831177ccd`.
+The final source head is `844fc62aafe52c19f031bbd3e7c52358e9ef5014`.
 Using the locked dependency graph, JDK 21 and Android SDK 35:
 
 - focused Fold7 layout tests pass 9/9;
-- full host suite passes 360/360;
+- full host suite passes 364/364;
 - TypeScript `tsc --noEmit` passes;
 - `git diff --check` passes;
 - added-line credential/private-key/bearer scan has zero matches; and
 - the Android debug build passes.
 
-The exact final debug APK is 195,506,503 bytes with SHA-256
-`cce8110d5d45915ffd596d2531fc1ba61ddfb7f6c0a4eae9aad5a1a13252cabc`.
+The exact final debug APK is 195,507,105 bytes with SHA-256
+`5cfe9c6fb77258b1cc91ae5588da80323f65a243b436693c1d01044e8b18fe52`.
 It upgrade-installed on the authorised Fold7; pulling the installed base APK
 reproduced the same digest. The process launched, both G2 arms reached
 `session ready`, and the independent direct R1 session reached MTU-247 with
@@ -87,6 +87,17 @@ found that the wide synthetic-gesture grid omitted the existing compact
 observed RED (1 vs 2 styled grids), the wide grid now uses the same bounded
 style, focused/full tests returned GREEN, and the rebuilt exact APK shows all
 six gesture labels on one readable line in landscape.
+
+The first exact-turn train attempt then exposed two deployment/runtime gaps:
+the Android JavaScript runtime lacked native `AbortController`, and the active
+assistant overlay still owned the lens surface when the loading dashboard tried
+to deliver. The final candidate provides an exception-isolated cancellation
+fallback in both MCP and registry boundaries, explicitly detaches and retains
+the displaced assistant while the dashboard owns the surface, cancels it on
+sleep/replacement, and restores it after failure only under exact live layer,
+display, operation and retained-assistant identity. Dedicated timeout/listener,
+supersession, sleep/teardown and rollback regressions pass; final independent
+lifecycle/security review reports no blocker.
 
 A 60-second connected warm renderer run recorded 43 valid phone frames, one
 janky frame (2.326%), p90 15.547 ms and p99/max 19.547 ms, with 13 PSS samples
