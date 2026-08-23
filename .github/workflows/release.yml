@@ -29,7 +29,7 @@ jobs:
       - name: Isolate untrusted Android signing home
         run: printf 'ANDROID_USER_HOME=%s\n' "$RUNNER_TEMP/hermes-untrusted-android" >> "$GITHUB_ENV"
       - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '20.19.4'
           cache: npm
