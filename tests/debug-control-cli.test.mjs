@@ -39,7 +39,16 @@ test("CLI selects the sole authorized adb target and emits only the receipt JSON
   assert.deepEqual(calls[1].slice(0, 8), ["-s", "USB123", "shell", "am", "broadcast", "-W", "-a", "com.faceclaw.app.DEBUG_CONTROL_V1"]);
   assert.ok(calls[1].includes("com.faceclaw.app/com.faceclaw.app.FaceclawDebugControlReceiver"));
   assert.equal(calls[1].at(-2), "request");
-  assert.equal(calls[1].at(-1), query);
+  assert.equal(calls[1].at(-1), `'${query}'`);
+});
+
+test("CLI quotes JSON for the real adb remote shell without permitting quote breakout", () => {
+  const fake = fakeAdb("USB123\tdevice product:test model:test device:test transport_id:1");
+  const input = JSON.stringify({ v: 1, id: "q-quote", command: "state", args: { invalid: "a'b" } });
+  const result = run(input, { adb: fake.adb });
+  assert.equal(result.status, 0, result.stderr);
+  const calls = readFileSync(fake.log, "utf8").trim().split("\n").map(JSON.parse);
+  assert.equal(calls[1].at(-1), `'${input.replaceAll("'", "'\\''")}'`);
 });
 
 test("wireless serial override targets only that exact online device", () => {

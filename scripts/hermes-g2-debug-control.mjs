@@ -41,6 +41,10 @@ function run(adb, args) {
   return spawnSync(adb, args, { encoding: "utf8", timeout: 15_000, maxBuffer: 64 * 1024, windowsHide: true });
 }
 
+function remoteShellQuote(value) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 function selectedSerial(devicesOutput, override) {
   const devices = devicesOutput.split(/\r?\n/).slice(1).map((line) => line.trim()).filter(Boolean).map((line) => {
     const [serial, state] = line.split(/\s+/, 2);
@@ -107,7 +111,7 @@ if (!validRequest(raw)) {
       } else {
         const sent = run(adb, [
           "-s", target.serial, "shell", "am", "broadcast", "-W",
-          "-a", ACTION, "-n", COMPONENT, "--es", "request", raw,
+          "-a", ACTION, "-n", COMPONENT, "--es", "request", remoteShellQuote(raw),
         ]);
         if (sent.error || sent.status !== 0 || typeof sent.stdout !== "string") {
           output({ ok: false, code: "adb-failed" }, 4);
