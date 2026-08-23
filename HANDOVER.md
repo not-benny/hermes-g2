@@ -35,6 +35,11 @@ interrupt/terminal and expiry state, redacted-only assistant text, content-free
 restart command reservations, dispatch-at-final-revalidation, exact receipt
 correlation/error UI, bounded list viewports, actionable detail prompts, explicit
 interrupt confirmation, and a loopback-only production Hermes endpoint core.
+Final independent review of frozen SHA
+`b716447dfe21f41e7476fc3193b614ccc190d4dd` returned **Static review: PASS** with
+all prior lifecycle/security/viewport blockers closed. **Operational
+authorization: NO-GO** remains because the matching private bridge deployment,
+A32 install/launch, and real-G2/Hermes interaction evidence are unavailable.
 
 Verification from the current worktree: focused cockpit coverage passes 32/32;
 the full host suite passes 376/376 after a clean `npm ci`; TypeScript typecheck
