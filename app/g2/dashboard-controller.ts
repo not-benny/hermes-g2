@@ -167,7 +167,7 @@ function isMediaSessionActive(s: MediaControllerState): boolean {
 /** Identity-only track key: never includes position/playbackState, so a
  *  play/pause toggle or position tick is not seen as a new track. */
 function mediaTrackKey(s: MediaControllerState): string {
-  return `${s.title} ${s.artist} ${s.album}`;
+  return `${s.title}\u0000${s.artist}\u0000${s.album}`;
 }
 
 class DashboardController {
