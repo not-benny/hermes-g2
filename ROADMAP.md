@@ -181,27 +181,28 @@ Current as of 22 August 2026. `main` is the canonical branch.
 - **DONE — turn and connection binding.** External calls require a live
   connection and exact claimed originating turn, or an explicitly gated
   proactive call. Disconnect and cancellation retire owned work.
-- **PARTIAL — generic dynamic glasses apps (22 August 2026).** A versioned,
-  provider-neutral rich view/action protocol now supports bounded lifecycle,
-  CAS update/patch/close, stable component IDs, acknowledged event cursors,
-  deterministic G2 rendering, and exact socket/turn/action ownership. The
-  Hermes-hosted reference runtime keeps Home Assistant credentials and entity
-  IDs server-side, discovers the Living Room at runtime, and permits only
-  revision-checked explicit light/switch target states with conservative
-  restoration. All 281 host tests, typecheck, and Android build pass. The exact
-  APK installed/launched on the A32 and established a live two-arm G2 session
-  with ordinary shell-frame transport ACKs. Dynamic-view/HA scroll and reversible
-  private WSS hello/ack is now verified; dynamic-view/HA scroll and reversible
-  toggle evidence remains blocked by unavailable private HA credentials and
-  missing exact-candidate hardware execution; no such result is inferred. See
+- **PARTIAL — generic dynamic glasses apps (updated 23 August 2026).** The
+  provider-neutral view/action protocol, deterministic G2 renderer, exact
+  socket/turn/action ownership, and Home Assistant adapter remain implemented.
+  A private WSS server and exact-turn generic MCP client now join the phone tools
+  to the Hermes-hosted runtime. Wearer events route through opaque capabilities;
+  mutation receipts restore before close. A mode-0600 crash ledger binds payload,
+  mutation/restore purpose, and restoration parent, then reconciles pending or
+  completed-but-unrestored operations through the provider atomic endpoint on
+  restart. Host tests cover render/scroll routing, cancellation, reconnect,
+  stale-turn rejection, wrong-CA/wrong-host failure, replay, and restoration.
+  No phone, glasses, or Home Assistant device was operated for this implementation,
+  so real lens visibility, wearer scroll, reversible control, Android certificate
+  failure, and provider crash-recovery evidence remain blocked. See
   `docs/dynamic-glasses-apps.md`.
 - **BLOCKED — public MCP/skill publication.** No public skill or untrusted remote
   rendering until authenticated `wss://` server identity, compatible licensed
   adapter, credentials, generic-client behaviour, mutation/privacy gates, and
   real-G2 tool-specific evidence all pass.
-- **TODO — private end-to-end bridge validation.** Exercise wakeword → bridge →
-  agent → bounded tool → reply on a disposable private deployment, including
-  cancellation, reconnect, stale-turn rejection, and certificate failure.
+- **IMPLEMENTED / HARDWARE VALIDATION BLOCKED — private end-to-end bridge.** The
+  checked-in private runner covers the WSS → MCP → dynamic app → HA orchestration
+  and fail-closed lifecycle in host tests. Validate the frozen APK and private
+  deployment on an authorised phone/G2/HA setup before calling it operational.
 
 ## Firmware
 

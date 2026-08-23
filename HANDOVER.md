@@ -1,4 +1,38 @@
-# Hermes G2 handover — 22 August 2026
+# Hermes G2 handover — 23 August 2026
+
+## Private dynamic-app / WSS / Home Assistant harness
+
+Branch `feat/private-dynamic-ha-harness` adds a private-only WSS server that
+implements the phone bridge hello/ack and exact-turn MCP client, opens the
+existing Living Room dynamic app, polls retained wearer events, routes one-shot
+opaque actions through the Home Assistant adapter, receipt-restores mutations,
+and closes the exact phone view. The server requires a reviewed private literal
+bind, TLS certificate/key, a shared token, the provider-side atomic HA endpoint,
+an absolute private ledger path, and two explicit reversible-mutation gates. It
+accepts one phone owner and one exact spoken trigger; replacement sockets and
+turns retire stale work.
+
+`hermes-host/durable-mutation-ledger.mjs` writes mode 0600 with atomic rename and
+binds each operation to its canonical provider payload, mutation/restore purpose,
+and restoration parent. Startup recovery replays pending operations through the
+same provider idempotency endpoint, reconstructs trusted receipts for completed
+but unrestored mutations, and restores them before accepting WSS. The external
+HA endpoint remains responsible for durable operation-ID reservation and
+non-redispatch across a host crash.
+
+Automated coverage passes all 376 host tests, TypeScript typechecking, the JDK
+21 / Android SDK 35 build, and untrusted release-artifact verification. The
+verified debug APK SHA-256 is
+`a0951201006b651ee3e3558f46a1670127932dc48ca646a58c2653fd3725aa62`.
+Coverage includes WSS correct-CA/IP success, foreign-CA and wrong-host failure,
+authentication, exact-turn MCP negotiation, cancellation, reconnect retirement,
+stale replies, event routing, conservative restoration, crash after reservation,
+completed replay, conflicting payload rejection, and restore-parent recovery. No
+phone, glasses, Home Assistant device, credential, or private
+endpoint was operated during implementation. Real lens render/scroll, reversible
+control/restore, Android certificate failure, disconnect timing, and provider
+crash-recovery remain the next authorised hardware-validation item. Public
+publication remains blocked.
 
 ## Gesture, HUD, R1 battery, and Hermes bridge follow-up
 
