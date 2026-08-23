@@ -11,6 +11,7 @@ import { Layer, type DashboardInputEvent, type LayerContext } from "../../ui/lay
  */
 import { GESTURE_CLICK, GESTURE_DOUBLE_CLICK } from "../../ui/gestures";
 export class TranscribeLayer implements Layer {
+  private generation = 0;
   private status = "Listening...";
   // Finalized utterances, plus the live (replace-semantics) partial appended
   // when painting.
@@ -20,12 +21,16 @@ export class TranscribeLayer implements Layer {
   private unsubscribeTranscript: (() => void) | null = null;
   private unsubscribeStatus: (() => void) | null = null;
 
-  start(requestRender: () => void): void {
+  start(generation: number, requestRender: () => void): void {
+    this.generation = generation;
+    if (generation <= 0) this.status = "Voice capture is busy.";
     this.unsubscribeTranscript = voiceControlBridge.onTranscript((event) => {
+      if (event.generation !== this.generation) return;
       this.onTranscript(event);
       requestRender();
     });
     this.unsubscribeStatus = voiceControlBridge.onStatus((state) => {
+      if (state.generation !== this.generation) return;
       this.status = state.status;
       requestRender();
     });
