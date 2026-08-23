@@ -92,6 +92,8 @@ export class VoiceInputLayer implements Layer {
   private baseText = "";
   /** Whether the mic is running (capture bookkeeping, not UI state). */
   private capturing = false;
+  /** Exact bridge generation; every callback and stop carries this identity. */
+  private captureGeneration = 0;
   /** Continuation stopped; waiting for the trailing final transcript. */
   private followupFinalizeTimer: ReturnType<typeof setTimeout> | null = null;
   private refineHandle: AnthropicStreamHandle | null = null;
@@ -129,24 +131,38 @@ export class VoiceInputLayer implements Layer {
 
   startCapture(): void {
     if (this.capturing) return;
+    this.captureGeneration = this.actions.startVoiceCapture(this.handsFree);
+    if (this.captureGeneration <= 0) {
+      this.phase = "menu";
+      this.status = "Voice capture is busy.";
+      this.actions.requestRender();
+      return;
+    }
     this.unsubscribeTranscript = voiceControlBridge.onTranscript((event) => this.onTranscript(event));
     this.unsubscribeStatus = voiceControlBridge.onStatus((state) => {
+      if (state.generation !== this.captureGeneration) return;
       // The refine stage owns the status line ("Refining...", error text).
       if (this.phase === "refining") return;
       this.status = state.status;
+      if (state.terminalError) {
+        this.capturing = false;
+        this.pendingAutoSend = false;
+        if (this.autoSendTimer !== null) clearTimeout(this.autoSendTimer);
+        this.autoSendTimer = null;
+        this.phase = "menu";
+      }
       this.actions.requestRender();
     });
     if (this.handsFree) {
       // No button is held, so the mic has to stop itself. endCapture() is
       // idempotent, and a click still ends the utterance early.
-      this.unsubscribeSpeechEnd = voiceControlBridge.onSpeechEnd(() => {
-        if (this.phase === "capturing") {
+      this.unsubscribeSpeechEnd = voiceControlBridge.onSpeechEnd((generation) => {
+        if (generation === this.captureGeneration && this.phase === "capturing") {
           this.endCapture();
         }
       });
     }
     this.capturing = true;
-    void this.actions.startVoiceCapture(this.handsFree);
     this.actions.requestRender();
   }
 
@@ -169,7 +185,7 @@ export class VoiceInputLayer implements Layer {
     }
     this.capturing = false;
     this.phase = "menu";
-    void this.actions.stopVoiceCapture();
+    void this.actions.stopVoiceCapture(this.captureGeneration, true);
     if (this.autoSend && this.sendTargets.length) {
       // Skip-confirmation (wakeword): send to the default target as soon as the
       // transcript finalizes, or after a short wait for the trailing final.
@@ -193,6 +209,7 @@ export class VoiceInputLayer implements Layer {
     const text = this.displayText().trim();
     const target = this.sendTargets[this.defaultTargetIndex];
     if (text && target) {
+      if (!voiceControlBridge.claimSubmit(this.captureGeneration)) return;
       this.dismiss();
       target.onSend(text);
     } else {
@@ -213,6 +230,7 @@ export class VoiceInputLayer implements Layer {
         label: target.label,
         dim: !hasText,
         onSelect: () => {
+          if (hasText && !voiceControlBridge.claimSubmit(this.captureGeneration)) return;
           this.dismiss();
           if (hasText) target.onSend(text);
         },
@@ -341,8 +359,9 @@ export class VoiceInputLayer implements Layer {
     this.liveText = "";
     this.phase = "continuing";
     this.status = "Listening...";
-    this.capturing = true;
-    void this.actions.startVoiceCapture();
+    this.captureGeneration = this.actions.startVoiceCapture();
+    this.capturing = this.captureGeneration > 0;
+    if (!this.capturing) this.backToMenu(this.baseText, "Voice capture is busy.");
     this.actions.requestRender();
   }
 
@@ -350,7 +369,7 @@ export class VoiceInputLayer implements Layer {
   private endContinuationCapture(): void {
     if (!this.capturing) return;
     this.capturing = false;
-    void this.actions.stopVoiceCapture();
+    void this.actions.stopVoiceCapture(this.captureGeneration, true);
     this.status = "Refining...";
     this.actions.requestRender();
     // The provider's committed transcript arrives shortly after stop; refine
@@ -397,7 +416,7 @@ export class VoiceInputLayer implements Layer {
   private cancelContinuation(status: string): void {
     if (this.capturing) {
       this.capturing = false;
-      void this.actions.stopVoiceCapture();
+      void this.actions.stopVoiceCapture(this.captureGeneration, false);
     }
     this.refineHandle?.cancel();
     this.refineHandle = null;
@@ -435,9 +454,10 @@ export class VoiceInputLayer implements Layer {
     this.pendingAutoSend = false;
     this.refineHandle?.cancel();
     this.refineHandle = null;
-    if (this.capturing) {
+    if (this.captureGeneration > 0) {
       this.capturing = false;
-      void this.actions.stopVoiceCapture();
+      void this.actions.stopVoiceCapture(this.captureGeneration, false);
+      this.captureGeneration = 0;
     }
     this.onClosed();
   }
@@ -476,6 +496,7 @@ export class VoiceInputLayer implements Layer {
   }
 
   private onTranscript(event: VoiceTranscriptEvent): void {
+    if (event.generation !== this.captureGeneration) return;
     // The refine stream owns the text buffers once it starts; a transcript
     // that trails in after that point is stale.
     if (this.phase === "refining") return;
