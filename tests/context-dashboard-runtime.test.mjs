@@ -98,7 +98,7 @@ test("pre-aborted opens do not touch the phone and refresh deadlines abort gathe
     if (name.endsWith("ack_events")) return { status: "acknowledged" };
     throw new Error(`unexpected ${name}`);
   } };
-  const runtime = new ContextDashboardRuntime({ phone, usefulDeadlineMs: 10 });
+  const runtime = new ContextDashboardRuntime({ phone, usefulDeadlineMs: 10, now: () => 0 });
   const aborted = new AbortController(); aborted.abort();
   await assert.rejects(() => runtime.open(identity, { operationId: "aborted", dashboardKey: "x", title: "X", privacy: "private", intent: "X",
     refreshPolicy: { mode: "manual", min_interval_seconds: 30 }, signal: aborted.signal, gather: async () => ({}), project: () => ({}) }), /cancelled/);
