@@ -15,6 +15,17 @@ const captions = await loadTs("app/captions/caption-session.ts");
 const settings = await loadTs("app/captions/caption-settings.ts");
 const { CaptionSession, wrapCaptionText, bottomAnchoredLines } = captions;
 
+async function loadSonioxClient() {
+  const source = readFileSync(new URL("../app/native/soniox-stt.ts", import.meta.url), "utf8");
+  const stub = "data:text/javascript;base64," + Buffer.from(
+    "export const CLOUD_STT_SAMPLE_RATE=16000; export const toJavaBytes=(bytes)=>bytes;",
+  ).toString("base64");
+  const js = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText.replace('"./cloud-stt"', JSON.stringify(stub));
+  return import("data:text/javascript;base64," + Buffer.from(js).toString("base64"));
+}
+
 test("caption session replaces partials, finalizes once, and rejects stale generations", () => {
   const session = new CaptionSession({ maxSegments: 4, maxCodePoints: 100 });
   session.begin(7, 1_000);
@@ -51,7 +62,7 @@ test("translation remains optional, lag is truthful, and speaker labels require 
   let snapshot = session.snapshot(1_250);
   assert.equal(snapshot.displaySource, "hola");
   assert.equal(snapshot.displayTranslation, "hello");
-  assert.equal(snapshot.translationLagMs, 250);
+  assert.equal(snapshot.translationLagMs, 0);
   assert.equal(snapshot.speakerLabel, null);
 
   session.apply({
@@ -68,7 +79,7 @@ test("translation remains optional, lag is truthful, and speaker labels require 
   });
   snapshot = session.snapshot(1_600);
   assert.equal(snapshot.speakerLabel, "Speaker 1");
-  assert.equal(snapshot.translationLagMs, 600);
+  assert.equal(snapshot.translationLagMs, 0);
   assert.equal(snapshot.translationPending, false);
 });
 
@@ -85,6 +96,123 @@ test("pause, clear, bounds, and stale tokens cannot resurrect captions", () => {
   session.clear();
   assert.equal(session.snapshot().displaySource, "");
   assert.equal(session.snapshot().segments.length, 0);
+});
+
+test("translation lag is measured from the matching source revision and stale translation never hides source", () => {
+  const session = new CaptionSession();
+  session.begin(4, 0);
+  session.apply({ generation: 4, type: "transcript", text: "bonjour", isFinal: false, receivedAtMs: 100 });
+  assert.equal(session.snapshot(300).translationPending, true);
+  assert.equal(session.snapshot(300).translationCurrent, false);
+  assert.equal(session.snapshot(300).translationLagMs, 200);
+  session.apply({
+    generation: 4,
+    type: "transcript",
+    text: "",
+    sourceRevisionPresent: false,
+    translationText: "hello",
+    translationRevisionPresent: true,
+    translationIsFinal: false,
+    isFinal: false,
+    receivedAtMs: 450,
+  });
+  assert.equal(session.snapshot(450).translationLagMs, 350);
+  assert.equal(session.snapshot(450).translationCurrent, true);
+});
+
+test("incremental final deltas keep long continuous streams moving and bounded", () => {
+  const session = new CaptionSession({ maxSegments: 16, maxCodePoints: 256 });
+  session.begin(5, 0);
+  for (let index = 0; index < 300; index++) {
+    session.apply({
+      generation: 5,
+      type: "transcript",
+      text: "",
+      sourceFinalDelta: `word${index}`,
+      sourceRevisionPresent: true,
+      isFinal: false,
+      receivedAtMs: index + 1,
+    });
+  }
+  const snapshot = session.snapshot();
+  assert.match(snapshot.displaySource, /word299/);
+  assert.ok(snapshot.segments.length <= 16);
+  assert.ok(Array.from(snapshot.displaySource).length <= 256);
+});
+
+test("Soniox token fixtures preserve repeated speaker labels, split translation deltas, and bound queued PCM", async () => {
+  class FakeListener {
+    constructor(callbacks) { Object.assign(this, callbacks); }
+  }
+  class FakeSocket {
+    static instances = [];
+    binary = [];
+    text = [];
+    failText = false;
+    constructor(_url, listener) { this.listener = listener; FakeSocket.instances.push(this); }
+    sendText(value) { if (this.failText) throw new Error("synthetic"); this.text.push(value); }
+    sendBinary(value) { this.binary.push(value); }
+    close() {}
+  }
+  const previousCom = globalThis.com;
+  globalThis.com = { faceclaw: { app: { FaceclawWebSocketListener: FakeListener, FaceclawWebSocket: FakeSocket } } };
+  try {
+    const { SonioxSttClient } = await loadSonioxClient();
+    const events = [];
+    const errors = [];
+    const client = new SonioxSttClient({
+      apiKey: "synthetic-not-a-secret",
+      targetLanguage: "es",
+      speakerLabels: true,
+      onTranscript: (event) => events.push(event),
+      onStatus: () => {},
+      onError: (error) => errors.push(error),
+    });
+    client.start();
+    for (let index = 0; index < 55; index++) client.acceptPcm(new Uint8Array([index]));
+    const socket = FakeSocket.instances.at(-1);
+    socket.listener.onOpen();
+    assert.equal(socket.binary.length, 50);
+
+    const partial = JSON.stringify({ tokens: [
+      { text: "hel", is_final: false, speaker: "a", language: "en", translation_status: "original" },
+      { text: "hol", is_final: false, speaker: "a", source_language: "en", translation_status: "translation" },
+    ] });
+    socket.listener.onTextMessage(partial);
+    socket.listener.onTextMessage(partial);
+    assert.equal(events[0].text, "Speaker 1: hel");
+    assert.equal(events[1].text, "Speaker 1: hel");
+    assert.equal(events[1].translationText, "Speaker 1: hol");
+    assert.equal(events[1].droppedAudioFrames, 5);
+
+    socket.listener.onTextMessage(JSON.stringify({ tokens: [
+      { text: "hello ", is_final: true, speaker: "a", language: "en", translation_status: "original" },
+      { text: "hola ", is_final: true, speaker: "a", source_language: "en", translation_status: "translation" },
+    ] }));
+    assert.equal(events.at(-1).sourceFinalDelta, "Speaker 1: hello ");
+    assert.equal(events.at(-1).translationFinalDelta, "Speaker 1: hola ");
+    assert.equal(events.at(-1).text, "");
+    client.stop();
+
+    const failedStatuses = [];
+    const failedErrors = [];
+    const failed = new SonioxSttClient({
+      apiKey: "synthetic-not-a-secret",
+      onTranscript: () => {},
+      onStatus: (status) => failedStatuses.push(status),
+      onError: (error) => failedErrors.push(error),
+    });
+    failed.start();
+    const failedSocket = FakeSocket.instances.at(-1);
+    failedSocket.failText = true;
+    failedSocket.listener.onOpen();
+    assert.equal(failedStatuses.some((status) => status.includes("Listening")), false);
+    assert.equal(failedErrors.some((error) => error.includes("configuration send failed")), true);
+    failed.stop();
+    assert.equal(errors.length, 0);
+  } finally {
+    globalThis.com = previousCom;
+  }
 });
 
 test("caption wrapping bounds long words without splitting grapheme clusters", () => {
@@ -109,6 +237,8 @@ test("caption settings are bounded and disclose local versus cloud processing", 
   assert.match(settings.captionProcessingDisclosure("soniox", "en"), /audio.*Soniox.*translation/i);
   assert.equal(settings.captionProviderCapabilities("onboard").translation, false);
   assert.equal(settings.captionProviderCapabilities("soniox").speakerLabels, true);
+  assert.equal(settings.effectiveCaptionProvider("soniox", { soniox: false }), "onboard");
+  assert.equal(settings.effectiveCaptionProvider("soniox", { soniox: true }), "soniox");
 });
 
 test("caption integration exposes foreground and screen lifecycle hooks and removes implicit export", () => {
@@ -144,6 +274,13 @@ test("capture permission requests and provider callbacks are generation bound", 
   assert.match(controller, /requestEpoch !== this\.voiceCaptureRequestEpoch\[kind\]/);
   assert.match(bridge, /generation !== this\.activeGeneration/);
   assert.match(bridge, /this\.cloudClient !== exactClient/);
+  assert.match(bridge, /Voice capture busy; stop the active capture first/);
+  assert.doesNotMatch(bridge, /still finish a dangling cloud commit/);
   assert.match(soniox, /translation_status === "translation"/);
   assert.match(soniox, /enable_speaker_diarization/);
+  for (const provider of ["deepgram-stt.ts", "elevenlabs-stt.ts", "openai-stt.ts", "soniox-stt.ts"]) {
+    const source = readFileSync(new URL(`../app/native/${provider}`, import.meta.url), "utf8");
+    assert.match(source, /MAX_PENDING_PCM_CHUNKS/);
+    assert.match(source, /pending(?:Pcm|Chunks)\.length = 0/);
+  }
 });

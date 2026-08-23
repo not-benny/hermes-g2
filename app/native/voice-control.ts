@@ -33,6 +33,10 @@ export type VoiceTranscriptEvent = {
   translationIsFinal?: boolean;
   targetLanguage?: string;
   droppedAudioFrames?: number;
+  sourceFinalDelta?: string;
+  translationFinalDelta?: string;
+  sourceRevisionPresent?: boolean;
+  translationRevisionPresent?: boolean;
 };
 
 export type PushToTalkOptions = {
@@ -119,34 +123,44 @@ export class FaceclawVoiceControlBridge {
     this.releaseCapture("continuous", false);
   }
 
+  isContinuousCaptureActive(): boolean {
+    return this.captureHolders.has("continuous");
+  }
+
   private acquireCapture(holder: CaptureHolder, options: PushToTalkOptions): void {
     if (!global.isAndroid) return;
-    const wasIdle = this.captureHolders.size === 0;
-    this.captureHolders.add(holder);
-    if (!wasIdle) {
-      // Mic already running; the new holder just shares the existing stream
-      // (transcripts are already broadcast to its listeners).
+    if (this.captureHolders.has(holder)) return;
+    if (this.captureHolders.size > 0) {
+      // Fail closed rather than sharing providers/transcripts between assistant
+      // PTT and accessibility captions. The shell normally preempts captions
+      // first; this guard owns races and future alternate callers.
+      this.setStatus("Voice capture busy; stop the active capture first.");
       return;
     }
     const generation = ++this.activeGeneration;
-    this.ensureController();
-    this.installControllerListener(generation);
-    this.controller?.setCommunicator(options.communicator);
-    this.controller?.setSaveRecordings(options.saveRecording);
-    this.controller?.setEndpointing(Boolean(options.endpointing));
+    let cloudClient: CloudSttClient | null = null;
+    try {
+      this.ensureController();
+      this.installControllerListener(generation);
+      this.controller?.setCommunicator(options.communicator);
+      this.controller?.setSaveRecordings(options.saveRecording);
+      this.controller?.setEndpointing(Boolean(options.endpointing));
 
-    const cloudClient = this.createCloudClient(options, generation);
-    if (cloudClient) {
+      cloudClient = this.createCloudClient(options, generation);
       this.cloudClient = cloudClient;
-      cloudClient.start();
+      cloudClient?.start();
+      this.controller?.start(cloudClient ? "cloud" : "onboard");
       this.started = true;
-      this.controller?.start("cloud");
-      return;
+      this.captureHolders.add(holder);
+    } catch {
+      this.activeGeneration++;
+      this.started = false;
+      this.captureHolders.delete(holder);
+      try { this.controller?.stop(); } catch { /* already stopped */ }
+      try { cloudClient?.stop(); } catch { /* construction/start failed */ }
+      if (this.cloudClient === cloudClient) this.cloudClient = null;
+      this.setStatus("Voice capture failed to start.");
     }
-
-    this.cloudClient = null;
-    this.started = true;
-    this.controller?.start("onboard");
   }
 
   /**
@@ -211,16 +225,10 @@ export class FaceclawVoiceControlBridge {
 
   private releaseCapture(holder: CaptureHolder, commit: boolean): void {
     if (!this.captureHolders.delete(holder)) {
-      // Never held; still finish a dangling cloud commit if one is pending.
-      if (commit) this.cloudClient?.finish();
-      return;
-    }
-    if (this.captureHolders.size > 0) {
-      // Another holder still wants the mic; keep it running.
+      // A delayed/duplicate release must never finalize a replacement client.
       return;
     }
     if (!this.started) {
-      this.cloudClient?.finish();
       return;
     }
     // Order matters for cloud: stopping the Java controller flushes any final

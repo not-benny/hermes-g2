@@ -41,7 +41,7 @@ On-device transcription keeps audio on the phone. Selecting a cloud transcriptio
 
 ## Limitations and honest evidence
 
-- The bundled bitmap fonts and renderer do not provide complete Unicode shaping or bidirectional layout. Grapheme-safe wrapping prevents broken surrogate/combining sequences, but Arabic shaping, robust RTL ordering, CJK and emoji glyph coverage are not claimed.
+- The bundled bitmap fonts and renderer do not provide complete Unicode shaping or bidirectional layout. Grapheme-safe wrapping prevents broken surrogate/combining sequences, but Arabic shaping, robust RTL ordering, CJK and emoji glyph coverage are not claimed; phone-selectable languages are limited to supported Latin-script choices.
 - Provider custom-vocabulary transport is disabled until an exact supported API contract is implemented and tested.
 - Automated fixtures exercise partial rewrites, stale generations, bounds, Unicode graphemes, long words, speaker evidence, translation lag, lifecycle hooks, and local/cloud disclosure. They use synthetic text only.
 - A build proves compilation, not microphone, network, transport, or optical readability. Hardware evidence must separately name install/launch, G2 session, scripted fixture/live microphone result, stop/clear/background behavior, and privacy-safe log review.

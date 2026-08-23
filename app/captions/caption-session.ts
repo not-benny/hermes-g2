@@ -13,6 +13,10 @@ export type CaptionTranscriptEvent = {
   translationIsFinal?: boolean;
   targetLanguage?: string;
   droppedAudioFrames?: number;
+  sourceFinalDelta?: string;
+  translationFinalDelta?: string;
+  sourceRevisionPresent?: boolean;
+  translationRevisionPresent?: boolean;
   receivedAtMs: number;
 };
 
@@ -47,6 +51,7 @@ export type CaptionSessionSnapshot = {
   displayTranslation: string;
   partial: boolean;
   translationPending: boolean;
+  translationCurrent: boolean;
   translationLagMs: number | null;
   language: string | null;
   confidence: number | null;
@@ -153,21 +158,57 @@ export class CaptionSession {
 
     const source = boundedText(event.text);
     const translation = boundedText(event.translationText);
+    const sourceFinalDelta = boundedText(event.sourceFinalDelta);
+    const translationFinalDelta = boundedText(event.translationFinalDelta);
     const speakerLabel = event.speakerEvidence && event.speaker ? this.labelSpeaker(event.speaker) : null;
-    if (!source && !translation && !event.isFinal) return true;
-    if (this.firstTokenAtMs === null && (source || translation)) this.firstTokenAtMs = event.receivedAtMs;
+    if (!source && !translation && !sourceFinalDelta && !translationFinalDelta && !event.isFinal) return true;
+    if (this.firstTokenAtMs === null && (source || translation || sourceFinalDelta || translationFinalDelta)) {
+      this.firstTokenAtMs = event.receivedAtMs;
+    }
     this.phase = "listening";
     this.status = "Listening";
-    this.liveSource = source;
-    this.liveTranslation = translation;
+    if (sourceFinalDelta || translationFinalDelta) {
+      if (sourceFinalDelta) {
+        this.segments.push({
+          source: sourceFinalDelta,
+          translation: translationFinalDelta,
+          language: boundedText(event.language).slice(0, 32) || null,
+          targetLanguage: boundedText(event.targetLanguage).slice(0, 32) || null,
+          confidence: boundedConfidence(event.confidence),
+          speakerLabel,
+          sourceReceivedAtMs: event.receivedAtMs,
+          translationReceivedAtMs: translationFinalDelta ? event.receivedAtMs : null,
+        });
+      } else {
+        const pending = this.segments.find((entry) => entry.source && !entry.translation);
+        if (pending) {
+          pending.translation = translationFinalDelta;
+          pending.translationReceivedAtMs = event.receivedAtMs;
+        } else {
+          this.segments.push({
+            source: "",
+            translation: translationFinalDelta,
+            language: null,
+            targetLanguage: boundedText(event.targetLanguage).slice(0, 32) || null,
+            confidence: null,
+            speakerLabel,
+            sourceReceivedAtMs: event.receivedAtMs,
+            translationReceivedAtMs: event.receivedAtMs,
+          });
+        }
+      }
+      this.enforceBounds();
+    }
+    const sourceRevisionPresent = event.sourceRevisionPresent ?? true;
+    const translationRevisionPresent = event.translationRevisionPresent ?? event.translationText !== undefined;
+    if (sourceRevisionPresent) this.liveSource = source;
+    if (translationRevisionPresent) this.liveTranslation = translation;
     this.liveLanguage = boundedText(event.language).slice(0, 32) || null;
     this.liveConfidence = boundedConfidence(event.confidence);
     this.liveSpeakerLabel = speakerLabel;
-    this.liveSourceAtMs = source
-      ? (this.liveSourceAtMs ?? (this.firstTokenAtMs === event.receivedAtMs ? this.startedAtMs : event.receivedAtMs))
-      : this.liveSourceAtMs;
-    this.liveTranslationAtMs = translation ? event.receivedAtMs : null;
-    this.translationIsFinal = Boolean(event.translationIsFinal);
+    if (sourceRevisionPresent && source) this.liveSourceAtMs = event.receivedAtMs;
+    if (translationRevisionPresent) this.liveTranslationAtMs = translation ? event.receivedAtMs : null;
+    if (translationRevisionPresent) this.translationIsFinal = Boolean(event.translationIsFinal);
     if (typeof event.droppedAudioFrames === "number" && Number.isFinite(event.droppedAudioFrames)) {
       this.droppedAudioFrames = Math.max(this.droppedAudioFrames, Math.max(0, Math.floor(event.droppedAudioFrames)));
     }
@@ -209,7 +250,13 @@ export class CaptionSession {
       displaySource,
       displayTranslation,
       partial: Boolean(this.liveSource || this.liveTranslation),
-      translationPending: Boolean(this.liveSource && !this.liveTranslation) || Boolean(this.liveTranslation && !this.translationIsFinal),
+      translationPending:
+        Boolean(this.liveSource && !this.liveTranslation) ||
+        Boolean(this.liveTranslation && !this.translationIsFinal) ||
+        Boolean(latest?.source && !latest.translation),
+      translationCurrent: this.liveSource
+        ? Boolean(this.liveTranslation)
+        : Boolean(latest?.source ? latest.translation : displayTranslation),
       translationLagMs: sourceAt === null ? null : Math.max(0, (translationAt ?? nowMs) - sourceAt),
       language: this.liveLanguage ?? latest?.language ?? null,
       confidence: this.liveConfidence ?? latest?.confidence ?? null,

@@ -8,6 +8,7 @@ declare const com: any;
  */
 const WS_URL =
   "wss://api.deepgram.com/v1/listen?model=nova-3&language=en-US&smart_format=true&interim_results=true&encoding=linear16&sample_rate=16000&channels=1";
+const MAX_PENDING_PCM_CHUNKS = 50;
 
 export type DeepgramSttOptions = CloudSttOptions;
 
@@ -19,6 +20,7 @@ export class DeepgramSttClient implements CloudSttClient {
   private finishRequested = false;
   private finalEmitted = false;
   private readonly pendingPcm: Uint8Array[] = [];
+  private droppedAudioFrames = 0;
   private finalText = "";
   private partialText = "";
 
@@ -65,7 +67,11 @@ export class DeepgramSttClient implements CloudSttClient {
     if (this.open) {
       this.sendPcm(pcm);
     } else {
-      this.pendingPcm.push(pcm);
+      if (this.pendingPcm.length >= MAX_PENDING_PCM_CHUNKS) {
+        this.pendingPcm.shift();
+        this.droppedAudioFrames++;
+      }
+      this.pendingPcm.push(pcm.slice());
     }
   }
 
@@ -78,6 +84,7 @@ export class DeepgramSttClient implements CloudSttClient {
 
   stop(): void {
     this.closed = true;
+    this.pendingPcm.length = 0;
     if (this.ws) {
       try {
         this.ws.close(1000, "bye");
@@ -120,10 +127,10 @@ export class DeepgramSttClient implements CloudSttClient {
     if (message?.is_final && transcript) {
       this.finalText = joinTranscript(this.finalText, transcript);
       this.partialText = "";
-      this.options.onTranscript({ text: this.finalText, isFinal: false });
+      this.options.onTranscript({ text: this.finalText, isFinal: false, droppedAudioFrames: this.droppedAudioFrames });
     } else if (transcript) {
       this.partialText = transcript;
-      this.options.onTranscript({ text: joinTranscript(this.finalText, transcript), isFinal: false });
+      this.options.onTranscript({ text: joinTranscript(this.finalText, transcript), isFinal: false, droppedAudioFrames: this.droppedAudioFrames });
     }
     if (message?.speech_final && this.finishRequested) {
       this.emitFinal();
@@ -138,7 +145,7 @@ export class DeepgramSttClient implements CloudSttClient {
   private emitFinal(): void {
     if (this.finalEmitted) return;
     this.finalEmitted = true;
-    this.options.onTranscript({ text: joinTranscript(this.finalText, this.partialText), isFinal: true });
+    this.options.onTranscript({ text: joinTranscript(this.finalText, this.partialText), isFinal: true, droppedAudioFrames: this.droppedAudioFrames });
   }
 }
 

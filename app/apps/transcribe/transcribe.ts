@@ -6,7 +6,7 @@ import {
   type BdfFont,
 } from "../../graphics/bdffont";
 import { CaptionSession, bottomAnchoredLines, wrapCaptionText } from "../../captions/caption-session";
-import { captionProviderCapabilities } from "../../captions/caption-settings";
+import { captionProviderCapabilities, effectiveCaptionProvider } from "../../captions/caption-settings";
 import { voiceControlBridge, type VoiceTranscriptEvent } from "../../native/voice-control";
 import {
   captionFontSizeSetting,
@@ -14,10 +14,15 @@ import {
   captionLineSpacingSetting,
   captionMaxLinesSetting,
   captionTargetLanguageSetting,
+  deepgramApiKeySetting,
+  elevenLabsApiKeySetting,
+  openAiApiKeySetting,
+  sonioxApiKeySetting,
   voiceProviderSetting,
 } from "../../ui/dashboard-settings";
 import { GESTURE_CLICK, GESTURE_DOUBLE_CLICK } from "../../ui/gestures";
 import { Layer, type DashboardInputEvent, type LayerContext } from "../../ui/layers";
+import { truncateText } from "../../graphics/textwrap";
 
 export type TranscribeLayerOptions = {
   startCapture: () => void;
@@ -94,10 +99,16 @@ export class TranscribeLayer implements Layer {
 
   paint(ctx: LayerContext): GrayImage {
     const font = captionFont();
+    const chromeFont = getDefaultSmallFont();
     const { width, height } = ctx.stack.getBaseSize();
     const image = new GrayImage(width, height, 0);
     const snapshot = this.captions.snapshot();
-    const provider = voiceProviderSetting.get();
+    const provider = effectiveCaptionProvider(voiceProviderSetting.get(), {
+      deepgram: deepgramApiKeySetting.get().trim().length > 0,
+      elevenlabs: elevenLabsApiKeySetting.get().trim().length > 0,
+      whisper: openAiApiKeySetting.get().trim().length > 0,
+      soniox: sonioxApiKeySetting.get().trim().length > 0,
+    });
     const target = captionTargetLanguageSetting.get();
     const capabilities = captionProviderCapabilities(provider);
     const translationEnabled = target !== "off" && capabilities.translation;
@@ -109,14 +120,15 @@ export class TranscribeLayer implements Layer {
     const availableLines = Math.max(1, Math.min(Number(captionMaxLinesSetting.get()), Math.floor((footerY - bodyTop) / lineHeight)));
     const textWidth = width - 48;
 
-    image.drawText(font, 24, 10, `Captions ${this.captureRequested ? "[LIVE]" : this.userPaused ? "[PAUSED]" : "[STOPPED]"}`, 230);
+    const header = `Captions ${this.captureRequested ? "[LIVE]" : this.userPaused ? "[PAUSED]" : "[STOPPED]"}`;
+    image.drawText(chromeFont, 24, 10, truncateText(chromeFont, header, textWidth), 230);
     const details = [
       this.historyOffset ? `[HISTORY +${this.historyOffset}]` : "",
-      translationEnabled && snapshot.translationPending ? `[TR WAIT ${snapshot.translationLagMs ?? 0}ms]` : "",
-      snapshot.droppedEvents ? `[DROP ${snapshot.droppedEvents}]` : "",
-      snapshot.droppedAudioFrames ? `[AUDIO DROP ${snapshot.droppedAudioFrames}]` : "",
+      translationEnabled && snapshot.translationPending ? `[TR WAIT ${Math.min(99_999, snapshot.translationLagMs ?? 0)}ms]` : "",
+      snapshot.droppedEvents ? `[DROP ${Math.min(9_999, snapshot.droppedEvents)}]` : "",
+      snapshot.droppedAudioFrames ? `[AUDIO DROP ${Math.min(9_999, snapshot.droppedAudioFrames)}]` : "",
     ].filter(Boolean).join(" ");
-    image.drawText(font, 24, 30, details || this.status, 150);
+    image.drawText(chromeFont, 24, 30, truncateText(chromeFont, details || this.status, textWidth), 150);
 
     const source = snapshot.displaySource || (this.captureRequested ? "Listening..." : "No captions");
     const translation = snapshot.displayTranslation || (translationEnabled ? "Translation waiting..." : "");
@@ -129,12 +141,13 @@ export class TranscribeLayer implements Layer {
       image.drawLine(24, translationTop - 3, width - 24, translationTop - 3, 80);
       this.drawBottomAnchored(image, font, translation, translationTop, translationLines, lineHeight, textWidth, 240);
     } else {
-      const primary = layout === "translation" && snapshot.displayTranslation ? translation : source;
+      const primary = layout === "translation" && snapshot.translationCurrent ? translation : source;
       this.drawBottomAnchored(image, font, primary, bodyTop, availableLines, lineHeight, textWidth, 235);
     }
 
     const action = this.userPaused ? "resume" : "pause";
-    image.drawText(font, 24, footerY, `${GESTURE_CLICK} ${action}   up/down history   ${GESTURE_DOUBLE_CLICK} back`, 120);
+    const footer = `${GESTURE_CLICK} ${action} | scroll history | ${GESTURE_DOUBLE_CLICK} back`;
+    image.drawText(chromeFont, 24, footerY, truncateText(chromeFont, footer, textWidth), 120);
     return image;
   }
 

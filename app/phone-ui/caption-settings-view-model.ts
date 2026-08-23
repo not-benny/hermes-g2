@@ -1,6 +1,6 @@
 import { Frame, Observable } from "@nativescript/core";
 
-import { captionProcessingDisclosure, captionProviderCapabilities } from "../captions/caption-settings";
+import { captionProcessingDisclosure, captionProviderCapabilities, effectiveCaptionProvider } from "../captions/caption-settings";
 import {
   captionFontSizeSetting,
   captionLayoutSetting,
@@ -10,6 +10,10 @@ import {
   captionSpeakerLabelsSetting,
   captionTargetLanguageSetting,
   captionVocabularySetting,
+  deepgramApiKeySetting,
+  elevenLabsApiKeySetting,
+  openAiApiKeySetting,
+  sonioxApiKeySetting,
   voiceProviderSetting,
 } from "../ui/dashboard-settings";
 
@@ -30,15 +34,15 @@ export class CaptionSettingsViewModel extends Observable {
     captionSpeakerLabelsSetting.set(value);
     this.refresh();
   }
-  get speakerLabelsAvailable(): boolean { return captionProviderCapabilities(voiceProviderSetting.get()).speakerLabels; }
+  get speakerLabelsAvailable(): boolean { return captionProviderCapabilities(this.effectiveProvider()).speakerLabels; }
   get vocabulary(): string { return this.vocabularyDraft; }
   get vocabularyStatus(): string {
-    return captionProviderCapabilities(voiceProviderSetting.get()).customVocabulary
+    return captionProviderCapabilities(this.effectiveProvider()).customVocabulary
       ? "Vocabulary will be sent only to the selected supporting provider."
       : "Selected provider does not support custom vocabulary; it stays local and is not sent.";
   }
   get disclosure(): string {
-    return captionProcessingDisclosure(voiceProviderSetting.get(), captionTargetLanguageSetting.get());
+    return captionProcessingDisclosure(this.effectiveProvider(), captionTargetLanguageSetting.get());
   }
 
   onSourceTap(): void { captionSourceLanguageSetting.set(captionSourceLanguageSetting.next()); this.refresh(); }
@@ -53,6 +57,15 @@ export class CaptionSettingsViewModel extends Observable {
     this.refresh();
   }
   onBackTap(): void { Frame.topmost()?.goBack(); }
+
+  private effectiveProvider() {
+    return effectiveCaptionProvider(voiceProviderSetting.get(), {
+      deepgram: deepgramApiKeySetting.get().trim().length > 0,
+      elevenlabs: elevenLabsApiKeySetting.get().trim().length > 0,
+      whisper: openAiApiKeySetting.get().trim().length > 0,
+      soniox: sonioxApiKeySetting.get().trim().length > 0,
+    });
+  }
 
   private refresh(): void {
     for (const property of [

@@ -19,10 +19,10 @@ Current as of 22 August 2026. `main` is the canonical branch.
   labels with bounded PCM buffering/reconnect/drop metrics. Phone settings bound
   languages, layout, font, spacing, lines, speaker labels and local-only
   unsupported vocabulary while disclosing local/cloud processing. Captions are
-  memory-only and transcript-only remains credential-independent. Focused 21/21
-  and full 353/353 host tests, TypeScript and the JDK 21 / SDK 35 Android build
-  pass. The exact 195,738,506-byte APK has SHA-256
-  `6b4b4283b53551f9dec623171ac4cc6dea9943ed3689fe7b48edabab15f87c81`.
+  memory-only and transcript-only remains credential-independent. Focused 24/24
+  and full 356/356 host tests, TypeScript and the JDK 21 / SDK 35 Android build
+  pass. The exact 195,740,384-byte APK has SHA-256
+  `53a6578c0a5ac3f813db18af0f938d1b4e0bbc9d68f77234de7a508f5c2ed437`.
   No ADB device was attached, so A32 install/launch, scripted/live microphone,
   real-G2 readability, disconnect, background-stop and privacy-safe logcat
   evidence remain required before DONE. See `docs/live-captions.md`.

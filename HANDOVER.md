@@ -22,11 +22,11 @@ Keystore-backed replace-only settings and never enter glasses payloads or logs.
 See `docs/live-captions.md` and `PRIVACY`.
 
 Verification on the current source: focused caption/provider/phone/security
-tests pass 21/21; the full host suite passes 353/353; TypeScript passes; and the
+tests pass 24/24; the full host suite passes 356/356; TypeScript passes; and the
 JDK 21 / Android SDK 35 debug build and release-artifact verifier pass. The
-exact 195,738,506-byte debug APK at
+exact 195,740,384-byte debug APK at
 `platforms/android/app/build/outputs/apk/debug/app-debug.apk` has SHA-256
-`6b4b4283b53551f9dec623171ac4cc6dea9943ed3689fe7b48edabab15f87c81`.
+`53a6578c0a5ac3f813db18af0f938d1b4e0bbc9d68f77234de7a508f5c2ed437`.
 `adb devices -l` returned no attached device, so there is no A32 install/launch,
 scripted fixture, live microphone, optical readability, disconnect,
 background-stop or privacy-safe logcat evidence yet. No pairing, permission
@@ -34,6 +34,17 @@ dialog, firmware, provisioning, reset, wipe, power, NVM or destructive command
 was attempted. Independent frozen-candidate review, PR/CI delivery and serialized
 A32/G2 verification remain the next gates; do not infer hardware success from
 the build.
+
+The first independent frozen-candidate review blocked provider/PTT sharing,
+unmatched release, non-transactional startup, unbounded non-Soniox queues,
+Soniox send/reconnect identity, cumulative-stream truncation, stale provider
+disclosure, translation lag/source fallback, repeated-partial speaker labels,
+and status/footer overflow. The follow-up makes capture single-owner and
+transactional, bounds every cloud queue, restarts continuous capture on setting
+changes with effective-provider disclosure, emits incremental final token
+deltas, measures matching-revision lag, falls back to current source, derives
+partial labels without mutating committed state, truncates fixed chrome, and
+adds executable mock-Soniox fixtures. Final re-review remains required.
 
 ## Gesture, HUD, R1 battery, and Hermes bridge follow-up
 

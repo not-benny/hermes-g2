@@ -17,10 +17,12 @@ const WS_URL = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
 // it rejects "scribe_v1" with an explicit message naming this one).
 const MODEL_ID = "scribe_v2_realtime";
 const SAMPLE_RATE = 16000;
+const MAX_PENDING_PCM_CHUNKS = 50;
 
 export type ElevenLabsTranscriptEvent = {
   text: string;
   isFinal: boolean;
+  droppedAudioFrames?: number;
 };
 
 export type ElevenLabsSttOptions = {
@@ -37,6 +39,7 @@ export class ElevenLabsSttClient {
   private closed = false;
   // PCM that arrived before the socket finished opening; flushed on open.
   private readonly pendingChunks: string[] = [];
+  private droppedAudioFrames = 0;
   private latestText = "";
 
   constructor(private readonly options: ElevenLabsSttOptions) {}
@@ -78,6 +81,10 @@ export class ElevenLabsSttClient {
     if (this.open) {
       this.sendChunk(base64);
     } else {
+      if (this.pendingChunks.length >= MAX_PENDING_PCM_CHUNKS) {
+        this.pendingChunks.shift();
+        this.droppedAudioFrames++;
+      }
       this.pendingChunks.push(base64);
     }
   }
@@ -94,12 +101,17 @@ export class ElevenLabsSttClient {
     if (this.open) {
       this.trySend(commitMessage);
     } else {
+      if (this.pendingChunks.length >= MAX_PENDING_PCM_CHUNKS) {
+        this.pendingChunks.shift();
+        this.droppedAudioFrames++;
+      }
       this.pendingChunks.push("__commit__");
     }
   }
 
   stop(): void {
     this.closed = true;
+    this.pendingChunks.length = 0;
     if (this.ws) {
       try {
         this.ws.close(1000, "bye");
@@ -147,12 +159,12 @@ export class ElevenLabsSttClient {
         return;
       case "partial_transcript":
         this.latestText = String(message.text ?? "");
-        this.options.onTranscript({ text: this.latestText, isFinal: false });
+        this.options.onTranscript({ text: this.latestText, isFinal: false, droppedAudioFrames: this.droppedAudioFrames });
         return;
       case "committed_transcript":
       case "committed_transcript_with_timestamps":
         this.latestText = String(message.text ?? this.latestText);
-        this.options.onTranscript({ text: this.latestText, isFinal: true });
+        this.options.onTranscript({ text: this.latestText, isFinal: true, droppedAudioFrames: this.droppedAudioFrames });
         return;
       case "error":
       case "auth_error":

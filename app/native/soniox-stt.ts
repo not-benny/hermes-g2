@@ -35,9 +35,6 @@ export class SonioxSttClient implements CloudSttClient {
   // PCM queued until the socket opens and the config message is sent.
   private readonly pendingPcm: Uint8Array[] = [];
   private pendingFinish = false;
-  // Concatenation of all final tokens so far.
-  private finalText = "";
-  private finalTranslation = "";
   private lastSourceSpeaker = "";
   private lastTranslationSpeaker = "";
   private readonly speakerLabels = new Map<string, string>();
@@ -57,7 +54,7 @@ export class SonioxSttClient implements CloudSttClient {
         if (this.closed || this.ws !== exactSocket) return;
         this.reconnectAttempt = 0;
         // The API key rides in the config message; there is no auth header.
-        this.trySendText(
+        const configured = this.trySendText(
           JSON.stringify({
             api_key: this.options.apiKey,
             model: MODEL_ID,
@@ -76,9 +73,17 @@ export class SonioxSttClient implements CloudSttClient {
             ...(this.options.speakerLabels ? { enable_speaker_diarization: true } : {}),
           }),
         );
+        if (!configured) {
+          this.retireCurrentSocketAndReconnect("Soniox configuration send failed; reconnecting.");
+          return;
+        }
         this.open = true;
-        for (const chunk of this.pendingPcm.splice(0)) {
-          this.sendPcm(chunk);
+        const pending = this.pendingPcm.splice(0);
+        for (let index = 0; index < pending.length; index++) {
+          if (this.sendPcm(pending[index]!)) continue;
+          this.droppedAudioFrames += pending.length - index;
+          this.retireCurrentSocketAndReconnect("Soniox buffered audio send failed; reconnecting.");
+          return;
         }
         if (this.pendingFinish) {
           this.pendingFinish = false;
@@ -124,7 +129,10 @@ export class SonioxSttClient implements CloudSttClient {
   acceptPcm(pcm: Uint8Array): void {
     if (this.closed || pcm.length === 0) return;
     if (this.open) {
-      this.sendPcm(pcm);
+      if (!this.sendPcm(pcm)) {
+        this.droppedAudioFrames++;
+        this.retireCurrentSocketAndReconnect("Soniox audio send failed; reconnecting.");
+      }
     } else {
       if (this.pendingPcm.length >= MAX_PENDING_PCM_CHUNKS) {
         this.pendingPcm.shift();
@@ -138,7 +146,9 @@ export class SonioxSttClient implements CloudSttClient {
   finish(): void {
     if (this.closed) return;
     if (this.open) {
-      this.trySendText("");
+      if (!this.trySendText("")) {
+        this.retireCurrentSocketAndReconnect("Soniox finalization send failed; reconnecting.");
+      }
     } else {
       this.pendingFinish = true;
     }
@@ -162,20 +172,21 @@ export class SonioxSttClient implements CloudSttClient {
     this.listenerProxy = null;
   }
 
-  private sendPcm(pcm: Uint8Array): void {
+  private sendPcm(pcm: Uint8Array): boolean {
     try {
       this.ws?.sendBinary(toJavaBytes(pcm));
+      return true;
     } catch {
-      this.droppedAudioFrames++;
-      this.options.onError("Soniox audio send failed; reconnecting.");
+      return false;
     }
   }
 
-  private trySendText(message: string): void {
+  private trySendText(message: string): boolean {
     try {
       this.ws?.sendText(message);
+      return true;
     } catch {
-      this.options.onError("Soniox control send failed; reconnecting.");
+      return false;
     }
   }
 
@@ -193,35 +204,43 @@ export class SonioxSttClient implements CloudSttClient {
     const tokens = Array.isArray(message?.tokens) ? message.tokens : [];
     let nonFinal = "";
     let nonFinalTranslation = "";
+    let sourceFinalDelta = "";
+    let translationFinalDelta = "";
     let language = "";
-    let speaker = "";
+    const sourceSpeakers = new Set<string>();
     for (const token of tokens) {
       const tokenText = String(token?.text ?? "");
       // Markers emitted by endpoint detection / manual finalize; not speech.
       if (tokenText === "<end>" || tokenText === "<fin>") continue;
       const isTranslation = token?.translation_status === "translation";
       language = String(token?.source_language ?? token?.language ?? language);
-      speaker = String(token?.speaker ?? speaker);
-      const rendered = this.withSpeaker(tokenText, speaker, isTranslation);
+      const speaker = String(token?.speaker ?? "");
+      if (!isTranslation && speaker) sourceSpeakers.add(speaker);
+      const rendered = this.withSpeaker(tokenText, speaker, isTranslation, Boolean(token?.is_final));
       if (isTranslation && token?.is_final) {
-        this.finalTranslation += rendered;
+        translationFinalDelta += rendered;
       } else if (isTranslation) {
         nonFinalTranslation += rendered;
       } else if (token?.is_final) {
-        this.finalText += rendered;
+        sourceFinalDelta += rendered;
       } else {
         nonFinal += rendered;
       }
     }
+    const soleSpeaker = sourceSpeakers.size === 1 ? [...sourceSpeakers][0] : "";
     const event = {
-      text: this.finalText + nonFinal,
+      text: nonFinal,
       isFinal: Boolean(message?.finished),
+      sourceRevisionPresent: Boolean(sourceFinalDelta || nonFinal),
       ...(language ? { language } : {}),
-      ...(speaker ? { speaker, speakerEvidence: true } : {}),
+      ...(soleSpeaker ? { speaker: soleSpeaker, speakerEvidence: true } : {}),
+      ...(sourceFinalDelta ? { sourceFinalDelta } : {}),
+      ...(translationFinalDelta ? { translationFinalDelta } : {}),
       ...(this.options.targetLanguage
         ? {
-            translationText: this.finalTranslation + nonFinalTranslation,
+            translationText: nonFinalTranslation,
             translationIsFinal: Boolean(message?.finished),
+            translationRevisionPresent: Boolean(translationFinalDelta || nonFinalTranslation),
             targetLanguage: this.options.targetLanguage,
           }
         : {}),
@@ -237,7 +256,7 @@ export class SonioxSttClient implements CloudSttClient {
     }
   }
 
-  private withSpeaker(text: string, providerSpeaker: string, translation: boolean): string {
+  private withSpeaker(text: string, providerSpeaker: string, translation: boolean, isFinal: boolean): string {
     if (!this.options.speakerLabels || !providerSpeaker) return text;
     let label = this.speakerLabels.get(providerSpeaker);
     if (!label) {
@@ -246,10 +265,11 @@ export class SonioxSttClient implements CloudSttClient {
     }
     const last = translation ? this.lastTranslationSpeaker : this.lastSourceSpeaker;
     if (last === providerSpeaker) return text;
-    if (translation) this.lastTranslationSpeaker = providerSpeaker;
-    else this.lastSourceSpeaker = providerSpeaker;
-    const existing = translation ? this.finalTranslation : this.finalText;
-    return `${existing ? "\n" : ""}${label}: ${text}`;
+    if (isFinal) {
+      if (translation) this.lastTranslationSpeaker = providerSpeaker;
+      else this.lastSourceSpeaker = providerSpeaker;
+    }
+    return `${last ? "\n" : ""}${label}: ${text}`;
   }
 
   private scheduleReconnect(): void {
@@ -260,5 +280,14 @@ export class SonioxSttClient implements CloudSttClient {
       this.reconnectTimer = null;
       this.connect();
     }, delay);
+  }
+
+  private retireCurrentSocketAndReconnect(status: string): void {
+    const socket = this.ws;
+    this.ws = null;
+    this.open = false;
+    try { socket?.close(1011, "retry"); } catch { /* already closed */ }
+    this.options.onError(status);
+    this.scheduleReconnect();
   }
 }

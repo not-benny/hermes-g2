@@ -47,6 +47,7 @@ import {
   glassesMotionService,
   retireGlassesMotionSession,
 } from "../native/glasses-motion-service";
+import { effectiveCaptionProvider } from "../captions/caption-settings";
 
 type ConnectionPhase = DashboardConnectionPhase;
 
@@ -333,6 +334,7 @@ class DashboardController {
       this.applyVerticalPositionIfChanged();
       this.syncAssistantBridgeIfChanged();
       this.syncLockScreenSettingIfChanged();
+      this.restartContinuousCaptureAfterSettingsChange();
     });
     // Connect to the external agent bridge at boot if configured; the
     // connection stays up (with re-dial) so proactive tool calls work
@@ -1544,17 +1546,23 @@ class DashboardController {
           this.communicator !== communicator
         ) return;
         const targetLanguage = captionTargetLanguageSetting.get();
+        const provider = effectiveCaptionProvider(voiceProviderSetting.get(), {
+          deepgram: deepgramApiKeySetting.get().trim().length > 0,
+          elevenlabs: elevenLabsApiKeySetting.get().trim().length > 0,
+          whisper: openAiApiKeySetting.get().trim().length > 0,
+          soniox: sonioxApiKeySetting.get().trim().length > 0,
+        });
         const options = {
           communicator: communicator.getNativeCommunicator(),
-          provider: voiceProviderSetting.get(),
+          provider,
           deepgramApiKey: deepgramApiKeySetting.get(),
           elevenLabsApiKey: elevenLabsApiKeySetting.get(),
           openAiApiKey: openAiApiKeySetting.get(),
           sonioxApiKey: sonioxApiKeySetting.get(),
           saveRecording: saveVoiceRecordingsSetting.get(),
           sourceLanguage: captionSourceLanguageSetting.get(),
-          targetLanguage: voiceProviderSetting.get() === "soniox" && targetLanguage !== "off" ? targetLanguage : undefined,
-          speakerLabels: voiceProviderSetting.get() === "soniox" && captionSpeakerLabelsSetting.get(),
+          targetLanguage: provider === "soniox" && targetLanguage !== "off" ? targetLanguage : undefined,
+          speakerLabels: provider === "soniox" && captionSpeakerLabelsSetting.get(),
           endpointing,
         };
         if (kind === "ptt") {
@@ -1568,6 +1576,12 @@ class DashboardController {
         this.appendLog(`voice permission failed: ${this.formatError(error)}`);
         voiceControlBridge.reportStatus("Microphone permission unavailable.");
       });
+  }
+
+  private restartContinuousCaptureAfterSettingsChange(): void {
+    if (!voiceControlBridge.isContinuousCaptureActive()) return;
+    this.stopContinuousVoiceCapture();
+    this.startContinuousVoiceCapture();
   }
 
   private endTextSettingEdit(): void {

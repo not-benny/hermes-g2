@@ -17,6 +17,10 @@ export type CloudSttTranscriptEvent = {
   translationIsFinal?: boolean;
   targetLanguage?: string;
   droppedAudioFrames?: number;
+  sourceFinalDelta?: string;
+  translationFinalDelta?: string;
+  sourceRevisionPresent?: boolean;
+  translationRevisionPresent?: boolean;
 };
 
 export type CloudSttOptions = {

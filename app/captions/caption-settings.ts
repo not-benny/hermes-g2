@@ -1,5 +1,8 @@
-export const CAPTION_SOURCE_LANGUAGES = ["auto", "en", "es", "fr", "de", "it", "pt", "ja", "ko", "zh", "ar", "hi"] as const;
-export const CAPTION_TARGET_LANGUAGES = ["off", "en", "es", "fr", "de", "it", "pt", "ja", "ko", "zh", "ar", "hi"] as const;
+// Keep phone-selectable languages to scripts the bundled renderer can display
+// legibly. Provider events may still identify other languages, but the UI does
+// not claim shaped RTL/CJK/Indic output that the bitmap fonts cannot provide.
+export const CAPTION_SOURCE_LANGUAGES = ["auto", "en", "es", "fr", "de", "it", "pt"] as const;
+export const CAPTION_TARGET_LANGUAGES = ["off", "en", "es", "fr", "de", "it", "pt"] as const;
 export const CAPTION_LAYOUTS = ["source", "split", "translation"] as const;
 export const CAPTION_FONT_SIZES = ["small", "medium", "large"] as const;
 export const CAPTION_LINE_SPACING = ["compact", "normal", "relaxed"] as const;
@@ -57,6 +60,13 @@ export function normalizeCaptionVocabulary(value: string | null | undefined): st
 
 export function captionProviderCapabilities(provider: CaptionProvider): CaptionProviderCapabilities {
   return { ...CAPABILITIES[provider] };
+}
+
+export function effectiveCaptionProvider(
+  provider: CaptionProvider,
+  configured: Partial<Record<Exclude<CaptionProvider, "onboard">, boolean>>,
+): CaptionProvider {
+  return provider === "onboard" || configured[provider] ? provider : "onboard";
 }
 
 export function captionProcessingDisclosure(
