@@ -47,7 +47,15 @@ export type TranscribeAppOptions = InProcessAppOptions & {
  * shows a microphone tray icon in the top bar.
  */
 export function createTranscribeAppWindow(options: TranscribeAppOptions): InProcessWindow {
-  const layer = new TranscribeLayer();
+  const startCapture = () => {
+    options.startContinuousVoiceCapture();
+    shell.setTrayIcon(TRAY_ICON_ID, MIC_ICON);
+  };
+  const stopCapture = () => {
+    options.stopContinuousVoiceCapture();
+    shell.setTrayIcon(TRAY_ICON_ID, null);
+  };
+  const layer = new TranscribeLayer({ startCapture, stopCapture });
   const app = createInProcessWindow({
     appId: "transcribe",
     windowId: TRANSCRIBE_WINDOW_ID,
@@ -57,19 +65,36 @@ export function createTranscribeAppWindow(options: TranscribeAppOptions): InProc
     closeable: true,
     actions: options.actions,
     baseLayer: new YieldAtRootLayer(layer),
+    menuItems: () => [
+      {
+        label: layer.isPaused() ? "Resume captions" : "Pause captions",
+        onSelect: (ctx) => {
+          ctx.stack.pop();
+          layer.togglePaused();
+        },
+      },
+      {
+        label: "Clear captions",
+        onSelect: (ctx) => {
+          ctx.stack.pop();
+          layer.clear();
+        },
+      },
+    ],
     submitFrame: options.submitFrame,
     setSurfaceVisible: options.setSurfaceVisible,
     removeSurface: options.removeSurface,
+    onForegroundChanged: (foreground) => layer.onForegroundChanged(foreground),
+    onScreenChanged: (on) => layer.onScreenChanged(on),
+    onVoiceInputChanged: (active) => layer.onVoiceInputChanged(active),
     onClosed: () => {
-      options.stopContinuousVoiceCapture();
-      shell.setTrayIcon(TRAY_ICON_ID, null);
+      layer.onRemoved();
       options.onClosed();
     },
   });
   // Wire async state changes to this window's renderer, rather than the
   // controller action from which the window-specific actions were derived.
   layer.start(app.requestRender);
-  options.startContinuousVoiceCapture();
-  shell.setTrayIcon(TRAY_ICON_ID, MIC_ICON);
+  layer.onScreenChanged(shell.isScreenOn());
   return app;
 }

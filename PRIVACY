@@ -16,6 +16,16 @@ Users may instead provide their own credentials for Deepgram, OpenAI Whisper,
 ElevenLabs, or Soniox. Audio is then sent only to the selected provider and is
 handled under that provider's terms and retention policy.
 
+The Captions window records only while it is foreground and the glasses screen
+is on. Pausing, backgrounding, screen-off, closing, cancellation, or provider
+replacement invalidates the active capture generation and stops its audio and
+network work. Source captions and optional Soniox translations stay in memory
+only and clear when the window closes; Hermes does not persist or export them.
+Translation is off by default and source-only captions continue without a
+translation credential. Provider speaker labels appear only when the provider
+supplies diarization evidence. API credentials are stored in Android
+Keystore-backed replace-only settings and are never sent to the glasses.
+
 - Deepgram: https://deepgram.com/privacy
 - OpenAI: https://openai.com/policies/row-privacy-policy/
 - ElevenLabs: https://elevenlabs.io/privacy-policy

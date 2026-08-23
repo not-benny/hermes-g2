@@ -1,5 +1,40 @@
 # Hermes G2 handover — 22 August 2026
 
+## Accessibility-first live captions candidate — 23 August 2026
+
+Branch `feat/live-captions-translation` from canonical `main@712cb644` evolves
+Transcribe into a volatile, accessibility-first Captions window. It has literal
+on-lens starting/live/paused/stopped/mic/network/provider/translation/drop
+states; grapheme-safe bounded wrapping; bottom anchoring and history; click
+pause/resume; long-press clear; and bounded phone settings for language,
+source/split/translation layout, font, spacing, maximum lines, evidence-only
+speaker labels and custom vocabulary. Unsupported vocabulary remains local and
+is not sent. Source captions remain available without translation or a
+translation credential, and no transcript is written to Downloads.
+
+Capture is foreground- and screen-owned. Permission continuations, exact Java
+listener callbacks, cloud clients, PCM, provider changes, stop and close carry
+monotonic generations; stale work cannot publish. Soniox one-way translation
+uses documented original/translation tokens and documented speaker IDs, bounds
+pre-connect audio at 50 chunks, reconnects with bounded exponential backoff,
+and reports aggregate drops without content. Credentials stay in the existing
+Keystore-backed replace-only settings and never enter glasses payloads or logs.
+See `docs/live-captions.md` and `PRIVACY`.
+
+Verification on the current source: focused caption/provider/phone/security
+tests pass 21/21; the full host suite passes 353/353; TypeScript passes; and the
+JDK 21 / Android SDK 35 debug build and release-artifact verifier pass. The
+exact 195,738,506-byte debug APK at
+`platforms/android/app/build/outputs/apk/debug/app-debug.apk` has SHA-256
+`6b4b4283b53551f9dec623171ac4cc6dea9943ed3689fe7b48edabab15f87c81`.
+`adb devices -l` returned no attached device, so there is no A32 install/launch,
+scripted fixture, live microphone, optical readability, disconnect,
+background-stop or privacy-safe logcat evidence yet. No pairing, permission
+dialog, firmware, provisioning, reset, wipe, power, NVM or destructive command
+was attempted. Independent frozen-candidate review, PR/CI delivery and serialized
+A32/G2 verification remain the next gates; do not infer hardware success from
+the build.
+
 ## Gesture, HUD, R1 battery, and Hermes bridge follow-up
 
 Work on stacked branch `feat/gesture-signal-ring` adds sleeping R1 long-press

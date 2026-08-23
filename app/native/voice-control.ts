@@ -11,6 +11,7 @@ declare const com: any;
 
 export type VoiceControlState = {
   status: string;
+  generation: number;
 };
 
 export type VoiceProviderKind = "onboard" | "deepgram" | "elevenlabs" | "whisper" | "soniox";
@@ -22,6 +23,16 @@ export type VoiceTranscriptEvent = {
    */
   text: string;
   isFinal: boolean;
+  generation: number;
+  receivedAtMs: number;
+  language?: string;
+  confidence?: number;
+  speaker?: string;
+  speakerEvidence?: boolean;
+  translationText?: string;
+  translationIsFinal?: boolean;
+  targetLanguage?: string;
+  droppedAudioFrames?: number;
 };
 
 export type PushToTalkOptions = {
@@ -32,6 +43,9 @@ export type PushToTalkOptions = {
   openAiApiKey: string;
   sonioxApiKey: string;
   saveRecording: boolean;
+  sourceLanguage?: string;
+  targetLanguage?: string;
+  speakerLabels?: boolean;
   /**
    * Watch the mic and fire onSpeechEnd when the speaker stops. For hands-free
    * ("Hey Even") capture, which has no button release to end the utterance.
@@ -59,10 +73,11 @@ export class FaceclawVoiceControlBridge {
   private readonly captureHolders = new Set<CaptureHolder>();
   // Non-null while a cloud provider owns the transcript; Java only decodes PCM.
   private cloudClient: CloudSttClient | null = null;
+  private activeGeneration = 0;
 
   onStatus(listener: (state: VoiceControlState) => void): () => void {
     this.statusListeners.add(listener);
-    listener({ status: this.status });
+    listener({ status: this.status, generation: this.activeGeneration });
     return () => this.statusListeners.delete(listener);
   }
 
@@ -113,12 +128,14 @@ export class FaceclawVoiceControlBridge {
       // (transcripts are already broadcast to its listeners).
       return;
     }
+    const generation = ++this.activeGeneration;
     this.ensureController();
+    this.installControllerListener(generation);
     this.controller?.setCommunicator(options.communicator);
     this.controller?.setSaveRecordings(options.saveRecording);
     this.controller?.setEndpointing(Boolean(options.endpointing));
 
-    const cloudClient = this.createCloudClient(options);
+    const cloudClient = this.createCloudClient(options, generation);
     if (cloudClient) {
       this.cloudClient = cloudClient;
       cloudClient.start();
@@ -137,14 +154,24 @@ export class FaceclawVoiceControlBridge {
    * A cloud provider whose API key is missing falls back to on-device rather
    * than failing the capture outright.
    */
-  private createCloudClient(options: PushToTalkOptions): CloudSttClient | null {
+  private createCloudClient(options: PushToTalkOptions, generation: number): CloudSttClient | null {
     if (options.provider === "onboard") return null;
+    let exactClient: CloudSttClient | null = null;
     const sttOptions = {
       apiKey: "",
-      onTranscript: (event: { text: string; isFinal: boolean }) =>
-        this.emitTranscript(event.text, event.isFinal),
-      onStatus: (status: string) => this.setStatus(status),
-      onError: (message: string) => this.setStatus(message),
+      sourceLanguage: options.sourceLanguage,
+      targetLanguage: options.targetLanguage,
+      speakerLabels: options.speakerLabels,
+      onTranscript: (event: Omit<VoiceTranscriptEvent, "generation" | "receivedAtMs">) => {
+        if (generation !== this.activeGeneration || this.cloudClient !== exactClient) return;
+        this.emitTranscript({ ...event, generation, receivedAtMs: Date.now() });
+      },
+      onStatus: (status: string) => {
+        if (generation === this.activeGeneration && this.cloudClient === exactClient) this.setStatus(status);
+      },
+      onError: (message: string) => {
+        if (generation === this.activeGeneration && this.cloudClient === exactClient) this.setStatus(message);
+      },
     };
     if (options.provider === "deepgram") {
       const apiKey = options.deepgramApiKey.trim();
@@ -152,7 +179,8 @@ export class FaceclawVoiceControlBridge {
         this.setStatus("No Deepgram key set; using on-device voice.");
         return null;
       }
-      return new DeepgramSttClient({ ...sttOptions, apiKey });
+      exactClient = new DeepgramSttClient({ ...sttOptions, apiKey });
+      return exactClient;
     }
     if (options.provider === "elevenlabs") {
       const apiKey = options.elevenLabsApiKey.trim();
@@ -160,7 +188,8 @@ export class FaceclawVoiceControlBridge {
         this.setStatus("No ElevenLabs key set; using on-device voice.");
         return null;
       }
-      return new ElevenLabsSttClient({ ...sttOptions, apiKey });
+      exactClient = new ElevenLabsSttClient({ ...sttOptions, apiKey });
+      return exactClient;
     }
     if (options.provider === "soniox") {
       const apiKey = options.sonioxApiKey.trim();
@@ -168,14 +197,16 @@ export class FaceclawVoiceControlBridge {
         this.setStatus("No Soniox key set; using on-device voice.");
         return null;
       }
-      return new SonioxSttClient({ ...sttOptions, apiKey });
+      exactClient = new SonioxSttClient({ ...sttOptions, apiKey });
+      return exactClient;
     }
     const apiKey = options.openAiApiKey.trim();
     if (!apiKey) {
       this.setStatus("No OpenAI key set; using on-device voice.");
       return null;
     }
-    return new OpenAiRealtimeSttClient({ ...sttOptions, apiKey });
+    exactClient = new OpenAiRealtimeSttClient({ ...sttOptions, apiKey });
+    return exactClient;
   }
 
   private releaseCapture(holder: CaptureHolder, commit: boolean): void {
@@ -199,12 +230,14 @@ export class FaceclawVoiceControlBridge {
     if (commit) {
       this.cloudClient?.finish();
     } else {
+      this.activeGeneration++;
       this.cloudClient?.stop();
       this.cloudClient = null;
     }
   }
 
   stop(): void {
+    this.activeGeneration++;
     this.captureHolders.clear();
     if (global.isAndroid) {
       this.controller?.stop();
@@ -215,6 +248,11 @@ export class FaceclawVoiceControlBridge {
     this.setStatus("Voice control stopped.");
   }
 
+  /** Surface a bounded lifecycle/permission failure to every visual voice UI. */
+  reportStatus(status: string): void {
+    this.setStatus(String(status).slice(0, 160));
+  }
+
   private ensureController(): void {
     if (!global.isAndroid || this.controller) return;
     const context = Utils.android.getApplicationContext();
@@ -222,22 +260,36 @@ export class FaceclawVoiceControlBridge {
       throw new Error("Android application context unavailable");
     }
     this.controller = new com.faceclaw.app.FaceclawVoiceController(context);
+  }
+
+  private installControllerListener(generation: number): void {
+    if (!this.controller) return;
     this.listenerProxy = new com.faceclaw.app.FaceclawVoiceControllerListener({
       onStatus: (status: string) => {
+        if (generation !== this.activeGeneration) return;
         this.setStatus(String(status));
       },
       onWakeWord: (keyword: string) => {
+        if (generation !== this.activeGeneration) return;
         for (const listener of this.wakeWordListeners) {
           listener(String(keyword));
         }
       },
       onTranscript: (text: string, isFinal: boolean) => {
-        this.emitTranscript(String(text), Boolean(isFinal));
+        if (generation !== this.activeGeneration) return;
+        this.emitTranscript({
+          generation,
+          text: String(text),
+          isFinal: Boolean(isFinal),
+          receivedAtMs: Date.now(),
+        });
       },
       onPcm: (pcm: any) => {
+        if (generation !== this.activeGeneration) return;
         this.cloudClient?.acceptPcm(toUint8Array(pcm));
       },
       onSpeechEnd: () => {
+        if (generation !== this.activeGeneration) return;
         for (const listener of this.speechEndListeners) {
           listener();
         }
@@ -246,8 +298,7 @@ export class FaceclawVoiceControlBridge {
     this.controller.setListener(this.listenerProxy);
   }
 
-  private emitTranscript(text: string, isFinal: boolean): void {
-    const event = { text, isFinal };
+  private emitTranscript(event: VoiceTranscriptEvent): void {
     for (const listener of this.transcriptListeners) {
       listener(event);
     }
@@ -256,7 +307,7 @@ export class FaceclawVoiceControlBridge {
   private setStatus(status: string): void {
     this.status = status;
     for (const listener of this.statusListeners) {
-      listener({ status });
+      listener({ status, generation: this.activeGeneration });
     }
   }
 }

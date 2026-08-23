@@ -41,6 +41,12 @@ export type InProcessWindowOptions = {
   setSurfaceVisible: (visible: boolean) => void;
   removeSurface?: () => void;
   onClosed?: () => void;
+  /** App lifecycle hook used to stop foreground-owned resources immediately. */
+  onForegroundChanged?: (foreground: boolean) => void;
+  /** Screen lifecycle hook; screen-off apps must release capture/sensors. */
+  onScreenChanged?: (on: boolean) => void;
+  /** Shell push-to-talk temporarily preempts app-owned continuous capture. */
+  onVoiceInputChanged?: (active: boolean) => void;
   /** Optional tools contributed while this in-process window is open. */
   tools?: InProcessTools;
 };
@@ -208,9 +214,16 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
     markSurfaceReady,
     setForeground: (foreground) => {
       options.setSurfaceVisible(foreground);
+      options.onForegroundChanged?.(foreground);
       // Foreground availability is dynamic; notify assistant clients whenever
       // the shell changes this window's focus so their tool list is refreshed.
       toolRegistry.fireToolsChanged();
+    },
+    setScreenOn: (on) => {
+      options.onScreenChanged?.(on);
+    },
+    setVoiceInputActive: (active) => {
+      options.onVoiceInputChanged?.(active);
     },
   };
   return { window, stack, requestRender, markSurfaceReady };

@@ -37,7 +37,7 @@ import { loadPersistedOpenApps, savePersistedOpenApps } from "../ui/shell/open-a
 import { loadHealthTabHidden, saveHealthTabHidden } from "../ui/shell/health-tab-persistence";
 import { appViewportRect, type WindowHeightMode } from "../ui/shell/geometry";
 import { type LayerActions } from "../ui/layers";
-import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, resolveAssistantBridgePort, brightnessSetting, brightnessSettingToLevel, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
+import { assistantAllowProactiveSetting, assistantBackendSetting, assistantBridgeHostSetting, assistantBridgePortSetting, assistantBridgeTokenSetting, resolveAssistantBridgePort, brightnessSetting, brightnessSettingToLevel, captionSourceLanguageSetting, captionSpeakerLabelsSetting, captionTargetLanguageSetting, deepgramApiKeySetting, elevenLabsApiKeySetting, getStringSettingById, openAiApiKeySetting, nightscoutApiTokenSetting, firmwareDebugFlagsSetting, lockScreenEnabledSetting, nightscoutSiteUrlSetting, onAnySettingChanged, saveVoiceRecordingsSetting, sonioxApiKeySetting, screenTimeoutSetting, screenTimeoutSettingToMs, suspendEvenHubWhenScreenOffSetting, verticalPositionSetting, voiceProviderSetting, wakeWordActionSetting, type BrightnessSetting, type ConfigSettingString } from "../ui/dashboard-settings";
 import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "../native/battery-optimization";
 import { shouldFinalizeCommunicatorClose, type DashboardConnectionPhase } from "./connection-state-lifecycle";
 import { notificationTriageController } from "../notifications/triage-controller";
@@ -249,6 +249,7 @@ class DashboardController {
   // Other in-process singleton apps, keyed by windowId.
   private readonly inProcessApps = new Map<string, InProcessWindow>();
   private sharedActions!: Omit<LayerActions, "requestRender">;
+  private readonly voiceCaptureRequestEpoch = { ptt: 0, continuous: 0 };
   private lastForegroundNotificationUpdateAtMs = 0;
   private lastConnectedPreviewUpdateAtMs = 0;
   // Saving the open-app list is gated until the one-time restore has run, so
@@ -261,7 +262,7 @@ class DashboardController {
       disconnect: () => this.disconnect(),
       startTextSettingEdit: (setting: ConfigSettingString) => this.startTextSettingEdit(setting),
       endTextSettingEdit: () => this.endTextSettingEdit(),
-      startVoiceCapture: () => this.startVoiceCapture(),
+      startVoiceCapture: (endpointing?: boolean) => this.startVoiceCapture(endpointing),
       stopVoiceCapture: () => this.stopVoiceCapture(),
       startContinuousVoiceCapture: () => this.startContinuousVoiceCapture(),
       stopContinuousVoiceCapture: () => this.stopContinuousVoiceCapture(),
@@ -1515,6 +1516,7 @@ class DashboardController {
   }
 
   private stopVoiceCapture(): void {
+    this.voiceCaptureRequestEpoch.ptt++;
     voiceControlBridge.stopPushToTalk();
   }
 
@@ -1523,17 +1525,25 @@ class DashboardController {
   }
 
   private stopContinuousVoiceCapture(): void {
+    this.voiceCaptureRequestEpoch.continuous++;
     voiceControlBridge.stopContinuousCapture();
   }
 
   private beginVoiceCapture(kind: "ptt" | "continuous", endpointing = false): void {
+    const requestEpoch = ++this.voiceCaptureRequestEpoch[kind];
     if (this.phase !== "connected" || !this.communicator) {
+      voiceControlBridge.reportStatus("Captions unavailable: glasses disconnected.");
       return;
     }
     const communicator = this.communicator;
     void ensureVoicePermissions()
       .then(() => {
-        if (this.phase !== "connected" || this.communicator !== communicator) return;
+        if (
+          requestEpoch !== this.voiceCaptureRequestEpoch[kind] ||
+          this.phase !== "connected" ||
+          this.communicator !== communicator
+        ) return;
+        const targetLanguage = captionTargetLanguageSetting.get();
         const options = {
           communicator: communicator.getNativeCommunicator(),
           provider: voiceProviderSetting.get(),
@@ -1542,6 +1552,9 @@ class DashboardController {
           openAiApiKey: openAiApiKeySetting.get(),
           sonioxApiKey: sonioxApiKeySetting.get(),
           saveRecording: saveVoiceRecordingsSetting.get(),
+          sourceLanguage: captionSourceLanguageSetting.get(),
+          targetLanguage: voiceProviderSetting.get() === "soniox" && targetLanguage !== "off" ? targetLanguage : undefined,
+          speakerLabels: voiceProviderSetting.get() === "soniox" && captionSpeakerLabelsSetting.get(),
           endpointing,
         };
         if (kind === "ptt") {
@@ -1551,7 +1564,9 @@ class DashboardController {
         }
       })
       .catch((error) => {
+        if (requestEpoch !== this.voiceCaptureRequestEpoch[kind]) return;
         this.appendLog(`voice permission failed: ${this.formatError(error)}`);
+        voiceControlBridge.reportStatus("Microphone permission unavailable.");
       });
   }
 

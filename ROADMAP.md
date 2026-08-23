@@ -6,6 +6,27 @@ Current as of 22 August 2026. `main` is the canonical branch.
 
 ## Now
 
+### Accessibility-first live captions and translation
+
+- **IMPLEMENTED / HARDWARE EVIDENCE PENDING — volatile foreground captions (23 August 2026).**
+  The Transcribe app is now an accessibility-first Captions window with
+  visual-only microphone/network/provider/translation states, grapheme-safe
+  bounded wrapping, bottom anchoring, history scrollback, pause/resume, clear,
+  and source-preserving split/full translation layouts. Capture, permission
+  continuations, Java/cloud callbacks, PCM delivery, provider swaps and teardown
+  are generation-bound; background, screen-off, pause and close stop capture.
+  Soniox supplies optional one-way translation and evidence-backed speaker
+  labels with bounded PCM buffering/reconnect/drop metrics. Phone settings bound
+  languages, layout, font, spacing, lines, speaker labels and local-only
+  unsupported vocabulary while disclosing local/cloud processing. Captions are
+  memory-only and transcript-only remains credential-independent. Focused 21/21
+  and full 353/353 host tests, TypeScript and the JDK 21 / SDK 35 Android build
+  pass. The exact 195,738,506-byte APK has SHA-256
+  `6b4b4283b53551f9dec623171ac4cc6dea9943ed3689fe7b48edabab15f87c81`.
+  No ADB device was attached, so A32 install/launch, scripted/live microphone,
+  real-G2 readability, disconnect, background-stop and privacy-safe logcat
+  evidence remain required before DONE. See `docs/live-captions.md`.
+
 ### Notification priority and digests
 
 - **IN PROGRESS — local privacy-first triage (22 August 2026).** A deterministic
