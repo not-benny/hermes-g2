@@ -151,7 +151,8 @@ export function validateContextDashboardSpec(value: unknown): string | null {
   const actionIds = new Set<string>();
   for (const action of value.local_actions) {
     if (!record(action) || !exact(action, ["id", "kind", "label", "enabled"]) || typeof action.id !== "string" || !ID.test(action.id) || actionIds.has(action.id) ||
-        !LOCAL_ACTIONS.includes(String(action.kind)) || !text(action.label, 24, 96) || typeof action.enabled !== "boolean") return "local action is invalid";
+        !LOCAL_ACTIONS.includes(String(action.kind)) || (action.kind === "section" && !sectionIds.has(action.id)) ||
+        !text(action.label, 24, 96) || typeof action.enabled !== "boolean") return "local action is invalid";
     actionIds.add(action.id);
   }
   if (value.announcement !== undefined && (!record(value.announcement) || !exact(value.announcement, ["id", "text", "policy"]) || typeof value.announcement.id !== "string" || !ID.test(value.announcement.id) || !text(value.announcement.text, 160, 640) || value.announcement.policy !== "once_when_useful")) return "announcement is invalid";
@@ -179,7 +180,8 @@ function componentsFor(spec: ContextDashboardSpec, pinned: boolean, nowMs: numbe
     if (section.load_state === "pending") components.push({ id: `${section.id}-pending`, type: "text", text: "Loading…" });
     else if (section.load_state === "error") components.push({ id: `${section.id}-error`, type: "status", label: section.title ?? "Section", value: section.error_code ?? "unavailable", tone: "warning" });
     else if (section.type === "departures") for (const row of section.rows) {
-      const time = new Date(row.expected_departure_ms ?? row.scheduled_departure_ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const time = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hour12: false })
+        .format(new Date(row.expected_departure_ms ?? row.scheduled_departure_ms));
       const suffix = row.status === "on_time" ? time : row.status === "unknown" ? `${time} ?` : `${time} ${row.status}`;
       components.push({ id: `${section.id}-${row.id}`, type: "status", label: row.destination, value: row.platform ? `${suffix} P${row.platform}` : suffix, tone: row.status === "cancelled" ? "critical" : row.status === "delayed" ? "warning" : "neutral" });
     } else if (section.type === "status_grid") for (const row of section.rows) components.push({ id: `${section.id}-${row.id}`, type: "status", label: row.label, value: row.value, tone: row.tone });
@@ -360,7 +362,7 @@ export class ContextDashboardManager {
         this.events.push({ version: 2, event_id: `${this.current.dashboardId}.${this.current.presentationGeneration}.${++this.eventSequence}`,
           dashboard_id: this.current.dashboardId, presentation_generation: this.current.presentationGeneration, revision: this.current.revision,
           kind: action.kind, intent: this.current.intent, dashboard_key: this.current.dashboardKey, title: this.current.spec.title, privacy: this.current.spec.privacy,
-          ...(action.kind === "section" ? { section_id: this.current.spec.sections[Math.min(this.current.render.scrollOffset, this.current.spec.sections.length - 1)]?.id } : {}) });
+          ...(action.kind === "section" ? { section_id: action.id } : {}) });
       }
       this.current.render.selectedAction = Math.max(0, actions.indexOf(action));
     }

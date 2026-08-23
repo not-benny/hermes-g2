@@ -168,15 +168,15 @@ export class ContextDashboardRuntime {
     const active = { owner, cancelled: false, startedAtMs: this.#now(), request };
     this.#active = active;
     const beginController = new AbortController();
+    active.controller = beginController;
     const abortBegin = () => beginController.abort(); options.signal?.addEventListener("abort", abortBegin, { once: true });
     const beginTimer = setTimeout(() => beginController.abort(), this.#loadingDeadlineMs);
     let begin;
     try { begin = await this.#phone.callTool("glasses.context_dashboard.begin", request, { signal: beginController.signal }); }
     finally { clearTimeout(beginTimer); options.signal?.removeEventListener("abort", abortBegin); }
-    if (beginController.signal.aborted) throw new Error("loading dashboard deadline elapsed or was cancelled");
     if (begin?.status !== "acknowledged" || typeof begin.dashboard_id !== "string" || !Number.isSafeInteger(begin.presentation_generation) || begin.presentation_generation < 1 ||
         !Number.isSafeInteger(begin.refresh_generation) || begin.refresh_generation < 1 || begin.revision !== 1 || !Number.isSafeInteger(begin.frame_id) || begin.frame_id <= 0) throw new Error("phone did not acknowledge loading dashboard");
-    if (this.#active !== active || active.cancelled) {
+    if (beginController.signal.aborted || this.#active !== active || active.cancelled) {
       await this.#phone.callTool("glasses.context_dashboard.close", { operation_id: `close-${randomUUID().replace(/-/g, "").slice(0, 32)}`,
         dashboard_id: begin.dashboard_id, presentation_generation: begin.presentation_generation, expected_revision: begin.revision });
       throw new Error("stale contextual dashboard open");
@@ -186,6 +186,7 @@ export class ContextDashboardRuntime {
 
     let timer;
     const gatherController = new AbortController();
+    active.controller = gatherController;
     const abortGather = () => gatherController.abort();
     options.signal?.addEventListener("abort", abortGather, { once: true });
     let spec;
@@ -204,7 +205,7 @@ export class ContextDashboardRuntime {
       if (timer) clearTimeout(timer);
       options.signal?.removeEventListener("abort", abortGather);
     }
-    return this.#publish(active, options.operationId, spec);
+    return this.#publish(active, options.operationId, spec, options.signal);
   }
 
   async refreshFromLocalEvent(identity, event, options) {
@@ -238,6 +239,7 @@ export class ContextDashboardRuntime {
     active.identity = refreshed;
     active.loadingAckMs = Math.max(0, this.#now() - active.startedAtMs);
     const gatherController = new AbortController();
+    active.controller = gatherController;
     const abortGather = () => gatherController.abort();
     options.signal?.addEventListener("abort", abortGather, { once: true });
     let timer;
@@ -257,7 +259,7 @@ export class ContextDashboardRuntime {
       if (timer) clearTimeout(timer);
       options.signal?.removeEventListener("abort", abortGather);
     }
-    const receipt = await this.#publish(active, options.operationId, spec);
+    const receipt = await this.#publish(active, eventOperationId(event.event_id), spec, options.signal);
     await this.#ackLocalEvent(event, options.signal);
     return receipt;
   }
@@ -278,7 +280,7 @@ export class ContextDashboardRuntime {
     if (this.#active !== active || active.cancelled || opened?.status !== "acknowledged" || opened.revision !== 1 ||
         !Number.isSafeInteger(opened.frame_id) || opened.frame_id <= 0) throw new Error("phone did not acknowledge pinned dashboard reopen");
     active.identity = opened; active.loadingAckMs = Math.max(0, this.#now() - active.startedAtMs);
-    const controller = new AbortController(); const abort = () => controller.abort(); signal?.addEventListener("abort", abort, { once: true });
+    const controller = new AbortController(); active.controller = controller; const abort = () => controller.abort(); signal?.addEventListener("abort", abort, { once: true });
     let timer; let spec;
     try {
       const remainingMs = Math.max(0, active.startedAtMs + this.#deadlineMs - this.#now());
@@ -293,7 +295,7 @@ export class ContextDashboardRuntime {
     } finally {
       if (timer) clearTimeout(timer); signal?.removeEventListener("abort", abort);
     }
-    return this.#publish(active, `pin-${pin.dashboard_key}`, spec);
+    return this.#publish(active, `pin-${pin.dashboard_key}`, spec, signal);
   }
 
   async #ackLocalEvent(event, signal) {
@@ -305,17 +307,19 @@ export class ContextDashboardRuntime {
     return acknowledgement.status;
   }
 
-  async #publish(active, operationId, spec) {
+  async #publish(active, operationId, spec, externalSignal) {
     const args = { operation_id: derivedOperationId(operationId, ".useful"), dashboard_id: active.identity.dashboard_id,
       presentation_generation: active.identity.presentation_generation, refresh_generation: active.identity.refresh_generation,
       expected_revision: active.identity.revision, spec };
     const remainingMs = Math.max(0, active.startedAtMs + this.#deadlineMs - this.#now());
     if (remainingMs <= 0) throw new Error("useful dashboard deadline elapsed before publication");
     const publishController = new AbortController();
+    active.controller = publishController;
+    const abortPublish = () => publishController.abort(); externalSignal?.addEventListener("abort", abortPublish, { once: true });
     const timer = setTimeout(() => publishController.abort(), remainingMs);
     let receipt;
     try { receipt = await this.#phone.callTool("glasses.context_dashboard.publish", args, { signal: publishController.signal }); }
-    finally { clearTimeout(timer); }
+    finally { clearTimeout(timer); externalSignal?.removeEventListener("abort", abortPublish); }
     if (this.#active !== active || active.cancelled || receipt?.status !== "acknowledged" || receipt.dashboard_id !== active.identity.dashboard_id ||
         receipt.presentation_generation !== active.identity.presentation_generation || receipt.refresh_generation !== active.identity.refresh_generation || receipt.revision !== active.identity.revision + 1 ||
         !Number.isSafeInteger(receipt.frame_id) || receipt.frame_id <= 0 || publishController.signal.aborted || this.#now() - active.startedAtMs > this.#deadlineMs) {
@@ -331,6 +335,7 @@ export class ContextDashboardRuntime {
     const active = this.#active;
     if (!active || active.owner !== owner) return;
     active.cancelled = true;
+    active.controller?.abort();
     this.#active = null;
     if (!active.identity) return;
     const receipt = await this.#phone.callTool("glasses.context_dashboard.close", {
