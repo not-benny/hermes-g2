@@ -1,4 +1,47 @@
-# Hermes G2 handover — 22 August 2026
+# Hermes G2 handover — 23 August 2026
+
+## Native Hermes agent cockpit candidate
+
+Branch `feat/hermes-agent-cockpit-main` starts from canonical
+`main@712cb644d9dd017158a6359ea494ec2ab6beb9b1`. It adds a provider-neutral,
+versioned cockpit protocol and native Hermes launcher app over the existing
+authenticated private WSS bridge. The glasses show only explicitly shared active
+work, bounded assistant/tool status, pending questions and permissions, reviewed
+listed answers, deny-default exact one-shot approval, twice-reviewed voice
+steering, exact-generation interrupt, and explicit completion/failure/interrupted
+state. No terminal parsing, arbitrary command input, hidden discovery, approve
+all, persistent permission broadening, or remote-defined UI is present.
+
+The main-isolate controller and metadata-only host adapter require exact public
+session identity, execution generation, opaque request nonce, one-shot command
+ID, contiguous event sequence, current pending state, expiry, and synchronized
+transport immediately before each action. Unsupported approval scope is
+deny-only. Disconnect, replacement, expiry, duplicate/late taps, answered-
+elsewhere requests, terminal runs, malformed/oversized frames, and sequence gaps
+fail closed. Raw prompts, reasoning, provider IDs, tool arguments/results,
+credentials, and unshared sessions/tasks are neither projected nor persisted.
+The adapter core in `tools/hermes-cockpit-adapter.mjs` maps the current Hermes TUI
+gateway RPC/event surface; the existing private bridge deployment must embed it
+and remains the owner of WSS/server identity, replay journal, and content-free
+audit metadata. The JSON-lines fake and deterministic fixtures exercise ordering,
+reconnect, races, process death, malformed content, and privacy sentinels. See
+`docs/hermes-agent-cockpit.md` and
+`notes/hermes-cockpit-protocol-threat-model-2026-08-23.md`.
+
+Verification from the current worktree: focused cockpit coverage passes 22/22;
+the full host suite passes 366/366 after a clean `npm ci`; TypeScript typecheck
+passes after platform preparation; and the JDK 21 / Android SDK 35 build passes.
+The exact debug APK at
+`platforms/android/app/build/outputs/apk/debug/app-debug.apk` has SHA-256
+`dfcc474f6b9157926058fdbfd86543a1beba039d52964d7a3334c93d01f27183` and package
+metadata `com.faceclaw.app`, version code 1000002 / version
+`1.0.0-preview.2`, min SDK 24, target/compile SDK 35. No A32 or other ADB device
+was attached, and the private bridge deployment was not upgraded from this
+repository run. Therefore install/launch, real-G2 rendering, and disposable real
+Hermes question, denied mutation, approved bounded read, voice steer, interrupt,
+completion, reconnect, and process-death evidence remain unproven. No pairing,
+provisioning, NVM, firmware, reset, wipe, OS-permission, or Bluetooth-setting
+action was performed.
 
 ## Gesture, HUD, R1 battery, and Hermes bridge follow-up
 

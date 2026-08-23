@@ -1,6 +1,8 @@
 import { AssistantMcpServer } from "./mcp-server";
 import { toolRegistry } from "./tool-registry";
 import { BridgeConnectionGuard } from "./bridge-connection-guard";
+import { AgentCockpitController } from "../agent-cockpit/controller";
+import type { CockpitClientCommand } from "../agent-cockpit/protocol";
 import type { AssistantContext, AssistantTurnCallbacks, AssistantTurnHandle } from "./types";
 
 declare const com: any;
@@ -9,11 +11,12 @@ declare const com: any;
  * Dial-out websocket client for the Hermes Agent bridge (or another compatible
  * server on the user's machine; see
  * notes/voice-assistant-design.md "External mode"). One JSON object per text
- * frame, three multiplexed channels:
+ * frame, four multiplexed channels:
  *
  *   ctl:  hello/hello-ack auth handshake, ping/pong, error
  *   chat: utterance in, streamed reply out (per-turn)
  *   mcp:  raw MCP JSON-RPC; the phone is the MCP *server* (ToolRegistry)
+ *   cockpit: bounded structured Hermes/Kanban events and exact actions
  *
  * Unlike G2MirrorClient (per-terminal-window, no reconnect), this connection
  * is a long-lived shell service: it stays up while configured so the remote
@@ -55,6 +58,7 @@ type ActiveTurn = {
 };
 
 export class AssistantBridgeClient {
+  readonly cockpit = new AgentCockpitController((command) => this.sendCockpit(command));
   private options: AssistantBridgeOptions | null = null;
   private ws: any = null;
   private listenerProxy: any = null;
@@ -109,6 +113,7 @@ export class AssistantBridgeClient {
     this.clearKeepalive();
     this.clearAuthTimer();
     this.failActiveTurn("Bridge connection closed");
+    this.cockpit.disconnect();
     if (this.unsubscribeToolsChanged) {
       this.unsubscribeToolsChanged();
       this.unsubscribeToolsChanged = null;
@@ -175,7 +180,7 @@ export class AssistantBridgeClient {
         this.setState("connecting", "Authenticating...");
         this.startAuthTimer(generation, socket);
         this.send({ chan: "ctl", type: "hello", version: PROTOCOL_VERSION, token: this.options!.token,
-          deviceName: this.options!.deviceName, capabilities: ["chat", "mcp"] });
+          deviceName: this.options!.deviceName, capabilities: ["chat", "mcp", "cockpit-v1"] });
       },
       onTextMessage: (message: string) => {
         if (!this.isCurrentSocket(generation, socket)) return;
@@ -250,6 +255,10 @@ export class AssistantBridgeClient {
               ? { turnGeneration: frame.turnId }
               : undefined,
         );
+        return;
+      case "cockpit":
+        if (!this.requireAuthenticated(generation)) return;
+        this.cockpit.handleFrame(frame);
         return;
       default:
         return;
@@ -326,6 +335,7 @@ export class AssistantBridgeClient {
     // generic close message that follows it.
     const detail = this.status.startsWith("Bridge error:") ? this.status : status;
     this.failActiveTurn("Bridge connection lost");
+    this.cockpit.disconnect();
     this.setState("failed", detail);
     this.scheduleReconnect();
   }
@@ -414,6 +424,11 @@ export class AssistantBridgeClient {
     if (!this.isCurrentSocket(generation, socket)) return;
     try { socket.sendText(JSON.stringify({ v: PROTOCOL_VERSION, chan: "mcp", msg })); }
     catch { /* socket callback handles failure */ }
+  }
+
+  private sendCockpit(command: CockpitClientCommand): void {
+    if (this.phase !== "connected") return;
+    this.send({ ...command, chan: "cockpit" });
   }
 
   private isCurrentSocket(generation: number, socket: any): boolean {
