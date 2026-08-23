@@ -19,7 +19,7 @@ type NotificationLike = {
   sender: string; lines: readonly string[]; postTime: number; when: number;
 };
 type FileEntryLike = {
-  name: string; path: string; isDirectory: boolean; sizeBytes: number; modifiedMs: number;
+  name: string; path: string; isDirectory: boolean; isSymbolicLink?: boolean; sizeBytes: number; modifiedMs: number;
 };
 type CockpitSessionLike = {
   session_id: string; generation: number; revision: number; title: string;
@@ -29,19 +29,19 @@ type CockpitSnapshotLike = { synchronized: boolean; sessions: readonly CockpitSe
 
 export type SearchProviderDependencies = {
   apps: () => readonly SearchApp[];
-  launchApp: (appId: string) => Promise<boolean>;
+  launchApp: (appId: string, signal: AbortSignal) => Promise<boolean>;
   readCalendar: () => CalendarReadLike;
-  openCalendar: (eventId: number, startMs: number) => Promise<boolean>;
+  openCalendar: (eventId: number, startMs: number, signal: AbortSignal) => Promise<boolean>;
   notificationAccess: () => boolean;
   readNotifications: () => readonly NotificationLike[];
-  openNotification: (key: string) => Promise<boolean>;
+  openNotification: (key: string, postTime: number, signal: AbortSignal) => Promise<boolean>;
   hasFileAccess: () => boolean;
   bookmarkedPaths: () => readonly string[];
   statPath: (path: string) => FileEntryLike | null;
   listDirectory: (path: string) => readonly FileEntryLike[] | null;
-  openFile: (path: string, modifiedMs: number) => Promise<boolean>;
+  openFile: (path: string, rootPath: string, modifiedMs: number, signal: AbortSignal) => Promise<boolean>;
   cockpitSnapshot: () => CockpitSnapshotLike;
-  openHermesSession: (sessionId: string, generation: number) => Promise<boolean>;
+  openHermesSession: (sessionId: string, generation: number, signal: AbortSignal) => Promise<boolean>;
 };
 
 const MAX_PROVIDER_RESULTS = 40;
@@ -75,7 +75,7 @@ function applicationsProvider(deps: SearchProviderDependencies): SearchProvider 
         freshnessMs: 0,
         action: { kind: "open_app", appId: clean(app.appId, 80) },
       })),
-    execute: async (action) => action.kind === "open_app" ? outcome(await deps.launchApp(action.appId)) : "denied",
+    execute: async (action, signal) => action.kind === "open_app" ? outcome(await deps.launchApp(action.appId, signal)) : "denied",
   };
 }
 
@@ -99,9 +99,9 @@ function calendarProvider(deps: SearchProviderDependencies): SearchProvider {
         action: { kind: "open_calendar_event", eventId: event.id, startMs: event.startMs },
       }));
     },
-    execute: async (action) => {
+    execute: async (action, signal) => {
       if (action.kind !== "open_calendar_event") return "denied";
-      return outcome(await deps.openCalendar(action.eventId, action.startMs));
+      return outcome(await deps.openCalendar(action.eventId, action.startMs, signal));
     },
   };
 }
@@ -119,12 +119,12 @@ function notificationsProvider(deps: SearchProviderDependencies): SearchProvider
         title: clean([notification.appName, notification.title].filter(Boolean).join(" · "), 120),
         snippet: clean(notification.bigText || notification.text || notification.lines.join(" · "), 240),
         freshnessMs: notification.postTime || notification.when || 0,
-        action: { kind: "open_notification", notificationKey: clean(notification.key, 240) },
+        action: { kind: "open_notification", notificationKey: clean(notification.key, 240), postTime: notification.postTime },
       }));
     },
-    execute: async (action) => {
+    execute: async (action, signal) => {
       if (action.kind !== "open_notification" || !deps.notificationAccess()) return "stale";
-      return outcome(await deps.openNotification(action.notificationKey));
+      return outcome(await deps.openNotification(action.notificationKey, action.postTime, signal));
     },
   };
 }
@@ -142,23 +142,23 @@ function filesProvider(deps: SearchProviderDependencies): SearchProvider {
         if (!root) continue;
         const entries = root.isDirectory ? deps.listDirectory(root.path) : [root];
         if (entries === null) throw new SearchProviderFailure("error");
-        for (const entry of entries.slice(0, MAX_PROVIDER_RESULTS - results.length)) {
+        for (const entry of entries.filter((entry) => !entry.isSymbolicLink).slice(0, MAX_PROVIDER_RESULTS - results.length)) {
           results.push({
             sourceId: "files",
             resultId: clean(entry.path, 160),
             title: clean(entry.name || "File", 120),
             snippet: entry.isDirectory ? "Folder · bookmarked location" : "File · bookmarked location",
             freshnessMs: entry.modifiedMs,
-            action: { kind: "open_file", path: clean(entry.path, 1000), modifiedMs: entry.modifiedMs },
+            action: { kind: "open_file", path: clean(entry.path, 1000), rootPath: clean(root.path, 1000), modifiedMs: entry.modifiedMs },
           });
         }
         if (results.length >= MAX_PROVIDER_RESULTS) break;
       }
       return results;
     },
-    execute: async (action) => {
+    execute: async (action, signal) => {
       if (action.kind !== "open_file" || !deps.hasFileAccess()) return "stale";
-      return outcome(await deps.openFile(action.path, action.modifiedMs));
+      return outcome(await deps.openFile(action.path, action.rootPath, action.modifiedMs, signal));
     },
   };
 }
@@ -184,8 +184,8 @@ function hermesSessionsProvider(deps: SearchProviderDependencies): SearchProvide
         },
       }));
     },
-    execute: async (action) => action.kind === "open_hermes_session"
-      ? outcome(await deps.openHermesSession(action.sessionId, action.generation))
+    execute: async (action, signal) => action.kind === "open_hermes_session"
+      ? outcome(await deps.openHermesSession(action.sessionId, action.generation, signal))
       : "denied",
   };
 }

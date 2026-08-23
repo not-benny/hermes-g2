@@ -30,14 +30,25 @@ No query, result, filter or recent history is persisted. Clear, window close and
 process replacement revoke pending providers and action handles. Search content
 is not logged; file-access failure logs were reduced to content-free event text
 so paths and exception bodies cannot leak through the new metadata adapter.
-Focused synthetic coverage passes 16/16 for Unicode and duplicate
+Focused synthetic coverage passes 19/19 for Unicode and duplicate
 ranking, provider timeout/error/permission/offline/unavailable isolation,
-non-cooperative stale generations, malformed throwing results, one-shot replay,
-exact file/session replacement, grouped pagination, filters, clear and native
-wiring/privacy contracts. After a clean `npm ci`, the full host suite passes
-392/392; NativeScript Android preparation, TypeScript, and the JDK 21 / SDK 35
-build pass. The 195,185,353-byte debug APK has SHA-256
-`e6a1acde44cef537f7f916784903d7823f13e5618eb461ab9f2d697612974522` and
+non-cooperative stale generations, provider-timeout abort, malformed throwing
+and mutating-proxy results, one-shot replay/in-flight revocation, exact
+notification/file/session replacement, grouped pagination, filters, clear and native
+wiring/privacy contracts. The first frozen-SHA review correctly returned static
+FAIL: notification detail exposed unrelated mutation controls, bookmark checks
+were lexical/symlink-following, provider timeouts did not abort, in-flight opens
+survived revocation, action getters could mutate after validation, and freshness
+was not rendered. The rework uses Search-owned read-only notification detail
+bound to key + post time; file results exclude symlinks and revalidate exact
+bookmark root, canonical confinement, path and modified time before showing
+metadata only; timeout/clear/replacement/close abort provider and action signals;
+descriptors are single-read snapshots; and each result renders freshness.
+
+After a clean `npm ci`, the full host suite passes 395/395; NativeScript Android
+preparation, TypeScript, and the JDK 21 / SDK 35 build pass. The
+195,753,297-byte debug APK has SHA-256
+`0e249bc9e9fb7f1b0f4f2e61a6c3d4e571ff0dc109e67eb4563c6d6029f54f3e` and
 package metadata `com.faceclaw.app`, version code 1000002 / version
 `1.0.0-preview.2`, min SDK 24, target/compile SDK 35. It upgrade-installed and
 launched on the authorised A32 over its existing wireless ADB transport; the

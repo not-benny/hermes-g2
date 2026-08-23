@@ -16,8 +16,8 @@ export type SearchPrivacyClass = "public_metadata" | "private_content" | "restri
 export type SearchActionDescriptor =
   | { kind: "open_app"; appId: string }
   | { kind: "open_calendar_event"; eventId: number; startMs: number }
-  | { kind: "open_notification"; notificationKey: string }
-  | { kind: "open_file"; path: string; modifiedMs: number }
+  | { kind: "open_notification"; notificationKey: string; postTime: number }
+  | { kind: "open_file"; path: string; rootPath: string; modifiedMs: number }
   | { kind: "open_hermes_session"; sessionId: string; generation: number };
 
 export type SearchResult = {
@@ -131,8 +131,9 @@ function parseResult(provider: SearchProvider, value: unknown): SearchResult | n
       typeof title !== "string" || title.length === 0 || title.length > 240 ||
       typeof snippet !== "string" || snippet.length > 500 ||
       typeof freshnessMs !== "number" || !Number.isFinite(freshnessMs)) return null;
-    const action = parseAction(result.action);
-    if (result.action !== undefined && action === null) return null;
+    const actionValue = result.action;
+    const action = parseAction(actionValue);
+    if (actionValue !== undefined && action === null) return null;
     return { sourceId, resultId, title, snippet, freshnessMs, ...(action ? { action } : {}) };
   } catch {
     return null;
@@ -140,22 +141,40 @@ function parseResult(provider: SearchProvider, value: unknown): SearchResult | n
 }
 
 function parseAction(value: SearchActionDescriptor | undefined): SearchActionDescriptor | null {
-  if (value === undefined) return null;
-  if (!value || typeof value !== "object") return null;
-  if (value.kind === "open_app" && typeof value.appId === "string" && value.appId.length > 0 && value.appId.length <= 80) {
-    return { kind: value.kind, appId: value.appId };
-  }
-  if (value.kind === "open_calendar_event" && Number.isFinite(value.eventId) && Number.isFinite(value.startMs)) {
-    return { kind: value.kind, eventId: value.eventId, startMs: value.startMs };
-  }
-  if (value.kind === "open_notification" && typeof value.notificationKey === "string" && value.notificationKey.length > 0 && value.notificationKey.length <= 240) {
-    return { kind: value.kind, notificationKey: value.notificationKey };
-  }
-  if (value.kind === "open_file" && typeof value.path === "string" && value.path.length > 0 && value.path.length <= 1000 && Number.isFinite(value.modifiedMs)) {
-    return { kind: value.kind, path: value.path, modifiedMs: value.modifiedMs };
-  }
-  if (value.kind === "open_hermes_session" && typeof value.sessionId === "string" && value.sessionId.length > 0 && value.sessionId.length <= 160 && Number.isInteger(value.generation) && value.generation > 0) {
-    return { kind: value.kind, sessionId: value.sessionId, generation: value.generation };
+  try {
+    if (value === undefined || !value || typeof value !== "object") return null;
+    const kind = value.kind;
+    if (kind === "open_app") {
+      const appId = value.appId;
+      return typeof appId === "string" && appId.length > 0 && appId.length <= 80 ? { kind, appId } : null;
+    }
+    if (kind === "open_calendar_event") {
+      const eventId = value.eventId;
+      const startMs = value.startMs;
+      return Number.isFinite(eventId) && Number.isFinite(startMs) ? { kind, eventId, startMs } : null;
+    }
+    if (kind === "open_notification") {
+      const notificationKey = value.notificationKey;
+      const postTime = value.postTime;
+      return typeof notificationKey === "string" && notificationKey.length > 0 && notificationKey.length <= 240 && Number.isFinite(postTime)
+        ? { kind, notificationKey, postTime } : null;
+    }
+    if (kind === "open_file") {
+      const path = value.path;
+      const rootPath = value.rootPath;
+      const modifiedMs = value.modifiedMs;
+      return typeof path === "string" && path.length > 0 && path.length <= 1000 &&
+        typeof rootPath === "string" && rootPath.length > 0 && rootPath.length <= 1000 && Number.isFinite(modifiedMs)
+        ? { kind, path, rootPath, modifiedMs } : null;
+    }
+    if (kind === "open_hermes_session") {
+      const sessionId = value.sessionId;
+      const generation = value.generation;
+      return typeof sessionId === "string" && sessionId.length > 0 && sessionId.length <= 160 && Number.isInteger(generation) && generation > 0
+        ? { kind, sessionId, generation } : null;
+    }
+  } catch {
+    return null;
   }
   return null;
 }
@@ -166,6 +185,7 @@ export class SearchController {
   private cancelActive: (() => void) | null = null;
   private readonly actions = new Map<string, { generation: number; provider: SearchProvider; action: SearchActionDescriptor; consumed: boolean }>();
   private readonly identityHandles = new Map<string, string>();
+  private readonly activeActionControllers = new Set<AbortController>();
 
   constructor(
     private readonly providers: readonly SearchProvider[],
@@ -175,6 +195,8 @@ export class SearchController {
   dispose(): void {
     this.activeAbort?.abort();
     this.cancelActive?.();
+    for (const controller of this.activeActionControllers) controller.abort();
+    this.activeActionControllers.clear();
     this.generation++;
     this.activeAbort = null;
     this.cancelActive = null;
@@ -189,10 +211,16 @@ export class SearchController {
     if (record.consumed) return "consumed";
     record.consumed = true;
     if (!record.provider.execute) return "denied";
+    const actionGeneration = this.generation;
+    const controller = new AbortController();
+    this.activeActionControllers.add(controller);
     try {
-      return await record.provider.execute(record.action, new AbortController().signal);
+      const outcome = await record.provider.execute(record.action, controller.signal);
+      return controller.signal.aborted || actionGeneration !== this.generation ? "stale" : outcome;
     } catch {
       return "failed";
+    } finally {
+      this.activeActionControllers.delete(controller);
     }
   }
 
@@ -203,6 +231,8 @@ export class SearchController {
   ): Promise<SearchState> {
     this.activeAbort?.abort();
     this.cancelActive?.();
+    for (const controller of this.activeActionControllers) controller.abort();
+    this.activeActionControllers.clear();
     const generation = ++this.generation;
     this.actions.clear();
     this.identityHandles.clear();
@@ -224,13 +254,19 @@ export class SearchController {
 
     const runs = selected.map(async (provider, providerIndex) => {
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      const providerAbort = new AbortController();
+      const abortProvider = () => providerAbort.abort();
+      abort.signal.addEventListener("abort", abortProvider, { once: true });
       const timeout = new Promise<"timeout">((resolve) => {
-        timeoutId = setTimeout(() => resolve("timeout"), this.options.providerTimeoutMs);
+        timeoutId = setTimeout(() => {
+          providerAbort.abort();
+          resolve("timeout");
+        }, this.options.providerTimeoutMs);
       });
       let outcome: readonly SearchResult[] | "timeout" | "cancelled" | "offline" | "permission_denied" | "unavailable" | "error";
       try {
         outcome = await Promise.race([
-          Promise.resolve().then(() => provider.search(query, abort.signal)).catch((error) =>
+          Promise.resolve().then(() => provider.search(query, providerAbort.signal)).catch((error) =>
             error instanceof SearchProviderFailure ? error.state : "error" as const,
           ),
           timeout,
@@ -238,6 +274,7 @@ export class SearchController {
         ]);
       } finally {
         if (timeoutId !== undefined) clearTimeout(timeoutId);
+        abort.signal.removeEventListener("abort", abortProvider);
       }
       if (generation !== this.generation || outcome === "cancelled") return;
       const source = state.sources[providerIndex]!;

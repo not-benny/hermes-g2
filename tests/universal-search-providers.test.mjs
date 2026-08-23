@@ -40,7 +40,10 @@ function fixtureDependencies(calls) {
     bookmarkedPaths: () => ["/safe"],
     statPath: (path) => files.get(path) ?? null,
     listDirectory: (path) => path === "/safe" ? [files.get("/safe/plan.md")] : null,
-    openFile: async (path, modifiedMs) => { calls.push(["file", path, modifiedMs]); return files.get(path)?.modifiedMs === modifiedMs; },
+    openFile: async (path, rootPath, modifiedMs) => {
+      calls.push(["file", path, rootPath, modifiedMs]);
+      return rootPath === "/safe" && files.get(path)?.modifiedMs === modifiedMs;
+    },
     cockpitSnapshot: () => cockpit,
     openHermesSession: async (sessionId, generation) => {
       calls.push(["hermes", sessionId, generation]);
@@ -77,7 +80,7 @@ test("exact adapter actions revalidate current identity and never fall back", as
   assert.equal(await controller.executeAction(file.actionHandle), "executed");
   dependencies.setCockpit({ synchronized: true, sessions: [{ session_id: "session-1", generation: 4, revision: 1, title: "Replacement", summary: "", updated_at_ms: 20 }] });
   assert.equal(await controller.executeAction(session.actionHandle), "stale");
-  assert.deepEqual(calls, [["file", "/safe/plan.md", 11], ["hermes", "session-1", 3]]);
+  assert.deepEqual(calls, [["file", "/safe/plan.md", "/safe", 11], ["hermes", "session-1", 3]]);
 });
 
 test("permission and offline states are explicit and providers do not prompt", async () => {
@@ -110,4 +113,23 @@ test("sources without an exact safe adapter report unavailable instead of overcl
   ]);
   assert.deepEqual(state.results, []);
   assert.deepEqual(calls, []);
+});
+
+test("notification open binds the exact observed post time and rejects same-key replacement", async () => {
+  const calls = [];
+  const dependencies = fixtureDependencies(calls);
+  let postTime = 15;
+  dependencies.readNotifications = () => [{
+    key: "notif-1", appName: "Messages", title: "Release plan", text: "Review",
+    bigText: "", sender: "Alex", lines: [], postTime, when: postTime,
+  }];
+  dependencies.openNotification = async (key, expectedPostTime) => {
+    calls.push(["notification", key, expectedPostTime]);
+    return key === "notif-1" && postTime === expectedPostTime;
+  };
+  const controller = new SearchController(createSearchProviders(dependencies), { providerTimeoutMs: 50, resultLimit: 20 });
+  const state = await controller.search("plan", new Set(["notifications"]));
+  postTime = 16;
+  assert.equal(await controller.executeAction(state.results[0].actionHandle), "stale");
+  assert.deepEqual(calls, [["notification", "notif-1", 15]]);
 });

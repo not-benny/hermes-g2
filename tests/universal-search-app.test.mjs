@@ -24,7 +24,11 @@ test("search filters and clear are local window actions and query content is nev
 
 test("safe opens use exact notification, file, calendar-event, and Hermes-session revalidation", () => {
   assert.match(windowSource, /readNotificationByKey\(key\)/);
+  assert.match(windowSource, /notification\.postTime !== postTime/);
+  assert.doesNotMatch(windowSource, /SingleNotificationLayer/);
   assert.match(windowSource, /entry\.modifiedMs !== modifiedMs/);
+  assert.match(windowSource, /canonicalPath\(rootPath\)/);
+  assert.match(windowSource, /entry\.isSymbolicLink/);
   assert.match(windowSource, /event\.id === eventId && event\.startMs === startMs/);
   assert.match(windowSource, /session\.session_id === sessionId && session\.generation === generation/);
   assert.doesNotMatch(windowSource, /invokeNotificationAction|dismissNotification|steer\(|interrupt\(|updateBlock|sendCommand/);

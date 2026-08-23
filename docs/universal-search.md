@@ -23,8 +23,8 @@ There is no query/result/recent persistence. Clear and window close revoke the c
 |---|---|---|---|
 | Apps | public metadata | launcher-visible local app titles | Rechecks the local registry, then launches that exact app ID. |
 | Calendar | private content | existing bounded upcoming-event read | Reports permission/provider/query failure distinctly; re-reads and matches event ID + start time before showing exact event detail. Search never requests permission. |
-| Notifications | private content | existing bounded active notification snapshot | Requires listener access and re-reads the exact Android notification key before opening the existing detail layer. Notification actions and dismissal are not exposed by Search. |
-| Files | private content | names/metadata one level below user bookmarks only | Requires the existing all-files grant, bookmark scope and exact path + modified time before opening. It never recursively indexes storage or reads file content during search. Text/image content is read only after the exact result is selected. |
+| Notifications | private content | existing bounded active notification snapshot | Requires listener access and re-reads the exact Android notification key + observed post time before opening a Search-owned read-only detail. Notification actions, reply and dismissal are not exposed by Search. |
+| Files | private content | names/metadata one level below user bookmarks only | Requires the existing all-files grant, exact bookmark root, canonical confinement, non-symlink entry and exact path + modified time before showing metadata. It never recursively indexes storage or reads file content. |
 | Hermes sessions | private content | explicitly shared, synchronized cockpit projections only | Requires a synchronized current snapshot and exact public session ID + execution generation before showing read-only detail. Search exposes no answer, permission, steer or interrupt command. |
 | Roam | private content | unavailable | The current API has exact page lookup but no typed bounded broad-search contract. Search reports unavailable and never uses the edit-capable token. |
 | Terminal | terminal content | unavailable | Current socket/view identity is not restart-safe enough for exact cross-window resume. No terminal text or command authority is exposed. |
@@ -41,13 +41,13 @@ Unavailable and permission-denied providers remain visible in the filter menu an
 4. Ring or glasses scroll moves across grouped, source-labelled results and pages. Tap opens the exact selected result. Double-click returns from detail; at the search root it yields to the sidebar.
 5. Choose **Clear query** to revoke the query and all handles. Closing the window does the same.
 
-The compact layout is bounded to four selectable rows in the minimum G2 app viewport. Snippets are normalized, control/bidirectional characters are removed by adapters, and titles/snippets are capped before entering the core.
+The compact layout is bounded to four selectable rows in the minimum G2 app viewport. Every row displays its source and freshness (static or local date/time) beside the bounded snippet. Snippets are normalized, control/bidirectional characters are removed by adapters, and titles/snippets are capped before entering the core.
 
 ## Privacy and safety boundaries
 
 Search never requests Android permissions, executes a URL or shell command, issues a terminal command, mutates Roam, changes media, reads health history, sends a cockpit command, or invokes notification actions. File failures use content-free log messages rather than paths or exception bodies. Provider exceptions are converted to coarse source state and are never interpolated into logs or UI.
 
-The fixture tests contain synthetic data only. Coverage includes Unicode ranking, duplicate identities, empty/disabled filters, pagination, stale non-cooperative providers, timeout isolation, permission/offline/unavailable state, malformed throwing objects, exact-generation one-shot action replay, exact file/session replacement, clear/restart-like revocation and source-registration/privacy contracts.
+The fixture tests contain synthetic data only. Coverage includes Unicode ranking, duplicate identities, empty/disabled filters, pagination, stale non-cooperative providers, provider-timeout abort, permission/offline/unavailable state, malformed throwing/proxy objects, exact-generation one-shot action and in-flight-action revocation, exact notification/file/session replacement, clear/restart-like revocation and source-registration/privacy contracts.
 
 ## Verification and rollback
 

@@ -128,3 +128,51 @@ test("malformed provider objects fail only their source without evaluating execu
   assert.equal(state.sources.find((source) => source.sourceId === "files").state, "error");
   assert.equal(state.sources.find((source) => source.sourceId === "apps").state, "ready");
 });
+
+test("provider timeout aborts that provider and dispose aborts in-flight exact actions", async () => {
+  let providerAborted = false;
+  let actionAborted = false;
+  const provider = {
+    sourceId: "apps", label: "Apps", privacyClass: "public_metadata",
+    search: async (_query, signal) => new Promise((resolve) => {
+      signal.addEventListener("abort", () => { providerAborted = true; resolve([]); }, { once: true });
+    }),
+    execute: async (_action, signal) => new Promise((resolve) => {
+      signal.addEventListener("abort", () => { actionAborted = true; resolve("stale"); }, { once: true });
+    }),
+  };
+  const timeoutController = new SearchController([provider], { providerTimeoutMs: 5, resultLimit: 10 });
+  await timeoutController.search("plan", new Set(["apps"]));
+  assert.equal(providerAborted, true);
+
+  provider.search = async () => [{
+    sourceId: "apps", resultId: "planner", title: "Planner", snippet: "", freshnessMs: 1,
+    action: { kind: "open_app", appId: "planner" },
+  }];
+  const state = await timeoutController.search("plan", new Set(["apps"]));
+  const pending = timeoutController.executeAction(state.results[0].actionHandle);
+  timeoutController.dispose();
+  assert.equal(await pending, "stale");
+  assert.equal(actionAborted, true);
+});
+
+test("action descriptors are snapshotted once so getter mutation cannot change executed authority", async () => {
+  let reads = 0;
+  const action = new Proxy({ appId: "planner" }, {
+    get(target, property) {
+      if (property === "kind") return ++reads === 1 ? "open_app" : "open_file";
+      return target[property];
+    },
+  });
+  const calls = [];
+  const provider = {
+    sourceId: "apps", label: "Apps", privacyClass: "public_metadata",
+    search: async () => [{ sourceId: "apps", resultId: "planner", title: "Planner", snippet: "", freshnessMs: 1, action }],
+    execute: async (descriptor) => { calls.push(descriptor); return "executed"; },
+  };
+  const controller = new SearchController([provider], { providerTimeoutMs: 20, resultLimit: 10, tokenFactory: () => "one" });
+  const state = await controller.search("plan", new Set(["apps"]));
+  assert.equal(await controller.executeAction(state.results[0].actionHandle), "executed");
+  assert.deepEqual(calls, [{ kind: "open_app", appId: "planner" }]);
+  assert.equal(reads, 1);
+});

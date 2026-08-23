@@ -17,6 +17,7 @@ export type DirectoryEntry = {
   name: string;
   path: string;
   isDirectory: boolean;
+  isSymbolicLink: boolean;
   sizeBytes: number;
   /** Last-modified time in epoch ms; 0 when unknown. */
   modifiedMs: number;
@@ -61,6 +62,7 @@ export function listDirectory(path: string): DirectoryEntry[] | null {
         name: String(file.getName()),
         path: String(file.getAbsolutePath()),
         isDirectory: Boolean(file.isDirectory()),
+        isSymbolicLink: Boolean(java.nio.file.Files.isSymbolicLink(file.toPath())),
         sizeBytes: Number(file.length()),
         modifiedMs: Number(file.lastModified()),
       });
@@ -85,11 +87,21 @@ export function statPath(path: string): DirectoryEntry | null {
       name: String(file.getName()),
       path: String(file.getAbsolutePath()),
       isDirectory: Boolean(file.isDirectory()),
+      isSymbolicLink: Boolean(java.nio.file.Files.isSymbolicLink(file.toPath())),
       sizeBytes: Number(file.length()),
       modifiedMs: Number(file.lastModified()),
     };
   } catch {
     console.warn("file metadata read failed");
+    return null;
+  }
+}
+
+/** Resolve one existing path for bookmark-confinement checks; null on failure. */
+export function canonicalPath(path: string): string | null {
+  try {
+    return String(new java.io.File(path).getCanonicalPath());
+  } catch {
     return null;
   }
 }

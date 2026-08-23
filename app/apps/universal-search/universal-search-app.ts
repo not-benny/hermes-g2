@@ -4,12 +4,11 @@ import { GrayImage } from "../../graphics/image";
 import { truncateText, wrapText } from "../../graphics/textwrap";
 import { readUpcomingEvents } from "../../native/calendar";
 import {
+  canonicalPath,
   hasAllFilesAccess,
   listDirectory,
-  readTextFile,
   statPath,
 } from "../../native/file-access";
-import { isDecodableImageFile } from "../../native/image-files";
 import { isNotificationListenerEnabled } from "../../native/notification-access";
 import {
   readActiveNotifications,
@@ -20,10 +19,8 @@ import { createSearchProviders } from "../../search/providers";
 import { SearchViewModel } from "../../search/view-model";
 import { type AppContext } from "../app-definition";
 import { getBookmarkedPaths } from "../files/file-browser";
-import { createImageDocumentWindow, createTextDocumentWindow } from "../files/files-app";
 import { type DashboardInputEvent, type Layer, type LayerContext } from "../../ui/layers";
 import { drawSelectionHighlight, type MenuItem } from "../../ui/menu";
-import { SingleNotificationLayer } from "../../ui/notifications";
 import {
   createInProcessWindow,
   type InProcessAppOptions,
@@ -44,8 +41,10 @@ const SOURCE_FILTERS: ReadonlyArray<{ id: SearchSourceId; label: string }> = [
   { id: "media", label: "Media (unavailable)" },
   { id: "health", label: "Health (unavailable)" },
 ];
-const TEXT_FILE = /\.(txt|md|markdown|log|json|xml|csv|ini|conf|cfg|yaml|yml|ts|js|py|java|c|cpp|h|sh|html|css)$/i;
-let nextSearchDocumentSerial = 1;
+function formatFreshness(freshnessMs: number): string {
+  if (freshnessMs <= 0) return "static";
+  return new Date(freshnessMs).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
 
 class SearchDetailLayer implements Layer {
   constructor(private readonly title: string, private readonly lines: readonly string[]) {}
@@ -89,17 +88,19 @@ class UniversalSearchLayer implements Layer {
     };
     this.controller = new SearchController(createSearchProviders({
       apps: () => appContext.apps,
-      launchApp: async (appId) => {
-        if (!appContext.apps.some((app) => app.appId === appId && app.showInLauncher !== false)) return false;
+      launchApp: async (appId, signal) => {
+        if (signal.aborted || !appContext.apps.some((app) => app.appId === appId && app.showInLauncher !== false)) return false;
+        if (signal.aborted) return false;
         await appContext.launchApp(appId);
         return true;
       },
       readCalendar: () => readUpcomingEvents(),
-      openCalendar: async (eventId, startMs) => {
+      openCalendar: async (eventId, startMs, signal) => {
+        if (signal.aborted) return false;
         const read = readUpcomingEvents();
         if (read.status !== "success") return false;
         const event = read.events.find((event) => event.id === eventId && event.startMs === startMs);
-        return event ? pushDetail(event.title || "Calendar event", [
+        return event && !signal.aborted ? pushDetail(event.title || "Calendar event", [
           new Date(event.startMs).toLocaleString(),
           event.location,
           event.calendarName,
@@ -107,44 +108,37 @@ class UniversalSearchLayer implements Layer {
       },
       notificationAccess: () => isNotificationListenerEnabled(),
       readNotifications: () => readActiveNotifications(50),
-      openNotification: async (key) => {
-        if (!isNotificationListenerEnabled() || !readNotificationByKey(key) || !this.stack) return false;
-        this.stack.push(new SingleNotificationLayer(key, { origin: "notifications-list" }));
-        return true;
+      openNotification: async (key, postTime, signal) => {
+        if (signal.aborted || !isNotificationListenerEnabled()) return false;
+        const notification = readNotificationByKey(key);
+        if (!notification || notification.postTime !== postTime || signal.aborted) return false;
+        return pushDetail(notification.title || notification.appName || "Notification", [
+          notification.appName,
+          notification.sender,
+          notification.bigText || notification.text || notification.lines.join(" · "),
+        ].filter(Boolean));
       },
       hasFileAccess: () => hasAllFilesAccess(),
       bookmarkedPaths: () => getBookmarkedPaths(),
       statPath,
       listDirectory,
-      openFile: async (path, modifiedMs) => {
-        if (!hasAllFilesAccess()) return false;
-        const roots = getBookmarkedPaths();
-        const inScope = roots.some((root) => path === root || path.startsWith(`${root.replace(/\/+$/, "")}/`));
+      openFile: async (path, rootPath, modifiedMs, signal) => {
+        if (signal.aborted || !hasAllFilesAccess() || !getBookmarkedPaths().includes(rootPath)) return false;
+        const canonicalRoot = canonicalPath(rootPath);
+        const canonicalEntry = canonicalPath(path);
+        const inScope = canonicalRoot !== null && canonicalEntry !== null &&
+          (canonicalEntry === canonicalRoot || canonicalEntry.startsWith(`${canonicalRoot.replace(/\/+$/, "")}/`));
         const entry = inScope ? statPath(path) : null;
-        if (!entry || entry.modifiedMs !== modifiedMs) return false;
-        if (entry.isDirectory) return pushDetail(entry.name, ["Folder", "Bookmarked location"]);
-        if (TEXT_FILE.test(entry.name)) {
-          const text = readTextFile(entry.path);
-          if (text === null) return false;
-          const windowId = `universal-search:file:${nextSearchDocumentSerial++}`;
-          await appContext.launchInProcessApp(windowId, `window:${windowId}`, (options) =>
-            createTextDocumentWindow(windowId, entry.name, text, options));
-          return true;
-        }
-        if (isDecodableImageFile(entry.name)) {
-          const windowId = `universal-search:file:${nextSearchDocumentSerial++}`;
-          await appContext.launchInProcessApp(windowId, `window:${windowId}`, (options) =>
-            createImageDocumentWindow(windowId, entry.name, entry.path, options));
-          return true;
-        }
-        return pushDetail(entry.name, [`${entry.sizeBytes} bytes`, "No preview available"]);
+        if (!entry || entry.isSymbolicLink || entry.modifiedMs !== modifiedMs || signal.aborted) return false;
+        return pushDetail(entry.name, [entry.isDirectory ? "Folder" : "File", `${entry.sizeBytes} bytes`, "Bookmarked location"]);
       },
       cockpitSnapshot: () => assistantBridge.cockpit.snapshot(),
-      openHermesSession: async (sessionId, generation) => {
+      openHermesSession: async (sessionId, generation, signal) => {
+        if (signal.aborted) return false;
         const snapshot = assistantBridge.cockpit.snapshot();
         if (!snapshot.synchronized) return false;
         const session = snapshot.sessions.find((session) => session.session_id === sessionId && session.generation === generation);
-        return session ? pushDetail(session.title, [session.summary ?? "", session.state]) : false;
+        return session && !signal.aborted ? pushDetail(session.title, [session.summary ?? "", session.state]) : false;
       },
     }), { providerTimeoutMs: 1500, resultLimit: 40 });
   }
@@ -222,7 +216,7 @@ class UniversalSearchLayer implements Layer {
     for (const row of screen.rows) {
       if (row.selected) drawSelectionHighlight(image, 19, y - 3, width - 38, 35, true, 5);
       image.drawText(small, 25, y, truncateText(small, `${row.selected ? "›" : " "} ${row.sourceLabel} · ${row.title}`, width - 50), 210);
-      image.drawText(small, 35, y + 16, truncateText(small, row.snippet, width - 70), 115);
+      image.drawText(small, 35, y + 16, truncateText(small, `${formatFreshness(row.freshnessMs)} · ${row.snippet}`, width - 70), 115);
       y += 40;
     }
     const footer = this.actionStatus || `${screen.page}/${screen.pageCount} · ${screen.status || "filters in menu"}`;
@@ -237,6 +231,7 @@ class UniversalSearchLayer implements Layer {
     else if (event.type === "scroll-down") this.model.move(1);
     else if (event.type === "click") {
       const result = await this.controller.executeAction(this.model.selectedActionHandle());
+      if (this.stopped) return;
       this.actionStatus = result === "executed" ? "Opened exact result" : result === "consumed" ? "Already opened" : "Result is no longer available";
       this.requestRender();
     } else if (event.type === "double-click") {
