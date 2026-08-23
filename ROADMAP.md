@@ -27,12 +27,14 @@ Current as of 23 August 2026. `main` is the canonical branch.
   prepared-platform typecheck and the JDK 21 / SDK 35 Android build pass. The
   exact candidate installed and launched as a live process on the A32, but its
   G2 transport had no active connection, so glasses navigation/open/back/filter
-  evidence is not claimed. Final independent review of frozen code SHA `3b19b94`
+  evidence is not claimed. Final independent review of frozen code SHA `a856af1`
   returned static PASS; operational authorization remains NO-GO pending connected
   G2 evidence. PR #64 is open against cockpit PR #62; the remote implementation
   head passed release-gate and all JavaScript/Java CodeQL checks, and remote
   base/head/files/body/checks/state were read back. Merge remains gated on #62,
-  repository review and connected-G2 evidence. See `docs/universal-search.md`.
+  repository review and connected-G2 evidence. The stacked head has no independent
+  main-based checks and must not be retargeted before #62 lands. See
+  `docs/universal-search.md`.
 
 ### Native Hermes agent cockpit
 

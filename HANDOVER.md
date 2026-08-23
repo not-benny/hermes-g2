@@ -3,7 +3,7 @@
 ## Privacy-scoped universal search candidate
 
 Branch `feat/universal-search-launcher` is stacked on the open, reviewed Hermes
-cockpit PR #62 at `f68a902ebef25b3ae2b9859e8ff3225fe5c3dc72`, because exact public
+cockpit PR #62 at `7fed9b88dd776de5cb0b2fb201ca48cfbd839e6b`, because exact public
 Hermes session ID/execution-generation projections are a prerequisite. The new
 native Search app accepts only final text reviewed by the shell and starts with
 Apps as the sole enabled source. Its memory-only window filters can opt into
@@ -49,10 +49,10 @@ The second frozen review passed UI/spec scope but found one remaining file gate:
 a bookmarked root could itself be a symlink. The final rework rejects symbolic
 bookmark roots both while collecting results and immediately before opening;
 the synthetic regression proves neither symbolic roots nor entries publish.
-Final independent review of frozen code SHA
-`3b19b941911123efd7a16022ea6c3b48b5063258` returned **Static review: PASS**
-with every notification, file-confinement, timeout, cancellation, in-flight
-action and hostile-getter blocker closed. **Operational authorization: NO-GO**
+Final independent review of frozen SHA
+`a856af1b30125d1f11d617eb153b990259ad465c` returned **Static review: PASS**
+after hostile provider array length/species traps and reentrant replacement
+generations were contained to their exact source. **Operational authorization: NO-GO**
 remains only because connected-G2 runtime evidence is unavailable.
 
 After a clean `npm ci`, the full host suite passes 396/396; NativeScript Android
@@ -69,11 +69,11 @@ offline-source or privacy-safe connected logcat evidence is inferred. No
 Bluetooth setting, pairing, ownership, permission, firmware, provisioning,
 reset, wipe or other destructive operation was performed. GitHub PR
 [#64](https://github.com/not-benny/hermes-g2/pull/64) targets the cockpit branch
-from `feat/universal-search-launcher`. Remote implementation head
-`1c64a0eb206be720f26b875d4b62853dbd38fa3d` passed `release-gate`,
-`codeql-javascript`, `codeql-java`, and aggregate `codeql`; remote base/head,
-files, body, checks and open state were read back. Merge remains gated on PR #62,
-repository review approval and connected-G2 evidence.
+from `feat/universal-search-launcher`; reviewed code head
+`a856af1b30125d1f11d617eb153b990259ad465c`. The stacked PR has no independent
+main-based checks and must not be retargeted until #62 lands; its prior
+implementation head passed all four CI/CodeQL jobs. Merge remains gated on PR
+#62, repository review approval and connected-G2 evidence.
 See `docs/universal-search.md`.
 
 ## Native Hermes agent cockpit candidate
