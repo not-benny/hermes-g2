@@ -2049,7 +2049,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             }
             ringBattery = level;
         }
-        emitBatteryStateSnapshot();
+        emitDirectRingBatteryStateSnapshot(generation);
         logLine("direct ring battery=" + level + "%");
     }
 
@@ -4162,8 +4162,11 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         if (current == null) {
             return;
         }
+        final ExactGenerationListenerGuard<FaceclawBleCommunicatorListener> delivery =
+            new ExactGenerationListenerGuard<>(generation, current);
         mainHandler.post(() -> {
-            if (!isRingNotificationDispatchAllowed(generation)) {
+            if (!isRingNotificationDispatchAllowed(generation)
+                    || !delivery.isCurrent(ringConnectionGeneration, listener)) {
                 return;
             }
             try {
