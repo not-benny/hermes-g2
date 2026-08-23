@@ -60,7 +60,7 @@ test("adapter maps only fixed RPCs after durable and final generation checks", (
     type: "cancel_session", operation_id: "operation_cancel_1234", session_id: active.session_id, generation: 7 };
   assert.equal(adapter.handleCommand(cancel, (rpc) => { sent.push(rpc); return true; }), true);
   assert.deepEqual(sent[0], { jsonrpc: "2.0", id: "operation_cancel_1234", method: "session.cancel",
-    params: { session_id: "provider-session-private" } });
+    params: { session_id: "provider-session-private", expected_generation: 7 } });
   assert.equal(reserved.length, 1);
   assert.equal(adapter.handleCommand({ ...cancel, operation_id: "operation_stale_12345", generation: 6 }, () => true), null);
   const resume = { ...cancel, type: "resume_session", operation_id: "operation_resume_1234",

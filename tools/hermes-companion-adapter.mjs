@@ -146,7 +146,7 @@ export class HermesCompanionAdapter {
 
     const params = command.type === "refresh" ? this.snapshotParams()
       : command.type === "new_voice_session" ? { input_mode: "voice" }
-      : { session_id: binding.hermesId };
+      : { session_id: binding.hermesId, expected_generation: binding.generation };
     const method = {
       refresh: "companion.snapshot",
       open_session: "session.open",
@@ -160,23 +160,23 @@ export class HermesCompanionAdapter {
     // boundary, after projection and immediately before durable reservation.
     if (command.connection_generation !== this.#connectionGeneration ||
         (binding && (this.#sessionByPublic.get(command.session_id) !== binding || binding.generation !== command.generation))) return null;
-    const record = { operationId: command.operation_id,
-      fingerprint: createHash("sha256").update(JSON.stringify(command)).digest("hex"), status: "reserved" };
-    if (this.reserveOperation(clone(record)) !== true) return null;
-    this.#journal.set(command.operation_id, record);
+    const record = this.#reserve(command);
+    if (!record) return null;
     try {
       const result = dispatch(rpc);
-      record.status = "dispatched";
-      return result;
+      // An in-process gateway can answer synchronously from dispatch; never
+      // downgrade a completion that operationReceipt already recorded.
+      if (record.status === "reserved") record.status = result === true ? "dispatched" : "outcome_unknown";
+      return result === true;
     } catch {
-      record.status = "outcome_unknown";
+      if (record.status === "reserved") record.status = "outcome_unknown";
       return null;
     }
   }
 
-  rejectUnavailable(command) {
-    if (!validCommand(command) || command.connection_generation !== this.#connectionGeneration) return null;
-    return this.#receipt(command, "rejected", "backend_offline");
+  reserveRejection(command) {
+    if (!validCommand(command) || command.connection_generation !== this.#connectionGeneration) return false;
+    return Boolean(this.#reserve(command));
   }
 
   operationReceipt(command, outcome, code) {
@@ -203,6 +203,15 @@ export class HermesCompanionAdapter {
       connection_generation: this.#connectionGeneration, sequence: ++this.#sequence,
       operation_id: command.operation_id, operation: command.type, outcome,
       ...(code ? { code: safeCode(code, "operation_failed") } : {}) };
+  }
+
+  #reserve(command) {
+    if (this.#journal.has(command.operation_id)) return null;
+    const record = { operationId: command.operation_id,
+      fingerprint: createHash("sha256").update(JSON.stringify(command)).digest("hex"), status: "reserved" };
+    if (this.reserveOperation(clone(record)) !== true) return null;
+    this.#journal.set(command.operation_id, record);
+    return record;
   }
 
   #voice(value, metadataAllowed) {

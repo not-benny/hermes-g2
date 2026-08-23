@@ -158,7 +158,9 @@ test("authenticated private WSS carries bounded companion list, resume, new voic
       const rpc = JSON.parse(data.toString("utf8"));
       methods.push(rpc.method);
       if (rpc.method === "companion.snapshot") socket.send(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: providerSnapshot }));
-      else socket.send(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: { accepted: true } }));
+      else socket.send(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: { accepted: true,
+        ...(Number.isSafeInteger(rpc.params?.expected_generation)
+          ? { matched_generation: rpc.params.expected_generation } : {}) } }));
     });
   });
 

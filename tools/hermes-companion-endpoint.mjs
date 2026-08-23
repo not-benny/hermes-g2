@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { HermesCompanionAdapter } from "./hermes-companion-adapter.mjs";
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+const SESSION_OPERATIONS = new Set(["open_session", "resume_session", "cancel_session"]);
 const requestId = () => `snapshot_${randomBytes(16).toString("base64url")}`;
 
 /**
@@ -24,6 +25,16 @@ export class HermesCompanionEndpoint {
     this.adapter = new HermesCompanionAdapter({ now: options.now, createOpaque: options.createOpaque,
       journal: options.journal, reserveOperation: options.reserveOperation });
     this.completeOperation = options.completeOperation ?? (() => true);
+    this.commandTimeoutMs = options.commandTimeoutMs ?? 15_000;
+    if (!Number.isSafeInteger(this.commandTimeoutMs) || this.commandTimeoutMs < 100 || this.commandTimeoutMs > 120_000) {
+      throw new Error("Hermes gateway command timeout is invalid");
+    }
+    this.setCommandTimer = options.setCommandTimer ?? ((callback, delay) => {
+      const timer = setTimeout(callback, delay);
+      timer.unref?.();
+      return timer;
+    });
+    this.clearCommandTimer = options.clearCommandTimer ?? ((timer) => clearTimeout(timer));
     this.setReconnectTimer = options.setReconnectTimer ?? ((callback, delay) => {
       const timer = setTimeout(callback, delay);
       timer.unref?.();
@@ -86,9 +97,12 @@ export class HermesCompanionEndpoint {
 
   detach(connectionGeneration = this.phoneGeneration) {
     if (!this.phoneGeneration || connectionGeneration !== this.phoneGeneration) return false;
+    for (const { command } of [...this.pendingCommands.values()]) {
+      this.#takePending(command.operation_id);
+      this.#settle(command, "outcome_unknown", "phone_detached");
+    }
     this.phoneGeneration = null;
     this.emit = null;
-    this.pendingCommands.clear();
     this.snapshotRequests.clear();
     this.adapter.disconnect();
     return true;
@@ -101,15 +115,33 @@ export class HermesCompanionEndpoint {
     if (replay) { this.#emit(replay); return true; }
     const socket = this.socket;
     if (!socket || socket.readyState !== 1) {
-      const rejected = this.adapter.rejectUnavailable(command);
-      if (rejected) this.#emit(rejected);
-      return Boolean(rejected);
-    }
-    return this.adapter.handleCommand(command, (rpc) => {
-      this.pendingCommands.set(command.operation_id, command);
-      socket.send(JSON.stringify(rpc));
+      if (!this.adapter.reserveRejection(command)) return false;
+      this.#settle(command, "rejected", "backend_offline");
       return true;
+    }
+    let sendFailed = false;
+    const handled = this.adapter.handleCommand(command, (rpc) => {
+      const pending = { command, timer: null };
+      this.pendingCommands.set(command.operation_id, pending);
+      try {
+        socket.send(JSON.stringify(rpc));
+        const timer = this.setCommandTimer(
+          () => this.#commandTimedOut(command.operation_id, command), this.commandTimeoutMs);
+        if (this.pendingCommands.get(command.operation_id) === pending) pending.timer = timer;
+        else this.clearCommandTimer(timer);
+        return true;
+      } catch {
+        this.pendingCommands.delete(command.operation_id);
+        if (pending.timer) this.clearCommandTimer(pending.timer);
+        sendFailed = true;
+        return false;
+      }
     }) === true;
+    if (sendFailed) {
+      this.#settle(command, "outcome_unknown", "gateway_send_failed");
+      return true;
+    }
+    return handled;
   }
 
   exportJournal() { return this.adapter.exportJournal(); }
@@ -127,7 +159,10 @@ export class HermesCompanionEndpoint {
   #closed(socket) {
     if (!socket || this.socket !== socket) return;
     this.socket = null;
-    this.pendingCommands.clear();
+    for (const { command } of [...this.pendingCommands.values()]) {
+      this.#takePending(command.operation_id);
+      this.#settle(command, "outcome_unknown", "gateway_disconnected");
+    }
     this.snapshotRequests.clear();
     if (this.phoneGeneration) this.#emit(this.adapter.unavailableSnapshot());
     this.#scheduleReconnect();
@@ -169,16 +204,38 @@ export class HermesCompanionEndpoint {
       else this.#emit(this.adapter.unavailableSnapshot());
       return;
     }
-    const command = this.pendingCommands.get(frame.id);
+    const command = this.#takePending(frame.id);
     if (!command) return;
-    this.pendingCommands.delete(frame.id);
+    const casConfirmed = !SESSION_OPERATIONS.has(command.type) ||
+      (frame.result && typeof frame.result === "object" && frame.result.accepted === true &&
+        frame.result.matched_generation === command.generation);
     const applicationRejected = frame.result && typeof frame.result === "object" &&
       [frame.result.accepted, frame.result.ok].some((value) => value === false);
-    const outcome = frame.error || applicationRejected ? "rejected" : "accepted";
-    const code = frame.error && typeof frame.error.code !== "undefined" ? `rpc_${String(frame.error.code)}` : undefined;
+    const outcome = frame.error || applicationRejected || !casConfirmed ? "rejected" : "accepted";
+    const code = frame.error && typeof frame.error.code !== "undefined" ? `rpc_${String(frame.error.code)}`
+      : !casConfirmed ? "generation_unconfirmed" : undefined;
     if (command.type === "refresh" && outcome === "accepted" && frame.result && typeof frame.result === "object") {
       this.#emit(this.adapter.snapshot(frame.result));
     }
+    this.#settle(command, outcome, code);
+  }
+
+  #takePending(operationId) {
+    const pending = this.pendingCommands.get(operationId);
+    if (!pending) return null;
+    this.pendingCommands.delete(operationId);
+    if (pending.timer) this.clearCommandTimer(pending.timer);
+    return pending.command;
+  }
+
+  #commandTimedOut(operationId, command) {
+    const owned = this.pendingCommands.get(operationId);
+    if (!owned || owned.command !== command) return;
+    this.#takePending(operationId);
+    this.#settle(command, "outcome_unknown", "gateway_timeout");
+  }
+
+  #settle(command, outcome, code) {
     let durableOutcome = outcome;
     try {
       if (this.completeOperation(command.operation_id, outcome) !== true) durableOutcome = "outcome_unknown";

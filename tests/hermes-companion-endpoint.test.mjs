@@ -56,8 +56,9 @@ test("endpoint dispatches exact operations, emits ordered receipts, and rejects 
     operation_id: "operation_cancel_1234", session_id: session.session_id, generation: 2 };
   assert.equal(endpoint.handleCommand(command, "connection_phone_1234"), true);
   assert.deepEqual(socket.sent.at(-1), { jsonrpc: "2.0", id: "operation_cancel_1234", method: "session.cancel",
-    params: { session_id: "provider-private-session" } });
-  socket.message({ jsonrpc: "2.0", id: "operation_cancel_1234", result: { accepted: true } });
+    params: { session_id: "provider-private-session", expected_generation: 2 } });
+  socket.message({ jsonrpc: "2.0", id: "operation_cancel_1234",
+    result: { accepted: true, matched_generation: 2 } });
   assert.equal(frames.at(-1).type, "operation_receipt");
   assert.equal(frames.at(-1).outcome, "accepted");
   assert.equal(endpoint.handleCommand({ ...command, operation_id: "operation_stale_12345" }, "connection_phone_OLD"), false);
@@ -65,20 +66,58 @@ test("endpoint dispatches exact operations, emits ordered receipts, and rejects 
   assert.equal(endpoint.handleCommand({ ...command, operation_id: "operation_after_12345" }, "connection_phone_1234"), false);
 });
 
-test("gateway loss produces an unavailable snapshot and deterministic rejected operation", () => {
+test("offline rejection is durably replayed and can never dispatch after recovery", () => {
   let socket;
   const frames = [];
   const endpoint = new HermesCompanionEndpoint({ gatewayUrl: "wss://[::1]:9119", token: "private-loopback-token",
     createSocket: (url) => (socket = new FakeSocket(url)), reserveOperation: () => true,
     createRequestId: () => "snapshot_request_1234", now: () => 1_000 });
-  endpoint.start(); socket.open(); endpoint.attach("connection_phone_1234", (frame) => frames.push(frame));
-  socket.close();
+  endpoint.start(); endpoint.attach("connection_phone_1234", (frame) => frames.push(frame));
   assert.equal(frames.at(-1).status, "unavailable");
   const refresh = { v: 1, chan: "companion", connection_generation: "connection_phone_1234",
     type: "refresh", operation_id: "operation_refresh_1234" };
   assert.equal(endpoint.handleCommand(refresh, "connection_phone_1234"), true);
   assert.equal(frames.at(-1).type, "operation_receipt");
   assert.equal(frames.at(-1).code, "backend_offline");
+  socket.open();
+  const sentAfterOpen = socket.sent.length;
+  assert.equal(endpoint.handleCommand(refresh, "connection_phone_1234"), true);
+  assert.equal(frames.at(-1).code, "duplicate");
+  assert.equal(frames.at(-1).outcome, "rejected");
+  assert.equal(socket.sent.length, sentAfterOpen, "offline tombstone replay must not reach the gateway");
+  endpoint.stop();
+});
+
+test("unconfirmed generation CAS and timed-out RPCs fail closed and suppress late replies", () => {
+  let socket;
+  let timeoutCallback = null;
+  let requestSerial = 0;
+  const frames = [];
+  const endpoint = new HermesCompanionEndpoint({ gatewayUrl: "ws://localhost:9119", token: "private-loopback-token",
+    createSocket: (url) => (socket = new FakeSocket(url)), reserveOperation: () => true,
+    createOpaque: opaque, createRequestId: () => `snapshot_timeout_${++requestSerial}_1234`, now: () => 1_000,
+    commandTimeoutMs: 100, setCommandTimer: (callback) => { timeoutCallback = callback; return { id: 1 }; },
+    clearCommandTimer: () => {},
+  });
+  endpoint.start(); socket.open(); endpoint.attach("connection_phone_1234", (frame) => frames.push(frame));
+  socket.message({ jsonrpc: "2.0", id: "snapshot_timeout_1_1234", result: providerSnapshot });
+  const session = frames.at(-1).sessions[0];
+  const first = { v: 1, chan: "companion", connection_generation: "connection_phone_1234", type: "cancel_session",
+    operation_id: "operation_uncas_1234", session_id: session.session_id, generation: 2 };
+  assert.equal(endpoint.handleCommand(first, "connection_phone_1234"), true);
+  socket.message({ jsonrpc: "2.0", id: first.operation_id, result: { accepted: true } });
+  assert.equal(frames.at(-1).outcome, "rejected");
+  assert.equal(frames.at(-1).code, "generation_unconfirmed");
+
+  const second = { ...first, operation_id: "operation_timeout_1234" };
+  assert.equal(endpoint.handleCommand(second, "connection_phone_1234"), true);
+  timeoutCallback();
+  assert.equal(frames.at(-1).outcome, "outcome_unknown");
+  assert.equal(frames.at(-1).code, "gateway_timeout");
+  const frameCount = frames.length;
+  socket.message({ jsonrpc: "2.0", id: second.operation_id,
+    result: { accepted: true, matched_generation: 2 } });
+  assert.equal(frames.length, frameCount, "late gateway completion must be ignored after timeout");
   endpoint.stop();
 });
 
