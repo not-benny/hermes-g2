@@ -38,6 +38,8 @@ function paintRenderLayer(ShellRemoteViewLayer, selectedAction, actions) {
   const commands = [];
   const image = {
     commands,
+    width: 568,
+    height: 260,
     fillRoundedRect: (x, y, width, height) => commands.push({ type: "panel", x, y, width, height }),
     drawRoundedRect: (x, y, width, height) => commands.push({ type: "border", x, y, width, height }),
     drawText: (_font, x, y, text) => commands.push({ type: "text", x, y, text }),
@@ -205,7 +207,7 @@ test("render-view layout stays inside the real 576x288 optical and shell viewpor
   const { ShellRemoteViewLayer } = await loadRenderLayer();
   const actions = ["Increment", "Reset", "Start timer"].map((label, index) => ({ id: `a${index}`, label }));
   const commands = paintRenderLayer(ShellRemoteViewLayer, 0, actions);
-  const safeViewport = { left: 72, top: 28, right: 608, bottom: 288 };
+  const safeViewport = { left: 0, top: 0, right: 536, bottom: 260 };
   for (const command of commands) {
     assert.ok(command.x >= safeViewport.left, `${command.type} starts before shell/optical viewport: ${JSON.stringify(command)}`);
     assert.ok(command.y >= safeViewport.top, `${command.type} starts above shell viewport: ${JSON.stringify(command)}`);

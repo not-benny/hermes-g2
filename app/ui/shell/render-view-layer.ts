@@ -26,11 +26,13 @@ export class ShellRemoteViewLayer implements Layer {
   paint(_ctx: LayerContext, paintBelow: () => GrayImage): GrayImage {
     const image = paintBelow();
     const font = getDefaultSmallFont();
-    const viewport = visibleAppViewportRect("min");
-    const x = viewport.x + MARGIN;
-    const top = viewport.y + MARGIN;
-    const width = viewport.width - MARGIN * 2;
-    const height = viewport.height - MARGIN * 2;
+    // In-process window images are already cropped and composited at the shell
+    // surface origin. Draw in that local coordinate space; applying the global
+    // optical/shell offset here would offset the content a second time.
+    const x = MARGIN;
+    const top = MARGIN;
+    const width = Math.min(image.width, visibleAppViewportRect("min").width) - MARGIN * 2;
+    const height = image.height - MARGIN * 2;
     image.fillRoundedRect(x, top, width, height, 1, 10);
     image.drawRoundedRect(x, top, width, height, 90, 10);
     image.drawText(font, x + PAD, top + 10, truncateText(font, this.state.title, width - PAD * 2), 235);
