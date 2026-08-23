@@ -195,6 +195,7 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
       // Fire onRemoved for any pushed layers so they release resources (e.g. a
       // demo that enabled a hardware stream) even when closed from within.
       try { stack.clearToBase(); } catch (error) { console.error(`${options.windowId} layer cleanup failed: ${error}`); }
+      try { stack.notifyBaseRemoved(); } catch (error) { console.error(`${options.windowId} base cleanup failed: ${error}`); }
       try { options.onClosed?.(); } catch (error) { console.error(`${options.windowId} close callback failed: ${error}`); }
       try { options.removeSurface?.(); } catch (error) { console.error(`${options.windowId} surface cleanup failed: ${error}`); }
     },
@@ -214,12 +215,14 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
     markSurfaceReady,
     setForeground: (foreground) => {
       options.setSurfaceVisible(foreground);
+      stack.notifyForegroundChanged(foreground);
       options.onForegroundChanged?.(foreground);
       // Foreground availability is dynamic; notify assistant clients whenever
       // the shell changes this window's focus so their tool list is refreshed.
       toolRegistry.fireToolsChanged();
     },
     setScreenOn: (on) => {
+      stack.notifyScreenChanged(on);
       options.onScreenChanged?.(on);
     },
     setVoiceInputActive: (active) => {
@@ -255,5 +258,13 @@ export class YieldAtRootLayer implements Layer {
 
   onRemoved(): void {
     this.inner.onRemoved?.();
+  }
+
+  onForegroundChanged(foreground: boolean): void {
+    this.inner.onForegroundChanged?.(foreground);
+  }
+
+  onScreenChanged(screenOn: boolean): void {
+    this.inner.onScreenChanged?.(screenOn);
   }
 }

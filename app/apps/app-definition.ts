@@ -28,7 +28,7 @@ export type AppDefinition = {
   /** False for apps that must not appear in the launcher grid (the launcher itself). */
   showInLauncher?: boolean;
   /** Present on the app that handles text shared via the Android share intent. */
-  openSharedText?: (ctx: AppContext, title: string, text: string) => void;
+  openSharedText?: (ctx: AppContext, title: string, text: string, sourceUri?: string) => void;
 };
 
 export type AppLaunchParams = {
