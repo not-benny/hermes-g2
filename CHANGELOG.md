@@ -114,15 +114,21 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
   with the existing owner identity, and was installed upgrade-in-place on the
   Fold7. Android retained the current app data. Physical worn-glasses acceptance
   remains separate and pending.
-- Current public source commit
+- Validated source tree
   `db6098d545ba8cd20d3cc02d3db0d975afc0fdd6` additionally passed the full
   952-test suite, dependency probes, TypeScript typecheck, and debug plus
-  unsigned-production build verification.
+  unsigned-production build verification. It is tree-identical to rebased
+  `main` commit `8941a72f6926102f1ce8c1e4df3f7bd044519973`; final documentation
+  merged at `753bfa42ccff573d9fc469011e2f4f45b2081fc0` after every required check
+  passed. The two open dependency alerts are closed. Permanent provenance tags
+  retain the exact validated and installed source inputs after branch cleanup.
 - The Hermes G2 bridge is now separately public under Apache-2.0 at
   [`not-benny/hermes-g2-bridge`](https://github.com/not-benny/hermes-g2-bridge).
   The workflow MCP remains a separate Apache-2.0 publication. The reviewed
   source installer and exact source locks are public at
   [`not-benny/hermes-g2-distribution`](https://github.com/not-benny/hermes-g2-distribution).
+  The independently verified source setup is published as distribution
+  prerelease [`v0.1.0`](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.0).
   Production APK signing and broad support remain separate gates.
 
 ## [1.0.0-preview.1] - 2026-08-21

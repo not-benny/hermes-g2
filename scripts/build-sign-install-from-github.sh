@@ -13,7 +13,7 @@ input_key_password=${HERMES_KEY_PASSWORD:-}
 unset HERMES_KEYSTORE_PASSWORD HERMES_KEY_PASSWORD
 
 readonly GITHUB_REPOSITORY="https://github.com/not-benny/hermes-g2.git"
-readonly DEFAULT_REF="fix/mcp-glasses-reliability"
+readonly DEFAULT_REF="db6098d545ba8cd20d3cc02d3db0d975afc0fdd6"
 readonly EXPECTED_PACKAGE="com.faceclaw.app"
 readonly ANDROID_BUILD_TOOLS_VERSION="35.0.1"
 readonly ANDROID_NDK_VERSION="27.2.12479018"
@@ -40,7 +40,7 @@ adb install -r so Android retains the current app data.
 
 Options:
   --ref REF                    Git branch, tag, or commit to fetch
-                               (default: fix/mcp-glasses-reliability)
+                               (default: validated Preview 3 source commit)
   --serial SERIAL              Target adb device serial (or ANDROID_SERIAL)
   --adb-port PORT              adb server port (default: 5037)
   --keystore PATH              Signing keystore (or HERMES_KEYSTORE_PATH)
