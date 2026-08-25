@@ -26,15 +26,15 @@ experimental feature in the repository.
 
 ## Canonical repository state
 
-| Area                 | State                                                                                                                                                                                                                                                                         |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Development base     | `main`, exclusively                                                                                                                                                                                                                                                           |
-| Application baseline | Exact owner candidate `b04f1c83718faf5f995aa4f0e8284a21c67d768e`: 950/950 tests and TypeScript typecheck passed; the GitHub source was built, signed, and installed upgrade-in-place on the Fold7 with current app data preserved. Physical lens acceptance remains pending   |
-| Android identity     | `versionCode 1000003`, `versionName 1.0.0-preview.3`; this identifies the next internal candidate, not a published release                                                                                                                                                    |
-| Pull requests        | One focused PR at a time, based on current `main`                                                                                                                                                                                                                             |
-| Active work          | [Issue #59](https://github.com/not-benny/hermes-g2/issues/59) only: prove the real owner Hermes loop                                                                                                                                                                          |
-| Publication          | Disabled; repository variable `PROTECTED_RELEASE_ENABLED` remains `false`                                                                                                                                                                                                     |
-| Installed identity   | The owner Fold7 has the exact `b04f1c83718faf5f995aa4f0e8284a21c67d768e` source upgrade installed, signed with the existing legacy Android development certificate. The package was updated without uninstalling or clearing app data; this is internal upgrade evidence only |
+| Area                 | State                                                                                                                                                                                                                                                                                                            |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Development base     | `main`, exclusively                                                                                                                                                                                                                                                                                              |
+| Application baseline | Public source `db6098d545ba8cd20d3cc02d3db0d975afc0fdd6`: 952/952 tests, TypeScript typecheck, dependency probes, and debug plus unsigned-production build verification passed. The functionally equivalent `b04f1c83718faf5f995aa4f0e8284a21c67d768e` source remains installed on the Fold7 with data preserved |
+| Android identity     | `versionCode 1000003`, `versionName 1.0.0-preview.3`; this identifies the next internal candidate, not a published release                                                                                                                                                                                       |
+| Pull requests        | One focused PR at a time, based on current `main`                                                                                                                                                                                                                                                                |
+| Active work          | [Issue #59](https://github.com/not-benny/hermes-g2/issues/59) only: prove the real owner Hermes loop                                                                                                                                                                                                             |
+| Publication          | Source repositories and the source-pinned installer are public. Protected APK publication remains disabled; repository variable `PROTECTED_RELEASE_ENABLED` remains `false`                                                                                                                                      |
+| Installed identity   | The owner Fold7 has the exact `b04f1c83718faf5f995aa4f0e8284a21c67d768e` source upgrade installed, signed with the existing legacy Android development certificate. The package was updated without uninstalling or clearing app data; this is internal upgrade evidence only                                    |
 
 ## Supported owner envelope
 
@@ -79,11 +79,29 @@ experimental feature in the repository.
   interpreter. The rebuilt Fold package launched and Hermes Cockpit reported
   Host MCP online. This is private owner evidence, not a public deployment or a
   physical lens acceptance claim.
+- The live private profile now runs bridge 2.1.0 at
+  `ffb3b04b3bcdb77cd400c48be91fe319cf8891f6` and workflows 0.4.0 at
+  `24c740c29ca2a6634d095473bb6dd55d6af17d3e`, with exact package digest
+  `sha256:058042b30a942a761fdbc5f934914ed4739aecb1db0cbb6958c59db9343eb674`.
+  Independent live discovery found 42 MCP tools across workflows, calendar,
+  Home Assistant, and printers, plus 13 available private built-ins. The safe
+  parked-card Kanban workflow is present; raw G2 and generic Kanban tools are
+  absent.
 - Exact GitHub source commit
   `b04f1c83718faf5f995aa4f0e8284a21c67d768e` passed 950/950 tests and
   TypeScript typecheck, then built, signed, and installed over the existing
   Fold7 package. Android retained the current app data. This proves the
   same-identity owner upgrade path, not production signing or public release.
+- Current public source commit
+  `db6098d545ba8cd20d3cc02d3db0d975afc0fdd6` passed 952/952 tests,
+  TypeScript typecheck, dependency probes, and debug plus unsigned-production
+  build verification. Its additional changes affect development dependencies,
+  so the installed app remains the functionally equivalent `b04f1c...` build.
+- The public source-pinned setup is published at
+  [`not-benny/hermes-g2-distribution`](https://github.com/not-benny/hermes-g2-distribution).
+  An independent disposable install fetched all four exact source commits,
+  installed both plugins, verified all thirteen workflow tools and the digest
+  grant, and did not start a gateway. Hermes itself remains a prerequisite.
 
 ## Implemented but not yet accepted
 
@@ -165,6 +183,10 @@ experimental feature in the repository.
   identical retries are idempotent and the profile's built-in Hermes Kanban
   toolset is disabled. Host validation is implemented, but the exact Fold7/G2
   voice-to-board hardware flow is not yet accepted.
+  A separate exact-turn workflow can create a card on an exact existing Hermes
+  Kanban board. It creates the card blocked and unassigned, never starts a
+  worker, and returns typed ambiguity, conflict, or unknown outcomes without
+  falling back to Work Tasks.
 - Fold7 unfolded, tabletop, split-screen, and TalkBack operation as a complete
   physical matrix.
 - Public-facing release mechanics. The unsigned production surface and signing
@@ -179,12 +201,10 @@ the active owner loop or exposes a security, privacy, data-loss, or hardware ris
 - R1 sleep decoding, DFU/OTA, reset, wipe, host rebinding, NVM mutation, or
   power-control commands.
 - G2 firmware flashing or recovery from a release build.
-- Public all-in-one distribution of the current app, bridge, workflow package,
-  and signing path. The bridge is now a separate Apache-2.0 publication at
-  [`not-benny/hermes-g2-bridge`](https://github.com/not-benny/hermes-g2-bridge),
-  and the portable workflow MCP remains separately published under Apache-2.0.
-  Both components are licensed for separate distribution, but app packaging,
-  production signing, containment, privacy, and support acceptance remain open.
+- A prebuilt public APK, production signing identity, Play Store release, or
+  broad compatibility/support claim. The reviewed source installer can build,
+  sign locally, verify, and use Android's data-preserving replacement path, but
+  it does not turn the owner preview into a supported production release.
   Untrusted remote rendering, HTML/CSS/script or raw-layout
   generated interfaces, arbitrary remote actions/control, raw Browser Harness
   execution, and production Home Assistant mutation remain unsupported.
@@ -221,6 +241,6 @@ installed `b04f1c83718faf5f995aa4f0e8284a21c67d768e` artifact. Verify the
 sleep-origin final result, Now Playing song-change wake and controls,
 notification card/detail return state, reminder, Clock, Work Tasks, weather,
 trains, and ring stop. Record the results on issue #59 and fix only blockers
-found by that run. Public all-in-one work remains limited to the containment,
-artifact, privacy, production-signing, and support gates documented in
+found by that run. Public release work remains limited to the remaining
+production-signing and support gates documented in
 `docs/hermes-mcp-architecture.md` and `docs/release-security.md`.

@@ -17,7 +17,9 @@ already-provisioned G2 already running the reviewed owner custom firmware, an
 optional paired R1, and one authenticated private Hermes gateway. Preview 3
 authorises no firmware flash or recovery action. The project is proving a
 dependable owner loop on that setup; public all-in-one distribution and broad
-support remain pending rather than current claims.
+support remain pending rather than current claims. A reviewed source-pinned
+setup is available for experienced operators, but it is not a production app
+release or a broad hardware-support promise.
 
 `main` is the only canonical development branch. The exact current support and
 release posture is in [`STATUS.md`](STATUS.md). The only active milestone is
@@ -39,8 +41,9 @@ authority, while component contracts live under [`docs/`](docs) and dated
 research under [`notes/`](notes).
 
 Hermes does not perform first-time pairing, provisioning, ownership transfer,
-firmware/recovery, reset, wipe, or destructive R1 operations. Public
-all-in-one distribution and production signing are not yet accepted. See
+firmware/recovery, reset, wipe, or destructive R1 operations. The public
+source installer does not change those boundaries, and production signing is
+not yet accepted. See
 `STATUS.md` for the complete current boundary.
 
 ## Before you start
@@ -80,7 +83,7 @@ partial text, tool activity, unrelated session history, or terminal fallback.
 Thinking and tool progress remain private; only the final voice Host MCP result
 may drive a glasses card.
 
-The model-facing G2 surface is a separate portable workflow MCP with twelve
+The model-facing G2 surface is a separate portable workflow MCP with thirteen
 reviewed intent-level tools. The checked-in distributable profile excludes raw
 phone discovery, arbitrary phone calls, legacy custom chat, Cockpit, and
 Companion channels, and general host toolsets. An explicitly administered
@@ -97,6 +100,9 @@ The Apache-2.0 package is maintained separately as
 [`not-benny/hermes-g2-workflows`](https://github.com/not-benny/hermes-g2-workflows).
 The phone-to-Hermes bridge is also separately public under Apache-2.0 at
 [`not-benny/hermes-g2-bridge`](https://github.com/not-benny/hermes-g2-bridge).
+The reviewed source installer, exact source locks, conservative profile, and
+optional private-owner tool consent are published at
+[`not-benny/hermes-g2-distribution`](https://github.com/not-benny/hermes-g2-distribution).
 
 These boundaries do not make the assistant data plane content-free: fulfilling
 an authorised request necessarily transmits the current utterance, requested
@@ -112,10 +118,9 @@ prompt runs when a reminder fires.
 
 Direct-provider mode remains available as a fallback and uses its own provider
 credentials. Those credentials are not used by the bridge. The private MCP-only
-cutover is operational. The separately published Apache-2.0 bridge and workflow
-packages are licensed for separate distribution, but public all-in-one
-distribution still awaits app packaging, containment, privacy,
-production-signing, and support acceptance. See
+cutover is operational. The separately published Apache-2.0 bridge, workflow,
+and source-distribution packages are operational. A production-signed Android
+release and general support still require separate acceptance. See
 [`docs/release-security.md`](docs/release-security.md) and
 [`docs/hermes-agent-cockpit.md`](docs/hermes-agent-cockpit.md).
 
@@ -165,12 +170,12 @@ never uninstalls the current app or clears its data:
 
 ```bash
 ./scripts/build-sign-install-from-github.sh \
-  --ref fix/mcp-glasses-reliability \
+  --ref db6098d545ba8cd20d3cc02d3db0d975afc0fdd6 \
   --serial YOUR_ADB_SERIAL
 ```
 
-The branch above is the current default; pass a full commit SHA with `--ref`
-for a repeatable build. `--adb-port` supports a non-default ADB server. Use
+Pass a full commit SHA with `--ref` for a repeatable build. `--adb-port`
+supports a non-default ADB server. Use
 `--build-only` (or `--no-install`) to produce and verify the signed APK while no
 phone is connected. The helper requires the repository-pinned Android SDK
 build-tools 35.0.1 and NDK 27.2.12479018. It honors a JDK 21 `JAVA_HOME`, or
@@ -192,6 +197,12 @@ typecheck passed, then the source was built, signed with the existing owner
 identity, and installed upgrade-in-place on the Fold7 with current app data
 preserved. This is owner-install evidence, not physical lens acceptance,
 production signing, or a public all-in-one release claim.
+
+The current public source head
+`db6098d545ba8cd20d3cc02d3db0d975afc0fdd6` additionally passed 952/952
+tests, TypeScript typecheck, dependency security probes, and debug plus
+unsigned-production build verification. Those final dependency-only changes
+did not require replacing the already-installed APK.
 
 See [`DEVELOPMENT.md`](DEVELOPMENT.md) for repository layout, safety rules,
 focused tests, and authorised-device commands.
