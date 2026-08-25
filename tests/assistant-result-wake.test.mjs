@@ -459,9 +459,10 @@ test("shell and controller wire confirmed-current wear through transactional str
   assert.match(sleep, /markCloseReason\("sleep"\)/);
   assert.match(sleep, /this\.stack\.clearToBase\(\)/);
   assert.match(sleep, /suppressDirectNotificationOpportunity = true/);
+  const opportunityStart = shell.indexOf("private notifyDirectNotificationOpportunity");
   const opportunity = shell.slice(
-    shell.indexOf("private notifyDirectNotificationOpportunity"),
-    shell.indexOf("retryPendingAssistantResult"),
+    opportunityStart,
+    shell.indexOf("retryPendingAssistantResult", opportunityStart),
   );
   assert.match(opportunity, /this\.screenOn && !this\.suppressDirectNotificationOpportunity/);
   assert.match(alert, /onRemoved:\s*\(\) => this\.notifyDirectNotificationOpportunity\(\)/,

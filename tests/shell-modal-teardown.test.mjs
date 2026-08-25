@@ -32,12 +32,16 @@ async function loadNotificationModalCloseHarness() {
   const shell = read("app/ui/shell/shell.ts");
   const ownershipStart = shell.indexOf("export class NotificationModalWakeOwnership");
   const ownershipEnd = shell.indexOf("\nclass Shell {", ownershipStart);
+  const clockStart = shell.indexOf("async showClockAlert(");
+  const clockEnd = shell.indexOf("\n  isClockAlertVisible", clockStart);
   const closeStart = shell.indexOf("private closeNotificationModal");
   const closeEnd = shell.indexOf("\n  /** Called by a window", closeStart);
   assert.ok(ownershipStart >= 0 && ownershipEnd > ownershipStart,
     "notification modal wake ownership source is present");
   assert.ok(closeStart >= 0 && closeEnd > closeStart,
     "notification modal close source is present");
+  assert.ok(clockStart >= 0 && clockEnd > clockStart,
+    "Clock presentation lifecycle source is present");
   const source = `
     const G2_LENS_WIDTH = 640;
     const G2_LENS_HEIGHT = 480;
@@ -46,22 +50,40 @@ async function loadNotificationModalCloseHarness() {
     const appViewportSize = () => ({ width: 568, height: 232 });
     const appViewportRect = () => ({ x: 72, y: 56, width: 568, height: 232 });
     const SHELL_OPAQUE_BLACK = 1;
+    class ClockAlertLayer {
+      constructor(state) { this.state = state; }
+      update(state) { this.state = state; }
+      bumpDeliveryNonce() {}
+      paint() { return new GrayImage(); }
+      handleInput() {}
+    }
     ${withoutImports(read("app/ui/layers.ts"))}
     ${shell.slice(ownershipStart, ownershipEnd)}
     class NotificationModalCloseHarness {
       sleeps = 0;
       renders = 0;
+      screenOn = true;
+      musicCardPresentationPending = null;
+      notificationCardPresentationPending = null;
+      notificationModalPresentationPending = null;
+      clockAlertLayer = null;
+      assistantResultWakeOwnership = { invalidate: () => {} };
       constructor(activityRevision) {
         this.activityRevision = activityRevision;
         this.notificationModalWakeOwnership = new NotificationModalWakeOwnership();
         this.config = { requestShellRender: () => { this.renders++; } };
         this.stack = new LayerStack({ paint: () => new GrayImage(), handleInput: () => {} }, noopLayerActions);
       }
+      restartScreenTimeout() {}
+      wake() { this.screenOn = true; return true; }
       sleep() {
         this.sleeps++;
+        this.screenOn = false;
+        this.notificationModalWakeOwnership.clear();
         this.stack.clearToBase();
       }
       flushDeferredAssistantUi() {}
+      ${shell.slice(clockStart, clockEnd)}
       ${shell.slice(closeStart, closeEnd)}
     }
     export { NotificationModalCloseHarness };
@@ -76,8 +98,19 @@ async function loadOpenNotificationModalHarness() {
   const shell = read("app/ui/shell/shell.ts");
   const start = shell.indexOf("async openNotificationModal(");
   const end = shell.indexOf("\n  async openNotificationDigest(", start);
+  const ownershipStart = shell.indexOf("export class NotificationModalWakeOwnership");
+  const ownershipEnd = shell.indexOf("\nclass Shell {", ownershipStart);
+  const closeStart = shell.indexOf("private closeNotificationModal");
+  const closeEnd = shell.indexOf("\n  /** Called by a window", closeStart);
+  const remoteStart = shell.indexOf("async showRemoteView(");
+  const remoteEnd = shell.indexOf("\n  clearRemoteView", remoteStart);
+  const dynamicStart = shell.indexOf("async showDynamicApp(");
+  const dynamicEnd = shell.indexOf("\n  clearDynamicApp", dynamicStart);
   assert.ok(start >= 0 && end > start, "notification modal method source is present");
   const source = `
+    const isSuccessfulFrameOutcome = (outcome) =>
+      typeof outcome === "string" && outcome.startsWith("sent");
+    ${shell.slice(ownershipStart, ownershipEnd)}
     class SingleNotificationLayer {
       constructor(key, options) { this.key = key; this.options = options; }
     }
@@ -93,9 +126,17 @@ async function loadOpenNotificationModalHarness() {
       musicCard = null;
       musicCardWokeScreen = false;
       musicCardPresentationPending = null;
+      notificationModalPresentationPending = null;
       assistantResultWakeOwnership = { invalidate: () => {} };
-      notificationModalWakeOwnership = { claim: () => {} };
+      notificationModalWakeOwnership = new NotificationModalWakeOwnership();
+      notificationCard = null;
+      notificationCardPresentationPending = null;
+      assistantOnlyPresentation = false;
+      remoteViewLayer = null;
+      dynamicAppLayer = null;
+      clockAlertLayer = null;
       timeoutRestarts = 0;
+      sleeps = 0;
       constructor(config) {
         this.config = config;
         this.stack = {
@@ -117,12 +158,29 @@ async function loadOpenNotificationModalHarness() {
             const top = this.stack.layers.at(-1);
             return Boolean(top && predicate(top));
           },
+          insertBefore: (layer, cover) => {
+            if (this.stack.layers.includes(layer)) return false;
+            const index = this.stack.layers.indexOf(cover);
+            if (index < 0) return false;
+            this.stack.layers.splice(index, 0, layer);
+            return true;
+          },
         };
       }
       restartScreenTimeout() { this.timeoutRestarts++; }
-      closeNotificationModal(modal) { this.stack.remove(modal); }
+      sleep() {
+        this.sleeps++;
+        this.screenOn = false;
+        this.notificationModalWakeOwnership.clear();
+        this.stack.layers = [];
+      }
+      flushDeferredAssistantUi() {}
+      hasOpaqueCardPresentation() { return false; }
       releaseMusicCardPresentationIsolation() { return Promise.resolve(false); }
       ${shell.slice(start, end)}
+      ${shell.slice(closeStart, closeEnd)}
+      ${shell.slice(remoteStart, remoteEnd)}
+      ${shell.slice(dynamicStart, dynamicEnd)}
     }
     export { OpenNotificationModalHarness };
   `;
@@ -282,6 +340,39 @@ test("only an exact top notification modal with an unclaimed wake may sleep the 
     "digest has one close callback and one failure close, without duplicate teardown");
 });
 
+test("Clock coverage preserves a sleep-origin notification modal's exact wake", async () => {
+  const { NotificationModalCloseHarness } = await loadNotificationModalCloseHarness();
+  const subject = new NotificationModalCloseHarness(1);
+  const modal = inertLayer();
+  subject.stack.push(modal);
+  subject.notificationModalWakeOwnership.claim(modal);
+
+  assert.equal(await subject.showClockAlert({ mode: "ringing" }), true);
+  const clock = subject.clockAlertLayer;
+  assert.equal(subject.stack.topMatches((layer) => layer === clock), true,
+    "Clock is authoritative while it rings");
+  subject.closeClockAlert();
+  assert.equal(subject.stack.topMatches((layer) => layer === modal), true,
+    "closing Clock re-exposes the exact modal rather than the HUD");
+  subject.closeNotificationModal(modal);
+  assert.equal(subject.sleeps, 1,
+    "dismissing the re-exposed modal restores its preceding sleep state");
+
+  const pending = new NotificationModalCloseHarness(2);
+  pending.notificationModalPresentationPending = inertLayer();
+  assert.equal(await pending.showClockAlert({ mode: "ringing" }), false,
+    "Clock retries instead of superseding an in-flight strict modal");
+  assert.equal(pending.clockAlertLayer, null);
+
+  const shell = read("app/ui/shell/shell.ts");
+  const showClock = shell.slice(
+    shell.indexOf("async showClockAlert("),
+    shell.indexOf("closeClockAlert", shell.indexOf("async showClockAlert(")),
+  );
+  assert.doesNotMatch(showClock, /notificationModalWakeOwnership\.clear\(\)/);
+  assert.match(showClock, /notificationModalPresentationPending/);
+});
+
 test("notification modal drains the wake repaint before strict installation", async () => {
   const { OpenNotificationModalHarness } = await loadOpenNotificationModalHarness();
   let releaseDrain;
@@ -360,6 +451,73 @@ test("notification modal strict delivery is revoked by the authoritative lock ga
   releaseStrict();
   assert.equal(await pending, false);
   assert.equal(subject.stack.layers.length, 0, "revoked detail is removed instead of retained behind lock");
+});
+
+test("an unresolved sleep-origin notification modal excludes remote and dynamic strict presenters", async () => {
+  const { OpenNotificationModalHarness } = await loadOpenNotificationModalHarness();
+  let releaseStrict;
+  const strict = new Promise((resolve) => { releaseStrict = resolve; });
+  let deliveries = 0;
+  const subject = new OpenNotificationModalHarness({
+    actions: {},
+    requestShellDelivery: async (isOwner) => {
+      deliveries++;
+      assert.equal(isOwner(), true);
+      await strict;
+      return { frameId: 12, outcome: "sent tiles" };
+    },
+    requestShellRender: () => {},
+  });
+  const notification = {
+    key: "notification-pending",
+    title: "Pending",
+    lines: [],
+    actions: [],
+  };
+  const opening = subject.openNotificationModal(
+    notification.key,
+    "revision-pending",
+    true,
+    notification,
+    "default immediate",
+    true,
+  );
+  await Promise.resolve();
+  const modal = subject.stack.layers[0];
+  assert.equal(subject.notificationModalPresentationPending, modal);
+
+  await assert.rejects(
+    subject.showRemoteView(
+      { viewId: "blocked-remote", revision: 1 },
+      undefined,
+      undefined,
+      () => false,
+      () => {},
+    ),
+    /notification modal is awaiting delivery/i,
+  );
+  await assert.rejects(
+    subject.showDynamicApp(
+      { viewId: "blocked-dynamic", revision: 1, title: "Blocked", components: [], scrollOffset: 0 },
+      undefined,
+      undefined,
+      () => false,
+      () => {},
+    ),
+    /notification modal is awaiting delivery/i,
+  );
+  assert.equal(deliveries, 1, "neither rejected presenter starts a competing strict send");
+  assert.equal(subject.stack.layers.length, 1);
+  assert.equal(subject.stack.layers[0], modal, "the pending modal remains the exact stack owner");
+  assert.equal(subject.remoteViewLayer, null);
+  assert.equal(subject.dynamicAppLayer, null);
+
+  releaseStrict();
+  assert.equal(await opening, true);
+  assert.equal(subject.notificationModalPresentationPending, null);
+  subject.closeNotificationModal(modal);
+  assert.equal(subject.sleeps, 1,
+    "the eventually acknowledged modal still returns to its preceding sleep state");
 });
 
 test("a presented notification snapshot survives live source replacement or removal", async () => {
