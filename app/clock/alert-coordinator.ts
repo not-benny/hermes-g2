@@ -222,6 +222,32 @@ export class ClockAlertCoordinator {
     return this.timeline.size() > 0 || this.audioSessionActive;
   }
 
+  /**
+   * Atomically retire terminal Clock feedback before a foreground surface
+   * replaces it. Active timeline/audio ownership always wins. The caller owns
+   * detaching the already-installed visual without an intermediate repaint.
+   */
+  releaseTerminalVisualForForeground(): boolean {
+    if (this.ownsBuzzer()) return false;
+    const snapshot = this.safeSnapshot();
+    // A newly due occurrence can be durable for one microtask before the
+    // timeline projection sees it. Treat that edge as active too.
+    if (snapshot.occurrences.some((occurrence) => occurrence.status === "pending")) return false;
+    // Invalidate a strict showVisual continuation and cancel its 5 s retry
+    // before dismissing durable silent receipts. Otherwise a failed terminal
+    // frame can immediately reclaim the display after the foreground arrives.
+    this.cancellationEpoch++;
+    this.clearPhaseTimer();
+    for (const occurrence of snapshot.occurrences) {
+      if (occurrence.status === "silent") this.dismissOccurrence(occurrence);
+    }
+    this.dismissWhenSilent.clear();
+    this.visualSuppressedIds.clear();
+    this.summary = null;
+    this.visualSignature = null;
+    return true;
+  }
+
   private queueReconcile(reason: string): void {
     this.queue(async () => {
       if (!this.started) return;

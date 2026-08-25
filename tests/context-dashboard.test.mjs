@@ -8,10 +8,16 @@ const layoutSource = readFileSync(new URL("../app/assistant/dynamic-app-layout.t
 const source = readFileSync(new URL("../app/assistant/context-dashboard.ts", import.meta.url), "utf8")
   .replace('import type { ToolExecutionContext, ToolResult } from "./tool-registry";', "")
   .replace(/import \{\n  DYNAMIC_APP_DECK_COMPONENT_BUDGET,\n  DYNAMIC_APP_SMALL_LINE_HEIGHT,\n  dynamicAppComponentHeight,\n\} from "\.\/dynamic-app-layout";\n/, "");
+const shellSource = readFileSync(new URL("../app/ui/shell/shell.ts", import.meta.url), "utf8");
 const js = ts.transpileModule(`${layoutSource}\n${source}`, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
 }).outputText;
-const { ContextDashboardManager, validateContextDashboardSpec, CONTEXT_DASHBOARD_CAPABILITIES } = await import(
+const {
+  ContextDashboardManager,
+  validateContextDashboardSpec,
+  CONTEXT_DASHBOARD_CAPABILITIES,
+  mapContextDashboardShellBlocker,
+} = await import(
   "data:text/javascript;base64," + Buffer.from(js).toString("base64")
 );
 
@@ -353,6 +359,46 @@ test("atomic present installs exactly one terminal final card and rejects interm
   });
   assert.equal((await failed.present({ ...args, operation_id: "atomic-failed" }, undefined, () => true, owner)).ok, false);
   assert.equal(failed.snapshot(), null);
+});
+
+test("atomic presentation exposes only exact known display-busy refusals", async () => {
+  const args = {
+    operation_id: "atomic-display-busy",
+    intent: "Show the next Liverpool departure",
+    refresh_policy: { mode: "manual", min_interval_seconds: 30 },
+    regeneration: "self_contained_intent",
+    spec: deckSpec,
+  };
+  const cases = [
+    [
+      "An active Clock alert owns the glasses display; no dynamic app was sent.",
+      "clock_alert_active",
+      "The glasses display is busy with an active Clock alert.",
+    ],
+    [
+      "The assistant voice presentation owns the display; no dynamic app was sent.",
+      "assistant_presentation_active",
+      "The glasses display is busy with another assistant presentation.",
+    ],
+  ];
+  for (const [shellMessage, errorCode, publicMessage] of cases) {
+    const manager = new ContextDashboardManager({
+      isDisplayAvailable: () => true,
+      createId: () => `displaybusy${errorCode.replaceAll("_", "")}`,
+      deliver: async () => { throw mapContextDashboardShellBlocker(new Error(shellMessage)); },
+      clear: () => {}, loadPins: () => [], savePins: () => {}, setTimer: () => 1, clearTimer: () => {},
+    });
+    const denied = await manager.present({ ...args, operation_id: `busy-${errorCode}` }, undefined, () => true, owner);
+    assert.equal(denied.ok, false);
+    assert.deepEqual(JSON.parse(denied.error), {
+      status: "rejected", error_code: errorCode, error: publicMessage,
+    });
+    assert.equal(manager.snapshot(), null);
+  }
+
+  const privateFailure = new Error("private provider detail");
+  assert.equal(mapContextDashboardShellBlocker(privateFailure), privateFailure);
+  for (const [shellMessage] of cases) assert.ok(shellSource.includes(`throw new Error("${shellMessage}")`));
 });
 
 test("an ordinary model-known answer becomes a pinnable interface without an app, adapter, or API", async () => {

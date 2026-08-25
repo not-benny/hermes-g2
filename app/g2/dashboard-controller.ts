@@ -234,6 +234,17 @@ class DashboardController {
   private evenAppReleasePollTimer: ReturnType<typeof setInterval> | null = null;
   private evenHubSessionSuspended = false;
   private evenHubResumePromise: Promise<boolean> | null = null;
+  /** Combined compositor isolation prevents assistant/music leases restoring through each other. */
+  private assistantOnlySurfaceIsolationActive = false;
+  private musicCardPresentationSequence = 0;
+  private musicCardPresentationLease: {
+    id: number;
+    communicator: FaceclawCommunicatorBridge;
+  } | null = null;
+  private musicCardPresentationRelease: {
+    lease: { id: number; communicator: FaceclawCommunicatorBridge };
+    promise: Promise<void>;
+  } | null = null;
   /** Inhibits the normal five-second suspend while Clock owns the buzzer. */
   private clockAlertSessionLeaseActive = false;
   private clockAlertAudioOnlySession = false;
@@ -350,14 +361,20 @@ class DashboardController {
       },
       getScreenTimeoutMs: () => screenTimeoutSettingToMs(screenTimeoutSetting.get()),
       requestShellRender: () => this.requestShellRender(),
-      requestShellDelivery: (isAllowed) => this.requestShellDelivery(isAllowed),
+      requestShellDelivery: (isAllowed, requireSent) =>
+        this.requestShellDelivery(isAllowed, requireSent),
       waitForShellRenderIdle: () => this.waitForShellRenderIdle(),
       isDisplayAvailable: () => this.isDisplayAvailable(),
       isAssistantResultPresentationAllowed: () => this.isAssistantResultPresentationAllowed(),
+      releaseTerminalClockAlertVisual: () =>
+        clockAlertCoordinator.releaseTerminalVisualForForeground(),
       isDirectAssistantResultPresentationAllowed: () => this.isDirectAssistantResultPresentationAllowed(),
       prepareAssistantResultDisplay: (isAllowed) => this.prepareAssistantResultDisplay(isAllowed),
       prepareIsolatedAssistantResultDisplay: (isAllowed) => this.beginAssistantResultDisplay(isAllowed),
       prepareDirectAssistantResultDisplay: (isAllowed) => this.beginDirectAssistantResultDisplay(isAllowed),
+      prepareMusicCardDisplay: (isAllowed) => this.prepareMusicCardDisplay(isAllowed),
+      revealMusicCardDisplay: (isAllowed) => this.revealMusicCardDisplay(isAllowed),
+      releaseMusicCardPresentationIsolation: () => this.releaseMusicCardPresentationIsolation(),
       // The shell callback is emitted by layer removal too. Keep it distinct
       // from controller-owned lifecycle recovery so a failed strict card's
       // own teardown cannot immediately flash-loop itself.
@@ -373,13 +390,8 @@ class DashboardController {
         // App windows are opaque compositor surfaces. Hide every retained
         // window while the shell is showing the isolated voice dialogue; on
         // release, restore only the shell's current foreground window.
-        const foregroundId = shell.foregroundWindow()?.windowId;
-        for (const window of shell.getWindows()) {
-          this.setWindowSurfaceVisible(
-            window.surfaceId,
-            !active && window.windowId === foregroundId,
-          );
-        }
+        this.assistantOnlySurfaceIsolationActive = active;
+        this.applyRetainedWindowSurfaceIsolation();
       },
     });
     // Boot hooks register windows that exist from startup (the launcher,
@@ -521,6 +533,10 @@ class DashboardController {
     if (on) {
       this.cancelEvenHubSuspendTimer();
       directNotificationInbox.retryPresentation();
+      // Now Playing owns a dedicated blanked-session transaction. Its retained
+      // card must be primed before the only unblank; the generic wake barrier
+      // would otherwise reveal whichever compositor frame happened to win.
+      if (this.musicCardPresentationLease) return;
       if (clockAlertCoordinator.ownsBuzzer() && this.glassesWorn !== true) {
         // A manual wake while an off-head/unknown campaign is sounding remains
         // audio-only; do not let the retained HUD leak onto unattended lenses.
@@ -715,6 +731,12 @@ class DashboardController {
    * same operation.
    */
   private ensureEvenHubSessionActive(): Promise<boolean> {
+    // Now Playing owns the sole allowed unblank while its retained opaque card
+    // is being primed/proved. Every other wake source funnels through this
+    // barrier, so fail fast instead of exposing an older retained shell frame.
+    if (this.musicCardPresentationLease || this.musicCardPresentationRelease) {
+      return Promise.resolve(false);
+    }
     if (this.evenHubResumePromise) return this.evenHubResumePromise;
     const communicator = this.communicator;
     if (!communicator || this.phase === "charging" || this.phase === "disconnected") {
@@ -755,6 +777,151 @@ class DashboardController {
     return operation;
   }
 
+  /**
+   * Acquire Now Playing's dedicated compositor lease while the shell is still
+   * logically asleep. Blanking is asserted before screen power/session resume,
+   * and every opaque app-surface hide is awaited before the shell may prime its
+   * retained card frame.
+   */
+  private async prepareMusicCardDisplay(isAllowed: () => boolean): Promise<boolean> {
+    if (
+      this.musicCardPresentationLease ||
+      this.musicCardPresentationRelease ||
+      this.evenHubResumePromise ||
+      !isAllowed() ||
+      clockAlertCoordinator.ownsBuzzer()
+    ) return false;
+    const communicator = this.communicator;
+    if (!communicator || this.phase !== "connected") return false;
+    const lease = {
+      id: ++this.musicCardPresentationSequence,
+      communicator,
+    };
+    this.musicCardPresentationLease = lease;
+    this.cancelEvenHubSuspendTimer();
+    const ownsLease = () =>
+      this.musicCardPresentationLease === lease &&
+      this.communicator === communicator &&
+      this.phase === "connected" &&
+      isAllowed();
+    try {
+      // Set compositor state first: powering/resuming can immediately replay
+      // retained content, so black must already be the desired composite.
+      await communicator.setScreenBlanked(true);
+      if (!ownsLease()) return false;
+      await communicator.setG2ScreenOn(true);
+      if (!ownsLease() || !(await communicator.resumeEvenHubSession())) return false;
+      // Page recreation can replay retained state; reassert black afterward.
+      await communicator.setScreenBlanked(true);
+      if (!ownsLease()) return false;
+      const sessionReady = await this.awaitEvenHubSessionReadyWithoutBlocking(
+        communicator,
+        EVENHUB_WAKE_READY_TIMEOUT_MS,
+      );
+      if (!sessionReady || !ownsLease()) return false;
+      this.evenHubSessionSuspended = false;
+      if (!(await this.setRetainedWindowSurfaceIsolation(communicator, true)) || !ownsLease()) {
+        return false;
+      }
+      return true;
+    } catch (error) {
+      this.appendLog(`Now Playing blanked-session preparation failed: ${this.formatError(error)}`);
+      return false;
+    }
+  }
+
+  /** Reveal only the compositor state primed under the exact current lease. */
+  private async revealMusicCardDisplay(isAllowed: () => boolean): Promise<boolean> {
+    const lease = this.musicCardPresentationLease;
+    if (!lease || !isAllowed()) return false;
+    const communicator = lease.communicator;
+    if (this.communicator !== communicator || this.phase !== "connected") return false;
+    try {
+      await communicator.setScreenBlanked(false);
+      return this.musicCardPresentationLease === lease &&
+        this.communicator === communicator &&
+        this.phase === "connected" &&
+        isAllowed();
+    } catch (error) {
+      this.appendLog(`Now Playing reveal failed: ${this.formatError(error)}`);
+      return false;
+    }
+  }
+
+  /**
+   * Release only the exact active music lease. The promise is shared so a
+   * dismiss racing strict delivery cannot perform two restore/unblank passes.
+   */
+  private releaseMusicCardPresentationIsolation(): Promise<void> {
+    if (this.musicCardPresentationRelease) {
+      return this.musicCardPresentationRelease.promise;
+    }
+    const lease = this.musicCardPresentationLease;
+    if (!lease) return Promise.resolve();
+    const promise = (async () => {
+      if (this.musicCardPresentationLease !== lease) return;
+      // Clear exact ownership before recomputing combined isolation. The shell
+      // still retains its card identity until this callback resolves, so a new
+      // music transaction cannot enter in this interval.
+      this.musicCardPresentationLease = null;
+      const communicator = lease.communicator;
+      try {
+        if (this.communicator !== communicator || this.phase !== "connected") return;
+        if (!shell.isScreenOn()) await communicator.setScreenBlanked(true);
+        await this.setRetainedWindowSurfaceIsolation(
+          communicator,
+          this.assistantOnlySurfaceIsolationActive || this.musicCardPresentationLease !== null,
+        );
+        if (this.communicator !== communicator || this.phase !== "connected") return;
+        if (shell.isScreenOn()) {
+          await communicator.setScreenBlanked(false);
+        } else {
+          await communicator.setScreenBlanked(true);
+          await communicator.setG2ScreenOn(false);
+        }
+      } catch (error) {
+        this.appendLog(`Now Playing isolation release failed: ${this.formatError(error)}`);
+      } finally {
+        if (!shell.isScreenOn()) this.scheduleEvenHubSuspend();
+      }
+    })();
+    this.musicCardPresentationRelease = { lease, promise };
+    void promise.finally(() => {
+      if (this.musicCardPresentationRelease?.lease === lease) {
+        this.musicCardPresentationRelease = null;
+        if (!shell.isScreenOn()) this.scheduleEvenHubSuspend();
+      }
+    });
+    return promise;
+  }
+
+  /** Fire-and-forget reconciliation for the long-lived assistant-only lease. */
+  private applyRetainedWindowSurfaceIsolation(): void {
+    const communicator = this.communicator;
+    if (!communicator || this.phase !== "connected") return;
+    const isolated = this.assistantOnlySurfaceIsolationActive ||
+      this.musicCardPresentationLease !== null;
+    void this.setRetainedWindowSurfaceIsolation(communicator, isolated).catch((error) => {
+      this.appendLog(`surface isolation update failed: ${this.formatError(error)}`);
+    });
+  }
+
+  /** Await every compositor visibility mutation at the serialized Java boundary. */
+  private async setRetainedWindowSurfaceIsolation(
+    communicator: FaceclawCommunicatorBridge,
+    isolated: boolean,
+  ): Promise<boolean> {
+    const foregroundId = shell.foregroundWindow()?.windowId;
+    for (const window of shell.getWindows()) {
+      if (this.communicator !== communicator || this.phase !== "connected") return false;
+      await communicator.setSurfaceVisible(
+        window.surfaceId,
+        !isolated && window.windowId === foregroundId,
+      );
+    }
+    return this.communicator === communicator && this.phase === "connected";
+  }
+
   /** Poll the zero-wait Java barrier so ring events remain serviceable. */
   private async awaitEvenHubSessionReadyWithoutBlocking(
     communicator: FaceclawCommunicatorBridge,
@@ -777,6 +944,12 @@ class DashboardController {
   private async prepareClockAlertSession(visual: boolean): Promise<boolean> {
     const communicator = this.communicator;
     if (!communicator || this.phase !== "connected") return false;
+    if (
+      visual &&
+      (shell.isMusicCardPresentationPending() ||
+        this.musicCardPresentationLease !== null ||
+        this.musicCardPresentationRelease !== null)
+    ) return false;
     this.clockAlertSessionLeaseActive = true;
     this.clockAlertAudioOnlySession = !visual;
     this.cancelEvenHubSuspendTimer();
@@ -838,6 +1011,14 @@ class DashboardController {
 
   /** Prove the exact opaque Clock layer after it is installed, then unblank. */
   private async showClockAlertVisual(state: ClockAlertVisualState): Promise<boolean> {
+    // Do not start Clock's independent wake barrier through a compositor-black
+    // music transaction. Returning false preserves the active Clock campaign;
+    // its coordinator retries the visual after the short music lease settles.
+    if (
+      shell.isMusicCardPresentationPending() ||
+      this.musicCardPresentationLease !== null ||
+      this.musicCardPresentationRelease !== null
+    ) return false;
     const delivery = shell.showClockAlert(state);
     const ready = await this.ensureEvenHubSessionActive();
     if (!ready) return false;
@@ -1024,7 +1205,9 @@ class DashboardController {
       this.phase !== "connected" ||
       !this.communicator ||
       this.evenHubSessionSuspended ||
-      this.clockAlertSessionLeaseActive
+      this.clockAlertSessionLeaseActive ||
+      this.musicCardPresentationLease !== null ||
+      this.musicCardPresentationRelease !== null
     ) {
       return;
     }
@@ -1037,7 +1220,9 @@ class DashboardController {
         shell.isScreenOn() ||
         this.phase !== "connected" ||
         this.communicator !== communicator ||
-        this.clockAlertSessionLeaseActive
+        this.clockAlertSessionLeaseActive ||
+        this.musicCardPresentationLease !== null ||
+        this.musicCardPresentationRelease !== null
       ) {
         return;
       }
@@ -1058,7 +1243,9 @@ class DashboardController {
           shell.isScreenOn() ||
           this.phase !== "connected" ||
           this.communicator !== communicator ||
-          this.clockAlertSessionLeaseActive
+          this.clockAlertSessionLeaseActive ||
+          this.musicCardPresentationLease !== null ||
+          this.musicCardPresentationRelease !== null
         ) {
           return;
         }
@@ -2466,7 +2653,10 @@ class DashboardController {
   }
 
   /** Strict shell delivery used only by user-visible remote operations. */
-  private requestShellDelivery(isAllowed?: () => boolean): Promise<{ frameId: number; outcome: string }> {
+  private requestShellDelivery(
+    isAllowed?: () => boolean,
+    requireSent = Boolean(isAllowed),
+  ): Promise<{ frameId: number; outcome: string }> {
     if (isAllowed && !isAllowed()) return Promise.reject(new Error("The shell operation is no longer current."));
     if (this.shellRenderInProgress) {
       // Strict alert owners cannot share the ordinary coalesced receipt: a
@@ -2475,7 +2665,7 @@ class DashboardController {
       const prior = this.shellRenderPromise ?? Promise.resolve({ frameId: 0, outcome: "discarded: no render" });
       return prior.catch(() => undefined).then(() => {
         if (isAllowed && !isAllowed()) throw new Error("The shell operation is no longer current.");
-        return this.requestShellDelivery(isAllowed);
+        return this.requestShellDelivery(isAllowed, requireSent);
       });
     }
     this.shellRenderInProgress = true;
@@ -2484,7 +2674,7 @@ class DashboardController {
       try {
         this.shellRenderQueued = false;
         if (isAllowed) {
-          receipt = await this.renderShell(isAllowed);
+          receipt = await this.renderShell(isAllowed, requireSent);
         } else {
           do {
             this.shellRenderQueued = false;
@@ -2507,8 +2697,10 @@ class DashboardController {
     return this.shellRenderPromise;
   }
 
-  private async renderShell(isAllowed?: () => boolean): Promise<{ frameId: number; outcome: string }> {
-    const requireSent = Boolean(isAllowed);
+  private async renderShell(
+    isAllowed?: () => boolean,
+    requireSent = Boolean(isAllowed),
+  ): Promise<{ frameId: number; outcome: string }> {
     const trackedFrameEpoch = this.trackedShellFrameEpoch;
     const frameId = frameTimings.startFrame("render:shell");
     const wantFreshData = this.nextShellRenderWantsFreshData;
@@ -2621,18 +2813,12 @@ class DashboardController {
     }
     this.lastMediaTrackKey = mediaTrackKey(settled);
 
-    const wokeScreen = shell.isScreenOn() ? false : shell.wake("sidebar");
-    if (wokeScreen) {
-      const ready = await this.ensureEvenHubSessionActive();
-      if (!ready) this.appendLog("EvenHub wake barrier timed out for music card");
-      if (!shell.isScreenOn()) return; // user/idle raced us to OFF during the await
-    }
-    const shown = shell.openMusicCard(wokeScreen);
-    if (!shown && wokeScreen) {
-      shell.sleep(); // another overlay refused the card -> hand the screen back
-      return;
-    }
-    this.requestShellRender();
+    // Shell installs the opaque card and hides retained app surfaces while the
+    // screen is still off. It then owns wake, readiness, exact frame ACK, and
+    // rollback as one identity-bound transaction, so no retained HUD frame can
+    // appear between this event and Now Playing.
+    const shown = await shell.openMusicCard();
+    if (!shown) this.appendLog("Now Playing card could not be acknowledged safely");
   }
 
   private clearMediaCardDebounce(): void {

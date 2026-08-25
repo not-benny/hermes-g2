@@ -24,6 +24,7 @@ import {
   type PaintBelow,
 } from "../layers";
 import { SHELL_OPAQUE_BLACK } from "./geometry";
+import { strictDeliveryMarkerGray } from "./strict-delivery-marker";
 
 const CARD_X = 0;
 const CARD_W = 640;
@@ -138,6 +139,7 @@ function formatMediaTime(milliseconds: number): string {
 }
 
 export class MusicCardLayer implements Layer {
+  private deliveryNonce = 0;
   private phase: Phase = "dropping";
   private animStart = Date.now();
   private ticking = false;
@@ -147,13 +149,32 @@ export class MusicCardLayer implements Layer {
   private artKey = "";
   private readonly skip = new SkipConfirm(SKIP_CONFIRM_MS);
   private offMedia: (() => void) | null = null;
+  private presentationStarted = false;
 
-  constructor(private readonly options: MusicCardOptions) {
-    this.startAnimTicker(); // begin the drop immediately
+  constructor(private readonly options: MusicCardOptions) {}
+
+  /**
+   * Begin painting only after the shell has installed this exact layer and
+   * acquired its blanked compositor lease. Construction itself must be inert:
+   * an eager ticker can otherwise queue the retained HUD before isolation.
+   */
+  startPresentation(): void {
+    if (this.presentationStarted) return;
+    this.presentationStarted = true;
+    // Prime a complete, recognizable Now Playing card as the retained frame.
+    // The old drop animation began fully off-screen, so compositor unblank
+    // could expose a marker-only/black frame before the actual card.
+    this.animStart = Date.now() - DROP_MS;
     // Repaint when playback state flips (play/pause) or metadata changes, so the
     // middle glyph and seek position track the live state rather than a stale
     // snapshot taken right after a tap (playPause resolves before the flip lands).
     this.offMedia = mediaControllerBridge.onStateChange(() => this.options.actions.requestRender());
+    this.startAnimTicker();
+  }
+
+  /** Force an imperceptible wire-frame change for one exact strict receipt. */
+  bumpDeliveryNonce(): void {
+    this.deliveryNonce++;
   }
 
   paint(ctx: LayerContext, _paintBelow: PaintBelow): GrayImage {
@@ -193,6 +214,7 @@ export class MusicCardLayer implements Layer {
       drawPlayGlyph(image, MIDDLE_X, top + GLYPH_Y, GLYPH, 220);
     }
     drawNextGlyph(image, NEXT_X, top + GLYPH_Y, GLYPH, this.skip.armed(1, now) ? 255 : 200);
+    image.setPixel(width - 1, height - 1, strictDeliveryMarkerGray(this.deliveryNonce));
 
     return image;
   }

@@ -39,7 +39,7 @@ test("ordinary shell render bursts coalesce while strict deliveries keep separat
   assert.match(dashboardTs, /const outcome = await communicator\.waitForFrameFinished/);
   assert.match(dashboardTs, /isSuccessfulFrameOutcome\(outcome\)/);
   assert.match(dashboardTs, /return \(this\.shellRenderPromise \?\? Promise\.resolve\(\)\)\.catch\(\(\) => undefined\)/);
-  assert.match(dashboardTs, /if \(isAllowed\) \{[\s\S]*?await this\.renderShell\(isAllowed\);/);
+  assert.match(dashboardTs, /if \(isAllowed\) \{[\s\S]*?await this\.renderShell\(isAllowed, requireSent\);/);
   assert.match(dashboardTs, /if \(isAllowed && this\.shellRenderQueued\) \{[\s\S]*?void this\.requestShellRender\(\);/);
   assert.match(
     displayFrameOutcomesTs,

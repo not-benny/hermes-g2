@@ -91,6 +91,7 @@ async function loadOpenNotificationModalHarness() {
       screenWakeActivityRevision = 1;
       musicCard = null;
       musicCardWokeScreen = false;
+      musicCardPresentationPending = null;
       assistantResultWakeOwnership = { invalidate: () => {} };
       notificationModalWakeOwnership = { claim: () => {} };
       timeoutRestarts = 0;
@@ -119,6 +120,7 @@ async function loadOpenNotificationModalHarness() {
       }
       restartScreenTimeout() { this.timeoutRestarts++; }
       closeNotificationModal(modal) { this.stack.remove(modal); }
+      releaseMusicCardPresentationIsolation() { return Promise.resolve(false); }
       ${shell.slice(start, end)}
     }
     export { OpenNotificationModalHarness };
