@@ -93,15 +93,38 @@ test("Window Management replaces the crowded status bar with explicit gesture gu
   assert.match(sidebar, /window === this\.healthWindow[\s\S]*this\.setHealthHidden\(true\)/);
 });
 
-test("a sidebar long-press takes Window Management precedence over contextual voice", () => {
+test("a non-Apps sidebar long-press takes Window Management precedence over contextual voice", () => {
   const shell = read("app/ui/shell/shell.ts");
   const input = shell.slice(shell.indexOf("async receiveInput("), shell.indexOf("foregroundWindow():", shell.indexOf("async receiveInput(")));
   const dynamic = input.slice(input.indexOf("if (this.dynamicAppLayer)"), input.indexOf("// While reordering"));
   const closeMode = dynamic.indexOf('this.focus === "sidebar"');
   const voice = dynamic.indexOf("this.openVoiceDialog");
   assert.ok(closeMode >= 0 && closeMode < voice, "Window Management routing must run before contextual voice");
+  assert.match(dynamic.slice(closeMode, voice), /this\.windows\[this\.selectedIndex\]\?\.appId !== "launcher"/);
   assert.match(dynamic.slice(closeMode, voice), /layer\.close\(\)[\s\S]*this\.enterWindowManagement\(\)[\s\S]*this\.startEscapeMenuTimer\(\)/);
   assert.match(dynamic, /this\.stack\.topMatches\(\(candidate\) => candidate === layer\)/);
+});
+
+test("a long-press on the Apps dashboard tab opens assistant voice instead of Window Management", () => {
+  const shell = read("app/ui/shell/shell.ts");
+  const input = shell.slice(shell.indexOf("async receiveInput("), shell.indexOf("foregroundWindow():", shell.indexOf("async receiveInput(")));
+  const reordering = input.indexOf("// While moving a tab");
+  const dashboardVoice = input.indexOf("// The pinned Apps/Dashboard tab");
+  const windowManagement = input.indexOf("// The first sidebar long-press enters Window Management");
+  assert.ok(reordering >= 0 && reordering < dashboardVoice && dashboardVoice < windowManagement,
+    "reorder ownership must remain first and the dashboard route must precede generic Window Management");
+  const route = input.slice(dashboardVoice, windowManagement);
+  assert.match(route, /this\.focus === "sidebar"/);
+  assert.match(route, /this\.stack\.isAtBase\(\)/);
+  assert.match(route, /this\.windows\[this\.selectedIndex\]\?\.appId === "launcher"/);
+  assert.match(route, /if \(this\.closingActive\) this\.exitWindowManagement\(\)/);
+  assert.match(route, /this\.startEscapeMenuTimer\(\)/);
+  assert.match(route, /!this\.assistantSession\?\.isTurnActive\(\)/);
+  assert.match(route, /this\.openVoiceDialog\(\{ defaultTarget: "assistant" \}\)/);
+  assert.match(route, /return \{ shell: true, window: false \}/);
+  assert.doesNotMatch(route, /this\.enterWindowManagement\(\)/);
+  assert.match(input, /this\.activeVoiceLayer\?\.endCapture\(\)/,
+    "the matching long-press release must finish push-to-talk capture");
 });
 
 test("the glasses HUD reads and renders bounded phone cellular signal bars without a new phone-state permission", () => {

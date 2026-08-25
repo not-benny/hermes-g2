@@ -1452,6 +1452,7 @@ class Shell {
           // Window Management mode; window focus retains contextual voice follow-up.
           if (
             this.focus === "sidebar" &&
+            this.windows[this.selectedIndex]?.appId !== "launcher" &&
             !this.closingActive &&
             !this.activeVoiceLayer &&
             this.hasManageableWindow() &&
@@ -1483,6 +1484,22 @@ class Shell {
       // While moving a tab, swallow long-presses so the window menu can't open
       // over the grab; a tap (handled in the sidebar management branch) drops it.
       if (this.reorderingWindowId !== null) {
+        return { shell: true, window: false };
+      }
+      // The pinned Apps/Dashboard tab is the shell's voice entry point, not a
+      // close target. Other sidebar tabs retain Window Management on hold.
+      if (
+        this.focus === "sidebar" &&
+        this.stack.isAtBase() &&
+        !this.activeVoiceLayer &&
+        this.windows[this.selectedIndex]?.appId === "launcher"
+      ) {
+        if (this.closingActive) this.exitWindowManagement();
+        this.startEscapeMenuTimer();
+        if (!this.assistantSession?.isTurnActive()) {
+          this.openVoiceDialog({ defaultTarget: "assistant" });
+        }
+        this.config.requestShellRender();
         return { shell: true, window: false };
       }
       // The first sidebar long-press enters Window Management. A subsequent
