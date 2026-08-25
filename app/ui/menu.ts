@@ -4,6 +4,7 @@ import { getDefaultSmallFont, type BdfFont } from "../graphics/bdffont";
 import { clamp } from "../util/numeric-util";
 import { EdgeBounce, EdgeWrapScroller } from "./edge-scroll";
 import { DashboardInputEvent, Layer, LayerContext, PaintBelow } from "./layers";
+import { drawGlassSelection, GLASS_RADIUS, GLASS_TONE } from "./glass-design";
 
 import { GESTURE_DOUBLE_CLICK } from "./gestures";
 const DEFAULT_MENU_X = 8;
@@ -18,8 +19,6 @@ const MENU_BODY_PADDING = 8;
 const MENU_HIGHLIGHT_Y_OFFSET = 0;
 const MENU_TOGGLE_SWITCH_Y_OFFSET = 1;
 const MENU_HIGHLIGHT_HEIGHT = MENU_ROW_HEIGHT - 1;
-const MENU_HIGHLIGHT_SELECTED_BACKGROUND_FILL = 15;
-const MENU_HIGHLIGHT_SELECTED_BORDER_STROKE = 45;
 
 export type MenuLayout = {
   x: number;
@@ -69,10 +68,7 @@ export function drawSelectionHighlight(
   focused: boolean,
   radius = 6,
 ): void {
-  if (focused) {
-    image.fillRoundedRect(x, y, width, height, MENU_HIGHLIGHT_SELECTED_BACKGROUND_FILL, radius);
-  }
-  image.drawRoundedRect(x, y, width, height, MENU_HIGHLIGHT_SELECTED_BORDER_STROKE, radius);
+  drawGlassSelection(image, x, y, width, height, focused, radius);
 }
 
 /**
@@ -108,11 +104,18 @@ export function drawListScrollbar(
   visibleRowCount: number,
   itemCount: number,
 ): void {
-  image.fillRect(trackX, trackY, 3, trackHeight, 30);
-  const thumbHeight = Math.max(8, (trackHeight * visibleRowCount / itemCount) | 0);
+  image.fillRect(trackX, trackY, 3, trackHeight, GLASS_TONE.track);
+  const thumbHeight = Math.max(
+    8,
+    ((trackHeight * visibleRowCount) / itemCount) | 0,
+  );
   const maxScrollRow = Math.max(1, itemCount - visibleRowCount);
-  const thumbY = trackY + (((trackHeight - thumbHeight) * clamp(scrollRow, 0, maxScrollRow) / maxScrollRow) | 0);
-  image.fillRect(trackX, thumbY, 3, thumbHeight, 120);
+  const thumbY =
+    trackY +
+    ((((trackHeight - thumbHeight) * clamp(scrollRow, 0, maxScrollRow)) /
+      maxScrollRow) |
+      0);
+  image.fillRect(trackX, thumbY, 3, thumbHeight, GLASS_TONE.hint);
 }
 
 /**
@@ -149,13 +152,38 @@ export function drawToggleMenuItem(
   const switchHeight = 16;
   const switchX = x + width - switchWidth - 2;
   const switchY = y + MENU_TOGGLE_SWITCH_Y_OFFSET;
-  image.drawText(font, x, y + 3, label, 200);
+  image.drawText(font, x, y + 3, label, GLASS_TONE.body);
   const offFill = selected ? 1 : 18;
-  image.fillRoundedRect(switchX, switchY, switchWidth, switchHeight, enabled ? 70 : offFill, 8);
-  image.drawRoundedRect(switchX, switchY, switchWidth, switchHeight, enabled ? 130 : 55, 8);
+  image.fillRoundedRect(
+    switchX,
+    switchY,
+    switchWidth,
+    switchHeight,
+    enabled ? GLASS_TONE.divider : offFill,
+    GLASS_RADIUS.control,
+  );
+  image.drawRoundedRect(
+    switchX,
+    switchY,
+    switchWidth,
+    switchHeight,
+    enabled ? GLASS_TONE.muted : GLASS_TONE.track,
+    GLASS_RADIUS.control,
+  );
   const knobSize = 12;
   const knobX = enabled ? switchX + switchWidth - knobSize - 2 : switchX + 2;
-  image.fillRoundedRect(knobX, switchY + 2, knobSize, knobSize, enabled ? 230 : selected ? 170 : 90, 6);
+  image.fillRoundedRect(
+    knobX,
+    switchY + 2,
+    knobSize,
+    knobSize,
+    enabled
+      ? GLASS_TONE.primary
+      : selected
+        ? GLASS_TONE.secondary
+        : GLASS_TONE.border,
+    GLASS_RADIUS.selection,
+  );
 }
 
 export function drawRightValueMenuItem(
@@ -167,9 +195,9 @@ export function drawRightValueMenuItem(
   label: string,
   value: string,
 ): void {
-  image.drawText(font, x, y + 3, label, 200);
+  image.drawText(font, x, y + 3, label, GLASS_TONE.body);
   const valueX = x + width - font.measureText(value) - 2;
-  image.drawText(font, valueX, y + 3, value, 220);
+  image.drawText(font, valueX, y + 3, value, GLASS_TONE.primary);
 }
 
 export class MenuLayer implements Layer {
@@ -214,9 +242,17 @@ export class MenuLayer implements Layer {
       this.layout.maxHeight ?? image.height - y - DEFAULT_MENU_Y,
       image.height - y,
     );
-    const contentHeight = chromeTop + this.items.length * MENU_ROW_HEIGHT + MENU_BODY_PADDING;
-    const height = clamp(contentHeight, Math.min(minHeight, maxHeight), maxHeight);
-    const visibleRowCount = Math.max(1, ((height - chromeTop - MENU_BODY_PADDING) / MENU_ROW_HEIGHT) | 0);
+    const contentHeight =
+      chromeTop + this.items.length * MENU_ROW_HEIGHT + MENU_BODY_PADDING;
+    const height = clamp(
+      contentHeight,
+      Math.min(minHeight, maxHeight),
+      maxHeight,
+    );
+    const visibleRowCount = Math.max(
+      1,
+      ((height - chromeTop - MENU_BODY_PADDING) / MENU_ROW_HEIGHT) | 0,
+    );
     this.scrollRow = scrollToKeepSelectionVisible(
       this.scrollRow,
       this.selectedIndex,
@@ -228,15 +264,25 @@ export class MenuLayer implements Layer {
     // transparent color key when a menu paints on the shell surface.
     image.fillRoundedRect(x, y, width, height, 1);
     if (this.layout.showBorder !== false) {
-      image.drawRoundedRect(x, y, width, height, 72);
+      image.drawRoundedRect(
+        x,
+        y,
+        width,
+        height,
+        GLASS_TONE.divider,
+        GLASS_RADIUS.control,
+      );
     }
     if (this.title) {
-      image.drawText(font, x + 12, y + 8, this.title, 220);
+      image.drawText(font, x + 12, y + 8, this.title, GLASS_TONE.primary);
     }
 
     const bodyY = y + chromeTop;
     const focused = ctx.stack.isFocused();
-    const lastVisibleRow = Math.min(this.items.length, this.scrollRow + visibleRowCount);
+    const lastVisibleRow = Math.min(
+      this.items.length,
+      this.scrollRow + visibleRowCount,
+    );
     // Bounce the whole list a few px when stopped hard against an end.
     const bounceY = this.edgeBounce.offsetPx();
     for (let index = this.scrollRow; index < lastVisibleRow; index++) {
@@ -252,7 +298,7 @@ export class MenuLayer implements Layer {
           width - 24,
           MENU_HIGHLIGHT_HEIGHT,
           focused,
-          8,
+          GLASS_RADIUS.control,
         );
       }
       if (item.render) {
@@ -268,7 +314,17 @@ export class MenuLayer implements Layer {
           ctx,
         });
       } else {
-        image.drawText(font, x + 22, rowY + 3, item.label, disabled ? 70 : selected ? 255 : 200);
+        image.drawText(
+          font,
+          x + 22,
+          rowY + 3,
+          item.label,
+          disabled
+            ? GLASS_TONE.divider
+            : selected
+              ? GLASS_TONE.focus
+              : GLASS_TONE.body,
+        );
       }
     }
 
@@ -287,7 +343,10 @@ export class MenuLayer implements Layer {
     return image;
   }
 
-  async handleInput(event: DashboardInputEvent, ctx: LayerContext): Promise<void> {
+  async handleInput(
+    event: DashboardInputEvent,
+    ctx: LayerContext,
+  ): Promise<void> {
     if (!this.items.length) {
       if (event.type === "double-click") {
         ctx.stack.pop();
@@ -297,12 +356,19 @@ export class MenuLayer implements Layer {
     switch (event.type) {
       case "scroll-up": {
         if (this.instantWrap) {
-          this.selectedIndex = (this.selectedIndex - 1 + this.items.length) % this.items.length;
+          this.selectedIndex =
+            (this.selectedIndex - 1 + this.items.length) % this.items.length;
           return;
         }
-        const step = this.wrapScroller.step(this.selectedIndex, this.items.length, -1, Date.now());
+        const step = this.wrapScroller.step(
+          this.selectedIndex,
+          this.items.length,
+          -1,
+          Date.now(),
+        );
         this.selectedIndex = step.index;
-        if (step.atEdge) this.edgeBounce.trigger(-1, () => ctx.actions.requestRender());
+        if (step.atEdge)
+          this.edgeBounce.trigger(-1, () => ctx.actions.requestRender());
         return;
       }
       case "scroll-down": {
@@ -310,9 +376,15 @@ export class MenuLayer implements Layer {
           this.selectedIndex = (this.selectedIndex + 1) % this.items.length;
           return;
         }
-        const step = this.wrapScroller.step(this.selectedIndex, this.items.length, 1, Date.now());
+        const step = this.wrapScroller.step(
+          this.selectedIndex,
+          this.items.length,
+          1,
+          Date.now(),
+        );
         this.selectedIndex = step.index;
-        if (step.atEdge) this.edgeBounce.trigger(1, () => ctx.actions.requestRender());
+        if (step.atEdge)
+          this.edgeBounce.trigger(1, () => ctx.actions.requestRender());
         return;
       }
       case "double-click":
@@ -340,7 +412,8 @@ export function openModalMenu(
 ): void {
   const { width, height } = ctx.stack.getBaseSize();
   const menuWidth = Math.min(320, width - 40);
-  const naturalHeight = MENU_TITLE_HEIGHT + 2 * MENU_BODY_PADDING + items.length * MENU_ROW_HEIGHT;
+  const naturalHeight =
+    MENU_TITLE_HEIGHT + 2 * MENU_BODY_PADDING + items.length * MENU_ROW_HEIGHT;
   const menuHeight = Math.min(naturalHeight, height - 40);
   const layout: MenuLayout = {
     x: ((width - menuWidth) / 2) | 0,
@@ -349,11 +422,15 @@ export function openModalMenu(
     minHeight: menuHeight,
     maxHeight: menuHeight,
   };
-  ctx.stack.push(new MenuLayer(title, items, layout).selectItem(initialSelectedIndex));
+  ctx.stack.push(
+    new MenuLayer(title, items, layout).selectItem(initialSelectedIndex),
+  );
 }
 
 export function isMenuItemDisabled(item: MenuItem): boolean {
-  return typeof item.disabled === "function" ? item.disabled() : item.disabled === true;
+  return typeof item.disabled === "function"
+    ? item.disabled()
+    : item.disabled === true;
 }
 
 export class TextPageLayer implements Layer {
@@ -371,7 +448,11 @@ export class TextPageLayer implements Layer {
     const wrapped = wrapText(font, this.body, G2_LENS_WIDTH - 60);
     const footerY = G2_LENS_HEIGHT - 48;
     const maxBodyLines = Math.max(0, Math.floor((footerY - 50) / 14));
-    for (let index = 0; index < Math.min(wrapped.length, maxBodyLines); index++) {
+    for (
+      let index = 0;
+      index < Math.min(wrapped.length, maxBodyLines);
+      index++
+    ) {
       image.drawText(font, 24, 42 + index * 14, wrapped[index]!, 190);
     }
     image.drawText(font, 24, footerY, `${GESTURE_DOUBLE_CLICK} back`, 110);

@@ -68,6 +68,15 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
   state, and optical-safe sidebar/window geometry.
 - Grouped HUD notification icons per source app, added drawable fallback, and
   added shared bounded emoji-to-text fallback for unsupported glyphs.
+- Increased the effective repeat rate of ring and touchpad scrolling by 25
+  percent at sensitivity levels 1 through 4. The saved five-level setting and
+  raw level 5 behavior are unchanged, and non-scroll gestures are unaffected.
+- Unified the wearer UI around one 4-bit-safe tone, spacing, radius, focus,
+  card, progress, and motion system across the HUD, launcher, menus, Assistant,
+  notifications, media, Clock, and Conversate. Fresh notification cards now
+  show the exact cached Android app icon with a deterministic initial fallback,
+  while retaining the full 576-pixel wearer-visible message width and the
+  configured notification text size.
 - Added paged notification digest/action menus and double-tap dismiss while
   preserving Back, Reply, Android actions, and Dismiss.
 - Present fresh phone notifications as opaque, blank-first cards. A tap opens

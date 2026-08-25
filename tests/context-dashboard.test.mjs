@@ -1081,7 +1081,31 @@ test("atomic context result stays hidden through blank wake drain and displaces 
   assert.match(shell, /assistantRetained: this\.detachedAssistantLayer === displacedAssistant/);
   const show = shell.slice(shell.indexOf("async showDynamicApp("), shell.indexOf("clearDynamicApp(", shell.indexOf("async showDynamicApp(")));
   assert.match(show, /prepareAtomicAssistantResultLayer\(\{/);
-  assert.match(show, /enterIsolation: \(\) => this\.setAssistantOnlyPresentation\(true\)/);
+  assert.match(show, /enterIsolation: \(\) => \{[\s\S]*isolationClaim = this\.setAssistantOnlyPresentation\(true\)/);
+  assert.match(show, /releaseIsolationIfAsleep:[\s\S]*this\.releaseAssistantOnlyPresentation\(isolationClaim\)/,
+    "a stale atomic result may release only its exact assistant-only claim");
+  const failureRelease = show.slice(
+    show.indexOf("releaseIsolationIfAsleep:"),
+    show.indexOf("},", show.indexOf("releaseIsolationIfAsleep:")),
+  );
+  assert.doesNotMatch(failureRelease, /!this\.screenOn/,
+    "a manual HUD wake must release the failed result's exact outer isolation too");
+  const strictFailureCleanup = show.slice(
+    show.indexOf("} catch (error)"),
+    show.indexOf("} finally", show.indexOf("} catch (error)")),
+  );
+  assert.match(strictFailureCleanup,
+    /preparation\?\.rollback\(\)[\s\S]*this\.releaseAssistantOnlyPresentation\(isolationClaim\)/,
+    "strict-frame failure rolls back its wake before releasing its exact surface claim");
+  assert.doesNotMatch(strictFailureCleanup, /!this\.screenOn/,
+    "a user-owned manual wake cannot suppress strict-failure surface release");
+  const strictFailureFinally = show.slice(
+    show.indexOf("} finally", show.indexOf("} catch (error)")),
+  );
+  assert.match(strictFailureFinally,
+    /!acknowledged[\s\S]*this\.releaseAssistantOnlyPresentation\(isolationClaim\)/,
+    "strict-failure cleanup retains an idempotent exact-claim fallback");
+  assert.doesNotMatch(strictFailureFinally, /!this\.screenOn/);
   assert.match(show, /drainBlankRender:[\s\S]*waitForShellRenderIdle/);
   assert.match(show, /installFinalLayer,/);
   assert.ok(show.indexOf("requestShellDelivery") < show.indexOf("preparation?.commit()"));

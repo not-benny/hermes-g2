@@ -43,7 +43,9 @@ import {
   isSuccessfulFrameOutcome,
 } from "../../g2/display-frame-outcomes";
 import {
+  AssistantOnlyPresentationOwnership,
   AssistantResultWakeOwnership,
+  beginOpaqueAssistantResultWake,
   prepareAtomicAssistantResultLayer,
   type AssistantResultWakeLease,
 } from "./assistant-result-wake";
@@ -157,10 +159,16 @@ export type ShellConfig = {
   isDirectAssistantResultPresentationAllowed?: () => boolean;
   /** Wake and await the real display lifecycle before presenting a completed assistant turn. */
   prepareAssistantResultDisplay?: (isAllowed?: () => boolean) => Promise<boolean>;
-  /** Sleep-origin in-turn results keep their wake provisional through strict frame ACK. */
-  prepareIsolatedAssistantResultDisplay?: (
+  /** Assert black and hide retained surfaces before a sleep-origin assistant result wakes. */
+  prepareAssistantResultPresentationIsolation?: (
     isAllowed: () => boolean,
-  ) => Promise<AssistantResultDisplayPreparation>;
+  ) => Promise<boolean>;
+  /** Reveal only the already-primed isolated assistant compositor. */
+  revealAssistantResultPresentationIsolation?: (
+    isAllowed: () => boolean,
+  ) => Promise<boolean>;
+  /** Release the owner-neutral compositor lease after assistant result commit or rollback. */
+  releaseAssistantResultPresentationIsolation?: () => Promise<void>;
   /** Direct results retain provisional wake ownership until their own frame ACK. */
   prepareDirectAssistantResultDisplay?: (
     isAllowed: () => boolean,
@@ -434,6 +442,8 @@ class Shell {
   private assistantOverlayRestorePending = false;
   private assistantOverlayDelivery = false;
   private pendingAssistantResult: string | null = null;
+  /** Distinguishes successive compact replies even when their text is identical. */
+  private pendingAssistantResultRevision = 0;
   private pendingAssistantResultDelivery = false;
   private assistantSession: AssistantSession | null = null;
   private musicCard: MusicCardLayer | null = null;
@@ -466,6 +476,9 @@ class Shell {
   private alertRevision = 0;
   private notifyResultRevision = 0;
   private suppressDirectNotificationOpportunity = false;
+  /** Prevents an older failed result from releasing a newer voice/result isolation owner. */
+  private readonly assistantOnlyPresentationOwnership =
+    new AssistantOnlyPresentationOwnership();
   private readonly assistantResultWakeOwnership = new AssistantResultWakeOwnership();
   private readonly notificationModalWakeOwnership =
     new NotificationModalWakeOwnership<ShellModalLayer>();
@@ -1795,6 +1808,22 @@ class Shell {
         return { shell: false, window: false };
       }
 
+      const beganScreenOff = !this.screenOn;
+      if (
+        action === "voice-input" &&
+        beganScreenOff &&
+        (this.assistantSession?.isTurnActive() || this.activeVoiceLayer)
+      ) {
+        // Match sleeping push-to-talk: a second wakeword cannot expose the HUD
+        // or replace the exact hidden turn that already owns its final result.
+        return { shell: false, window: false };
+      }
+      if (action === "voice-input" && beganScreenOff) {
+        // Establish opaque prior-state ownership before wake can replay any
+        // retained dashboard surface. The voice handoff transfers this exact
+        // sleep origin to the final Hermes reply.
+        this.setAssistantOnlyPresentation(true);
+      }
       this.noteUserActivity();
       const wokeScreen = !this.screenOn && this.wake("sidebar");
       if (action === "voice-input" && this.assistantSession?.isTurnActive()) {
@@ -1806,7 +1835,11 @@ class Shell {
           this.startAssistantFollowUp(true);
         } else {
           // Wakeword defaults the highlight to Send to Assistant.
-          this.openVoiceDialog({ handsFree: true, defaultTarget: "assistant" });
+          this.openVoiceDialog({
+            handsFree: true,
+            defaultTarget: "assistant",
+            returnToSleepOnClose: beganScreenOff,
+          });
         }
       }
       return { shell: wokeScreen || action === "voice-input", window: false };
@@ -2572,8 +2605,13 @@ class Shell {
     // the exact provisional wake for this completed result.
     this.noteAssistantResultActivity();
     if (reply) {
+      // A newer sleep-origin result supersedes any older async cleanup now,
+      // even if another delivery still owns the single-flight flag and this
+      // result cannot enter its own presentation attempt until that settles.
+      if (isolated) this.assistantOnlyPresentationOwnership.claim();
       this.pendingAssistantResult = reply;
       this.pendingAssistantResultIsolated = isolated;
+      this.pendingAssistantResultRevision++;
       this.flushPendingAssistantResult();
     }
     this.config.requestShellRender();
@@ -2593,6 +2631,51 @@ class Shell {
     this.assistantOverlayRestorePending = true;
     this.noteAssistantResultActivity();
     this.flushPendingAssistantOverlay();
+  }
+
+  /**
+   * Keep a sleep-origin reply behind compositor black until a blank retained
+   * shell frame is proven. Its physical isolation and provisional wake remain
+   * owned through the reply's own strict frame acknowledgement.
+   */
+  private beginIsolatedAssistantResultDisplay(
+    isPending: () => boolean,
+  ): Promise<AssistantResultDisplayPreparation> {
+    const prepare = this.config.prepareAssistantResultPresentationIsolation;
+    const reveal = this.config.revealAssistantResultPresentationIsolation;
+    const release = this.config.releaseAssistantResultPresentationIsolation;
+    const deliver = this.config.requestShellDelivery;
+    if (!prepare || !reveal || !release || !deliver) {
+      return Promise.resolve({ ready: false, commit: () => {}, rollback: () => {} });
+    }
+    const isPresentationAllowed = () =>
+      (!this.config.isAssistantResultPresentationAllowed ||
+        this.config.isAssistantResultPresentationAllowed());
+    const isPendingAsleep = () =>
+      !this.screenOn &&
+      this.assistantOnlyPresentation &&
+      isPending() &&
+      isPresentationAllowed();
+    const isWakeCurrent = () =>
+      this.screenOn &&
+      this.assistantOnlyPresentation &&
+      isPending() &&
+      isPresentationAllowed();
+    return beginOpaqueAssistantResultWake({
+      isPendingAsleep,
+      prepareOpaqueDisplay: () => prepare(isPendingAsleep),
+      primeBlankFrame: async () => {
+        const receipt = await deliver(isPendingAsleep, false);
+        return receipt.frameId > 0 && isReadinessFrameEvidenceOutcome(receipt.outcome);
+      },
+      acquireWake: () => this.acquireAssistantResultWake("sidebar"),
+      ownsPriorSleep: (lease) => lease.ownsWake,
+      isWakeCurrent,
+      revealOpaqueDisplay: () => reveal(isWakeCurrent),
+      commitWake: (lease) => this.commitAssistantResultWake(lease),
+      rollbackWake: (lease) => { this.rollbackAssistantResultWake(lease); },
+      releaseOpaqueDisplay: () => startDetachedCleanup(release),
+    });
   }
 
   private flushPendingAssistantOverlay(): void {
@@ -2618,13 +2701,11 @@ class Shell {
     let preparation: AssistantResultDisplayPreparation | null = null;
     let strictAcknowledged = false;
     void (async () => {
-      if (isolated) this.setAssistantOnlyPresentation(true);
+      const isolationClaim = isolated ? this.setAssistantOnlyPresentation(true) : null;
       try {
         let ready: boolean;
         if (isolated) {
-          preparation = this.config.prepareIsolatedAssistantResultDisplay
-            ? await this.config.prepareIsolatedAssistantResultDisplay(isPending)
-            : null;
+          preparation = await this.beginIsolatedAssistantResultDisplay(isPending);
           ready = preparation?.ready === true;
         } else {
           ready = this.config.prepareAssistantResultDisplay
@@ -2682,7 +2763,9 @@ class Shell {
           // Blank/sleep before releasing the assistant-only app surfaces;
           // reversing these operations can flash the retained HUD.
           preparation?.rollback();
-          this.setAssistantOnlyPresentation(false);
+          if (isolationClaim !== null) {
+            this.releaseAssistantOnlyPresentation(isolationClaim);
+          }
         }
         if (retainedForRetry) {
           startDetachedCleanup(() => this.config.requestShellRender());
@@ -2702,22 +2785,22 @@ class Shell {
     ) return;
     const pending = this.pendingAssistantResult;
     const isolated = this.pendingAssistantResultIsolated;
+    const revision = this.pendingAssistantResultRevision;
     const isPending = () =>
       this.pendingAssistantResult === pending &&
       this.pendingAssistantResultIsolated === isolated &&
+      this.pendingAssistantResultRevision === revision &&
       !this.activeVoiceLayer &&
       !this.hasOpaqueCardPresentation();
     this.pendingAssistantResultDelivery = true;
     let delivered = false;
     let preparation: AssistantResultDisplayPreparation | null = null;
     void (async () => {
-      if (isolated) this.setAssistantOnlyPresentation(true);
+      const isolationClaim = isolated ? this.setAssistantOnlyPresentation(true) : null;
       try {
         let ready: boolean;
         if (isolated) {
-          preparation = this.config.prepareIsolatedAssistantResultDisplay
-            ? await this.config.prepareIsolatedAssistantResultDisplay(isPending)
-            : null;
+          preparation = await this.beginIsolatedAssistantResultDisplay(isPending);
           ready = preparation?.ready === true;
         } else {
           ready = this.config.prepareAssistantResultDisplay
@@ -2729,7 +2812,7 @@ class Shell {
           !this.screenOn ||
           this.activeVoiceLayer ||
           this.hasOpaqueCardPresentation() ||
-          this.pendingAssistantResult !== pending
+          this.pendingAssistantResultRevision !== revision
         ) return;
         await this.showAlert(
           pending,
@@ -2749,9 +2832,12 @@ class Shell {
       } finally {
         if (isolated && !delivered) {
           preparation?.rollback();
-          this.setAssistantOnlyPresentation(false);
+          if (isolationClaim !== null) {
+            this.releaseAssistantOnlyPresentation(isolationClaim);
+          }
         }
-        const queuedNext = this.pendingAssistantResult !== null && this.pendingAssistantResult !== pending;
+        const queuedNext = this.pendingAssistantResult !== null &&
+          this.pendingAssistantResultRevision !== revision;
         this.pendingAssistantResultDelivery = false;
         if (queuedNext) this.flushPendingAssistantResult();
       }
@@ -2847,11 +2933,21 @@ class Shell {
   }
 
   /** Enter/leave the isolated assistant surface and its app-surface lease. */
-  private setAssistantOnlyPresentation(active: boolean): void {
-    if (this.assistantOnlyPresentation === active) return;
+  private setAssistantOnlyPresentation(active: boolean): number | null {
+    const claim = active ? this.assistantOnlyPresentationOwnership.claim() : null;
+    if (!active) this.assistantOnlyPresentationOwnership.invalidate();
+    if (this.assistantOnlyPresentation === active) return claim;
     this.assistantOnlyPresentation = active;
     this.config.setAssistantOnlyPresentation?.(active);
     this.config.requestShellRender();
+    return claim;
+  }
+
+  /** Release only the exact async presentation attempt that acquired isolation. */
+  private releaseAssistantOnlyPresentation(claim: number): boolean {
+    if (!this.assistantOnlyPresentationOwnership.isCurrent(claim)) return false;
+    this.setAssistantOnlyPresentation(false);
+    return true;
   }
 
   private endAssistantOnlyPresentationIfIdle(): void {
@@ -3351,6 +3447,7 @@ class Shell {
       () => this.focus === "sidebar" && this.hasManageableWindow() ? "window management" : "ask",
     );
     let preparation: AssistantResultDisplayPreparation | null = null;
+    let isolationClaim: number | null = null;
     let displacedAssistant: AssistantLayer | null = null;
     const installFinalLayer = () => {
       if (prior && prior.state.viewId !== state.viewId) {
@@ -3395,10 +3492,10 @@ class Shell {
         !this.hasOpaqueCardPresentation() &&
         answerStillCurrent();
       preparation = await prepareAtomicAssistantResultLayer({
-        enterIsolation: () => this.setAssistantOnlyPresentation(true),
-        prepare: async () => this.config.prepareIsolatedAssistantResultDisplay
-          ? this.config.prepareIsolatedAssistantResultDisplay(wakeOwner)
-          : null,
+        enterIsolation: () => {
+          isolationClaim = this.setAssistantOnlyPresentation(true);
+        },
+        prepare: async () => this.beginIsolatedAssistantResultDisplay(wakeOwner),
         isReadyCurrent: () => this.screenOn && wakeOwner(),
         // Drain the blank wake render before making the unique final frame
         // paintable. The provisional wake remains owned throughout this wait.
@@ -3407,7 +3504,13 @@ class Shell {
         },
         installFinalLayer,
         releaseIsolationIfAsleep: () => {
-          if (!this.screenOn) this.setAssistantOnlyPresentation(false);
+          // The provisional result may have lost to an explicit HUD wake while
+          // its blank frame was in flight. Release only this attempt's exact
+          // claim in either screen state; the identity fence keeps a newer
+          // voice/result owner isolated while a manual wake restores its HUD.
+          if (isolationClaim !== null) {
+            this.releaseAssistantOnlyPresentation(isolationClaim);
+          }
         },
       });
     } else {
@@ -3484,15 +3587,23 @@ class Shell {
       if (isolatedAnswer) {
         // Roll back the provisional wake before releasing hidden app surfaces;
         // a best-effort repaint here could otherwise expose the retained HUD.
+        // A manual wake can make rollback intentionally preserve screen-on,
+        // but it must not leave this failed result's exact surface claim held.
         preparation?.rollback();
-        if (!this.screenOn) this.setAssistantOnlyPresentation(false);
+        if (isolationClaim !== null) {
+          this.releaseAssistantOnlyPresentation(isolationClaim);
+        }
       } else {
         try { await this.config.requestShellRender(); } catch { /* preserve delivery error */ }
       }
       throw error;
     } finally {
-      if (isolatedAnswer && !acknowledged && preparation?.ready === true && !this.screenOn) {
-        this.setAssistantOnlyPresentation(false);
+      if (isolatedAnswer && !acknowledged && preparation?.ready === true) {
+        if (isolationClaim !== null) {
+          // Idempotent exact-claim fallback if rollback or error restoration
+          // above exited unusually; a newer voice/result owner remains safe.
+          this.releaseAssistantOnlyPresentation(isolationClaim);
+        }
       }
     }
   }

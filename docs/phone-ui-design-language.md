@@ -12,7 +12,8 @@ is never the only status signal.
 This contract applies to the NativeScript Android UI under `app/phone-ui`. It
 does not change the glasses renderer. The current glasses path uses a 640 × 480
 framebuffer, a centered 576-pixel wearer-visible width, and either a standard
-288-pixel window band or the full-height canvas.
+288-pixel window band or the full-height canvas. Wearer-facing visual work is
+governed by [`glasses-design-system.md`](glasses-design-system.md).
 
 ## Device and renderer constraints
 
@@ -48,22 +49,22 @@ inventory.
 
 ### Color roles
 
-| Role | Value | Use |
-| --- | --- | --- |
-| Background | `#0F1411` | Page and scroll background |
-| Action bar | `#101512` | Top and bottom chrome |
-| Surface | `#172019` | Cards, rows, banners, neutral buttons |
-| Raised surface | `#1E2A22` | Inputs and pressed controls |
-| Border | `#24312A` | Surface separation and dividers |
-| Primary text | `#EAF2EC` | Titles and body text |
-| Muted text | `#9BB0A5` | Supporting text, labels, metadata |
-| Primary | `#57D8A6` | Main action, selection, connected state |
-| Primary pressed | `#46B88C` | Pressed primary action |
-| On primary | `#08120D` | Text on mint and red action fills |
-| Secondary | `#4C9DF5` | Optional navigation and information |
-| Warning | `#F5C542` | Attention needed, non-destructive |
-| Danger | `#E5484D` | Destructive status and standard danger action |
-| Active danger | `#B62328` | Light-text destructive actions requiring stronger contrast |
+| Role            | Value     | Use                                                        |
+| --------------- | --------- | ---------------------------------------------------------- |
+| Background      | `#0F1411` | Page and scroll background                                 |
+| Action bar      | `#101512` | Top and bottom chrome                                      |
+| Surface         | `#172019` | Cards, rows, banners, neutral buttons                      |
+| Raised surface  | `#1E2A22` | Inputs and pressed controls                                |
+| Border          | `#24312A` | Surface separation and dividers                            |
+| Primary text    | `#EAF2EC` | Titles and body text                                       |
+| Muted text      | `#9BB0A5` | Supporting text, labels, metadata                          |
+| Primary         | `#57D8A6` | Main action, selection, connected state                    |
+| Primary pressed | `#46B88C` | Pressed primary action                                     |
+| On primary      | `#08120D` | Text on mint and red action fills                          |
+| Secondary       | `#4C9DF5` | Optional navigation and information                        |
+| Warning         | `#F5C542` | Attention needed, non-destructive                          |
+| Danger          | `#E5484D` | Destructive status and standard danger action              |
+| Active danger   | `#B62328` | Light-text destructive actions requiring stronger contrast |
 
 The tested foreground/background pairs meet WCAG AA contrast for normal text.
 Do not add a phone-theme color literal without defining its role and extending

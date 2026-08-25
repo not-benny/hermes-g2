@@ -1,26 +1,35 @@
 import { GrayImage } from "../../graphics/image";
-import { getDefaultMediumFont, getDefaultSmallFont } from "../../graphics/bdffont";
+import {
+  getDefaultMediumFont,
+  getDefaultSmallFont,
+} from "../../graphics/bdffont";
 import {
   GESTURE_CLICK,
   GESTURE_DOUBLE_CLICK,
   GESTURE_SCROLL,
   gestureHints,
 } from "../gestures";
-import { Layer, type DashboardInputEvent, type LayerActions, type LayerContext } from "../layers";
+import {
+  Layer,
+  type DashboardInputEvent,
+  type LayerActions,
+  type LayerContext,
+} from "../layers";
 import { wrapText, truncateText } from "../../graphics/textwrap";
+import { drawGlassPanel, GLASS_TONE } from "../glass-design";
 import {
   ASSISTANT_CARD_WIDTH,
   ASSISTANT_ERROR_CARD_HEIGHT,
   assistantCardRect,
 } from "./geometry";
 
-const CARD_RADIUS = 12;
 const CARD_PADDING = 16;
 const BODY_LINE_HEIGHT = 16;
 const RESULT_LINES_PER_PAGE = 5;
 const MAX_RESULT_PAGES = 3;
 const RESULT_BASE_HEIGHT = 64;
-const RESULT_MAX_HEIGHT = RESULT_BASE_HEIGHT + RESULT_LINES_PER_PAGE * BODY_LINE_HEIGHT;
+const RESULT_MAX_HEIGHT =
+  RESULT_BASE_HEIGHT + RESULT_LINES_PER_PAGE * BODY_LINE_HEIGHT;
 
 /** thinking: hidden turn running; done/error: finished result card. */
 type AssistantPhase = "thinking" | "done" | "error";
@@ -109,40 +118,75 @@ export class AssistantLayer implements Layer {
     const small = getDefaultSmallFont();
     const medium = getDefaultMediumFont();
     const baseSize = ctx.stack.getBaseSize();
-    const displayText = this.phase === "error"
-      ? this.status || "The assistant could not finish this turn."
-      : this.replyText.trim() || this.status || "(no reply)";
+    const displayText =
+      this.phase === "error"
+        ? this.status || "The assistant could not finish this turn."
+        : this.replyText.trim() || this.status || "(no reply)";
     const textWidth = ASSISTANT_CARD_WIDTH - CARD_PADDING * 2;
     const allLines = boundedResultLines(small, displayText, textWidth);
-    const pageCount = Math.max(1, Math.ceil(allLines.length / RESULT_LINES_PER_PAGE));
+    const pageCount = Math.max(
+      1,
+      Math.ceil(allLines.length / RESULT_LINES_PER_PAGE),
+    );
     this.pageIndex = Math.max(0, Math.min(this.pageIndex, pageCount - 1));
     const first = this.pageIndex * RESULT_LINES_PER_PAGE;
     const pageLines = allLines.slice(first, first + RESULT_LINES_PER_PAGE);
-    const resultHeight = pageCount > 1
-      ? RESULT_MAX_HEIGHT
-      : Math.max(
-          this.phase === "error" ? ASSISTANT_ERROR_CARD_HEIGHT : RESULT_BASE_HEIGHT + BODY_LINE_HEIGHT,
-          RESULT_BASE_HEIGHT + pageLines.length * BODY_LINE_HEIGHT,
-        );
+    const resultHeight =
+      pageCount > 1
+        ? RESULT_MAX_HEIGHT
+        : Math.max(
+            this.phase === "error"
+              ? ASSISTANT_ERROR_CARD_HEIGHT
+              : RESULT_BASE_HEIGHT + BODY_LINE_HEIGHT,
+            RESULT_BASE_HEIGHT + pageLines.length * BODY_LINE_HEIGHT,
+          );
     const rect = assistantCardRect(baseSize, resultHeight);
     const left = rect.x + CARD_PADDING;
     const contentWidth = rect.width - CARD_PADDING * 2;
 
-    image.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, CARD_RADIUS);
-    image.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, this.phase === "error" ? 150 : 100, CARD_RADIUS);
-    image.drawText(medium, left, rect.y + 12, this.phase === "error" ? "Couldn't finish" : "Hermes", 240);
+    drawGlassPanel(image, rect.x, rect.y, rect.width, rect.height, {
+      border: this.phase === "error" ? GLASS_TONE.secondary : GLASS_TONE.border,
+    });
+    image.drawText(
+      medium,
+      left,
+      rect.y + 12,
+      this.phase === "error" ? "Couldn't finish" : "Hermes",
+      GLASS_TONE.primary,
+    );
     if (pageCount > 1) {
       const pageLabel = `${this.pageIndex + 1}/${pageCount}`;
-      image.drawText(small, rect.x + rect.width - CARD_PADDING - small.measureText(pageLabel), rect.y + 15, pageLabel, 145);
+      image.drawText(
+        small,
+        rect.x + rect.width - CARD_PADDING - small.measureText(pageLabel),
+        rect.y + 15,
+        pageLabel,
+        GLASS_TONE.muted,
+      );
     }
     for (let index = 0; index < pageLines.length; index++) {
-      image.drawText(small, left, rect.y + 38 + index * BODY_LINE_HEIGHT, pageLines[index]!, this.phase === "error" ? 210 : 235);
+      image.drawText(
+        small,
+        left,
+        rect.y + 38 + index * BODY_LINE_HEIGHT,
+        pageLines[index]!,
+        this.phase === "error" ? GLASS_TONE.body : GLASS_TONE.primary,
+      );
     }
     const followUpLabel = this.phase === "error" ? "retry" : "follow-up";
     const hints: Array<[string, string]> = [];
     if (pageCount > 1) hints.push([GESTURE_SCROLL, "page"]);
-    hints.push([GESTURE_CLICK, followUpLabel], [GESTURE_DOUBLE_CLICK, "dismiss"]);
-    image.drawText(small, left, rect.y + rect.height - 16, truncateText(small, gestureHints(hints), contentWidth), 110);
+    hints.push(
+      [GESTURE_CLICK, followUpLabel],
+      [GESTURE_DOUBLE_CLICK, "dismiss"],
+    );
+    image.drawText(
+      small,
+      left,
+      rect.y + rect.height - 16,
+      truncateText(small, gestureHints(hints), contentWidth),
+      GLASS_TONE.hint,
+    );
     return image;
   }
 
@@ -197,6 +241,10 @@ function boundedResultLines(
   const wrapped = wrapText(font, text, width);
   if (wrapped.length <= maximumLines) return wrapped;
   const lines = wrapped.slice(0, maximumLines);
-  lines[lines.length - 1] = truncateText(font, `${lines[lines.length - 1]}...`, width);
+  lines[lines.length - 1] = truncateText(
+    font,
+    `${lines[lines.length - 1]}...`,
+    width,
+  );
   return lines;
 }

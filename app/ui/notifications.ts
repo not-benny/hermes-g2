@@ -1,6 +1,11 @@
 import { clamp } from "~/util/numeric-util";
 import { formatRelativeTime } from "~/util/date-util";
-import { BdfFont, getDefaultSmallFont, getDefaultMediumFont, getDefaultLargeFont } from "../graphics/bdffont";
+import {
+  BdfFont,
+  getDefaultSmallFont,
+  getDefaultMediumFont,
+  getDefaultLargeFont,
+} from "../graphics/bdffont";
 import { truncateText } from "../graphics/textwrap";
 import { GrayImage } from "../graphics/image";
 import { wrapText } from "../graphics/textwrap";
@@ -15,12 +20,32 @@ import {
   type AndroidNotificationAction,
 } from "../native/notification-icons";
 import { isNotificationListenerEnabled } from "../native/notification-access";
-import { noteStaleDataUsed, renderPassAllowsStaleData } from "../util/render-freshness";
-import { type DashboardInputEvent, type Layer, type LayerContext, type PaintBelow } from "./layers";
+import {
+  noteStaleDataUsed,
+  renderPassAllowsStaleData,
+} from "../util/render-freshness";
+import {
+  type DashboardInputEvent,
+  type Layer,
+  type LayerContext,
+  type PaintBelow,
+} from "./layers";
 import { VoiceInputLayer } from "./shell/voice-input";
 import { notificationFontSizeSetting } from "./dashboard-settings";
-import { notificationTriageController, notificationTriageReason } from "../notifications/triage-controller";
-import { notificationDetailMenuLayout, notificationDigestLayout } from "./notification-pagination";
+import {
+  notificationTriageController,
+  notificationTriageReason,
+} from "../notifications/triage-controller";
+import {
+  notificationDetailMenuLayout,
+  notificationDigestLayout,
+} from "./notification-pagination";
+import {
+  drawGlassPanel,
+  drawGlassSelection,
+  GLASS_RADIUS,
+  GLASS_TONE,
+} from "./glass-design";
 
 const PAGE_X = 12;
 const PAGE_Y = 12;
@@ -60,7 +85,10 @@ const DETAIL_CONTENT_X = 24;
 
 /** Icon for a paint pass: allow-stale, reporting staleness to the render loop. */
 function iconForNotification(key: string): GrayImage | null {
-  const { icon, stale } = readNotificationIconByKey(key, renderPassAllowsStaleData());
+  const { icon, stale } = readNotificationIconByKey(
+    key,
+    renderPassAllowsStaleData(),
+  );
   if (stale) {
     noteStaleDataUsed();
   }
@@ -78,7 +106,9 @@ type DetailMenuItem =
   | { kind: "action"; label: string; action: AndroidNotificationAction }
   | { kind: "dismiss"; label: string };
 
-export type SingleNotificationLayerOrigin = "notifications-list" | "new-notification-modal";
+export type SingleNotificationLayerOrigin =
+  | "notifications-list"
+  | "new-notification-modal";
 
 /**
  * Keep the user-visible notification card independent from Android's live
@@ -87,7 +117,9 @@ export type SingleNotificationLayerOrigin = "notifications-list" | "new-notifica
  * successfully selected notification from erasing itself before it can be
  * read. Nothing here is persisted.
  */
-export function retainAndroidNotification(notification: AndroidNotification): AndroidNotification {
+export function retainAndroidNotification(
+  notification: AndroidNotification,
+): AndroidNotification {
   return {
     ...notification,
     lines: [...notification.lines],
@@ -113,12 +145,19 @@ export class NotificationDigestLayer implements Layer {
   ) {
     const active = readActiveNotifications(MAX_NOTIFICATIONS);
     this.retainedEntries = entries.flatMap((entry) => {
-      const notification = entry.notification ?? active.find((item) => item.key === entry.key);
+      const notification =
+        entry.notification ?? active.find((item) => item.key === entry.key);
       return notification
-        ? [{
-          entry: { key: entry.key, revision: entry.revision, reason: entry.reason },
-          notification: retainAndroidNotification(notification),
-        }]
+        ? [
+            {
+              entry: {
+                key: entry.key,
+                revision: entry.revision,
+                reason: entry.reason,
+              },
+              notification: retainAndroidNotification(notification),
+            },
+          ]
         : [];
     });
   }
@@ -133,21 +172,71 @@ export class NotificationDigestLayer implements Layer {
       return image;
     }
     this.selectedIndex = clamp(this.selectedIndex, 0, retained.length - 1);
-    const layout = notificationDigestLayout(height, font.lineHeight, retained.length, this.selectedIndex);
-    const range = layout.start > 0 || layout.end < retained.length ? ` · ${layout.start + 1}–${layout.end}` : "";
-    image.drawText(font, 18, 14, `Notifications ${this.selectedIndex + 1}/${retained.length}${range}`, 230);
+    const layout = notificationDigestLayout(
+      height,
+      font.lineHeight,
+      retained.length,
+      this.selectedIndex,
+    );
+    const range =
+      layout.start > 0 || layout.end < retained.length
+        ? ` · ${layout.start + 1}-${layout.end}`
+        : "";
+    image.drawText(
+      font,
+      18,
+      14,
+      `Notifications ${this.selectedIndex + 1}/${retained.length}${range}`,
+      GLASS_TONE.primary,
+    );
+    image.drawLine(
+      18,
+      layout.listTop - 5,
+      width - 18,
+      layout.listTop - 5,
+      GLASS_TONE.divider,
+    );
     let y = layout.listTop;
     for (let index = layout.start; index < layout.end; index++) {
       const item = retained[index]!;
       const selected = index === this.selectedIndex;
-      image.drawText(font, 18, y, `${selected ? ">" : " "} ${item.notification.appName}: ${notificationTitle(item.notification)}`, selected ? 240 : 150);
+      if (selected) {
+        drawGlassSelection(
+          image,
+          12,
+          y - 3,
+          width - 24,
+          layout.lineAdvance * 2,
+          ctx.stack.isFocused(),
+          GLASS_RADIUS.selection,
+        );
+      }
+      image.drawText(
+        font,
+        24,
+        y,
+        `${item.notification.appName}: ${notificationTitle(item.notification)}`,
+        selected ? GLASS_TONE.primary : GLASS_TONE.muted,
+      );
       y += layout.lineAdvance;
       if (selected) {
-        image.drawText(font, 34, y, `Why: ${item.entry.reason}`, 170);
+        image.drawText(
+          font,
+          34,
+          y,
+          `Why: ${item.entry.reason}`,
+          GLASS_TONE.secondary,
+        );
         y += layout.lineAdvance;
       }
     }
-    image.drawText(font, 18, height - font.lineHeight - 4, `Click review · ${GESTURE_DOUBLE_CLICK} close`, 120);
+    image.drawText(
+      font,
+      18,
+      height - font.lineHeight - 4,
+      `Click review · ${GESTURE_DOUBLE_CLICK} close`,
+      GLASS_TONE.hint,
+    );
     return image;
   }
 
@@ -161,14 +250,17 @@ export class NotificationDigestLayer implements Layer {
     this.selectedIndex = clamp(this.selectedIndex, 0, retained.length - 1);
     if (event.type === "scroll-up" || event.type === "scroll-down") {
       const direction = event.type === "scroll-down" ? 1 : -1;
-      this.selectedIndex = (this.selectedIndex + direction + retained.length) % retained.length;
+      this.selectedIndex =
+        (this.selectedIndex + direction + retained.length) % retained.length;
     } else if (event.type === "click") {
       const selected = retained[this.selectedIndex]!;
-      ctx.stack.push(new SingleNotificationLayer(selected.entry.key, {
-        origin: "notifications-list",
-        retainedNotification: selected.notification,
-        retainedReason: selected.entry.reason,
-      }));
+      ctx.stack.push(
+        new SingleNotificationLayer(selected.entry.key, {
+          origin: "notifications-list",
+          retainedNotification: selected.notification,
+          retainedReason: selected.entry.reason,
+        }),
+      );
     }
   }
 }
@@ -190,7 +282,10 @@ type SingleNotificationLayerOptions = {
  */
 export class NotificationsListLayer implements Layer {
   private selectedKey = "";
-  private readonly scroller = new EdgeWrapScroller(undefined, "notifications-list");
+  private readonly scroller = new EdgeWrapScroller(
+    undefined,
+    "notifications-list",
+  );
   private readonly bounce = new EdgeBounce();
 
   paint(ctx: LayerContext): GrayImage {
@@ -203,11 +298,28 @@ export class NotificationsListLayer implements Layer {
     const notifications = readActiveNotifications(MAX_NOTIFICATIONS);
     const selectedIndex = this.resolveSelectedIndex(notifications);
     const layouts = notifications.map((notification, index) =>
-      buildNotificationCardLayout(font, notification, index === selectedIndex, cardTextWidth),
+      buildNotificationCardLayout(
+        font,
+        notification,
+        index === selectedIndex,
+        cardTextWidth,
+      ),
     );
 
-    image.drawText(font, PAGE_X + 12, PAGE_Y + 9, "Notifications", 220);
-    image.drawText(font, width - 96, PAGE_Y + 9, `${selectedIndex + 1}/${notifications.length}`, 150);
+    image.drawText(
+      font,
+      PAGE_X + 12,
+      PAGE_Y + 9,
+      "Notifications",
+      GLASS_TONE.primary,
+    );
+    image.drawText(
+      font,
+      width - 96,
+      PAGE_Y + 9,
+      `${selectedIndex + 1}/${notifications.length}`,
+      GLASS_TONE.muted,
+    );
 
     if (!notifications.length) {
       const message = isNotificationListenerEnabled()
@@ -215,15 +327,31 @@ export class NotificationsListLayer implements Layer {
         : "Grant permission on your phone to view notifications on the glasses.";
       const messageLines = wrapText(font, message, width - 48);
       for (let index = 0; index < messageLines.length; index++) {
-        image.drawText(font, 24, 72 + index * lineHeight, messageLines[index]!, 190);
+        image.drawText(
+          font,
+          24,
+          72 + index * lineHeight,
+          messageLines[index]!,
+          GLASS_TONE.body,
+        );
       }
-      image.drawText(font, 24, height - 36, `${GESTURE_DOUBLE_CLICK} back`, 110);
+      image.drawText(
+        font,
+        24,
+        height - 36,
+        `${GESTURE_DOUBLE_CLICK} back`,
+        GLASS_TONE.hint,
+      );
       return image;
     }
 
     const focused = ctx.stack.isFocused();
     const listBottom = height;
-    const scrollY = scrollForSelected(layouts, selectedIndex, listBottom - LIST_TOP);
+    const scrollY = scrollForSelected(
+      layouts,
+      selectedIndex,
+      listBottom - LIST_TOP,
+    );
     let cursorY = LIST_TOP - scrollY + this.bounce.offsetPx();
     for (let index = 0; index < layouts.length; index++) {
       const layout = layouts[index]!;
@@ -231,7 +359,17 @@ export class NotificationsListLayer implements Layer {
         // Icons are only resolved for cards actually drawn, so a long list
         // does not fetch icons for everything below the fold.
         const icon = iconForNotification(layout.notification.key);
-        drawNotificationCard(image, font, layout, CARD_X, cursorY, cardWidth, index === selectedIndex, focused, icon);
+        drawNotificationCard(
+          image,
+          font,
+          layout,
+          CARD_X,
+          cursorY,
+          cardWidth,
+          index === selectedIndex,
+          focused,
+          icon,
+        );
       }
       cursorY += layout.height + CARD_GAP;
       if (cursorY > listBottom + 80) break;
@@ -253,7 +391,12 @@ export class NotificationsListLayer implements Layer {
 
     if (event.type === "scroll-up" || event.type === "scroll-down") {
       const dir = event.type === "scroll-down" ? 1 : -1;
-      const step = this.scroller.step(selectedIndex, notifications.length, dir, Date.now());
+      const step = this.scroller.step(
+        selectedIndex,
+        notifications.length,
+        dir,
+        Date.now(),
+      );
       if (step.atEdge) {
         this.bounce.trigger(dir, () => ctx.actions.requestRender());
         return;
@@ -262,9 +405,11 @@ export class NotificationsListLayer implements Layer {
       return;
     }
     if (event.type === "click") {
-      ctx.stack.push(new SingleNotificationLayer(notifications[selectedIndex]!.key, {
-        origin: "notifications-list",
-      }));
+      ctx.stack.push(
+        new SingleNotificationLayer(notifications[selectedIndex]!.key, {
+          origin: "notifications-list",
+        }),
+      );
     }
   }
 
@@ -273,7 +418,9 @@ export class NotificationsListLayer implements Layer {
       this.selectedKey = "";
       return -1;
     }
-    let index = notifications.findIndex((notification) => notification.key === this.selectedKey);
+    let index = notifications.findIndex(
+      (notification) => notification.key === this.selectedKey,
+    );
     if (index < 0) {
       index = 0;
       this.selectedKey = notifications[0]!.key;
@@ -298,28 +445,46 @@ export class SingleNotificationLayer implements Layer {
     private readonly notificationKey: string,
     private readonly options: SingleNotificationLayerOptions,
   ) {
-    const captured = options.retainedNotification ?? (
-      options.origin === "new-notification-modal"
-        ? readActiveNotifications(MAX_NOTIFICATIONS).find((item) => item.key === notificationKey)
-        : undefined
-    );
-    this.retainedNotification = captured ? retainAndroidNotification(captured) : null;
+    const captured =
+      options.retainedNotification ??
+      (options.origin === "new-notification-modal"
+        ? readActiveNotifications(MAX_NOTIFICATIONS).find(
+            (item) => item.key === notificationKey,
+          )
+        : undefined);
+    this.retainedNotification = captured
+      ? retainAndroidNotification(captured)
+      : null;
   }
 
   paint(ctx: LayerContext, paintBelow: PaintBelow): GrayImage {
     const font = notificationFont();
     const { width, height } = ctx.stack.getBaseSize();
     const image = new GrayImage(width, height, 0);
-    const notification = this.retainedNotification ??
-      readActiveNotifications(MAX_NOTIFICATIONS).find((item) => item.key === this.notificationKey);
+    const notification =
+      this.retainedNotification ??
+      readActiveNotifications(MAX_NOTIFICATIONS).find(
+        (item) => item.key === this.notificationKey,
+      );
 
-    if (!notification || (!this.retainedNotification && this.options.expectedRevision
-      && !notificationTriageController.isCurrent(this.notificationKey, this.options.expectedRevision))) {
+    if (
+      !notification ||
+      (!this.retainedNotification &&
+        this.options.expectedRevision &&
+        !notificationTriageController.isCurrent(
+          this.notificationKey,
+          this.options.expectedRevision,
+        ))
+    ) {
       return this.closeUnavailableNotification(ctx, paintBelow);
     }
 
     const menu = buildDetailMenu(notification);
-    this.selectedMenuIndex = clamp(this.selectedMenuIndex, 0, Math.max(0, menu.length - 1));
+    this.selectedMenuIndex = clamp(
+      this.selectedMenuIndex,
+      0,
+      Math.max(0, menu.length - 1),
+    );
     drawDetailContent(
       image,
       font,
@@ -334,10 +499,20 @@ export class SingleNotificationLayer implements Layer {
   }
 
   handleInput(event: DashboardInputEvent, ctx: LayerContext): void {
-    const notification = this.retainedNotification ??
-      readActiveNotifications(MAX_NOTIFICATIONS).find((item) => item.key === this.notificationKey);
-    if (!notification || (!this.retainedNotification && this.options.expectedRevision
-      && !notificationTriageController.isCurrent(this.notificationKey, this.options.expectedRevision))) {
+    const notification =
+      this.retainedNotification ??
+      readActiveNotifications(MAX_NOTIFICATIONS).find(
+        (item) => item.key === this.notificationKey,
+      );
+    if (
+      !notification ||
+      (!this.retainedNotification &&
+        this.options.expectedRevision &&
+        !notificationTriageController.isCurrent(
+          this.notificationKey,
+          this.options.expectedRevision,
+        ))
+    ) {
       this.closeUnavailableNotification(ctx);
       return;
     }
@@ -348,7 +523,8 @@ export class SingleNotificationLayer implements Layer {
       return;
     }
     if (event.type === "scroll-up") {
-      this.selectedMenuIndex = (this.selectedMenuIndex - 1 + menu.length) % menu.length;
+      this.selectedMenuIndex =
+        (this.selectedMenuIndex - 1 + menu.length) % menu.length;
       return;
     }
     if (event.type === "scroll-down") {
@@ -367,7 +543,11 @@ export class SingleNotificationLayer implements Layer {
         this.startReply(ctx, item.action);
       } else {
         invokeNotificationAction(this.notificationKey, item.action.index);
-        if (!readActiveNotifications(MAX_NOTIFICATIONS).some((item) => item.key === this.notificationKey)) {
+        if (
+          !readActiveNotifications(MAX_NOTIFICATIONS).some(
+            (item) => item.key === this.notificationKey,
+          )
+        ) {
           this.closeUnavailableNotification(ctx);
         }
       }
@@ -388,7 +568,10 @@ export class SingleNotificationLayer implements Layer {
    * shell voice dialog (mic + transcription + Send/Discard menu); Send fills
    * the transcript into the action's RemoteInput on the Java side.
    */
-  private startReply(ctx: LayerContext, action: AndroidNotificationAction): void {
+  private startReply(
+    ctx: LayerContext,
+    action: AndroidNotificationAction,
+  ): void {
     const key = this.notificationKey;
     const voice = new VoiceInputLayer({
       actions: ctx.actions,
@@ -402,7 +585,11 @@ export class SingleNotificationLayer implements Layer {
             const reply = text.trim();
             if (!reply) return;
             invokeNotificationAction(key, action.index, reply);
-            if (!readActiveNotifications(MAX_NOTIFICATIONS).some((item) => item.key === key)) {
+            if (
+              !readActiveNotifications(MAX_NOTIFICATIONS).some(
+                (item) => item.key === key,
+              )
+            ) {
               this.closeUnavailableNotification(ctx);
             }
           },
@@ -423,13 +610,15 @@ export class SingleNotificationLayer implements Layer {
     }
   }
 
-  private closeUnavailableNotification(ctx: LayerContext, paintBelow?: PaintBelow): GrayImage {
+  private closeUnavailableNotification(
+    ctx: LayerContext,
+    paintBelow?: PaintBelow,
+  ): GrayImage {
     this.close(ctx);
     const { width, height } = ctx.stack.getBaseSize();
     return paintBelow ? paintBelow() : new GrayImage(width, height, 0);
   }
 }
-
 
 function buildNotificationCardLayout(
   font: BdfFont,
@@ -454,10 +643,18 @@ function buildNotificationCardLayout(
       lines.push(...wrapText(font, body, cardTextWidth).slice(0, 4));
     }
   } else if (body) {
-    lines.push(truncateText(font, wrapText(font, body, cardTextWidth)[0]!, cardTextWidth));
+    lines.push(
+      truncateText(
+        font,
+        wrapText(font, body, cardTextWidth)[0]!,
+        cardTextWidth,
+      ),
+    );
   }
   if (notification.actions.length) {
-    lines.push(`${notification.actions.length} quick action${notification.actions.length === 1 ? "" : "s"}`);
+    lines.push(
+      `${notification.actions.length} quick action${notification.actions.length === 1 ? "" : "s"}`,
+    );
   }
   return {
     notification,
@@ -480,30 +677,62 @@ function drawNotificationCard(
   // Match the shared menu highlight: faint border + black fill when
   // unselected; bright border when selected; the non-black fill only appears
   // when the app also has focus (selected-but-unfocused stays black-filled).
-  const fill = selected && focused ? 15 : 1;
-  const stroke = selected ? 110 : 38;
-  image.fillRoundedRect(x, y, width, layout.height, fill, 8);
-  image.drawRoundedRect(x, y, width, layout.height, stroke, 8);
+  if (selected) {
+    drawGlassSelection(
+      image,
+      x,
+      y,
+      width,
+      layout.height,
+      focused,
+      GLASS_RADIUS.control,
+    );
+  } else {
+    drawGlassPanel(image, x, y, width, layout.height, {
+      border: GLASS_TONE.track,
+      radius: GLASS_RADIUS.control,
+    });
+  }
   if (icon) {
     image.bitBlt(icon, x + 10, y + 8, { transparentZero: true });
   }
   const lineHeight = lineHeightFor(font);
   for (let index = 0; index < layout.lines.length; index++) {
-    const value = index === 0 ? 140 : selected ? 235 : 185;
-    image.drawText(font, x + CARD_TEXT_X, y + 7 + index * lineHeight, layout.lines[index]!, value);
+    const value =
+      index === 0
+        ? GLASS_TONE.muted
+        : selected
+          ? GLASS_TONE.primary
+          : GLASS_TONE.secondary;
+    image.drawText(
+      font,
+      x + CARD_TEXT_X,
+      y + 7 + index * lineHeight,
+      layout.lines[index]!,
+      value,
+    );
   }
 }
 
-function scrollForSelected(layouts: CardLayout[], selectedIndex: number, viewportHeight: number): number {
+function scrollForSelected(
+  layouts: CardLayout[],
+  selectedIndex: number,
+  viewportHeight: number,
+): number {
   if (selectedIndex < 0) return 0;
   let selectedTop = 0;
   for (let index = 0; index < selectedIndex; index++) {
     selectedTop += layouts[index]!.height + CARD_GAP;
   }
   const selectedBottom = selectedTop + layouts[selectedIndex]!.height;
-  const contentHeight = layouts.reduce((sum, layout) => sum + layout.height + CARD_GAP, 0);
+  const contentHeight = layouts.reduce(
+    (sum, layout) => sum + layout.height + CARD_GAP,
+    0,
+  );
   const maxScroll = Math.max(0, contentHeight - viewportHeight);
-  const centered = selectedTop - Math.max(0, (viewportHeight - (selectedBottom - selectedTop)) / 2);
+  const centered =
+    selectedTop -
+    Math.max(0, (viewportHeight - (selectedBottom - selectedTop)) / 2);
   return clamp(centered | 0, 0, maxScroll);
 }
 
@@ -523,86 +752,159 @@ function drawDetailContent(
     font,
     PAGE_X + 12,
     PAGE_Y + 9,
-    truncateText(font, `Notification · ${GESTURE_DOUBLE_CLICK} dismiss`, contentWidth),
-    220,
+    truncateText(
+      font,
+      `Notification · ${GESTURE_DOUBLE_CLICK} dismiss`,
+      contentWidth,
+    ),
+    GLASS_TONE.primary,
   );
   let appLineX = contentX;
   if (icon) {
     image.bitBlt(icon, contentX, 36, { transparentZero: true });
     appLineX = contentX + ICON_SIZE + ICON_TEXT_GAP;
   }
-  image.drawText(font, appLineX, 42, `${notification.appName || notification.packageName}  ${formatRelativeTime(notification.postTime)}`, 150);
+  image.drawText(
+    font,
+    appLineX,
+    42,
+    `${notification.appName || notification.packageName}  ${formatRelativeTime(notification.postTime)}`,
+    GLASS_TONE.muted,
+  );
 
   const lines: string[] = [];
-  lines.push(...wrapText(font, notification.title || "(untitled)", contentWidth));
+  lines.push(
+    ...wrapText(font, notification.title || "(untitled)", contentWidth),
+  );
   const body = detailNotificationBody(notification);
   if (body) {
     lines.push("");
     lines.push(...wrapText(font, body, contentWidth));
   }
-  const meta = [notification.subText, notification.infoText, notification.summaryText].filter(Boolean).join("  ");
+  const meta = [
+    notification.subText,
+    notification.infoText,
+    notification.summaryText,
+  ]
+    .filter(Boolean)
+    .join("  ");
   if (meta) {
     lines.push("");
     lines.push(...wrapText(font, meta, contentWidth));
   }
   lines.push("");
-  lines.push(...wrapText(
-    font,
-    `Why: ${retainedReason ?? notificationTriageReason(notification.key)}`,
-    contentWidth,
-  ));
+  lines.push(
+    ...wrapText(
+      font,
+      `Why: ${retainedReason ?? notificationTriageReason(notification.key)}`,
+      contentWidth,
+    ),
+  );
 
   const lineHeight = lineHeightFor(font);
   const maxLines = Math.max(1, ((height - 64 - lineHeight) / lineHeight) | 0);
   for (let index = 0; index < Math.min(lines.length, maxLines); index++) {
     const line = lines[index]!;
-    image.drawText(font, contentX, 64 + index * lineHeight, line, index === 0 ? 230 : 190);
+    image.drawText(
+      font,
+      contentX,
+      64 + index * lineHeight,
+      line,
+      index === 0 ? GLASS_TONE.primary : GLASS_TONE.body,
+    );
   }
   if (lines.length > maxLines) {
-    image.drawText(font, contentX, height - 24, "...", 140);
+    image.drawText(font, contentX, height - 24, "...", GLASS_TONE.muted);
   }
 }
 
-function drawDetailMenu(image: GrayImage, font: BdfFont, menu: DetailMenuItem[], selectedIndex: number, width: number, height: number, bounceY = 0): void {
+function drawDetailMenu(
+  image: GrayImage,
+  font: BdfFont,
+  menu: DetailMenuItem[],
+  selectedIndex: number,
+  width: number,
+  height: number,
+  bounceY = 0,
+): void {
   const menuX = width - DETAIL_MENU_WIDTH - 24;
-  const layout = notificationDetailMenuLayout(height, font.lineHeight, menu.length, selectedIndex);
+  const layout = notificationDetailMenuLayout(
+    height,
+    font.lineHeight,
+    menu.length,
+    selectedIndex,
+  );
   for (let index = layout.start; index < layout.end; index++) {
     const y = layout.menuY + bounceY + (index - layout.start) * layout.rowPitch;
     const selected = index === selectedIndex;
     if (selected) {
-      image.fillRoundedRect(menuX - 8, y - 2, DETAIL_MENU_WIDTH, layout.highlightHeight, 18, 6);
-      image.drawRoundedRect(menuX - 8, y - 2, DETAIL_MENU_WIDTH, layout.highlightHeight, 60, 6);
+      drawGlassSelection(
+        image,
+        menuX - 8,
+        y - 2,
+        DETAIL_MENU_WIDTH,
+        layout.highlightHeight,
+        true,
+        GLASS_RADIUS.selection,
+      );
     }
     const leading = index === layout.start && layout.start > 0 ? "↑ " : "";
-    const trailing = index === layout.end - 1 && layout.end < menu.length ? " ↓" : "";
-    const label = truncateText(font, `${leading}${menu[index]!.label}${trailing}`, DETAIL_MENU_WIDTH - 12);
-    image.drawText(font, menuX, y + 2, label, selected ? 255 : 185);
+    const trailing =
+      index === layout.end - 1 && layout.end < menu.length ? " ↓" : "";
+    const label = truncateText(
+      font,
+      `${leading}${menu[index]!.label}${trailing}`,
+      DETAIL_MENU_WIDTH - 12,
+    );
+    image.drawText(
+      font,
+      menuX,
+      y + 2,
+      label,
+      selected ? GLASS_TONE.focus : GLASS_TONE.secondary,
+    );
   }
 }
 
 function buildDetailMenu(notification: AndroidNotification): DetailMenuItem[] {
   return [
     { kind: "back", label: "Back" },
-    ...notification.actions.map((action): DetailMenuItem => ({
-      kind: "action",
-      label: action.enabled ? action.title : `${action.title} (unavailable)`,
-      action,
-    })),
+    ...notification.actions.map(
+      (action): DetailMenuItem => ({
+        kind: "action",
+        label: action.enabled ? action.title : `${action.title} (unavailable)`,
+        action,
+      }),
+    ),
     { kind: "dismiss", label: "Dismiss" },
   ];
 }
 
 function primaryNotificationBody(notification: AndroidNotification): string {
   const title = notificationTitle(notification);
-  const body = notification.bigText || notification.text || notification.lines.join(" / ") || notification.summaryText || "";
+  const body =
+    notification.bigText ||
+    notification.text ||
+    notification.lines.join(" / ") ||
+    notification.summaryText ||
+    "";
   return body === title ? "" : body;
 }
 
 function detailNotificationBody(notification: AndroidNotification): string {
   const lines = notification.lines.length ? notification.lines.join("\n") : "";
-  return [notification.bigText || notification.text, lines].filter(Boolean).join("\n");
+  return [notification.bigText || notification.text, lines]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function notificationTitle(notification: AndroidNotification): string {
-  return notification.title || notification.text || notification.summaryText || notification.appName || notification.packageName || "(untitled)";
+  return (
+    notification.title ||
+    notification.text ||
+    notification.summaryText ||
+    notification.appName ||
+    notification.packageName ||
+    "(untitled)"
+  );
 }

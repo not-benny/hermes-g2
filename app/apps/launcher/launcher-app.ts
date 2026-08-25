@@ -8,13 +8,26 @@ import {
   GESTURE_DOUBLE_CLICK,
   GESTURE_SCROLL,
 } from "../../ui/gestures";
-import { DashboardInputEvent, Layer, LayerActions, LayerContext } from "../../ui/layers";
+import {
+  DashboardInputEvent,
+  Layer,
+  LayerActions,
+  LayerContext,
+} from "../../ui/layers";
 import { type MenuItem } from "../../ui/menu";
-import { drawSelectionHighlight, scrollToKeepSelectionVisible } from "../../ui/menu";
+import {
+  drawSelectionHighlight,
+  scrollToKeepSelectionVisible,
+} from "../../ui/menu";
 import { EdgeBounce, EdgeWrapScroller } from "../../ui/edge-scroll";
 import { onAnySettingChanged } from "../../ui/dashboard-settings";
+import { GLASS_TONE } from "../../ui/glass-design";
 import { createInProcessWindow } from "../../ui/shell/in-process-window";
-import { getFolderAssignments, getFolders, getFolderStateFingerprint } from "./launcher-folders";
+import {
+  getFolderAssignments,
+  getFolders,
+  getFolderStateFingerprint,
+} from "./launcher-folders";
 import { shell, type ShellWindow } from "../../ui/shell/shell";
 
 export type LauncherAppEntry = {
@@ -28,7 +41,11 @@ export type LauncherOptions = {
   apps: LauncherAppEntry[];
   launchApp: (appId: string) => Promise<void> | void;
   /** Submit a painted viewport-sized frame to this window's surface. */
-  submitFrame: (image: GrayImage, paintMs: number, frameId: number) => Promise<void>;
+  submitFrame: (
+    image: GrayImage,
+    paintMs: number,
+    frameId: number,
+  ) => Promise<void>;
   /** Flip the launcher's compositor surface visibility on foreground changes. */
   setSurfaceVisible: (visible: boolean) => void;
   /** Extra long-press menu entries (e.g. "Unhide health tab"); read at open time. */
@@ -52,11 +69,17 @@ const LABEL_GAP = 2;
 const FOLDER_HEADER_HEIGHT = 16;
 
 /** Scale a cell icon only when its label would otherwise cross the next row. */
-export function launcherCellIconSize(rowHeight: number, fontLineHeight: number): number {
-  return Math.max(24, Math.min(
-    ICON_SIZE,
-    Math.floor(rowHeight - LABEL_GAP - Math.max(1, fontLineHeight)),
-  ));
+export function launcherCellIconSize(
+  rowHeight: number,
+  fontLineHeight: number,
+): number {
+  return Math.max(
+    24,
+    Math.min(
+      ICON_SIZE,
+      Math.floor(rowHeight - LABEL_GAP - Math.max(1, fontLineHeight)),
+    ),
+  );
 }
 
 type LauncherMode = "row" | "item";
@@ -105,7 +128,14 @@ class LauncherGridLayer implements Layer {
         .filter(Boolean) as LauncherAppEntry[];
       if (members.length > 0) {
         return members
-          .map((app): LauncherGridEntry => ({ kind: "app", label: app.label, icon: app.icon, appId: app.appId }))
+          .map(
+            (app): LauncherGridEntry => ({
+              kind: "app",
+              label: app.label,
+              icon: app.icon,
+              appId: app.appId,
+            }),
+          )
           .sort((a, b) => a.label.localeCompare(b.label));
       }
       this.currentFolder = null;
@@ -121,7 +151,12 @@ class LauncherGridLayer implements Layer {
     }
     for (const app of this.options.apps) {
       if (!assignments[app.appId]) {
-        entries.push({ kind: "app", label: app.label, icon: app.icon, appId: app.appId });
+        entries.push({
+          kind: "app",
+          label: app.label,
+          icon: app.icon,
+          appId: app.appId,
+        });
       }
     }
     return entries.sort((a, b) => a.label.localeCompare(b.label));
@@ -140,7 +175,9 @@ class LauncherGridLayer implements Layer {
     const folder = this.currentFolder;
     this.currentFolder = null;
     this.mode = "row";
-    const index = this.entries().findIndex((entry) => entry.kind === "folder" && entry.name === folder);
+    const index = this.entries().findIndex(
+      (entry) => entry.kind === "folder" && entry.name === folder,
+    );
     this.selectedRow = index >= 0 ? Math.floor(index / COLS) : 0;
   }
 
@@ -158,9 +195,23 @@ class LauncherGridLayer implements Layer {
       Math.max(0, this.itemsInRow(entries.length, this.selectedRow) - 1),
     );
 
-    const gridTop = this.currentFolder !== null ? GRID_TOP + FOLDER_HEADER_HEIGHT : GRID_TOP;
+    const gridTop =
+      this.currentFolder !== null ? GRID_TOP + FOLDER_HEADER_HEIGHT : GRID_TOP;
     if (this.currentFolder !== null) {
-      image.drawText(font, 8, GRID_TOP - 2, truncateText(font, this.currentFolder, width - 16), 160);
+      image.drawText(
+        font,
+        8,
+        GRID_TOP - 2,
+        truncateText(font, this.currentFolder, width - 16),
+        GLASS_TONE.secondary,
+      );
+      image.drawLine(
+        8,
+        GRID_TOP + 12,
+        width - 8,
+        GRID_TOP + 12,
+        GLASS_TONE.divider,
+      );
     }
     const gridBottom = height - FOOTER_HEIGHT;
     const rowH = (gridBottom - gridTop) / VISIBLE_ROWS;
@@ -168,39 +219,80 @@ class LauncherGridLayer implements Layer {
     const iconSize = launcherCellIconSize(rowH, font.lineHeight);
 
     // Scroll to keep the selected row among the fully-visible rows.
-    this.scrollRow = scrollToKeepSelectionVisible(this.scrollRow, this.selectedRow, FULL_ROWS, rows);
+    this.scrollRow = scrollToKeepSelectionVisible(
+      this.scrollRow,
+      this.selectedRow,
+      FULL_ROWS,
+      rows,
+    );
 
     const bounceY = this.bounce.offsetPx();
-    const rowY = (row: number) => gridTop + (row - this.scrollRow) * rowH + bounceY;
+    const rowY = (row: number) =>
+      gridTop + (row - this.scrollRow) * rowH + bounceY;
 
     // Selection highlight (row band, or a single cell in item mode).
     const selY = rowY(this.selectedRow);
     if (this.mode === "row") {
-      drawSelectionHighlight(image, 4, selY + 2, width - 8, rowH - 4, focused, 6);
+      drawSelectionHighlight(
+        image,
+        4,
+        selY + 2,
+        width - 8,
+        rowH - 4,
+        focused,
+        6,
+      );
     } else {
-      drawSelectionHighlight(image, this.selectedCol * colW + 6, selY + 2, colW - 12, rowH - 4, focused, 6);
+      drawSelectionHighlight(
+        image,
+        this.selectedCol * colW + 6,
+        selY + 2,
+        colW - 12,
+        rowH - 4,
+        focused,
+        6,
+      );
     }
 
     for (let index = 0; index < entries.length; index++) {
       const entry = entries[index]!;
       const row = Math.floor(index / COLS);
       if (row < this.scrollRow) continue;
-      const blockTop = rowY(row) + Math.max(2, (rowH - iconSize - font.lineHeight - LABEL_GAP) / 2);
+      const blockTop =
+        rowY(row) +
+        Math.max(2, (rowH - iconSize - font.lineHeight - LABEL_GAP) / 2);
       if (blockTop >= gridBottom) break; // fully below the grid
       const centerX = (index % COLS) * colW + colW / 2;
-      const icon = renderIcon(entry.kind === "app" ? entry.icon : "folder-filled", iconSize);
+      const icon = renderIcon(
+        entry.kind === "app" ? entry.icon : "folder-filled",
+        iconSize,
+      );
       if (icon) {
         // Clip the icon at the grid bottom so a peeking row shows only its top.
-        const clipHeight = Math.min(icon.height, Math.floor(gridBottom - blockTop));
-        image.bitBlt(icon, Math.round(centerX - icon.width / 2), Math.round(blockTop), {
-          height: clipHeight,
-          transparentZero: true,
-        });
+        const clipHeight = Math.min(
+          icon.height,
+          Math.floor(gridBottom - blockTop),
+        );
+        image.bitBlt(
+          icon,
+          Math.round(centerX - icon.width / 2),
+          Math.round(blockTop),
+          {
+            height: clipHeight,
+            transparentZero: true,
+          },
+        );
       }
       const labelY = Math.round(blockTop + iconSize + LABEL_GAP);
       if (labelY + font.lineHeight <= gridBottom) {
         const label = truncateText(font, entry.label, colW - 8);
-        image.drawText(font, Math.round(centerX - font.measureText(label) / 2), labelY, label, 210);
+        image.drawText(
+          font,
+          Math.round(centerX - font.measureText(label) / 2),
+          labelY,
+          label,
+          GLASS_TONE.body,
+        );
       }
     }
 
@@ -210,11 +302,14 @@ class LauncherGridLayer implements Layer {
       this.mode === "row"
         ? `${GESTURE_SCROLL} row   ${GESTURE_CLICK} pick   ${GESTURE_DOUBLE_CLICK} back`
         : `${GESTURE_SCROLL} item   ${GESTURE_CLICK} ${pickVerb}   ${GESTURE_DOUBLE_CLICK} row`;
-    image.drawText(font, 8, height - 14, hint, 110);
+    image.drawText(font, 8, height - 14, hint, GLASS_TONE.hint);
     return image;
   }
 
-  async handleInput(event: DashboardInputEvent, ctx: LayerContext): Promise<void> {
+  async handleInput(
+    event: DashboardInputEvent,
+    ctx: LayerContext,
+  ): Promise<void> {
     const entries = this.entries();
     const rows = this.rowCount(entries.length);
     switch (event.type) {
@@ -223,13 +318,22 @@ class LauncherGridLayer implements Layer {
         const dir = event.type === "scroll-down" ? 1 : -1;
         if (this.mode === "row") {
           if (rows <= 0) return;
-          const step = this.scroller.step(this.selectedRow, rows, dir, Date.now());
+          const step = this.scroller.step(
+            this.selectedRow,
+            rows,
+            dir,
+            Date.now(),
+          );
           if (step.atEdge) {
             this.bounce.trigger(dir, () => ctx.actions.requestRender());
             return;
           }
           this.selectedRow = step.index;
-          this.selectedCol = clamp(this.selectedCol, 0, Math.max(0, this.itemsInRow(entries.length, this.selectedRow) - 1));
+          this.selectedCol = clamp(
+            this.selectedCol,
+            0,
+            Math.max(0, this.itemsInRow(entries.length, this.selectedRow) - 1),
+          );
         } else {
           // Item selection traverses the whole grid linearly by entry index;
           // past a row's edge it continues onto the adjacent row, and the grid

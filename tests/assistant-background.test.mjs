@@ -234,7 +234,10 @@ test("sleeping PTT isolation returns only for its final and releases on failed d
   assert.match(shell, /private pendingAssistantResultIsolated = false/);
   const finish = shell.slice(shell.indexOf("private finishBackgroundAssistantTurn"), shell.indexOf("private flushDeferredAssistantUi"));
   assert.match(finish, /const isolated = this\.isolatedAssistantTurn === layer/);
+  assert.match(finish, /if \(isolated\) this\.assistantOnlyPresentationOwnership\.claim\(\)/,
+    "a queued isolated successor must immediately make older cleanup stale");
   assert.match(finish, /this\.pendingAssistantResultIsolated = isolated/);
+  assert.match(finish, /this\.pendingAssistantResultRevision\+\+/);
   assert.ok(
     finish.indexOf("this.noteAssistantResultActivity()") < finish.indexOf("this.flushPendingAssistantResult()"),
     "completion must invalidate older wake ownership before acquiring the final's provisional wake",
@@ -247,24 +250,40 @@ test("sleeping PTT isolation returns only for its final and releases on failed d
     "assistant completion must defer activity while a sleep-origin opaque card owns the display");
   assert.match(resultActivity, /this\.noteUserActivity\(\)/);
   const overlay = shell.slice(shell.indexOf("private flushPendingAssistantOverlay"), shell.indexOf("private flushPendingAssistantResult"));
-  assert.match(overlay, /if \(isolated\) this\.setAssistantOnlyPresentation\(true\)/);
-  assert.match(overlay, /this\.config\.prepareIsolatedAssistantResultDisplay\(isPending\)/);
+  assert.match(overlay, /const isolationClaim = isolated \? this\.setAssistantOnlyPresentation\(true\) : null/);
+  assert.match(overlay, /this\.beginIsolatedAssistantResultDisplay\(isPending\)/);
   assert.match(overlay, /preparation\?\.commit\(\)[\s\S]*strictAcknowledged = true/);
   assert.match(overlay,
-    /this\.rehideAssistantOverlayForRetry\(layer\);[\s\S]*preparation\?\.rollback\(\);[\s\S]*this\.setAssistantOnlyPresentation\(false\)/);
+    /this\.rehideAssistantOverlayForRetry\(layer\);[\s\S]*preparation\?\.rollback\(\);[\s\S]*this\.releaseAssistantOnlyPresentation\(isolationClaim\)/);
   assert.match(overlay, /this\.isolatedAssistantTurn = null/);
   const compact = shell.slice(shell.indexOf("private flushPendingAssistantResult"), shell.indexOf("private startAssistantFollowUp"));
   assert.match(compact, /const isolated = this\.pendingAssistantResultIsolated/);
-  assert.match(compact, /if \(isolated\) this\.setAssistantOnlyPresentation\(true\)/);
-  assert.match(compact, /this\.config\.prepareIsolatedAssistantResultDisplay\(isPending\)/);
+  assert.match(compact, /const revision = this\.pendingAssistantResultRevision/);
+  assert.match(compact, /this\.pendingAssistantResultRevision === revision/,
+    "equal reply text must not let an older delivery own a newer result");
+  assert.match(compact, /const isolationClaim = isolated \? this\.setAssistantOnlyPresentation\(true\) : null/);
+  assert.match(compact, /this\.beginIsolatedAssistantResultDisplay\(isPending\)/);
   assert.match(compact, /isolated \? \(\) => preparation\?\.commit\(\) : undefined/);
-  assert.match(compact, /if \(isolated && !delivered\) \{[\s\S]*preparation\?\.rollback\(\);[\s\S]*this\.setAssistantOnlyPresentation\(false\)/);
+  assert.match(compact, /if \(isolated && !delivered\) \{[\s\S]*preparation\?\.rollback\(\);[\s\S]*this\.releaseAssistantOnlyPresentation\(isolationClaim\)/);
+  assert.match(compact, /queuedNext = this\.pendingAssistantResult !== null &&[\s\S]*this\.pendingAssistantResultRevision !== revision/);
   const controller = read("app/g2/dashboard-controller.ts");
   assert.match(controller,
-    /prepareIsolatedAssistantResultDisplay:\s*\(isAllowed\)\s*=>\s*this\.beginAssistantResultDisplay\(isAllowed\)/);
+    /prepareAssistantResultPresentationIsolation:\s*\(isAllowed\)\s*=>[\s\S]*this\.prepareMusicCardDisplay\(isAllowed\)/);
   assert.doesNotMatch(controller,
-    /prepareIsolatedAssistantResultDisplay:[^\n]*beginDirectAssistantResultDisplay/,
+    /prepareAssistantResultPresentationIsolation:[^\n]*beginDirectAssistantResultDisplay/,
     "in-turn PTT finals must not inherit the proactive confirmed-worn gate");
+  const opaquePreparation = shell.slice(
+    shell.indexOf("private beginIsolatedAssistantResultDisplay"),
+    shell.indexOf("private flushPendingAssistantOverlay"),
+  );
+  assert.match(opaquePreparation, /prepareOpaqueDisplay:[\s\S]*primeBlankFrame:[\s\S]*acquireWake:[\s\S]*revealOpaqueDisplay:/,
+    "sleep-origin replies must follow the notification-card blank, prime, wake, reveal order");
+  assert.match(opaquePreparation, /releaseOpaqueDisplay:[\s\S]*startDetachedCleanup\(release\)/,
+    "the compositor lease must survive until strict commit or rollback");
+  assert.match(shell, /const isolationClaim = isolated \? this\.setAssistantOnlyPresentation\(true\) : null/g,
+    "each async isolated result must retain its exact assistant-only surface claim");
+  assert.match(shell, /this\.releaseAssistantOnlyPresentation\(isolationClaim\)/,
+    "a stale result cleanup must not release a newer voice query's isolation");
   const alert = shell.slice(shell.indexOf("async showAlert("), shell.indexOf("/** Replace the one shell-owned MCP view"));
   assert.match(alert,
     /lifetime === "until-dismiss-or-sleep"[\s\S]*startDetachedCleanup\(\(\) => this\.config\.requestShellRender\(\)\)/,
@@ -280,6 +299,16 @@ test("context dashboard displacement retires background-overlay bookkeeping", ()
   assert.match(
     showDynamicApp,
     /if \(displacedAssistant\) \{[\s\S]*this\.detachedAssistantLayer = displacedAssistant;[\s\S]*this\.assistantTurnBackgrounded = false;[\s\S]*this\.assistantOverlayRestorePending = false;/,
+  );
+  assert.match(
+    showDynamicApp,
+    /isolationClaim = this\.setAssistantOnlyPresentation\(true\)[\s\S]*this\.releaseAssistantOnlyPresentation\(isolationClaim\)/,
+    "a stale atomic dashboard failure must not release a newer assistant-only owner",
+  );
+  assert.doesNotMatch(
+    showDynamicApp,
+    /if \(!this\.screenOn\) this\.setAssistantOnlyPresentation\(false\)/,
+    "atomic dashboard cleanup must never use an owner-free isolation release",
   );
 });
 
@@ -300,7 +329,7 @@ test("background completion uses a compact persistent result unless conversation
   assert.match(shell, /await this\.showAlert\(\s*pending,[\s\S]*isPending/);
   assert.match(
     shell,
-    /const queuedNext = this\.pendingAssistantResult !== null && this\.pendingAssistantResult !== pending;[\s\S]*if \(queuedNext\) this\.flushPendingAssistantResult\(\)/,
+    /const queuedNext = this\.pendingAssistantResult !== null &&[\s\S]*this\.pendingAssistantResultRevision !== revision;[\s\S]*if \(queuedNext\) this\.flushPendingAssistantResult\(\)/,
   );
   const bridgeState = shell.slice(shell.indexOf("assistantBridge.onStateChange"), shell.indexOf("registerWindow"));
   assert.match(bridgeState, /this\.retryPendingAssistantResult\(\)/);

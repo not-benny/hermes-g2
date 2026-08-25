@@ -3,36 +3,77 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 
-const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-const moduleUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
+const read = (path) =>
+  readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+const moduleUrl = (source) =>
+  `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
 
 async function loadMusicShellHarness() {
   const shell = read("app/ui/shell/shell.ts");
   const start = shell.indexOf("async openMusicCard(): Promise<boolean>");
   const end = shell.indexOf("\n  private closeNotificationModal", start);
-  const ownershipStart = shell.indexOf("/** Opaque cards exclusively own both pixels and input");
-  const ownershipEnd = shell.indexOf("/** Re-baseline idle sleep", ownershipStart);
-  const inputStart = shell.indexOf("/** Apply the shared ring sensitivity gate");
+  const ownershipStart = shell.indexOf(
+    "/** Opaque cards exclusively own both pixels and input",
+  );
+  const ownershipEnd = shell.indexOf(
+    "/** Re-baseline idle sleep",
+    ownershipStart,
+  );
+  const inputStart = shell.indexOf(
+    "/** Apply the shared ring sensitivity gate",
+  );
   const inputEnd = shell.indexOf("\n  async receiveInput", inputStart);
   const flushStart = shell.indexOf("private flushDeferredAssistantUi(): void");
-  const flushEnd = shell.indexOf("\n  private queueAssistantOverlayResult", flushStart);
+  const flushEnd = shell.indexOf(
+    "\n  private queueAssistantOverlayResult",
+    flushStart,
+  );
   const alertStart = shell.indexOf("async showAlert(");
-  const alertEnd = shell.indexOf("\n  /** Replace the one shell-owned MCP view", alertStart);
+  const alertEnd = shell.indexOf(
+    "\n  /** Replace the one shell-owned MCP view",
+    alertStart,
+  );
   const remoteStart = shell.indexOf("async showRemoteView(");
   const remoteEnd = shell.indexOf("\n  clearRemoteView", remoteStart);
   const dynamicStart = shell.indexOf("async showDynamicApp(");
   const dynamicEnd = shell.indexOf("\n  clearDynamicApp", dynamicStart);
   const clockCloseStart = shell.indexOf("closeClockAlert(): void");
-  const clockCloseEnd = shell.indexOf("\n  isClockAlertVisible(): boolean", clockCloseStart);
-  assert.ok(start >= 0 && end > start, "music presentation methods are present");
-  assert.ok(ownershipStart >= 0 && ownershipEnd > ownershipStart,
-    "opaque-card ownership methods are present");
-  assert.ok(inputStart >= 0 && inputEnd > inputStart, "music input ownership methods are present");
-  assert.ok(flushStart >= 0 && flushEnd > flushStart, "deferred assistant gate is present");
-  assert.ok(alertStart >= 0 && alertEnd > alertStart, "alert presentation method is present");
-  assert.ok(remoteStart >= 0 && remoteEnd > remoteStart, "remote-view presentation method is present");
-  assert.ok(dynamicStart >= 0 && dynamicEnd > dynamicStart, "dynamic-app presentation method is present");
-  assert.ok(clockCloseStart >= 0 && clockCloseEnd > clockCloseStart, "Clock close method is present");
+  const clockCloseEnd = shell.indexOf(
+    "\n  isClockAlertVisible(): boolean",
+    clockCloseStart,
+  );
+  assert.ok(
+    start >= 0 && end > start,
+    "music presentation methods are present",
+  );
+  assert.ok(
+    ownershipStart >= 0 && ownershipEnd > ownershipStart,
+    "opaque-card ownership methods are present",
+  );
+  assert.ok(
+    inputStart >= 0 && inputEnd > inputStart,
+    "music input ownership methods are present",
+  );
+  assert.ok(
+    flushStart >= 0 && flushEnd > flushStart,
+    "deferred assistant gate is present",
+  );
+  assert.ok(
+    alertStart >= 0 && alertEnd > alertStart,
+    "alert presentation method is present",
+  );
+  assert.ok(
+    remoteStart >= 0 && remoteEnd > remoteStart,
+    "remote-view presentation method is present",
+  );
+  assert.ok(
+    dynamicStart >= 0 && dynamicEnd > dynamicStart,
+    "dynamic-app presentation method is present",
+  );
+  assert.ok(
+    clockCloseStart >= 0 && clockCloseEnd > clockCloseStart,
+    "Clock close method is present",
+  );
   const source = `
     const isSuccessfulFrameOutcome = (outcome) => typeof outcome === "string" && outcome.startsWith("sent");
     const isReadinessFrameEvidenceOutcome = (outcome) =>
@@ -173,14 +214,19 @@ async function loadMusicShellHarness() {
     export { MusicShellHarness };
   `;
   const js = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
   }).outputText;
   return import(moduleUrl(js));
 }
 
 async function loadMusicCardLifecycleRuntime() {
-  const musicCard = read("app/ui/shell/music-card.ts")
-    .replace(/^import[\s\S]*?;\n/gm, "");
+  const musicCard = read("app/ui/shell/music-card.ts").replace(
+    /^import[\s\S]*?;\n/gm,
+    "",
+  );
   const source = `
     let nowMs = 10_000;
     const Date = { now: () => nowMs };
@@ -215,6 +261,10 @@ async function loadMusicCardLifecycleRuntime() {
       skipPrevious: async () => {},
     };
     const SHELL_OPAQUE_BLACK = 1;
+    const GLASS_MOTION = { cardEnterMs: 240, cardExitMs: 220, frameMs: 24 };
+    const GLASS_TONE = { body: 208, primary: 224, focus: 255, muted: 144 };
+    const drawGlassPanel = () => {};
+    const drawGlassProgress = () => {};
     const strictDeliveryMarkerGray = () => 1;
     ${musicCard}
     export const scheduledTimers = () => timers.slice();
@@ -226,7 +276,10 @@ async function loadMusicCardLifecycleRuntime() {
     };
   `;
   const js = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
   }).outputText;
   return import(moduleUrl(js));
 }
@@ -236,18 +289,48 @@ async function loadMusicControllerHarness() {
   const start = controller.indexOf("private async prepareMusicCardDisplay");
   const end = controller.indexOf("/** Poll the zero-wait Java barrier", start);
   const clockStart = controller.indexOf("private async showClockAlertVisual");
-  const clockEnd = controller.indexOf("private async releaseClockAlertSession", clockStart);
-  const clockPrepareStart = controller.indexOf("private async prepareClockAlertSession");
-  const clockPrepareEnd = controller.indexOf("private async ensureClockRecoveryConnection", clockPrepareStart);
-  const ensureStart = controller.indexOf("private ensureEvenHubSessionActive(): Promise<boolean>");
-  const ensureEnd = controller.indexOf("/**\n   * Acquire Now Playing", ensureStart);
+  const clockEnd = controller.indexOf(
+    "private async releaseClockAlertSession",
+    clockStart,
+  );
+  const clockPrepareStart = controller.indexOf(
+    "private async prepareClockAlertSession",
+  );
+  const clockPrepareEnd = controller.indexOf(
+    "private async ensureClockRecoveryConnection",
+    clockPrepareStart,
+  );
+  const ensureStart = controller.indexOf(
+    "private ensureEvenHubSessionActive(): Promise<boolean>",
+  );
+  const ensureEnd = controller.indexOf(
+    "/**\n   * Acquire Now Playing",
+    ensureStart,
+  );
   const wakeWordStart = controller.indexOf("private async handleWakeWord");
-  const wakeWordEnd = controller.indexOf("private onMediaStateForCard", wakeWordStart);
-  assert.ok(start >= 0 && end > start, "music compositor transaction methods are present");
-  assert.ok(clockStart >= 0 && clockEnd > clockStart, "Clock presentation method is present");
-  assert.ok(clockPrepareStart >= 0 && clockPrepareEnd > clockPrepareStart, "Clock prepare method is present");
-  assert.ok(ensureStart >= 0 && ensureEnd > ensureStart && wakeWordStart >= 0 && wakeWordEnd > wakeWordStart,
-    "generic wake methods are present");
+  const wakeWordEnd = controller.indexOf(
+    "private onMediaStateForCard",
+    wakeWordStart,
+  );
+  assert.ok(
+    start >= 0 && end > start,
+    "music compositor transaction methods are present",
+  );
+  assert.ok(
+    clockStart >= 0 && clockEnd > clockStart,
+    "Clock presentation method is present",
+  );
+  assert.ok(
+    clockPrepareStart >= 0 && clockPrepareEnd > clockPrepareStart,
+    "Clock prepare method is present",
+  );
+  assert.ok(
+    ensureStart >= 0 &&
+      ensureEnd > ensureStart &&
+      wakeWordStart >= 0 &&
+      wakeWordEnd > wakeWordStart,
+    "generic wake methods are present",
+  );
   const source = `
     const EVENHUB_WAKE_READY_TIMEOUT_MS = 1000;
     const clockAlertCoordinator = { ownsBuzzer: () => false };
@@ -304,7 +387,10 @@ async function loadMusicControllerHarness() {
     export { ExplicitWakeHarness, MusicControllerHarness, shellState };
   `;
   const js = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
   }).outputText;
   return import(moduleUrl(js));
 }
@@ -319,14 +405,21 @@ async function openMusicInputHarness() {
     prepareMusicCardDisplay: async () => true,
     requestShellDelivery: async (_isOwner, requireSent = true) => ({
       frameId: requireSent ? 42 : 41,
-      outcome: requireSent ? "sent tiles" : "discarded: no change from displayed image",
+      outcome: requireSent
+        ? "sent tiles"
+        : "discarded: no change from displayed image",
     }),
     revealMusicCardDisplay: async () => true,
-    releaseMusicCardPresentationIsolation: async () => { events.push("release"); },
-    requestShellRender: () => { events.push("render"); },
+    releaseMusicCardPresentationIsolation: async () => {
+      events.push("release");
+    },
+    requestShellRender: () => {
+      events.push("render");
+    },
   };
   const subject = new MusicShellHarness(config);
-  config.actions.isTop = (layer) => subject.stack.topMatches((top) => top === layer);
+  config.actions.isTop = (layer) =>
+    subject.stack.topMatches((top) => top === layer);
   assert.equal(await subject.openMusicCard(), true);
   events.length = 0;
   return { subject, events };
@@ -337,15 +430,29 @@ test("sleep-origin play/pause stays on Now Playing and expiry restores sleep", a
   const card = subject.musicCard;
   const wakeRevision = subject.activityRevision;
 
-  assert.deepEqual(await subject.receiveTopMusicCardInput({ type: "click", source: "ring" }), {
-    shell: true,
-    window: false,
-  });
+  assert.deepEqual(
+    await subject.receiveTopMusicCardInput({ type: "click", source: "ring" }),
+    {
+      shell: true,
+      window: false,
+    },
+  );
   // Firmware commonly follows a control/scroll event with a release event.
-  await subject.receiveTopMusicCardInput({ type: "long-press-release", source: "ring" });
+  await subject.receiveTopMusicCardInput({
+    type: "long-press-release",
+    source: "ring",
+  });
 
-  assert.equal(subject.activityRevision, wakeRevision, "card controls do not claim the HUD wake");
-  assert.equal(subject.stack.layers.at(-1), card, "the card remains the sole visible owner");
+  assert.equal(
+    subject.activityRevision,
+    wakeRevision,
+    "card controls do not claim the HUD wake",
+  );
+  assert.equal(
+    subject.stack.layers.at(-1),
+    card,
+    "the card remains the sole visible owner",
+  );
   assert.equal(events.includes("play-pause"), true);
   await card.expire();
   assert.equal(subject.sleeps, 1);
@@ -358,9 +465,15 @@ test("two-flick skip and companion releases retain sleep ownership", async () =>
   const wakeRevision = subject.activityRevision;
 
   await subject.receiveTopMusicCardInput({ type: "scroll-up" });
-  await subject.receiveTopMusicCardInput({ type: "long-press-release", source: "ring" });
+  await subject.receiveTopMusicCardInput({
+    type: "long-press-release",
+    source: "ring",
+  });
   await subject.receiveTopMusicCardInput({ type: "scroll-up" });
-  await subject.receiveTopMusicCardInput({ type: "long-press-release", source: "ring" });
+  await subject.receiveTopMusicCardInput({
+    type: "long-press-release",
+    source: "ring",
+  });
 
   assert.equal(events.filter((event) => event === "skip-next").length, 1);
   assert.equal(subject.activityRevision, wakeRevision);
@@ -373,7 +486,10 @@ test("double-click dismisses a sleep-origin Now Playing card back to sleep", asy
   const { subject } = await openMusicInputHarness();
   const wakeRevision = subject.activityRevision;
 
-  await subject.receiveTopMusicCardInput({ type: "double-click", source: "ring" });
+  await subject.receiveTopMusicCardInput({
+    type: "double-click",
+    source: "ring",
+  });
 
   assert.equal(subject.activityRevision, wakeRevision);
   assert.equal(subject.sleeps, 1);
@@ -399,33 +515,50 @@ test("Clock coverage defers music expiry and closing Clock never exposes the HUD
 
   await card.expire();
   assert.equal(subject.musicCard, card);
-  assert.equal(subject.stack.layers.at(-1), clock, "Clock remains the authoritative top layer");
+  assert.equal(
+    subject.stack.layers.at(-1),
+    clock,
+    "Clock remains the authoritative top layer",
+  );
   assert.equal(subject.sleeps, 0);
   assert.equal(events.includes("music-deferred-under-cover"), true);
 
   subject.closeClockAlert();
-  assert.equal(subject.stack.layers.at(-1), card,
-    "Clock dismissal reveals the retained opaque card, never the HUD");
+  assert.equal(
+    subject.stack.layers.at(-1),
+    card,
+    "Clock dismissal reveals the retained opaque card, never the HUD",
+  );
   assert.equal(subject.screenOn, true);
   await card.expire();
-  assert.equal(subject.sleeps, 1, "the re-exposed card still owns return-to-sleep");
+  assert.equal(
+    subject.sleeps,
+    1,
+    "the re-exposed card still owns return-to-sleep",
+  );
 
   const musicLayer = read("app/ui/shell/music-card.ts");
-  assert.match(musicLayer, /setTimeout\(\(\) => \{[\s\S]*this\.deferDismissalWhileCovered\(\)[\s\S]*this\.beginRise\(\)/);
-  assert.match(musicLayer, /this\.phase === "rising"[\s\S]*this\.deferDismissalWhileCovered\(\)[\s\S]*this\.options\.onDismissed\(\)/);
+  assert.match(
+    musicLayer,
+    /setTimeout\(\(\) => \{[\s\S]*this\.deferDismissalWhileCovered\(\)[\s\S]*this\.beginRise\(\)/,
+  );
+  assert.match(
+    musicLayer,
+    /this\.phase === "rising"[\s\S]*this\.deferDismissalWhileCovered\(\)[\s\S]*this\.options\.onDismissed\(\)/,
+  );
   assert.doesNotMatch(
-    musicLayer.slice(musicLayer.indexOf("private tick()"), musicLayer.indexOf("private beginRise()")),
+    musicLayer.slice(
+      musicLayer.indexOf("private tick()"),
+      musicLayer.indexOf("private beginRise()"),
+    ),
     /this\.onRemoved\(\)/,
     "only LayerStack removal may tear down the retained card",
   );
 });
 
 test("external removal during music rise cannot rearm an off-stack timer", async () => {
-  const {
-    MusicCardLayer,
-    runTimer,
-    scheduledTimers,
-  } = await loadMusicCardLifecycleRuntime();
+  const { MusicCardLayer, runTimer, scheduledTimers } =
+    await loadMusicCardLifecycleRuntime();
   let installed = true;
   let renders = 0;
   let dismissals = 0;
@@ -435,17 +568,34 @@ test("external removal during music rise cannot rearm an off-stack timer", async
     topMatches: (predicate) => installed && predicate(card),
   };
   card = new MusicCardLayer({
-    actions: { requestRender: () => { renders++; } },
-    onDismissed: () => { dismissals++; },
+    actions: {
+      requestRender: () => {
+        renders++;
+      },
+    },
+    onDismissed: () => {
+      dismissals++;
+    },
   });
   card.startPresentation();
-  card.ctx = { stack, actions: { requestRender: () => { renders++; } } };
+  card.ctx = {
+    stack,
+    actions: {
+      requestRender: () => {
+        renders++;
+      },
+    },
+  };
 
   const [dismissTimer] = scheduledTimers();
   assert.ok(dismissTimer, "drop completion arms the ordinary card timeout");
   assert.equal(runTimer(dismissTimer), true);
   const animationTimer = scheduledTimers().at(-1);
-  assert.notEqual(animationTimer, dismissTimer, "expiry begins a queued rise animation");
+  assert.notEqual(
+    animationTimer,
+    dismissTimer,
+    "expiry begins a queued rise animation",
+  );
 
   installed = false;
   card.onRemoved();
@@ -453,18 +603,41 @@ test("external removal during music rise cannot rearm an off-stack timer", async
   const rendersAfterRemoval = renders;
   // Simulate an already-queued callback reaching the event loop despite teardown.
   assert.equal(runTimer(animationTimer, true), true);
-  assert.equal(scheduledTimers().length, timerCountAfterRemoval,
-    "the stale rise callback cannot arm another dismissal timer");
-  assert.equal(renders, rendersAfterRemoval, "the stale callback cannot repaint an absent card");
-  assert.equal(dismissals, 0, "LayerStack teardown remains the only removal completion");
-  assert.equal(card.deferDismissalWhileCovered(), false,
-    "an absent card is not misclassified as a covered card");
+  assert.equal(
+    scheduledTimers().length,
+    timerCountAfterRemoval,
+    "the stale rise callback cannot arm another dismissal timer",
+  );
+  assert.equal(
+    renders,
+    rendersAfterRemoval,
+    "the stale callback cannot repaint an absent card",
+  );
+  assert.equal(
+    dismissals,
+    0,
+    "LayerStack teardown remains the only removal completion",
+  );
+  assert.equal(
+    card.deferDismissalWhileCovered(),
+    false,
+    "an absent card is not misclassified as a covered card",
+  );
 
   const layerSource = read("app/ui/shell/music-card.ts");
-  assert.match(layerSource, /this\.presentationStarted = false;[\s\S]*this\.ctx = null;/);
-  assert.match(layerSource, /this\.ctx\.stack\.contains\(this\)/,
-    "covered deferral requires exact stack membership");
-  assert.match(layerSource, /private tick\(\): void \{\s*if \(!this\.presentationStarted\) return;/);
+  assert.match(
+    layerSource,
+    /this\.presentationStarted = false;[\s\S]*this\.ctx = null;/,
+  );
+  assert.match(
+    layerSource,
+    /this\.ctx\.stack\.contains\(this\)/,
+    "covered deferral requires exact stack membership",
+  );
+  assert.match(
+    layerSource,
+    /private tick\(\): void \{\s*if \(!this\.presentationStarted\) return;/,
+  );
 });
 
 test("terminal Clock release re-exposes music and cannot stack a dynamic app above it", async () => {
@@ -484,22 +657,45 @@ test("terminal Clock release re-exposes music and cannot stack a dynamic app abo
 
   await card.expire();
   await assert.rejects(
-    subject.showDynamicApp(dynamicState, undefined, undefined, () => false, () => {}),
+    subject.showDynamicApp(
+      dynamicState,
+      undefined,
+      undefined,
+      () => false,
+      () => {},
+    ),
     /active Clock alert owns the glasses display/i,
   );
-  assert.equal(subject.clockAlertLayer, clock, "a nonterminal Clock remains authoritative");
+  assert.equal(
+    subject.clockAlertLayer,
+    clock,
+    "a nonterminal Clock remains authoritative",
+  );
   assert.equal(subject.stack.layers.at(-1), clock);
 
   subject.config.releaseTerminalClockAlertVisual = () => true;
   await assert.rejects(
-    subject.showDynamicApp(dynamicState, undefined, undefined, () => false, () => {}),
+    subject.showDynamicApp(
+      dynamicState,
+      undefined,
+      undefined,
+      () => false,
+      () => {},
+    ),
     /opaque card owns the display/i,
   );
-  assert.equal(subject.clockAlertLayer, null, "the terminal Clock retires atomically");
+  assert.equal(
+    subject.clockAlertLayer,
+    null,
+    "the terminal Clock retires atomically",
+  );
   assert.equal(subject.dynamicAppLayer ?? null, null);
   assert.equal(subject.musicCard, card);
-  assert.equal(subject.stack.layers.at(-1), card,
-    "the exact sleep-origin card is re-exposed instead of being covered or evicted");
+  assert.equal(
+    subject.stack.layers.at(-1),
+    card,
+    "the exact sleep-origin card is re-exposed instead of being covered or evicted",
+  );
   assert.equal(events.includes("render"), true);
 
   await card.expire();
@@ -516,7 +712,11 @@ test("genuine external activity claims the wake and prevents stale card sleep", 
 
   assert.equal(subject.sleeps, 0);
   assert.equal(subject.screenOn, true);
-  assert.equal(subject.stack.layers.length, 0, "the claimed wake returns to the ordinary HUD");
+  assert.equal(
+    subject.stack.layers.length,
+    0,
+    "the claimed wake returns to the ordinary HUD",
+  );
 });
 
 test("a queued assistant final cannot steal a music wake and waits for a later wake", async () => {
@@ -537,7 +737,11 @@ test("a queued assistant final cannot steal a music wake and waits for a later w
 
   subject.wake();
   subject.flushDeferredAssistantUi();
-  assert.equal(subject.pendingAssistantResult, null, "a later explicit wake may deliver the retained final");
+  assert.equal(
+    subject.pendingAssistantResult,
+    null,
+    "a later explicit wake may deliver the retained final",
+  );
   assert.equal(subject.assistantFlushes, 1);
 });
 
@@ -552,13 +756,28 @@ test("an active Now Playing card rejects unrelated alert, remote-view and dynami
     scrollOffset: 0,
   };
 
-  await assert.rejects(subject.showAlert("blocked"), /opaque card owns the display/i);
   await assert.rejects(
-    subject.showRemoteView(remoteState, undefined, undefined, () => false, () => {}),
+    subject.showAlert("blocked"),
     /opaque card owns the display/i,
   );
   await assert.rejects(
-    subject.showDynamicApp(dynamicState, undefined, undefined, () => false, () => {}),
+    subject.showRemoteView(
+      remoteState,
+      undefined,
+      undefined,
+      () => false,
+      () => {},
+    ),
+    /opaque card owns the display/i,
+  );
+  await assert.rejects(
+    subject.showDynamicApp(
+      dynamicState,
+      undefined,
+      undefined,
+      () => false,
+      () => {},
+    ),
     /opaque card owns the display/i,
   );
   assert.equal(subject.stack.layers.at(-1), subject.musicCard);
@@ -569,7 +788,9 @@ test("Clock preemption revokes a remote-view strict ACK and restores its prior l
   const { MusicShellHarness } = await loadMusicShellHarness();
   let strictOwner;
   let releaseStrict;
-  const strict = new Promise((resolve) => { releaseStrict = resolve; });
+  const strict = new Promise((resolve) => {
+    releaseStrict = resolve;
+  });
   const subject = new MusicShellHarness({
     actions: { events: [] },
     isDisplayAvailable: () => true,
@@ -596,20 +817,28 @@ test("Clock preemption revokes a remote-view strict ACK and restores its prior l
   const clock = { kind: "clock" };
   subject.clockAlertLayer = clock;
   subject.stack.push(clock);
-  assert.equal(strictOwner(), false,
-    "a Clock frame cannot acknowledge the now-covered remote view");
+  assert.equal(
+    strictOwner(),
+    false,
+    "a Clock frame cannot acknowledge the now-covered remote view",
+  );
   releaseStrict();
   await assert.rejects(pending, /superseded before delivery completed/i);
   assert.equal(subject.remoteViewLayer, prior);
-  assert.deepEqual(subject.stack.layers, [prior, clock],
-    "rollback restores the prior view underneath the authoritative Clock");
+  assert.deepEqual(
+    subject.stack.layers,
+    [prior, clock],
+    "rollback restores the prior view underneath the authoritative Clock",
+  );
 });
 
 test("Clock preemption revokes a dynamic-app strict ACK and restores its prior layer below Clock", async () => {
   const { MusicShellHarness } = await loadMusicShellHarness();
   let strictOwner;
   let releaseStrict;
-  const strict = new Promise((resolve) => { releaseStrict = resolve; });
+  const strict = new Promise((resolve) => {
+    releaseStrict = resolve;
+  });
   const subject = new MusicShellHarness({
     actions: { events: [] },
     isDisplayAvailable: () => true,
@@ -632,19 +861,34 @@ test("Clock preemption revokes a dynamic-app strict ACK and restores its prior l
     scrollOffset: 0,
   };
 
-  const pending = subject.showDynamicApp(state, undefined, undefined, () => false, () => {});
+  const pending = subject.showDynamicApp(
+    state,
+    undefined,
+    undefined,
+    () => false,
+    () => {},
+  );
   await Promise.resolve();
   assert.equal(strictOwner(), true);
   const clock = { kind: "clock" };
   subject.clockAlertLayer = clock;
   subject.stack.push(clock);
-  assert.equal(strictOwner(), false,
-    "a Clock frame cannot acknowledge the now-covered dynamic app");
+  assert.equal(
+    strictOwner(),
+    false,
+    "a Clock frame cannot acknowledge the now-covered dynamic app",
+  );
   releaseStrict();
-  await assert.rejects(pending, /did not receive a current transport acknowledgement/i);
+  await assert.rejects(
+    pending,
+    /did not receive a current transport acknowledgement/i,
+  );
   assert.equal(subject.dynamicAppLayer, prior);
-  assert.deepEqual(subject.stack.layers, [prior, clock],
-    "rollback restores the prior dynamic layer underneath the authoritative Clock");
+  assert.deepEqual(
+    subject.stack.layers,
+    [prior, clock],
+    "rollback restores the prior dynamic layer underneath the authoritative Clock",
+  );
 });
 
 test("Now Playing primes the exact retained card before the only unblank", async () => {
@@ -666,8 +910,15 @@ test("Now Playing primes the exact retained card before the only unblank", async
       assert.equal(isOwner(), true);
       if (!requireSent) {
         events.push("prime");
-        assert.equal(subject.screenOn, false, "retained card prime stays physically/logically blank");
-        return { frameId: 11, outcome: "discarded: no change from displayed image" };
+        assert.equal(
+          subject.screenOn,
+          false,
+          "retained card prime stays physically/logically blank",
+        );
+        return {
+          frameId: 11,
+          outcome: "discarded: no change from displayed image",
+        };
       }
       events.push("strict");
       return { frameId: 12, outcome: "sent tiles" };
@@ -678,27 +929,40 @@ test("Now Playing primes the exact retained card before the only unblank", async
       visibleFrames.push(subject.stack.layers.at(-1)?.kind ?? "hud");
       return true;
     },
-    releaseMusicCardPresentationIsolation: async () => { events.push("release"); },
-    requestShellRender: () => { events.push("ordinary"); },
+    releaseMusicCardPresentationIsolation: async () => {
+      events.push("release");
+    },
+    requestShellRender: () => {
+      events.push("ordinary");
+    },
   };
   subject = new MusicShellHarness(config);
 
   assert.equal(await subject.openMusicCard(), true);
-  assert.deepEqual(visibleFrames, ["music"], "the first unblanked retained frame is Now Playing");
+  assert.deepEqual(
+    visibleFrames,
+    ["music"],
+    "the first unblanked retained frame is Now Playing",
+  );
   assert.ok(events.indexOf("prepare") < events.indexOf("prime"));
   assert.ok(events.indexOf("prime") < events.indexOf("wake"));
   assert.ok(events.indexOf("wake") < events.indexOf("reveal"));
   assert.ok(events.indexOf("reveal") < events.indexOf("strict"));
   assert.ok(events.indexOf("strict") < events.indexOf("release"));
-  assert.equal(events.slice(0, events.indexOf("prepare")).includes("ordinary"), false,
-    "construction cannot queue a pre-isolation HUD render");
+  assert.equal(
+    events.slice(0, events.indexOf("prepare")).includes("ordinary"),
+    false,
+    "construction cannot queue a pre-isolation HUD render",
+  );
 });
 
 test("failed strict music delivery cannot erase a wake claimed by later user activity", async () => {
   const { MusicShellHarness } = await loadMusicShellHarness();
   const events = [];
   let finishStrict;
-  const strict = new Promise((resolve) => { finishStrict = resolve; });
+  const strict = new Promise((resolve) => {
+    finishStrict = resolve;
+  });
   let subject;
   subject = new MusicShellHarness({
     actions: { events },
@@ -706,13 +970,21 @@ test("failed strict music delivery cannot erase a wake claimed by later user act
     onScreenStateChanged: () => {},
     prepareMusicCardDisplay: async () => true,
     requestShellDelivery: async (_isOwner, requireSent = true) => {
-      if (!requireSent) return { frameId: 21, outcome: "discarded: no change from displayed image" };
+      if (!requireSent)
+        return {
+          frameId: 21,
+          outcome: "discarded: no change from displayed image",
+        };
       events.push("strict-wait");
       return strict;
     },
     revealMusicCardDisplay: async () => true,
-    releaseMusicCardPresentationIsolation: async () => { events.push("release"); },
-    requestShellRender: () => { events.push("replacement-prime"); },
+    releaseMusicCardPresentationIsolation: async () => {
+      events.push("release");
+    },
+    requestShellRender: () => {
+      events.push("replacement-prime");
+    },
     waitForShellRenderIdle: async () => {},
   });
   const opening = subject.openMusicCard();
@@ -721,19 +993,33 @@ test("failed strict music delivery cannot erase a wake claimed by later user act
   finishStrict({ frameId: 22, outcome: "discarded: transport failed" });
 
   assert.equal(await opening, false);
-  assert.equal(subject.sleeps, 0, "stale rollback must not sleep a user-owned wake");
+  assert.equal(
+    subject.sleeps,
+    0,
+    "stale rollback must not sleep a user-owned wake",
+  );
   assert.equal(events.includes("replacement-prime"), true);
   assert.equal(events.includes("release"), true);
 });
 
 test("blanked session and combined assistant/music isolation are ACKed in safe order", async () => {
-  const { MusicControllerHarness, shellState } = await loadMusicControllerHarness();
+  const { MusicControllerHarness, shellState } =
+    await loadMusicControllerHarness();
   const events = [];
   const communicator = {
-    setScreenBlanked: async (value) => { events.push(["blank", value]); },
-    setG2ScreenOn: async (value) => { events.push(["power", value]); },
-    resumeEvenHubSession: async () => { events.push("resume"); return true; },
-    setSurfaceVisible: async (id, visible) => { events.push(["surface", id, visible]); },
+    setScreenBlanked: async (value) => {
+      events.push(["blank", value]);
+    },
+    setG2ScreenOn: async (value) => {
+      events.push(["power", value]);
+    },
+    resumeEvenHubSession: async () => {
+      events.push("resume");
+      return true;
+    },
+    setSurfaceVisible: async (id, visible) => {
+      events.push(["surface", id, visible]);
+    },
   };
   const subject = new MusicControllerHarness(communicator, events);
   assert.equal(await subject.prepareMusicCardDisplay(() => true), true);
@@ -750,21 +1036,112 @@ test("blanked session and combined assistant/music isolation are ACKed in safe o
 
   shellState.screenOn = true;
   assert.equal(await subject.revealMusicCardDisplay(() => true), true);
-  assert.deepEqual(events.at(-1), ["blank", false], "unblank occurs only after all hide ACKs");
+  assert.deepEqual(
+    events.at(-1),
+    ["blank", false],
+    "unblank occurs only after all hide ACKs",
+  );
 
   subject.assistantOnlySurfaceIsolationActive = true;
   const releaseStart = events.length;
   await subject.releaseMusicCardPresentationIsolation();
-  const releaseSurfaces = events.slice(releaseStart)
+  const releaseSurfaces = events
+    .slice(releaseStart)
     .filter((entry) => Array.isArray(entry) && entry[0] === "surface");
-  assert.deepEqual(releaseSurfaces, [
+  assert.deepEqual(
+    releaseSurfaces,
+    [
+      ["surface", "surface-foreground", false],
+      ["surface", "surface-background", false],
+    ],
+    "music release cannot restore app surfaces through assistant-only ownership",
+  );
+});
+
+test("assistant isolation enqueues every retained-surface hide before an immediate wake", async () => {
+  const { MusicControllerHarness } = await loadMusicControllerHarness();
+  const events = [];
+  const communicator = {
+    setSurfaceVisible: async (id, visible) => {
+      events.push(["surface", id, visible]);
+    },
+    submitSurfaceFrame: async () => {
+      events.push("shell:blank-frame");
+    },
+    setG2ScreenOn: async (value) => {
+      events.push(["power", value]);
+    },
+    resumeEvenHubSession: async () => {
+      events.push("resume");
+      return true;
+    },
+    setScreenBlanked: async (value) => {
+      events.push(["blank", value]);
+    },
+  };
+  const subject = new MusicControllerHarness(communicator, events);
+  subject.assistantOnlySurfaceIsolationActive = true;
+
+  // This callback is intentionally fire-and-forget in production. Exercise
+  // the same event-loop turn as the shell's blank prime and wake barrier.
+  subject.applyRetainedWindowSurfaceIsolation();
+  void communicator.submitSurfaceFrame();
+  void communicator.setG2ScreenOn(true);
+  void communicator.resumeEvenHubSession();
+  void communicator.setScreenBlanked(false);
+
+  assert.deepEqual(events, [
     ["surface", "surface-foreground", false],
     ["surface", "surface-background", false],
-  ], "music release cannot restore app surfaces through assistant-only ownership");
+    "shell:blank-frame",
+    ["power", true],
+    "resume",
+    ["blank", false],
+  ]);
+  await Promise.resolve();
+});
+
+test("retained-surface isolation drains every queued ACK before reporting failure", async () => {
+  const { MusicControllerHarness } = await loadMusicControllerHarness();
+  const events = [];
+  const firstFailure = new Error("foreground hide failed");
+  let finishBackground;
+  const background = new Promise((resolve) => {
+    finishBackground = resolve;
+  });
+  const communicator = {
+    setSurfaceVisible: (id) => {
+      events.push(id);
+      return id === "surface-foreground"
+        ? Promise.reject(firstFailure)
+        : background;
+    },
+  };
+  const subject = new MusicControllerHarness(communicator, events);
+  let settled = false;
+  const result = subject
+    .setRetainedWindowSurfaceIsolation(communicator, true)
+    .then(
+      () => null,
+      (error) => error,
+    )
+    .finally(() => {
+      settled = true;
+    });
+
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(events, ["surface-foreground", "surface-background"]);
+  assert.equal(settled, false, "the later compositor ACK remains part of the barrier");
+
+  finishBackground();
+  assert.equal(await result, firstFailure);
+  assert.equal(settled, true);
 });
 
 test("Clock retries instead of unblanking through an in-flight music lease", async () => {
-  const { MusicControllerHarness, shellState } = await loadMusicControllerHarness();
+  const { MusicControllerHarness, shellState } =
+    await loadMusicControllerHarness();
   const events = [];
   const subject = new MusicControllerHarness({}, events);
   shellState.musicPending = true;
@@ -772,8 +1149,16 @@ test("Clock retries instead of unblanking through an in-flight music lease", asy
 
   assert.equal(await subject.showClockAlertVisual({ mode: "ringing" }), false);
   assert.equal(await subject.prepareClockAlertSession(true), false);
-  assert.equal(shellState.clockShows, 0, "Clock must not install through pending music");
-  assert.equal(events.includes("generic-wake"), false, "Clock must not run its unblanking wake barrier");
+  assert.equal(
+    shellState.clockShows,
+    0,
+    "Clock must not install through pending music",
+  );
+  assert.equal(
+    events.includes("generic-wake"),
+    false,
+    "Clock must not run its unblanking wake barrier",
+  );
 
   shellState.musicPending = false;
   assert.equal(await subject.showClockAlertVisual({ mode: "ringing" }), true);
@@ -782,13 +1167,20 @@ test("Clock retries instead of unblanking through an in-flight music lease", asy
 });
 
 test("explicit wakeword cannot bypass the universal music unblank gate", async () => {
-  const { ExplicitWakeHarness, shellState } = await loadMusicControllerHarness();
+  const { ExplicitWakeHarness, shellState } =
+    await loadMusicControllerHarness();
   shellState.wakes = 0;
   const subject = new ExplicitWakeHarness();
 
   await subject.handleWakeWord("Hermes");
   assert.equal(shellState.wakes, 1, "the logical wake edge is still recorded");
-  assert.equal(subject.logs.some((line) => line.includes("wake barrier timed out")), true);
-  assert.equal(subject.musicCardPresentationLease.id, 1,
-    "the explicit wake cannot consume or supersede music's exact lease");
+  assert.equal(
+    subject.logs.some((line) => line.includes("wake barrier timed out")),
+    true,
+  );
+  assert.equal(
+    subject.musicCardPresentationLease.id,
+    1,
+    "the explicit wake cannot consume or supersede music's exact lease",
+  );
 });

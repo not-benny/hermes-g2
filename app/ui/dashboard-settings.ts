@@ -42,6 +42,18 @@ import {
   type CaptionSourceLanguage,
   type CaptionTargetLanguage,
 } from "~/captions/caption-settings";
+import {
+  RING_SENSITIVITY_VALUES,
+  ringScrollMinIntervalMs,
+  type RingSensitivity,
+} from "./ring-sensitivity";
+
+export {
+  RING_SENSITIVITY_RESPONSE_GAIN,
+  RING_SENSITIVITY_VALUES,
+  ringScrollMinIntervalMs,
+} from "./ring-sensitivity";
+export type { RingSensitivity } from "./ring-sensitivity";
 
 export type BatteryDisplayMode = "icon" | "percentage";
 export type TimeFormat = "24h" | "12h";
@@ -275,13 +287,9 @@ export const screenTimeoutSetting = new ConfigSettingEnum<ScreenTimeoutSetting>(
   description: "How long the display stays on after the last input before turning itself off. \"Never\" keeps it on until turned off manually.",
 });
 
-// Ring/touchpad scroll sensitivity as a five-step slider. Each level is a
-// minimum interval between honored scrolls: a physical swipe fires a burst of
-// scroll events, and throttling that burst turns one swipe into a few steps
-// instead of a runaway. "5" honors every event (the original behavior).
-export const RING_SENSITIVITY_VALUES = ["1", "2", "3", "4", "5"] as const;
-export type RingSensitivity = (typeof RING_SENSITIVITY_VALUES)[number];
-
+// Ring/touchpad scroll sensitivity remains a five-step persisted slider. The
+// response curve lives in a dependency-free module so its gain and bounds can
+// be verified without initializing the Android settings bridge.
 export const ringSensitivitySetting = new ConfigSettingEnum<RingSensitivity>({
   id: "ring-sensitivity",
   label: "Ring sensitivity",
@@ -297,23 +305,6 @@ export function ringSensitivityLabel(value: RingSensitivity): string {
   const suffix =
     value === "1" ? " (slowest)" : value === "5" ? " (fastest)" : "";
   return `${value}${suffix}`;
-}
-
-/** Minimum ms between honored scrolls for each sensitivity level (5 = none). */
-export function ringScrollMinIntervalMs(value: RingSensitivity): number {
-  switch (value) {
-    case "1":
-      return 320;
-    case "2":
-      return 220;
-    case "3":
-      return 150;
-    case "4":
-      return 80;
-    case "5":
-    default:
-      return 0;
-  }
 }
 
 export const lockScreenEnabledSetting = new ConfigSettingBoolean({
