@@ -11,7 +11,12 @@ const load = async (path) => {
   return import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
 };
 
-const { AssistantResultWakeOwnership, prepareAtomicAssistantResultLayer } = await load("app/ui/shell/assistant-result-wake.ts");
+const {
+  AssistantOnlyPresentationOwnership,
+  AssistantResultWakeOwnership,
+  beginOpaqueAssistantResultWake,
+  prepareAtomicAssistantResultLayer,
+} = await load("app/ui/shell/assistant-result-wake.ts");
 const { beginAssistantResultDisplayWake, runAssistantResultDisplayWake } = await load("app/g2/assistant-result-display.ts");
 const { TrackedFrameEvidenceWaiters } = await load("app/g2/tracked-frame-evidence.ts");
 const { awaitWithAbortSignal, isStrictLayerOwner, startDetachedCleanup } = await load("app/ui/shell/strict-layer-owner.ts");
@@ -89,6 +94,211 @@ test("superseded atomic wake rolls back without ever installing the final layer"
     releaseIsolationIfAsleep: () => events.push("release-isolation"),
   }));
   assert.deepEqual(events, ["isolate-blank", "drained", "rollback", "release-isolation"]);
+});
+
+test("sleep-origin assistant reply primes black before wake and holds isolation through strict commit", async () => {
+  const events = [];
+  let asleep = true;
+  let current = true;
+  const lease = { ownsWake: true };
+  const transaction = await beginOpaqueAssistantResultWake({
+    isPendingAsleep: () => current && asleep,
+    prepareOpaqueDisplay: async () => { events.push("prepare-black"); return true; },
+    primeBlankFrame: async () => { events.push("prime-black"); return true; },
+    acquireWake: () => { events.push("wake"); asleep = false; return lease; },
+    ownsPriorSleep: (candidate) => candidate.ownsWake,
+    isWakeCurrent: () => current && !asleep,
+    revealOpaqueDisplay: async () => { events.push("reveal-black"); return true; },
+    commitWake: () => events.push("commit-wake"),
+    rollbackWake: () => { events.push("rollback-wake"); asleep = true; },
+    releaseOpaqueDisplay: () => events.push("release-isolation"),
+  });
+
+  assert.equal(transaction.ready, true);
+  assert.deepEqual(events, ["prepare-black", "prime-black", "wake", "reveal-black"]);
+  transaction.commit();
+  assert.deepEqual(events, [
+    "prepare-black",
+    "prime-black",
+    "wake",
+    "reveal-black",
+    "commit-wake",
+    "release-isolation",
+  ]);
+  transaction.rollback();
+  assert.equal(events.includes("rollback-wake"), false, "post-ACK rollback is inert");
+});
+
+test("failed sleep-origin assistant reveal rolls back its exact wake before releasing isolation", async () => {
+  const events = [];
+  let asleep = true;
+  const transaction = await beginOpaqueAssistantResultWake({
+    isPendingAsleep: () => asleep,
+    prepareOpaqueDisplay: async () => { events.push("prepare-black"); return true; },
+    primeBlankFrame: async () => { events.push("prime-black"); return true; },
+    acquireWake: () => { events.push("wake"); asleep = false; return { ownsWake: true }; },
+    ownsPriorSleep: (lease) => lease.ownsWake,
+    isWakeCurrent: () => !asleep,
+    revealOpaqueDisplay: async () => { events.push("reveal-failed"); return false; },
+    commitWake: () => events.push("commit-wake"),
+    rollbackWake: () => { events.push("rollback-wake"); asleep = true; },
+    releaseOpaqueDisplay: () => events.push("release-isolation"),
+  });
+
+  assert.equal(transaction.ready, false);
+  assert.equal(asleep, true);
+  assert.deepEqual(events, [
+    "prepare-black",
+    "prime-black",
+    "wake",
+    "reveal-failed",
+    "rollback-wake",
+    "release-isolation",
+  ]);
+});
+
+test("manual wake during assistant blank prime wins without being rolled back", async () => {
+  const events = [];
+  let asleep = true;
+  let releasePrime;
+  const prime = new Promise((resolve) => { releasePrime = resolve; });
+  const pending = beginOpaqueAssistantResultWake({
+    isPendingAsleep: () => asleep,
+    prepareOpaqueDisplay: async () => { events.push("prepare-black"); return true; },
+    primeBlankFrame: async () => { events.push("prime-black"); return prime; },
+    acquireWake: () => { events.push("assistant-wake"); asleep = false; return { ownsWake: true }; },
+    ownsPriorSleep: (lease) => lease.ownsWake,
+    isWakeCurrent: () => !asleep,
+    revealOpaqueDisplay: async () => { events.push("reveal-black"); return true; },
+    commitWake: () => events.push("commit-wake"),
+    rollbackWake: () => { events.push("rollback-wake"); asleep = true; },
+    releaseOpaqueDisplay: () => events.push("release-isolation"),
+  });
+  await Promise.resolve();
+  asleep = false;
+  releasePrime(true);
+
+  const transaction = await pending;
+  assert.equal(transaction.ready, false);
+  assert.equal(asleep, false, "the explicit HUD wake remains authoritative");
+  assert.deepEqual(events, ["prepare-black", "prime-black", "release-isolation"]);
+});
+
+test("manual wake during an atomic dynamic result releases only that result's outer isolation", async () => {
+  const ownership = new AssistantOnlyPresentationOwnership();
+  let screenOn = false;
+  let assistantOnly = false;
+  let isolationClaim = null;
+  let releasePrime;
+  const prime = new Promise((resolve) => { releasePrime = resolve; });
+
+  const pending = prepareAtomicAssistantResultLayer({
+    enterIsolation: () => {
+      isolationClaim = ownership.claim();
+      assistantOnly = true;
+    },
+    prepare: () => beginOpaqueAssistantResultWake({
+      isPendingAsleep: () => !screenOn,
+      prepareOpaqueDisplay: async () => true,
+      primeBlankFrame: async () => prime,
+      acquireWake: () => {
+        screenOn = true;
+        return { ownsWake: true };
+      },
+      ownsPriorSleep: (lease) => lease.ownsWake,
+      isWakeCurrent: () => screenOn,
+      revealOpaqueDisplay: async () => true,
+      commitWake: () => {},
+      rollbackWake: () => { screenOn = false; },
+      releaseOpaqueDisplay: () => {},
+    }),
+    isReadyCurrent: () => screenOn,
+    drainBlankRender: async () => {},
+    installFinalLayer: () => {},
+    releaseIsolationIfAsleep: () => {
+      if (isolationClaim !== null && ownership.isCurrent(isolationClaim)) {
+        ownership.invalidate();
+        assistantOnly = false;
+      }
+    },
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  // The explicit HUD wake supersedes the sleep-origin result while its blank
+  // prime is unresolved. The result must neither sleep that wake nor keep its
+  // retained app surfaces hidden after the atomic wrapper rejects it.
+  screenOn = true;
+  releasePrime(true);
+  await assert.rejects(pending);
+
+  assert.equal(screenOn, true, "the manual wake remains authoritative");
+  assert.equal(assistantOnly, false, "the stale dynamic-result isolation is released");
+});
+
+test("manual wake during dynamic strict failure preserves the HUD and releases the exact outer isolation", async () => {
+  const outerOwnership = new AssistantOnlyPresentationOwnership();
+  const wakeOwnership = new AssistantResultWakeOwnership();
+  let screenOn = false;
+  let assistantOnly = true;
+  const isolationClaim = outerOwnership.claim();
+  let wakeLease;
+
+  const preparation = await beginOpaqueAssistantResultWake({
+    isPendingAsleep: () => !screenOn,
+    prepareOpaqueDisplay: async () => true,
+    primeBlankFrame: async () => true,
+    acquireWake: () => {
+      wakeLease = wakeOwnership.acquire(
+        screenOn,
+        () => {
+          screenOn = true;
+          return true;
+        },
+        () => {},
+      );
+      return wakeLease;
+    },
+    ownsPriorSleep: (lease) => lease.ownsWake,
+    isWakeCurrent: () => screenOn,
+    revealOpaqueDisplay: async () => true,
+    commitWake: (lease) => wakeOwnership.commit(lease),
+    rollbackWake: (lease) => {
+      wakeOwnership.rollback(
+        lease,
+        () => screenOn,
+        () => {
+          screenOn = false;
+        },
+      );
+    },
+    releaseOpaqueDisplay: () => {},
+  });
+  assert.equal(preparation.ready, true, "the final is awaiting its strict frame ACK");
+
+  // Explicit activity takes ownership while the strict send is unresolved.
+  wakeOwnership.invalidate();
+  preparation.rollback();
+  if (outerOwnership.isCurrent(isolationClaim)) {
+    outerOwnership.invalidate();
+    assistantOnly = false;
+  }
+
+  assert.equal(screenOn, true, "strict rollback cannot sleep the user-owned wake");
+  assert.equal(assistantOnly, false, "the failed result cannot leave the HUD surfaces hidden");
+  assert.equal(outerOwnership.isCurrent(isolationClaim), false);
+});
+
+test("stale result cleanup cannot release a newer assistant-only query", () => {
+  const ownership = new AssistantOnlyPresentationOwnership();
+  const staleResult = ownership.claim();
+  const newerVoiceQuery = ownership.claim();
+
+  assert.equal(ownership.isCurrent(staleResult), false);
+  assert.equal(ownership.isCurrent(newerVoiceQuery), true);
+  ownership.invalidate();
+  assert.equal(ownership.isCurrent(newerVoiceQuery), false,
+    "an explicit sleep/release also makes every pending callback inert");
 });
 
 test("revocation during EvenHub readiness rolls back the exact wake it created", async () => {

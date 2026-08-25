@@ -57,10 +57,10 @@ Android backup is disabled. Keystore keys are device/app-install scoped: uninsta
 
 - Hermes bridge traffic requires authenticated `wss://`. The private owner
   deployment uses Host Session MCP, private Device MCP, and the portable static
-  workflow MCP described in `hermes-mcp-architecture.md`. Combined public
-  distribution remains NO-GO because the current native bridge is
-  redistribution-prohibited and the remaining artifact, containment, privacy,
-  and physical-device gates are open.
+  workflow MCP described in `hermes-mcp-architecture.md`. The GPL app,
+  Apache-2.0 bridge, Apache-2.0 workflow package, and source-pinned distribution
+  are public. Protected APK publication remains disabled while artifact,
+  privacy, and physical-device acceptance gates are open.
 - The checked-in G2 configuration remains an MCP-only, least-privilege release
   baseline. A separately administered private owner profile may explicitly add
   general host capabilities, including Browser Harness access to a signed-in
@@ -75,7 +75,24 @@ Android backup is disabled. Keystore keys are device/app-install scoped: uninsta
 
 Permanent `CI / release-gate` runs on pull requests without repository signing secrets: locked install, host tests, TypeScript, diff hygiene, full root dependency audit at high severity, runtime-only WhatsApp audit, CycloneDX inventory, JDK 21/SDK 35 debug compilation, unsigned release assembly, ZIP integrity, private-path scan, checksum/provenance, release debug-surface exclusion, ZIP 16 KiB alignment, and APK-wide ELF LOAD alignment. It uploads only SBOM/provenance/alignment evidence, never either PR APK. `Protected Release Validation` repeats the host matrix on `main`, builds and verifies only the unsigned release variant, then hands that exact content-addressed artifact to isolated `protected-release` signing. `CodeQL / codeql` performs source scanning. Dependabot monitors npm and pinned GitHub Actions. Major runtime/toolchain and reviewed prerelease pins are not auto-merge candidates.
 
-NativeScript CLI's legacy development-only graph is lockfile-overridden to patched same-major releases of Axios, lodash, minimatch, simple-git, and tar. No maintained ws 7 release fixes the current advisory, so ws 8 is a deliberate major compatibility override covered by a real loopback start/stop test of webpack-bundle-analyzer's WebSocket server path. This closes the enabled Dependabot/npm-audit critical and high findings without changing the pinned NativeScript CLI. Twenty-eight moderate findings remain in legacy Jimp/file-type, uuid, and yauzl tool paths because npm offers only a destructive downgrade or incompatible major overrides; they are not packaged app dependencies and remain visible for coordinated NativeScript migration rather than being hidden or force-fixed.
+NativeScript CLI's legacy development-only graph is lockfile-overridden to
+reviewed patched releases of Axios, lodash, minimatch, simple-git, tar, `uuid`,
+and `yauzl`. No maintained ws 7 release fixes the current advisory, so ws 8 is a
+deliberate compatibility override covered by a real loopback start/stop test of
+webpack-bundle-analyzer's WebSocket server path. Behavioral probes cover the
+`uuid` buffer bounds and malformed `yauzl` timestamp paths. The production
+dependency audit reports zero vulnerabilities and the repository high-severity
+gate passes. Remaining moderate development-only `file-type` graph findings
+stay visible for coordinated NativeScript migration rather than being hidden or
+force-fixed.
+
+CodeQL uploads both language analyses to GitHub Security as well as retaining
+the review artifact. The Even glasses authentication protocol requires the
+existing AES-CBC password-encryption primitive in `FaceclawEvenCrypto.java`;
+that compatibility path is not used for app credential storage. Its
+`java/weak-cryptographic-algorithm` result must remain visible and explicitly
+triaged as a protocol compatibility exception rather than hidden by disabling
+SARIF upload.
 
 All downloaded native/model/source archives have checked-in SHA-256 identities. Downloads use a `.part` file, are hashed before atomic publication, and invalid cache entries are rejected. Native toolchains are pinned to NDK `27.2.12479018` and CMake `3.22.1`; NativeScript CLI `9.0.7` is in `package-lock.json` and invoked without network installation.
 
@@ -92,6 +109,6 @@ The current personal-development package requests broad capabilities for glasses
 
 No release or review authorizes pairing ownership, R1 provisioning/NVM,
 reset/wipe/power commands, R1 DFU, G2 firmware flashing/recovery experiments,
-signing-key rotation, publication of the native bridge, activation of the
+signing-key rotation, activation of the
 general public-web candidate, or live WhatsApp pairing. Those remain separate
 explicit gates.

@@ -25,31 +25,57 @@ async function loadExportedFunction(relativePath, functionName, constantNames) {
     }
   }
   assert.notEqual(end, -1, `${functionName} body is incomplete`);
-  const constants = constantNames.map((name) => {
-    const declaration = source.match(new RegExp(`^const ${name} = [^\\n]+;$`, "m"));
-    assert.ok(declaration, `${name} declaration missing`);
-    return declaration[0];
-  }).join("\n");
+  const constants = constantNames
+    .map((name) => {
+      const declaration = source.match(
+        new RegExp(`^const ${name} = [^\\n]+;$`, "m"),
+      );
+      assert.ok(declaration, `${name} declaration missing`);
+      return declaration[0];
+    })
+    .join("\n");
   const js = ts.transpileModule(`${constants}\n${source.slice(start, end)}`, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2020,
+    },
   }).outputText;
-  return (await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`))[functionName];
+  return (
+    await import(
+      `data:text/javascript;base64,${Buffer.from(js).toString("base64")}`
+    )
+  )[functionName];
 }
 
 const timerEditorMessageY = await loadExportedFunction(
   "app/apps/timer/timer-app.worker.ts",
   "timerEditorMessageY",
-  ["FOOTER_HEIGHT", "EDITOR_FIELDS_TOP", "EDITOR_MESSAGE_PREFERRED_Y", "EDITOR_MESSAGE_GAP"],
+  [
+    "FOOTER_HEIGHT",
+    "EDITOR_FIELDS_TOP",
+    "EDITOR_MESSAGE_PREFERRED_Y",
+    "EDITOR_MESSAGE_GAP",
+  ],
 );
 const resourceUsageCpuChartHeight = await loadExportedFunction(
   "app/apps/debug-tests/resource-usage.ts",
   "resourceUsageCpuChartHeight",
-  ["CPU_CHART_TOP", "CPU_CHART_MAX_HEIGHT", "FOOTER_TEXT_OFFSET", "CPU_CHART_FOOTER_GAP"],
+  [
+    "CPU_CHART_TOP",
+    "CPU_CHART_MAX_HEIGHT",
+    "FOOTER_TEXT_OFFSET",
+    "CPU_CHART_FOOTER_GAP",
+  ],
 );
 const universalSearchRowPitch = await loadExportedFunction(
   "app/apps/universal-search/universal-search-app.ts",
   "universalSearchRowPitch",
-  ["RESULT_LIST_TOP", "RESULT_ROW_MAX_PITCH", "RESULT_ROW_MIN_PITCH", "FOOTER_DIVIDER_OFFSET"],
+  [
+    "RESULT_LIST_TOP",
+    "RESULT_ROW_MAX_PITCH",
+    "RESULT_ROW_MIN_PITCH",
+    "FOOTER_DIVIDER_OFFSET",
+  ],
 );
 const launcherCellIconSize = await loadExportedFunction(
   "app/apps/launcher/launcher-app.ts",
@@ -62,9 +88,19 @@ test("timer editor feedback stays between the title, fields, and compact footer"
   const fieldsTop = 57;
   const footerTop = COMPACT_HEIGHT - 34;
   assert.ok(y >= 28, "feedback remains below the title");
-  assert.ok(y + SMALL_LINE_HEIGHT + 4 <= fieldsTop, "feedback clears the duration fields");
-  assert.ok(y + SMALL_LINE_HEIGHT + 4 <= footerTop, "feedback clears the footer");
-  assert.equal(timerEditorMessageY(424, SMALL_LINE_HEIGHT), 38, "roomy layout keeps the preferred position");
+  assert.ok(
+    y + SMALL_LINE_HEIGHT + 4 <= fieldsTop,
+    "feedback clears the duration fields",
+  );
+  assert.ok(
+    y + SMALL_LINE_HEIGHT + 4 <= footerTop,
+    "feedback clears the footer",
+  );
+  assert.equal(
+    timerEditorMessageY(424, SMALL_LINE_HEIGHT),
+    38,
+    "roomy layout keeps the preferred position",
+  );
 });
 
 test("resource CPU chart shrinks before the compact footer without changing roomy layout", () => {
@@ -93,7 +129,10 @@ test("launcher folder cells shrink icons just enough to keep labels in their row
   const gridBottom = COMPACT_HEIGHT - 16;
   const folderGridTop = 6 + 16;
   const folderRowHeight = (gridBottom - folderGridTop) / 3.5;
-  const folderIconSize = launcherCellIconSize(folderRowHeight, SMALL_LINE_HEIGHT);
+  const folderIconSize = launcherCellIconSize(
+    folderRowHeight,
+    SMALL_LINE_HEIGHT,
+  );
   assert.equal(folderIconSize, 41);
   assert.ok(folderIconSize + 2 + SMALL_LINE_HEIGHT <= folderRowHeight);
 
@@ -111,10 +150,16 @@ test("the four app renderers use their compact geometry functions", () => {
     /height: resourceUsageCpuChartHeight\(height\)/,
   );
   const search = read("app/apps/universal-search/universal-search-app.ts");
-  assert.match(search, /const rowPitch = universalSearchRowPitch\(height, screen\.rows\.length\)/);
+  assert.match(
+    search,
+    /const rowPitch = universalSearchRowPitch\(height, screen\.rows\.length\)/,
+  );
   assert.match(search, /y \+= rowPitch/);
   const launcher = read("app/apps/launcher/launcher-app.ts");
-  assert.match(launcher, /const iconSize = launcherCellIconSize\(rowH, font\.lineHeight\)/);
-  assert.match(launcher, /renderIcon\([\s\S]*, iconSize\)/);
+  assert.match(
+    launcher,
+    /const iconSize = launcherCellIconSize\(rowH, font\.lineHeight\)/,
+  );
+  assert.match(launcher, /renderIcon\([\s\S]*iconSize,\s*\)/);
   assert.match(launcher, /blockTop \+ iconSize \+ LABEL_GAP/);
 });

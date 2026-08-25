@@ -1,13 +1,33 @@
 import { GrayImage } from "../../graphics/image";
 import { wrapText, truncateText } from "../../graphics/textwrap";
-import { getDefaultMediumFont, getDefaultSmallFont } from "../../graphics/bdffont";
-import { voiceControlBridge, type VoiceTranscriptEvent } from "../../native/voice-control";
-import { refineDictation, type AnthropicStreamHandle } from "../../native/anthropic";
+import {
+  getDefaultMediumFont,
+  getDefaultSmallFont,
+} from "../../graphics/bdffont";
+import {
+  voiceControlBridge,
+  type VoiceTranscriptEvent,
+} from "../../native/voice-control";
+import {
+  refineDictation,
+  type AnthropicStreamHandle,
+} from "../../native/anthropic";
 import { anthropicApiKeySetting } from "../dashboard-settings";
-import { GESTURE_CLICK, GESTURE_DOUBLE_CLICK, GESTURE_SCROLL, gestureHints } from "../gestures";
+import {
+  GESTURE_CLICK,
+  GESTURE_DOUBLE_CLICK,
+  GESTURE_SCROLL,
+  gestureHints,
+} from "../gestures";
 import { drawSelectionHighlight } from "../menu";
 import { EdgeBounce, EdgeWrapScroller } from "../edge-scroll";
-import { Layer, type DashboardInputEvent, type LayerActions, type LayerContext } from "../layers";
+import {
+  Layer,
+  type DashboardInputEvent,
+  type LayerActions,
+  type LayerContext,
+} from "../layers";
+import { drawGlassPanel, GLASS_TONE } from "../glass-design";
 import {
   ASSISTANT_CAPTURE_CARD_HEIGHT,
   ASSISTANT_REVIEW_CARD_HEIGHT,
@@ -17,7 +37,6 @@ import {
 } from "./geometry";
 import { applyTranscriptText } from "../../captions/transcript-accumulator";
 
-const CARD_RADIUS = 12;
 const CARD_PADDING = 16;
 const BODY_LINE_HEIGHT = 16;
 const LIVE_BODY_LINES = 3;
@@ -96,7 +115,10 @@ export class VoiceInputLayer implements Layer {
   private followupFinalizeTimer: ReturnType<typeof setTimeout> | null = null;
   private refineHandle: AnthropicStreamHandle | null = null;
   private menuIndex = 0;
-  private readonly wrapScroller = new EdgeWrapScroller(undefined, "voice-targets");
+  private readonly wrapScroller = new EdgeWrapScroller(
+    undefined,
+    "voice-targets",
+  );
   private readonly edgeBounce = new EdgeBounce();
   /** Auto-send for an assistant-targeted capture is waiting to fire. */
   private pendingAutoSend = false;
@@ -125,7 +147,10 @@ export class VoiceInputLayer implements Layer {
     this.handsFree = options.handsFree ?? false;
     this.autoSend = options.autoSend ?? false;
     const defaultIndex = options.defaultTargetIndex ?? 0;
-    this.defaultTargetIndex = Math.min(Math.max(0, defaultIndex), Math.max(0, this.sendTargets.length - 1));
+    this.defaultTargetIndex = Math.min(
+      Math.max(0, defaultIndex),
+      Math.max(0, this.sendTargets.length - 1),
+    );
     this.menuIndex = this.defaultTargetIndex;
   }
 
@@ -139,7 +164,9 @@ export class VoiceInputLayer implements Layer {
       return;
     }
     this.finalizedTranscriptGeneration = null;
-    this.unsubscribeTranscript = voiceControlBridge.onTranscript((event) => this.onTranscript(event));
+    this.unsubscribeTranscript = voiceControlBridge.onTranscript((event) =>
+      this.onTranscript(event),
+    );
     this.unsubscribeStatus = voiceControlBridge.onStatus((state) => {
       if (state.generation !== this.captureGeneration) return;
       // The refine stage owns the status line ("Refining...", error text).
@@ -157,11 +184,16 @@ export class VoiceInputLayer implements Layer {
     if (this.handsFree) {
       // No button is held, so the mic has to stop itself. endCapture() is
       // idempotent, and a click still ends the utterance early.
-      this.unsubscribeSpeechEnd = voiceControlBridge.onSpeechEnd((generation) => {
-        if (generation === this.captureGeneration && this.phase === "capturing") {
-          this.endCapture();
-        }
-      });
+      this.unsubscribeSpeechEnd = voiceControlBridge.onSpeechEnd(
+        (generation) => {
+          if (
+            generation === this.captureGeneration &&
+            this.phase === "capturing"
+          ) {
+            this.endCapture();
+          }
+        },
+      );
     }
     this.capturing = true;
     this.actions.requestRender();
@@ -204,7 +236,10 @@ export class VoiceInputLayer implements Layer {
       } else {
         // Cloud finalization can trail capture stop. Keep a bounded fallback so
         // silence or a failed final callback never strands an undismissable UI.
-        this.autoSendTimer = setTimeout(() => this.performAutoSend(), FOLLOWUP_FINALIZE_TIMEOUT_MS);
+        this.autoSendTimer = setTimeout(
+          () => this.performAutoSend(),
+          FOLLOWUP_FINALIZE_TIMEOUT_MS,
+        );
       }
     }
     this.actions.requestRender();
@@ -239,16 +274,25 @@ export class VoiceInputLayer implements Layer {
   }
 
   /** The menu rows: one per send target, then Continue, then Discard. */
-  private menuRows(): Array<{ label: string; dim: boolean; onSelect: () => void }> {
+  private menuRows(): Array<{
+    label: string;
+    dim: boolean;
+    onSelect: () => void;
+  }> {
     const text = this.displayText().trim();
     const hasText = text.length > 0;
-    const rows: Array<{ label: string; dim: boolean; onSelect: () => void }> = [];
+    const rows: Array<{ label: string; dim: boolean; onSelect: () => void }> =
+      [];
     for (const target of this.sendTargets) {
       rows.push({
         label: target.label,
         dim: !hasText,
         onSelect: () => {
-          if (hasText && !voiceControlBridge.claimSubmit(this.captureGeneration)) return;
+          if (
+            hasText &&
+            !voiceControlBridge.claimSubmit(this.captureGeneration)
+          )
+            return;
           this.dismiss();
           if (hasText) target.onSend(text);
         },
@@ -281,44 +325,112 @@ export class VoiceInputLayer implements Layer {
     const left = rect.x + CARD_PADDING;
     const contentWidth = rect.width - CARD_PADDING * 2;
 
-    // Fill 1, not 0: identical after 4bpp quantization, but 0 is transparent
-    // on the color-key shell surface.
-    image.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, CARD_RADIUS);
-    image.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 100, CARD_RADIUS);
-    image.drawText(medium, left, rect.y + 12, this.cardTitle(), 240);
+    drawGlassPanel(image, rect.x, rect.y, rect.width, rect.height);
+    image.drawText(
+      medium,
+      left,
+      rect.y + 12,
+      this.cardTitle(),
+      GLASS_TONE.primary,
+    );
     const meta = this.cardMeta();
     if (meta) {
-      const renderedMeta = truncateText(small, meta, Math.floor(contentWidth * 0.48));
-      image.drawText(small, rect.x + rect.width - CARD_PADDING - small.measureText(renderedMeta), rect.y + 15, renderedMeta, 140);
+      const renderedMeta = truncateText(
+        small,
+        meta,
+        Math.floor(contentWidth * 0.48),
+      );
+      image.drawText(
+        small,
+        rect.x + rect.width - CARD_PADDING - small.measureText(renderedMeta),
+        rect.y + 15,
+        renderedMeta,
+        GLASS_TONE.muted,
+      );
     }
 
     if (showingStatus) {
-      image.drawText(small, left, rect.y + rect.height - 17, `${GESTURE_DOUBLE_CLICK} close`, 110);
+      image.drawText(
+        small,
+        left,
+        rect.y + rect.height - 17,
+        `${GESTURE_DOUBLE_CLICK} close`,
+        GLASS_TONE.hint,
+      );
       return image;
     }
 
     const text = this.displayText() || this.placeholderText();
-    const visibleLines = tailPreviewLines(small, text, contentWidth, LIVE_BODY_LINES);
+    const visibleLines = tailPreviewLines(
+      small,
+      text,
+      contentWidth,
+      LIVE_BODY_LINES,
+    );
     for (let index = 0; index < visibleLines.length; index++) {
-      image.drawText(small, left, rect.y + 38 + index * BODY_LINE_HEIGHT, visibleLines[index]!, 235);
+      image.drawText(
+        small,
+        left,
+        rect.y + 38 + index * BODY_LINE_HEIGHT,
+        visibleLines[index]!,
+        GLASS_TONE.primary,
+      );
     }
 
     if (showingReview) {
       const rows = this.menuRows();
       const row = rows[this.menuIndex];
       const actionY = rect.y + 92 + this.edgeBounce.offsetPx();
-      drawSelectionHighlight(image, left - 4, actionY, contentWidth + 8, 24, true, 7);
+      drawSelectionHighlight(
+        image,
+        left - 4,
+        actionY,
+        contentWidth + 8,
+        24,
+        true,
+        7,
+      );
       if (row) {
         const position = `${this.menuIndex + 1}/${rows.length}`;
         const labelWidth = contentWidth - small.measureText(position) - 20;
-        image.drawText(small, left + 4, actionY + 6, truncateText(small, row.label, labelWidth), row.dim ? 90 : 255);
-        image.drawText(small, left + contentWidth - small.measureText(position), actionY + 6, position, 150);
+        image.drawText(
+          small,
+          left + 4,
+          actionY + 6,
+          truncateText(small, row.label, labelWidth),
+          row.dim ? GLASS_TONE.border : GLASS_TONE.focus,
+        );
+        image.drawText(
+          small,
+          left + contentWidth - small.measureText(position),
+          actionY + 6,
+          position,
+          GLASS_TONE.muted,
+        );
       }
-      image.drawText(small, left, rect.y + rect.height - 16, truncateText(small, gestureHints([
-        [GESTURE_SCROLL, "choose"], [GESTURE_CLICK, "select"], [GESTURE_DOUBLE_CLICK, "close"],
-      ]), contentWidth), 110);
+      image.drawText(
+        small,
+        left,
+        rect.y + rect.height - 16,
+        truncateText(
+          small,
+          gestureHints([
+            [GESTURE_SCROLL, "choose"],
+            [GESTURE_CLICK, "select"],
+            [GESTURE_DOUBLE_CLICK, "close"],
+          ]),
+          contentWidth,
+        ),
+        GLASS_TONE.hint,
+      );
     } else {
-      image.drawText(small, left, rect.y + rect.height - 16, truncateText(small, this.hintText(), contentWidth), 110);
+      image.drawText(
+        small,
+        left,
+        rect.y + rect.height - 16,
+        truncateText(small, this.hintText(), contentWidth),
+        GLASS_TONE.hint,
+      );
     }
     return image;
   }
@@ -358,16 +470,28 @@ export class VoiceInputLayer implements Layer {
     const rowCount = this.menuRows().length;
     switch (event.type) {
       case "scroll-up": {
-        const step = this.wrapScroller.step(this.menuIndex, rowCount, -1, Date.now());
+        const step = this.wrapScroller.step(
+          this.menuIndex,
+          rowCount,
+          -1,
+          Date.now(),
+        );
         this.menuIndex = step.index;
-        if (step.atEdge) this.edgeBounce.trigger(-1, () => this.actions.requestRender());
+        if (step.atEdge)
+          this.edgeBounce.trigger(-1, () => this.actions.requestRender());
         this.actions.requestRender();
         return;
       }
       case "scroll-down": {
-        const step = this.wrapScroller.step(this.menuIndex, rowCount, 1, Date.now());
+        const step = this.wrapScroller.step(
+          this.menuIndex,
+          rowCount,
+          1,
+          Date.now(),
+        );
         this.menuIndex = step.index;
-        if (step.atEdge) this.edgeBounce.trigger(1, () => this.actions.requestRender());
+        if (step.atEdge)
+          this.edgeBounce.trigger(1, () => this.actions.requestRender());
         this.actions.requestRender();
         return;
       }
@@ -396,7 +520,8 @@ export class VoiceInputLayer implements Layer {
     this.captureGeneration = this.actions.startVoiceCapture();
     this.finalizedTranscriptGeneration = null;
     this.capturing = this.captureGeneration > 0;
-    if (!this.capturing) this.backToMenu(this.baseText, "Voice capture is busy.");
+    if (!this.capturing)
+      this.backToMenu(this.baseText, "Voice capture is busy.");
     this.actions.requestRender();
   }
 
@@ -409,7 +534,10 @@ export class VoiceInputLayer implements Layer {
     this.actions.requestRender();
     // The provider's committed transcript arrives shortly after stop; refine
     // when it does, or after a timeout with whatever partials we have.
-    this.followupFinalizeTimer = setTimeout(() => this.beginRefine(), FOLLOWUP_FINALIZE_TIMEOUT_MS);
+    this.followupFinalizeTimer = setTimeout(
+      () => this.beginRefine(),
+      FOLLOWUP_FINALIZE_TIMEOUT_MS,
+    );
   }
 
   private beginRefine(): void {
@@ -428,7 +556,10 @@ export class VoiceInputLayer implements Layer {
       // Continue is useful without cloud setup: append the reviewed follow-up
       // verbatim. With a configured key the existing refiner can still apply
       // spoken edits such as "replace Tuesday with Wednesday".
-      this.backToMenu([this.baseText, followup].filter(Boolean).join(" "), "Added follow-up");
+      this.backToMenu(
+        [this.baseText, followup].filter(Boolean).join(" "),
+        "Added follow-up",
+      );
       return;
     }
     this.phase = "refining";
@@ -509,14 +640,19 @@ export class VoiceInputLayer implements Layer {
   private cardTitle(): string {
     if (this.pendingAutoSend) return "Transcribing";
     if (this.phase === "refining") return "Refining";
-    if (this.phase === "menu") return voiceStatusIsProblem(this.status) ? "Voice issue" : "Review";
+    if (this.phase === "menu")
+      return voiceStatusIsProblem(this.status) ? "Voice issue" : "Review";
     if (/permission|connect|start/i.test(this.status)) return "Starting voice";
     return "Listening";
   }
 
   private cardMeta(): string {
     const normalized = this.status.replace(/\.{3}$/, "").trim();
-    if (!normalized || /^(?:Listening|Refining|Transcribing)$/i.test(normalized)) return "";
+    if (
+      !normalized ||
+      /^(?:Listening|Refining|Transcribing)$/i.test(normalized)
+    )
+      return "";
     if (/^Send, continue, or discard\??$/i.test(normalized)) return "";
     if (normalized === "Added follow-up") return "Added";
     if (normalized === "No follow-up heard") return "No speech";
@@ -546,10 +682,16 @@ export class VoiceInputLayer implements Layer {
     switch (this.phase) {
       case "capturing":
         return this.clickEndsCapture
-          ? gestureHints([[GESTURE_CLICK, "done"], [GESTURE_DOUBLE_CLICK, "close"]])
+          ? gestureHints([
+              [GESTURE_CLICK, "done"],
+              [GESTURE_DOUBLE_CLICK, "close"],
+            ])
           : `${GESTURE_DOUBLE_CLICK} close`;
       case "continuing":
-        return gestureHints([[GESTURE_CLICK, "done"], [GESTURE_DOUBLE_CLICK, "cancel"]]);
+        return gestureHints([
+          [GESTURE_CLICK, "done"],
+          [GESTURE_DOUBLE_CLICK, "cancel"],
+        ]);
       case "refining":
       default:
         return `${GESTURE_DOUBLE_CLICK} cancel`;
@@ -586,7 +728,9 @@ export class VoiceInputLayer implements Layer {
 }
 
 function voiceStatusIsProblem(status: string): boolean {
-  return /busy|cancel|could not|disconnect|error|failed|no .*heard|stopped|unavailable/i.test(status);
+  return /busy|cancel|could not|disconnect|error|failed|no .*heard|stopped|unavailable/i.test(
+    status,
+  );
 }
 
 /** Latest words matter during capture; keep the full transcript in state but paint only its tail. */
@@ -599,6 +743,7 @@ function tailPreviewLines(
   const wrapped = wrapText(font, text, width);
   const first = Math.max(0, wrapped.length - maximum);
   const lines = wrapped.slice(first);
-  if (first > 0 && lines.length) lines[0] = truncateText(font, `... ${lines[0]}`, width);
+  if (first > 0 && lines.length)
+    lines[0] = truncateText(font, `... ${lines[0]}`, width);
   return lines;
 }

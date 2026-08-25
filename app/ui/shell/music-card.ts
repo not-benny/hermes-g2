@@ -11,11 +11,17 @@
  * shell.ts: it reaches the shell only through the injected onDismissed callback.
  */
 
-import { getDefaultMediumFont, getDefaultSmallFont } from "../../graphics/bdffont";
+import {
+  getDefaultMediumFont,
+  getDefaultSmallFont,
+} from "../../graphics/bdffont";
 import { GrayImage } from "../../graphics/image";
 import { truncateText } from "../../graphics/textwrap";
 import { clamp } from "../../util/numeric-util";
-import { mediaControllerBridge, type MediaControllerState } from "../../native/media-controller";
+import {
+  mediaControllerBridge,
+  type MediaControllerState,
+} from "../../native/media-controller";
 import {
   type DashboardInputEvent,
   type Layer,
@@ -23,38 +29,47 @@ import {
   type LayerContext,
   type PaintBelow,
 } from "../layers";
+import {
+  drawGlassPanel,
+  drawGlassProgress,
+  GLASS_MOTION,
+  GLASS_TONE,
+} from "../glass-design";
 import { SHELL_OPAQUE_BLACK } from "./geometry";
 import { strictDeliveryMarkerGray } from "./strict-delivery-marker";
 
 const CARD_X = 0;
 const CARD_W = 640;
 const CARD_H = 120;
-const CARD_RADIUS = 12;
-const ART = 96;
-const ART_X = 16;
-const ART_Y = 12;
-const TEXT_X = 128;
-const TEXT_RIGHT = 504;
-const META_W = TEXT_RIGHT - TEXT_X; // 376
+/** Every meaningful element stays inside the centered x=32..607 optical raster. */
+const ART = 88;
+const ART_X = 40;
+const ART_Y = 16;
+const TEXT_X = 144;
+const TEXT_RIGHT = 496;
+const META_W = TEXT_RIGHT - TEXT_X; // 352
 const TITLE_Y = 22;
 const TIME_Y = 64;
 const BAR_Y = 84;
 const GLYPH = 22;
 const GLYPH_Y = (CARD_H - GLYPH) / 2; // 49
-const PREV_X = 522;
-const MIDDLE_X = 564;
-const NEXT_X = 606;
+const PREV_X = 506;
+const MIDDLE_X = 544;
+const NEXT_X = 582;
 
-const DROP_MS = 300;
-const RISE_MS = 280;
-const TICK_MS = 24;
+const DROP_MS = GLASS_MOTION.cardEnterMs;
+const RISE_MS = GLASS_MOTION.cardExitMs;
+const TICK_MS = GLASS_MOTION.frameMs;
 const PLAY_DISMISS_MS = 6500;
 const PAUSE_DISMISS_MS = 15000;
 const SKIP_CONFIRM_MS = 700;
 
 type Phase = "dropping" | "holding" | "rising";
 
-export type MusicCardOptions = { actions: LayerActions; onDismissed: () => void };
+export type MusicCardOptions = {
+  actions: LayerActions;
+  onDismissed: () => void;
+};
 
 /**
  * Two-flick skip confirm: the ring emits discrete scroll detents, so a single
@@ -87,7 +102,14 @@ class SkipConfirm {
 // --- transport glyphs (drawn from primitives; crisp at any size) ------------
 
 /** Filled triangle pointing right, occupying w x h at (x,y), tip at right-middle. */
-function fillTriRight(img: GrayImage, x: number, y: number, w: number, h: number, value: number): void {
+function fillTriRight(
+  img: GrayImage,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  value: number,
+): void {
   const half = (h - 1) / 2;
   for (let r = 0; r < h; r++) {
     const rw = Math.max(1, Math.round(w * (1 - Math.abs(r - half) / half)));
@@ -96,7 +118,14 @@ function fillTriRight(img: GrayImage, x: number, y: number, w: number, h: number
 }
 
 /** Filled triangle pointing left, tip at left-middle. */
-function fillTriLeft(img: GrayImage, x: number, y: number, w: number, h: number, value: number): void {
+function fillTriLeft(
+  img: GrayImage,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  value: number,
+): void {
   const half = (h - 1) / 2;
   for (let r = 0; r < h; r++) {
     const rw = Math.max(1, Math.round(w * (1 - Math.abs(r - half) / half)));
@@ -104,24 +133,48 @@ function fillTriLeft(img: GrayImage, x: number, y: number, w: number, h: number,
   }
 }
 
-function drawPlayGlyph(img: GrayImage, x: number, y: number, size: number, v: number): void {
+function drawPlayGlyph(
+  img: GrayImage,
+  x: number,
+  y: number,
+  size: number,
+  v: number,
+): void {
   fillTriRight(img, x + Math.round(size * 0.14), y, size, size, v);
 }
 
-function drawPauseGlyph(img: GrayImage, x: number, y: number, size: number, v: number): void {
+function drawPauseGlyph(
+  img: GrayImage,
+  x: number,
+  y: number,
+  size: number,
+  v: number,
+): void {
   const bw = Math.max(3, Math.round(size * 0.28));
   const gap = Math.round(size * 0.2);
   img.fillRect(x + Math.round(size * 0.12), y, bw, size, v);
   img.fillRect(x + Math.round(size * 0.12) + bw + gap, y, bw, size, v);
 }
 
-function drawNextGlyph(img: GrayImage, x: number, y: number, size: number, v: number): void {
+function drawNextGlyph(
+  img: GrayImage,
+  x: number,
+  y: number,
+  size: number,
+  v: number,
+): void {
   const bw = Math.max(2, Math.round(size * 0.16));
   fillTriRight(img, x, y, size - bw - 2, size, v);
   img.fillRect(x + size - bw, y, bw, size, v);
 }
 
-function drawPrevGlyph(img: GrayImage, x: number, y: number, size: number, v: number): void {
+function drawPrevGlyph(
+  img: GrayImage,
+  x: number,
+  y: number,
+  size: number,
+  v: number,
+): void {
   const bw = Math.max(2, Math.round(size * 0.16));
   img.fillRect(x, y, bw, size, v);
   fillTriLeft(img, x + bw + 2, y, size - bw - 2, size, v);
@@ -168,7 +221,9 @@ export class MusicCardLayer implements Layer {
     // Repaint when playback state flips (play/pause) or metadata changes, so the
     // middle glyph and seek position track the live state rather than a stale
     // snapshot taken right after a tap (playPause resolves before the flip lands).
-    this.offMedia = mediaControllerBridge.onStateChange(() => this.options.actions.requestRender());
+    this.offMedia = mediaControllerBridge.onStateChange(() =>
+      this.options.actions.requestRender(),
+    );
     this.startAnimTicker();
   }
 
@@ -186,40 +241,71 @@ export class MusicCardLayer implements Layer {
     const media = mediaControllerBridge.snapshot();
     const top = Math.round(this.offsetY(Date.now()));
 
-    image.fillRoundedRect(CARD_X, top, CARD_W, CARD_H, SHELL_OPAQUE_BLACK, CARD_RADIUS);
-    image.drawRoundedRect(CARD_X, top, CARD_W, CARD_H, 110, CARD_RADIUS);
+    drawGlassPanel(image, CARD_X, top, CARD_W, CARD_H);
 
     this.drawArt(image, media, top);
 
     const medium = getDefaultMediumFont();
     const small = getDefaultSmallFont();
-    const label = media.artist ? `${media.artist} - ${media.title}` : media.title || "Unknown";
-    image.drawText(medium, TEXT_X, top + TITLE_Y, truncateText(medium, label, META_W), 230);
+    const label = media.artist
+      ? `${media.artist} - ${media.title}`
+      : media.title || "Unknown";
+    image.drawText(
+      medium,
+      TEXT_X,
+      top + TITLE_Y,
+      truncateText(medium, label, META_W),
+      GLASS_TONE.primary,
+    );
 
     if (media.durationMs > 0 && media.positionMs >= 0) {
       const elapsed = formatMediaTime(media.positionMs);
       const duration = formatMediaTime(media.durationMs);
-      image.drawText(small, TEXT_X, top + TIME_Y, elapsed, 140);
-      image.drawText(small, TEXT_X + META_W - small.measureText(duration), top + TIME_Y, duration, 140);
-      image.drawRect(TEXT_X, top + BAR_Y, META_W, 5, 55);
+      image.drawText(small, TEXT_X, top + TIME_Y, elapsed, GLASS_TONE.muted);
+      image.drawText(
+        small,
+        TEXT_X + META_W - small.measureText(duration),
+        top + TIME_Y,
+        duration,
+        GLASS_TONE.muted,
+      );
       const p = clamp(media.positionMs / media.durationMs, 0, 1);
-      image.fillRect(TEXT_X + 1, top + BAR_Y + 1, Math.round((META_W - 2) * p), 3, 170);
+      drawGlassProgress(image, TEXT_X, top + BAR_Y, META_W, 5, p);
     }
 
     const now = Date.now();
-    drawPrevGlyph(image, PREV_X, top + GLYPH_Y, GLYPH, this.skip.armed(-1, now) ? 255 : 200);
+    drawPrevGlyph(
+      image,
+      PREV_X,
+      top + GLYPH_Y,
+      GLYPH,
+      this.skip.armed(-1, now) ? GLASS_TONE.focus : GLASS_TONE.body,
+    );
     if (media.playbackState === "playing") {
-      drawPauseGlyph(image, MIDDLE_X, top + GLYPH_Y, GLYPH, 220);
+      drawPauseGlyph(image, MIDDLE_X, top + GLYPH_Y, GLYPH, GLASS_TONE.primary);
     } else {
-      drawPlayGlyph(image, MIDDLE_X, top + GLYPH_Y, GLYPH, 220);
+      drawPlayGlyph(image, MIDDLE_X, top + GLYPH_Y, GLYPH, GLASS_TONE.primary);
     }
-    drawNextGlyph(image, NEXT_X, top + GLYPH_Y, GLYPH, this.skip.armed(1, now) ? 255 : 200);
-    image.setPixel(width - 1, height - 1, strictDeliveryMarkerGray(this.deliveryNonce));
+    drawNextGlyph(
+      image,
+      NEXT_X,
+      top + GLYPH_Y,
+      GLYPH,
+      this.skip.armed(1, now) ? GLASS_TONE.focus : GLASS_TONE.body,
+    );
+    image.setPixel(
+      width - 1,
+      height - 1,
+      strictDeliveryMarkerGray(this.deliveryNonce),
+    );
 
     return image;
   }
 
-  async handleInput(event: DashboardInputEvent, ctx: LayerContext): Promise<void> {
+  async handleInput(
+    event: DashboardInputEvent,
+    ctx: LayerContext,
+  ): Promise<void> {
     this.ctx = ctx;
     const now = Date.now();
     if (event.type === "double-click") {
@@ -236,8 +322,10 @@ export class MusicCardLayer implements Layer {
       const dir: 1 | -1 = event.type === "scroll-up" ? 1 : -1; // up = next, down = prev
       const media = mediaControllerBridge.snapshot();
       if (this.skip.press(dir, now)) {
-        if (dir === 1 && media.canSkipNext) await mediaControllerBridge.skipNext();
-        if (dir === -1 && media.canSkipPrevious) await mediaControllerBridge.skipPrevious();
+        if (dir === 1 && media.canSkipNext)
+          await mediaControllerBridge.skipNext();
+        if (dir === -1 && media.canSkipPrevious)
+          await mediaControllerBridge.skipPrevious();
       }
       this.resetDismissTimer();
       ctx.actions.requestRender();
@@ -345,7 +433,9 @@ export class MusicCardLayer implements Layer {
   }
 
   private dismissMs(): number {
-    return mediaControllerBridge.snapshot().playbackState === "playing" ? PLAY_DISMISS_MS : PAUSE_DISMISS_MS;
+    return mediaControllerBridge.snapshot().playbackState === "playing"
+      ? PLAY_DISMISS_MS
+      : PAUSE_DISMISS_MS;
   }
 
   private armDismiss(): void {
@@ -363,7 +453,11 @@ export class MusicCardLayer implements Layer {
     if (this.phase === "holding") this.armDismiss(); // else the drop completion arms it
   }
 
-  private drawArt(image: GrayImage, media: MediaControllerState, top: number): void {
+  private drawArt(
+    image: GrayImage,
+    media: MediaControllerState,
+    top: number,
+  ): void {
     const key = `${media.packageName}|${media.title}|${media.album}`;
     if (key !== this.artKey) {
       this.artKey = key;
@@ -373,7 +467,13 @@ export class MusicCardLayer implements Layer {
       const dx = ART_X + Math.max(0, ((ART - this.art.width) / 2) | 0);
       const dy = top + ART_Y + Math.max(0, ((ART - this.art.height) / 2) | 0);
       image.bitBlt(this.art, dx, dy); // NOT transparentZero: keep art's black pixels
-      image.drawRect(dx - 1, dy - 1, this.art.width + 2, this.art.height + 2, 60);
+      image.drawRect(
+        dx - 1,
+        dy - 1,
+        this.art.width + 2,
+        this.art.height + 2,
+        60,
+      );
     } else {
       image.drawRect(ART_X, top + ART_Y, ART, ART, 60);
     }

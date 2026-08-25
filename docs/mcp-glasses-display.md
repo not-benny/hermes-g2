@@ -107,8 +107,6 @@ recover it. If the bridge behaves unexpectedly, turn off **Allow proactive Herme
 actions**, switch the assistant backend away from external mode, or clear the
 bridge host/token settings. Uninstalling is not required to disable the bridge.
 
-The current owner candidate passed 873 phone tests, TypeScript, Android build,
-Fold install/launch, Host MCP status, and the separate gateway/workflow/Hermes
-capability suites. The final check had no active glasses BLE session, so no
-fresh physical lens or gesture claim was produced. Phone-only, simulated, and
+The current automated, build, install, gateway, and physical-acceptance evidence
+is maintained in [`STATUS.md`](../STATUS.md). Phone-only, simulated, and
 gateway-only results do not prove public release readiness.

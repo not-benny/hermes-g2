@@ -198,11 +198,18 @@ identity, and installed upgrade-in-place on the Fold7 with current app data
 preserved. This is owner-install evidence, not physical lens acceptance,
 production signing, or a public all-in-one release claim.
 
-The current public source head
+The validated app-source tree at
 `db6098d545ba8cd20d3cc02d3db0d975afc0fdd6` additionally passed 952/952
 tests, TypeScript typecheck, dependency security probes, and debug plus
-unsigned-production build verification. Those final dependency-only changes
-did not require replacing the already-installed APK.
+unsigned-production build verification. It is tree-identical to rebased
+`main` commit `8941a72f6926102f1ce8c1e4df3f7bd044519973`; the final documentation
+merge is `753bfa42ccff573d9fc469011e2f4f45b2081fc0`. Those dependency and
+documentation changes did not require replacing the already-installed APK.
+Permanent provenance tags `distribution-v0.1.0-android-source` and
+`owner-preview3-installed-source-20260825` keep both exact build inputs
+reachable after the reviewed branch was merged and removed.
+The reviewed all-source setup is also published as the
+[`v0.1.0` distribution prerelease](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.0).
 
 See [`DEVELOPMENT.md`](DEVELOPMENT.md) for repository layout, safety rules,
 focused tests, and authorised-device commands.

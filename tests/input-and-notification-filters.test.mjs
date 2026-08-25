@@ -6,15 +6,16 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf
 
 test("ring sensitivity is a five-level setting that throttles scroll in the shell", () => {
   const settings = read("app/ui/dashboard-settings.ts");
+  const ringCurve = read("app/ui/ring-sensitivity.ts");
   const shell = read("app/ui/shell/shell.ts");
   const menus = read("app/ui/dashboard/settings-menus.ts");
 
   // Defined as a discrete slider (default 5 = every scroll counts) with a
   // per-level minimum interval, and surfaced in the settings menu.
   assert.match(settings, /ringSensitivitySetting/);
-  assert.match(settings, /RING_SENSITIVITY_VALUES = \["1", "2", "3", "4", "5"\]/);
+  assert.match(ringCurve, /RING_SENSITIVITY_VALUES = \["1", "2", "3", "4", "5"\]/);
   assert.match(settings, /defaultValue: "5"/);
-  assert.match(settings, /function ringScrollMinIntervalMs/);
+  assert.match(ringCurve, /function ringScrollMinIntervalMs/);
   assert.match(menus, /enumSettingMenuItem\(ringSensitivitySetting\)/);
 
   // The shell drops scroll events that arrive within the configured interval,

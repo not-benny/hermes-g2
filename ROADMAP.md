@@ -29,9 +29,10 @@ security, privacy, data-loss, or hardware-safety finding.
   recovery, reset, wipe, data clear, permission changes, and unrelated data.
 - [x] Configure one certificate-validated, authenticated private Hermes
   gateway and record versions/capabilities without recording secrets. The
-  MCP-only transport and phone WSS were healthy on 25 August; public
-  redistribution of the native bridge remains separately blocked.
-- [x] Build the exact owner candidate, pass the 873-test phone suite,
+  MCP-only transport and phone WSS were healthy on 25 August; the Apache-2.0
+  bridge and exact source distribution are now public.
+- [x] Build the exact owner candidate, pass the current phone suite in
+  [`STATUS.md`](STATUS.md),
   TypeScript, gateway/workflow/Hermes capability suites, and upgrade-install on
   the Fold7 without clearing app data or changing signing identity. Record the
   public source commit after this documentation commit lands.
@@ -39,10 +40,10 @@ security, privacy, data-loss, or hardware-safety finding.
   exact cancellation/status contracts, truthful online state, legacy-channel
   rejection, and final-only result handling. Hermes Cockpit reported online
   after the installed candidate launched.
-- [ ] Prove the status-only glasses Cockpit and final assistant card on the
-  lenses. Cockpit intentionally has no projected session list, command, review,
-  steering, interrupt, or terminal surface; those earlier acceptance rows were
-  retired with the custom channel.
+- [ ] Prove the Host MCP glasses Cockpit and final assistant card on the lenses.
+  Cockpit has a bounded current/recent G2 projection and exact reviewed answer,
+  deny/allow-once, steer, and interrupt commands. It has no terminal, raw
+  transcript, prompt, or generic administration surface.
 - [ ] Prove the core voice loop: wearer capture, remote response, background tool
   work, overlay restoration, and honest empty/error outcomes.
 - [ ] Prove exact ownership through screen-off, G2 reconnect, gateway restart,
@@ -71,14 +72,13 @@ support.
 
 - Production signing, package/data migration, Play Store or public distribution
   ([issue #69](https://github.com/not-benny/hermes-g2/issues/69)).
-- Public distribution of the native bridge, general public-web activation, or
-  untrusted remote rendering. The portable workflow MCP is a separate Apache
-  publication unit.
+- General public-web activation or untrusted remote rendering. The public
+  bridge and workflow packages remain separate Apache-2.0 publication units.
 - Home Assistant mutation, WhatsApp, new integrations, and new applications.
 - G2 firmware/recovery, R1 provisioning/ownership/DFU, and R1 sleep decoding.
 - Broader phone, firmware, or user support.
-- Further visual redesign or feature expansion that is not required by a failed
-  Preview 3 acceptance item.
+- Feature expansion unrelated to a failed acceptance item or a current
+  owner-requested P0/P1 usability correction.
 
 There is intentionally no milestone after Preview 3 yet. Choose it only from
 evidence gathered during the owner loop, rather than reopening the historical

@@ -28,9 +28,10 @@ private owner profile may opt into general Hermes host capabilities:
 - A completed reminder is delivered by a deterministic outbox directly to the
   fixed phone notification route. No agent prompt runs when the reminder fires.
 
-The private cutover passed independent security review. Public distribution is
-still blocked by the native bridge's unresolved redistribution licence and the
-release gates listed below.
+The private cutover passed independent security review. The app, native bridge,
+workflow package, and source-pinned installer are now public under their stated
+licenses. Protected APK publication and the broader activation gates listed
+below remain closed.
 
 ## Transport and MCP roles
 
@@ -110,6 +111,7 @@ The package receives only its reviewed profile-scoped relay endpoint through
 | MCP tool | Intent and fixed private route |
 | --- | --- |
 | `g2_work_task_add` | Add one task to the phone-owned encrypted Work Tasks board |
+| `g2_kanban_task_create` | Create one blocked, unassigned card on one exact existing Hermes Kanban board |
 | `g2_clock_set_timer` | Set a durable Clock countdown |
 | `g2_clock_set_alarm` | Set a durable local or repeating Clock alarm |
 | `g2_reminder_create` | Create one deterministic one-shot reminder outbox record |
@@ -131,6 +133,13 @@ exact station CRS identities; in particular, Liverpool Central is `LVC` and
 Liverpool Lime Street is `LIV`. Public failures carry only fixed content-free
 relay, provider, and presentation stage codes, never locations, stations,
 session identifiers, claims, requests, or exception text.
+
+Task destination is current-turn authority. Explicit onboard, local, phone, or
+Work Tasks wording selects the phone-owned board. An ordinary unqualified or
+unnamed board task also uses Work Tasks. Hermes Kanban requires the exact board
+slug or display name in the authenticated current wearer utterance. The first
+authorized task destination is then fixed for that turn, so a missing board
+cannot silently change to another Kanban board or fall back to Work Tasks.
 
 ## Private phone allowlist
 
@@ -317,46 +326,38 @@ until the host provides:
 
 ## Verification snapshot
 
-The 25 August 2026 private cutover passed:
-
-- Hermes Agent capability and plugin suites: 335 tests;
-- native transport and relay suite: 308 passed, 1 optional live test skipped;
-- portable workflow MCP: 26 tests plus current MCP SDK and plugin doctor;
-- phone app: 889 tests and TypeScript typecheck;
-- public-web review candidate: 27 tests, lint, plugin doctor, current MCP SDK,
-  and a real isolated read of `example.com`.
-
-The current source built successfully as a JDK 21 / Android SDK 35 debug APK and
-passed ZIP integrity and APK signature verification. It was not installed
-because wireless ADB was unavailable. An earlier APK launched and reported Host
-MCP and Hermes Cockpit online, but a physical sleep-origin, Now Playing,
-weather, train, and Clock lens run against the current artifact remains an
-acceptance item rather than claimed evidence.
+The current native bridge suite passes 363 tests with one optional live test
+skipped. The portable workflow package passes 32 tests, and both packages pass
+Ruff, Plugin Guard, exact digest, cache, and independent P0/P1 review gates.
+Current phone, build, install, gateway, and physical-acceptance evidence is
+maintained in [`STATUS.md`](../STATUS.md); this document does not duplicate a
+test count that can become stale.
 
 ## Publication and repository boundary
 
-The private owner cutover is accepted for continued testing. Combined public
-distribution is not accepted:
+The private owner cutover and source-only distribution are accepted for
+continued testing. Protected APK publication is not accepted:
 
-1. the current native transport bridge is explicitly redistribution-prohibited
-   pending upstream provenance or a clean-room replacement;
-2. the general public-web package still has the containment and taint gates
+1. the general public-web package still has the containment and taint gates
    above;
-3. a public base profile must exclude personal Calendar, Home Assistant,
+2. a public base profile must exclude personal Calendar, Home Assistant,
    printer, certificate, address, log, database, cache, and backup state;
-4. public artifacts need an allowlisted build manifest, dependency lock and
+3. public artifacts need an allowlisted build manifest, dependency lock and
    SBOM, provenance, signatures, secret scans, and tested install and rollback;
-5. the physical worn-glasses final-result flow still needs a fresh acceptance
+4. the physical worn-glasses final-result flow still needs a fresh acceptance
    run on the exact published candidate.
 
 The GPL phone app is published at
 [`not-benny/hermes-g2`](https://github.com/not-benny/hermes-g2). The Apache-2.0
 workflow MCP is published separately at
 [`not-benny/hermes-g2-workflows`](https://github.com/not-benny/hermes-g2-workflows).
+The Apache-2.0 native bridge is published at
+[`not-benny/hermes-g2-bridge`](https://github.com/not-benny/hermes-g2-bridge),
+and the reviewed source installer is published at
+[`not-benny/hermes-g2-distribution`](https://github.com/not-benny/hermes-g2-distribution).
 The public-web candidate is held in a private review repository while its live
-activation gates remain open. Do not copy the unlicensed native bridge into the
-public app or workflow repositories. Do not publish the working Hermes profile
-or workspace wholesale.
+activation gates remain open. Do not publish the working Hermes profile or
+workspace wholesale.
 
 ## Maintainer checklist
 

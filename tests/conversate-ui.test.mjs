@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 
-const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+const read = (path) =>
+  readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 /**
  * Load the layer against a deliberately tiny UI/native harness.  This keeps
@@ -15,8 +16,10 @@ async function loadConversateLayer() {
   const session = read("app/apps/conversate/conversation-session.ts")
     .replace("export default ConversationSession;", "")
     .replace("export class ConversationSession", "class ConversationSession");
-  const layer = read("app/apps/conversate/conversate.ts")
-    .replace(/^import[\s\S]*?from "[^"]+";\s*/gm, "");
+  const layer = read("app/apps/conversate/conversate.ts").replace(
+    /^import[\s\S]*?from "[^"]+";\s*/gm,
+    "",
+  );
   const harness = `
 let timerNowMs = 0;
 let nextTimerId = 1;
@@ -60,6 +63,13 @@ const testBridge = {
 const voiceControlBridge = testBridge;
 const GESTURE_CLICK = "CLICK";
 const GESTURE_DOUBLE_CLICK = "DOUBLE";
+const GLASS_RADIUS = { selection: 6, control: 8, card: 12 };
+const GLASS_TONE = { opaqueBlack: 1, selectedFill: 16, track: 48, divider: 64,
+  border: 96, hint: 112, muted: 144, secondary: 176, body: 208, primary: 224, focus: 255 };
+const drawGlassPanel = (image, x, y, width, height, options = {}) => {
+  image.fillRoundedRect(x, y, width, height, options.fill ?? 1, options.radius ?? 12);
+  image.drawRoundedRect(x, y, width, height, options.border ?? 96, options.radius ?? 12);
+};
 const captionFontSizeSetting = { get: () => "small" };
 let hermesCuesEnabled = false;
 const conversateHermesCuesSetting = { get: () => hermesCuesEnabled };
@@ -138,18 +148,25 @@ class GrayImage {
   drawText(font, x, y, text, color) { this.operations.push({ type: "text", font, x, y, text: String(text), color }); }
   drawLine(x1, y1, x2, y2, color) { this.operations.push({ type: "line", x1, y1, x2, y2, color }); }
   drawRoundedRect(x, y, width, height, radius, color) { this.operations.push({ type: "rect", x, y, width, height, radius, color }); }
+  fillRoundedRect(x, y, width, height, color, radius) { this.operations.push({ type: "rect", x, y, width, height, radius, color }); }
 }
 ${session}
 ${layer}
 export { ConversateLayer, testBridge, testClock, testHermes };
 `;
   const js = ts.transpileModule(harness, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
   }).outputText;
-  return import("data:text/javascript;base64," + Buffer.from(js).toString("base64"));
+  return import(
+    "data:text/javascript;base64," + Buffer.from(js).toString("base64")
+  );
 }
 
-const { ConversateLayer, testBridge, testClock, testHermes } = await loadConversateLayer();
+const { ConversateLayer, testBridge, testClock, testHermes } =
+  await loadConversateLayer();
 const activeLayers = new Set();
 
 test.afterEach(() => {
@@ -178,7 +195,9 @@ function makeLayer({ generations = [1], deferFinish = false } = {}) {
     },
     stopCapture: (generation) => stops.push(generation),
   });
-  layer.start(() => { renders++; });
+  layer.start(() => {
+    renders++;
+  });
   layer.onForegroundChanged(true);
   layer.onScreenChanged(true);
   activeLayers.add(layer);
@@ -187,36 +206,64 @@ function makeLayer({ generations = [1], deferFinish = false } = {}) {
     starts,
     stops,
     resolveFinish: () => finishResolvers.shift()?.(),
-    get renders() { return renders; },
+    get renders() {
+      return renders;
+    },
   };
 }
 
 function render(layer) {
-  return layer.paint({ stack: { getBaseSize: () => ({ width: 536, height: 232 }) } });
+  return layer.paint({
+    stack: { getBaseSize: () => ({ width: 536, height: 232 }) },
+  });
 }
 
 function textOperations(image) {
-  return image.operations.filter((operation) => operation.type === "text").map((operation) => operation.text);
+  return image.operations
+    .filter((operation) => operation.type === "text")
+    .map((operation) => operation.text);
 }
 
 function assertInBounds(image) {
   for (const operation of image.operations) {
     if (operation.type === "text") {
-      assert.ok(operation.x >= 0 && operation.x < image.width, `text x out of bounds: ${operation.x}`);
-      assert.ok(operation.y >= 0 && operation.y < image.height, `text y out of bounds: ${operation.y}`);
+      assert.ok(
+        operation.x >= 0 && operation.x < image.width,
+        `text x out of bounds: ${operation.x}`,
+      );
+      assert.ok(
+        operation.y >= 0 && operation.y < image.height,
+        `text y out of bounds: ${operation.y}`,
+      );
     } else if (operation.type === "line") {
-      assert.ok(operation.x1 >= 0 && operation.x2 <= image.width, "line x out of bounds");
-      assert.ok(operation.y1 >= 0 && operation.y2 <= image.height, "line y out of bounds");
+      assert.ok(
+        operation.x1 >= 0 && operation.x2 <= image.width,
+        "line x out of bounds",
+      );
+      assert.ok(
+        operation.y1 >= 0 && operation.y2 <= image.height,
+        "line y out of bounds",
+      );
     } else if (operation.type === "rect") {
-      assert.ok(operation.x >= 0 && operation.x + operation.width <= image.width, "rect x out of bounds");
-      assert.ok(operation.y >= 0 && operation.y + operation.height <= image.height, "rect y out of bounds");
+      assert.ok(
+        operation.x >= 0 && operation.x + operation.width <= image.width,
+        "rect x out of bounds",
+      );
+      assert.ok(
+        operation.y >= 0 && operation.y + operation.height <= image.height,
+        "rect y out of bounds",
+      );
     }
   }
 }
 
 test("Conversate does not auto-capture, then starts with its independent on-device provider", () => {
   const harness = makeLayer({ generations: [11] });
-  assert.deepEqual(harness.starts, [], "opening the layer must not open the microphone");
+  assert.deepEqual(
+    harness.starts,
+    [],
+    "opening the layer must not open the microphone",
+  );
   harness.layer.handleInput({ type: "click" });
   assert.deepEqual(harness.starts, [{ generation: 11, provider: "onboard" }]);
   assert.equal(harness.layer.phase(), "active");
@@ -225,48 +272,95 @@ test("Conversate does not auto-capture, then starts with its independent on-devi
 test("partial transcript creates a local cue, click opens detail, and the compact HUD stays bounded", () => {
   const harness = makeLayer({ generations: [12] });
   harness.layer.handleInput({ type: "click" });
-  testBridge.emitTranscript({ generation: 12, text: "Need to email Simon", isFinal: false, receivedAtMs: 10 });
+  testBridge.emitTranscript({
+    generation: 12,
+    text: "Need to email Simon",
+    isFinal: false,
+    receivedAtMs: 10,
+  });
 
   const live = render(harness.layer);
-  assert.ok(textOperations(live).some((text) => text.includes("Need to email Simon")));
+  assert.ok(
+    textOperations(live).some((text) => text.includes("Need to email Simon")),
+  );
   assertInBounds(live);
 
   harness.layer.handleInput({ type: "click" });
   const cue = render(harness.layer);
   assert.ok(textOperations(cue).some((text) => text.includes("LOCAL CUE")));
-  assert.ok(textOperations(cue).some((text) => text.includes("Need to email Simon")));
+  assert.ok(
+    textOperations(cue).some((text) => text.includes("Need to email Simon")),
+  );
   assertInBounds(cue);
 
   harness.layer.handleInput({ type: "click" });
-  assert.ok(textOperations(render(harness.layer)).some((text) => text.includes("TRANSCRIPT")));
+  assert.ok(
+    textOperations(render(harness.layer)).some((text) =>
+      text.includes("TRANSCRIPT"),
+    ),
+  );
 });
 
 test("continuous on-device partial text reaches Hermes after the bounded debounce", () => {
   testHermes.enable(true);
   const harness = makeLayer({ generations: [13] });
   harness.layer.handleInput({ type: "click" });
-  testBridge.emitTranscript({ generation: 13, text: "We are planning the launch", isFinal: false, receivedAtMs: 10 });
+  testBridge.emitTranscript({
+    generation: 13,
+    text: "We are planning the launch",
+    isFinal: false,
+    receivedAtMs: 10,
+  });
   testClock.advance(499);
   assert.equal(testHermes.calls.length, 0);
   testClock.advance(1);
   assert.equal(testHermes.calls.length, 1);
-  assert.equal(testHermes.calls[0].request.transcript, "We are planning the launch");
+  assert.equal(
+    testHermes.calls[0].request.transcript,
+    "We are planning the launch",
+  );
 });
 
 test("partial revisions coalesce, have a bounded max wait, and cancel stale active work", async () => {
   testHermes.enable(true);
   const harness = makeLayer({ generations: [14] });
   harness.layer.handleInput({ type: "click" });
-  testBridge.emitTranscript({ generation: 14, text: "We should plan the launch", isFinal: false, receivedAtMs: 10 });
+  testBridge.emitTranscript({
+    generation: 14,
+    text: "We should plan the launch",
+    isFinal: false,
+    receivedAtMs: 10,
+  });
   testClock.advance(400);
-  testBridge.emitTranscript({ generation: 14, text: "We should plan the Friday launch", isFinal: false, receivedAtMs: 11 });
+  testBridge.emitTranscript({
+    generation: 14,
+    text: "We should plan the Friday launch",
+    isFinal: false,
+    receivedAtMs: 11,
+  });
   testClock.advance(400);
-  testBridge.emitTranscript({ generation: 14, text: "We should plan the Friday launch carefully", isFinal: false, receivedAtMs: 12 });
+  testBridge.emitTranscript({
+    generation: 14,
+    text: "We should plan the Friday launch carefully",
+    isFinal: false,
+    receivedAtMs: 12,
+  });
   testClock.advance(199);
-  assert.equal(testHermes.calls.length, 0, "rapid decoder revisions stay coalesced");
+  assert.equal(
+    testHermes.calls.length,
+    0,
+    "rapid decoder revisions stay coalesced",
+  );
   testClock.advance(1);
-  assert.equal(testHermes.calls.length, 1, "max wait prevents continuous partials from starving the lane");
-  assert.equal(testHermes.calls[0].request.transcript, "We should plan the Friday launch carefully");
+  assert.equal(
+    testHermes.calls.length,
+    1,
+    "max wait prevents continuous partials from starving the lane",
+  );
+  assert.equal(
+    testHermes.calls[0].request.transcript,
+    "We should plan the Friday launch carefully",
+  );
 
   const stale = testHermes.calls[0];
   testBridge.emitTranscript({
@@ -276,10 +370,22 @@ test("partial revisions coalesce, have a bounded max wait, and cancel stale acti
     receivedAtMs: 13,
   });
   testClock.advance(499);
-  assert.equal(stale.cancelled, false, "debounce leaves the one active call time for cooperative cleanup");
-  assert.equal(testHermes.calls.length, 1, "partial requests cannot exceed the debounce rate");
+  assert.equal(
+    stale.cancelled,
+    false,
+    "debounce leaves the one active call time for cooperative cleanup",
+  );
+  assert.equal(
+    testHermes.calls.length,
+    1,
+    "partial requests cannot exceed the debounce rate",
+  );
   testClock.advance(1);
-  assert.equal(stale.cancelled, true, "dispatching the newest revision retires stale active work");
+  assert.equal(
+    stale.cancelled,
+    true,
+    "dispatching the newest revision retires stale active work",
+  );
   assert.equal(testHermes.calls.length, 2);
 
   const current = testHermes.calls[1];
@@ -290,24 +396,52 @@ test("partial revisions coalesce, have a bounded max wait, and cancel stale acti
   });
   await Promise.resolve();
   await Promise.resolve();
-  assert.match(textOperations(render(harness.layer)).join(" "), /HERMES QUESTION/);
-  assert.doesNotMatch(textOperations(render(harness.layer)).join(" "), /Working/);
+  assert.match(
+    textOperations(render(harness.layer)).join(" "),
+    /HERMES QUESTION/,
+  );
+  assert.doesNotMatch(
+    textOperations(render(harness.layer)).join(" "),
+    /Working/,
+  );
 });
 
 test("provider finals bypass a pending partial debounce and remain latest-wins", async () => {
   testHermes.enable(true);
   const harness = makeLayer({ generations: [15] });
   harness.layer.handleInput({ type: "click" });
-  testBridge.emitTranscript({ generation: 15, text: "We are planning the launch", isFinal: false, receivedAtMs: 10 });
+  testBridge.emitTranscript({
+    generation: 15,
+    text: "We are planning the launch",
+    isFinal: false,
+    receivedAtMs: 10,
+  });
   testClock.advance(100);
 
-  testBridge.emitTranscript({ generation: 15, text: "We are planning the Friday launch", isFinal: true, receivedAtMs: 11 });
+  testBridge.emitTranscript({
+    generation: 15,
+    text: "We are planning the Friday launch",
+    isFinal: true,
+    receivedAtMs: 11,
+  });
   assert.equal(testHermes.calls.length, 1);
-  assert.equal(testHermes.calls[0].request.transcript, "We are planning the Friday launch");
+  assert.equal(
+    testHermes.calls[0].request.transcript,
+    "We are planning the Friday launch",
+  );
   testClock.advance(1_000);
-  assert.equal(testHermes.calls.length, 1, "the retired partial timer cannot duplicate the final flush");
+  assert.equal(
+    testHermes.calls.length,
+    1,
+    "the retired partial timer cannot duplicate the final flush",
+  );
 
-  testBridge.emitTranscript({ generation: 15, text: "Sam will prepare the demo", isFinal: true, receivedAtMs: 12 });
+  testBridge.emitTranscript({
+    generation: 15,
+    text: "Sam will prepare the demo",
+    isFinal: true,
+    receivedAtMs: 12,
+  });
   assert.equal(testHermes.calls[0].cancelled, true);
   assert.equal(testHermes.calls.length, 2);
 
@@ -315,11 +449,16 @@ test("provider finals bypass a pending partial debounce and remain latest-wins",
   current.resolve({
     sessionId: current.request.sessionId,
     revision: current.request.revision,
-    cues: [{ kind: "question", text: "What should Sam prepare before Friday?" }],
+    cues: [
+      { kind: "question", text: "What should Sam prepare before Friday?" },
+    ],
   });
   await Promise.resolve();
   await Promise.resolve();
-  assert.match(textOperations(render(harness.layer)).join(" "), /HERMES QUESTION/);
+  assert.match(
+    textOperations(render(harness.layer)).join(" "),
+    /HERMES QUESTION/,
+  );
   harness.layer.handleInput({ type: "click" });
   const rendered = textOperations(render(harness.layer)).join(" ");
   assert.match(rendered, /HERMES CUE/);
@@ -340,14 +479,21 @@ test("pause and end hold partial timers, then flush the exact finalized conversa
   testClock.advance(250);
   harness.layer.togglePaused();
   testClock.advance(2_000);
-  assert.equal(testHermes.calls.length, 0, "pause waits for the provider-owned final boundary");
+  assert.equal(
+    testHermes.calls.length,
+    0,
+    "pause waits for the provider-owned final boundary",
+  );
 
   harness.resolveFinish();
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(harness.layer.phase(), "paused");
   assert.equal(testHermes.calls.length, 1);
-  assert.equal(testHermes.calls[0].request.transcript, "First capture needs a follow up");
+  assert.equal(
+    testHermes.calls[0].request.transcript,
+    "First capture needs a follow up",
+  );
 
   harness.layer.togglePaused();
   testBridge.emitTranscript({
@@ -356,18 +502,30 @@ test("pause and end hold partial timers, then flush the exact finalized conversa
     isFinal: false,
     receivedAtMs: 20,
   });
-  assert.equal(testHermes.calls[0].cancelled, false, "resume text first coalesces behind the debounce");
+  assert.equal(
+    testHermes.calls[0].cancelled,
+    false,
+    "resume text first coalesces behind the debounce",
+  );
   testClock.advance(250);
   assert.equal(harness.layer.handleDoubleClick(), true);
   testClock.advance(2_000);
-  assert.equal(testHermes.calls.length, 1, "end also holds its pending partial timer");
+  assert.equal(
+    testHermes.calls.length,
+    1,
+    "end also holds its pending partial timer",
+  );
 
   harness.resolveFinish();
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(harness.layer.phase(), "ended");
   assert.equal(testHermes.calls.length, 2);
-  assert.equal(testHermes.calls[0].cancelled, true, "the end flush retires the stale paused revision");
+  assert.equal(
+    testHermes.calls[0].cancelled,
+    true,
+    "the end flush retires the stale paused revision",
+  );
   assert.equal(
     testHermes.calls[1].request.transcript,
     "First capture needs a follow up Second capture will finish now",
@@ -395,22 +553,46 @@ test("turning Hermes cues off cancels in-flight text and immediately restores lo
 test("double-click ends the exact capture and stale events cannot resurrect the session", async () => {
   const harness = makeLayer({ generations: [20] });
   harness.layer.handleInput({ type: "click" });
-  testBridge.emitTranscript({ generation: 20, text: "first turn", isFinal: true, receivedAtMs: 20 });
+  testBridge.emitTranscript({
+    generation: 20,
+    text: "first turn",
+    isFinal: true,
+    receivedAtMs: 20,
+  });
   assert.equal(harness.layer.handleDoubleClick(), true);
   await Promise.resolve();
   await Promise.resolve();
   assert.deepEqual(harness.stops, [20]);
   assert.equal(harness.layer.phase(), "ended");
-  testBridge.emitTranscript({ generation: 20, text: "stale after end", isFinal: true, receivedAtMs: 21 });
-  assert.equal(textOperations(render(harness.layer)).some((text) => text.includes("stale after end")), false);
+  testBridge.emitTranscript({
+    generation: 20,
+    text: "stale after end",
+    isFinal: true,
+    receivedAtMs: 21,
+  });
+  assert.equal(
+    textOperations(render(harness.layer)).some((text) =>
+      text.includes("stale after end"),
+    ),
+    false,
+  );
 });
 
 test("end remains generation-owned while the provider flushes its final transcript", async () => {
   const harness = makeLayer({ generations: [21], deferFinish: true });
   harness.layer.handleInput({ type: "click" });
-  testBridge.emitTranscript({ generation: 21, text: "closing", isFinal: false, receivedAtMs: 20 });
+  testBridge.emitTranscript({
+    generation: 21,
+    text: "closing",
+    isFinal: false,
+    receivedAtMs: 20,
+  });
   assert.equal(harness.layer.handleDoubleClick(), true);
-  assert.equal(harness.layer.phase(), "active", "review must wait for the provider's final callback");
+  assert.equal(
+    harness.layer.phase(),
+    "active",
+    "review must wait for the provider's final callback",
+  );
 
   testBridge.emitTranscript({
     generation: 21,
@@ -423,26 +605,44 @@ test("end remains generation-owned while the provider flushes its final transcri
   await Promise.resolve();
 
   assert.equal(harness.layer.phase(), "ended");
-  assert.match(textOperations(render(harness.layer)).join(" "), /closing phrase confirmed/);
+  assert.match(
+    textOperations(render(harness.layer)).join(" "),
+    /closing phrase confirmed/,
+  );
 });
 
 test("pause and resume use a new capture generation while preserving the conversation", async () => {
   const harness = makeLayer({ generations: [30, 31] });
   harness.layer.handleInput({ type: "click" });
-  testBridge.emitTranscript({ generation: 30, text: "first turn", isFinal: true, receivedAtMs: 30 });
+  testBridge.emitTranscript({
+    generation: 30,
+    text: "first turn",
+    isFinal: true,
+    receivedAtMs: 30,
+  });
   harness.layer.togglePaused();
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(harness.layer.phase(), "paused");
   assert.deepEqual(harness.stops, [30]);
-  testBridge.emitTranscript({ generation: 30, text: "old generation", isFinal: true, receivedAtMs: 31 });
+  testBridge.emitTranscript({
+    generation: 30,
+    text: "old generation",
+    isFinal: true,
+    receivedAtMs: 31,
+  });
 
   harness.layer.togglePaused();
   assert.deepEqual(harness.starts, [
     { generation: 30, provider: "onboard" },
     { generation: 31, provider: "onboard" },
   ]);
-  testBridge.emitTranscript({ generation: 31, text: "second turn", isFinal: true, receivedAtMs: 32 });
+  testBridge.emitTranscript({
+    generation: 31,
+    text: "second turn",
+    isFinal: true,
+    receivedAtMs: 32,
+  });
   const image = render(harness.layer);
   const rendered = textOperations(image).join(" ");
   assert.match(rendered, /first turn/);
@@ -462,7 +662,12 @@ test("screen-off, foreground loss, and removal stop the active capture and detac
   removed.layer.onRemoved();
   assert.deepEqual(removed.stops, [41]);
   const afterRemovalRenders = removed.renders;
-  testBridge.emitTranscript({ generation: 41, text: "must not render", isFinal: true, receivedAtMs: 42 });
+  testBridge.emitTranscript({
+    generation: 41,
+    text: "must not render",
+    isFinal: true,
+    receivedAtMs: 42,
+  });
   assert.equal(removed.renders, afterRemovalRenders);
 
   const foreground = makeLayer({ generations: [43] });
@@ -475,8 +680,17 @@ test("screen-off, foreground loss, and removal stop the active capture and detac
 test("terminal provider failure releases the exact capture and ends in an honest review", () => {
   const harness = makeLayer({ generations: [44] });
   harness.layer.handleInput({ type: "click" });
-  testBridge.emitTranscript({ generation: 44, text: "known words", isFinal: false, receivedAtMs: 44 });
-  testBridge.emitStatus({ generation: 44, status: "Provider unavailable", terminalError: true });
+  testBridge.emitTranscript({
+    generation: 44,
+    text: "known words",
+    isFinal: false,
+    receivedAtMs: 44,
+  });
+  testBridge.emitStatus({
+    generation: 44,
+    status: "Provider unavailable",
+    terminalError: true,
+  });
 
   assert.deepEqual(harness.stops, [44]);
   assert.equal(harness.layer.phase(), "ended");

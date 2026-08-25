@@ -19,10 +19,11 @@ plugins:
       digest: <sha256-package-digest>
 
 platform_toolsets:
-  g2:
-    - <runtime-toolset-name-from-plugin-doctor>
-    # Add personal MCPs only after separate review. Do not include them in a
-    # public base profile.
+  # Enabled Agent Plugin MCPs are included automatically. They are not Hermes
+  # toolsets and must not be copied into this list.
+  g2: []
+  # Add personal toolsets only after separate review. Do not include them in a
+  # public base profile.
 
 gateway:
   platforms:

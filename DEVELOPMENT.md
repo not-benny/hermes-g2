@@ -111,9 +111,11 @@ Do not weaken the repository's fail-closed gates to make a test pass.
 - R1 pairing ownership, NVM provisioning, reset, wipe, DFU/OTA, power-control,
   and destructive raw commands remain blocked.
 - The portable workflow MCP and native transport have separate publication
-  boundaries. Do not copy the redistribution-prohibited native bridge into this
-  repository. Combined public distribution remains blocked until licensing,
-  artifact, containment, credential, and real-device gates are met. See
+  boundaries. The native bridge and workflow package are separately published
+  under Apache-2.0, and the reviewed source installer pins both exact commits.
+  Do not copy either package or a private profile wholesale into this repository;
+  update the distribution locks and consent digest instead. Protected APK
+  publication and physical-device acceptance remain separately gated. See
   `docs/hermes-mcp-architecture.md`.
 - Custom G2 firmware may brick hardware. The owner-unit boot report is not a
   recovery guarantee or broad compatibility proof.

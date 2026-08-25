@@ -3,12 +3,19 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 
-const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-const moduleUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
-const transpile = (source) => ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
-}).outputText;
-const withoutImports = (source) => source.replace(/import[\s\S]*?from\s+"[^"]+";\n/g, "");
+const read = (path) =>
+  readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+const moduleUrl = (source) =>
+  `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
+const transpile = (source) =>
+  ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2020,
+    },
+  }).outputText;
+const withoutImports = (source) =>
+  source.replace(/import[\s\S]*?from\s+"[^"]+";\n/g, "");
 
 const fontHarness = `
   const smallFont = { lineHeight: 12, measureText: (text) => Array.from(String(text)).length * 6 };
@@ -32,6 +39,12 @@ const fontHarness = `
 `;
 
 const cardHarness = `
+  const GLASS_TONE = { border: 96, hint: 112, muted: 144, secondary: 176,
+    body: 208, primary: 224, focus: 255 };
+  const drawGlassPanel = (image, x, y, width, height) => {
+    image.fillRoundedRect(x, y, width, height, 1, 12);
+    image.drawRoundedRect(x, y, width, height, 96, 12);
+  };
   const ASSISTANT_CARD_WIDTH = 448;
   const ASSISTANT_STATUS_CARD_WIDTH = 320;
   const ASSISTANT_CAPTURE_CARD_HEIGHT = 112;
@@ -52,10 +65,15 @@ const cardHarness = `
 function imageRecorder(width = 640, height = 480) {
   const commands = [];
   return {
-    width, height, commands,
-    fillRoundedRect: (x, y, width, height) => commands.push({ type: "panel", x, y, width, height }),
-    drawRoundedRect: (x, y, width, height) => commands.push({ type: "border", x, y, width, height }),
-    drawText: (_font, x, y, text) => commands.push({ type: "text", x, y, text }),
+    width,
+    height,
+    commands,
+    fillRoundedRect: (x, y, width, height) =>
+      commands.push({ type: "panel", x, y, width, height }),
+    drawRoundedRect: (x, y, width, height) =>
+      commands.push({ type: "border", x, y, width, height }),
+    drawText: (_font, x, y, text) =>
+      commands.push({ type: "text", x, y, text }),
   };
 }
 
@@ -122,7 +140,9 @@ async function loadAlertLayer() {
   const shell = read("app/ui/shell/shell.ts");
   const start = shell.indexOf("const ALERT_DISMISS_MS");
   const end = shell.indexOf("class Shell {", start);
-  const source = shell.slice(start, end).replace("class ShellAlertLayer", "export class ShellAlertLayer");
+  const source = shell
+    .slice(start, end)
+    .replace("class ShellAlertLayer", "export class ShellAlertLayer");
   const harness = `
     ${fontHarness}
     ${cardHarness}
@@ -134,30 +154,74 @@ async function loadAlertLayer() {
 
 test("compact card geometry stays inside every optical band and nested modal", async () => {
   const geometry = await loadGeometry();
-  const expectedTops = { top: 0, upper: 48, center: 96, lower: 144, bottom: 192 };
+  const expectedTops = {
+    top: 0,
+    upper: 48,
+    center: 96,
+    lower: 144,
+    bottom: 192,
+  };
   for (const [position, bandTop] of Object.entries(expectedTops)) {
     globalThis.__assistantVerticalPosition = position;
-    assert.deepEqual(geometry.assistantCardViewport({ width: 640, height: 480 }), {
-      x: 32, y: bandTop + 56, width: 576, height: 232,
-    });
-    assert.deepEqual(geometry.assistantCardRect({ width: 640, height: 480 }, 112), {
-      x: 96, y: bandTop + 116, width: 448, height: 112,
-    });
+    assert.deepEqual(
+      geometry.assistantCardViewport({ width: 640, height: 480 }),
+      {
+        x: 32,
+        y: bandTop + 56,
+        width: 576,
+        height: 232,
+      },
+    );
+    assert.deepEqual(
+      geometry.assistantCardRect({ width: 640, height: 480 }, 112),
+      {
+        x: 96,
+        y: bandTop + 116,
+        width: 448,
+        height: 112,
+      },
+    );
     const review = geometry.assistantCardRect({ width: 640, height: 480 }, 144);
-    assert.deepEqual(review, { x: 96, y: bandTop + 100, width: 448, height: 144 });
+    assert.deepEqual(review, {
+      x: 96,
+      y: bandTop + 100,
+      width: 448,
+      height: 144,
+    });
     assert.ok(review.x >= 72 && review.y >= bandTop + 56);
-    assert.ok(review.x + review.width <= 608 && review.y + review.height <= bandTop + 288);
+    assert.ok(
+      review.x + review.width <= 608 &&
+        review.y + review.height <= bandTop + 288,
+    );
   }
   globalThis.__assistantVerticalPosition = "bottom";
-  assert.deepEqual(geometry.assistantCardViewport({ width: 532, height: 196 }), {
-    x: 0, y: 0, width: 532, height: 196,
-  });
-  assert.deepEqual(geometry.assistantCardRect({ width: 532, height: 196 }, 112), {
-    x: 42, y: 42, width: 448, height: 112,
-  });
-  assert.deepEqual(geometry.assistantCardRect({ width: 532, height: 196 }, 144), {
-    x: 42, y: 26, width: 448, height: 144,
-  });
+  assert.deepEqual(
+    geometry.assistantCardViewport({ width: 532, height: 196 }),
+    {
+      x: 0,
+      y: 0,
+      width: 532,
+      height: 196,
+    },
+  );
+  assert.deepEqual(
+    geometry.assistantCardRect({ width: 532, height: 196 }, 112),
+    {
+      x: 42,
+      y: 42,
+      width: 448,
+      height: 112,
+    },
+  );
+  assert.deepEqual(
+    geometry.assistantCardRect({ width: 532, height: 196 }, 144),
+    {
+      x: 42,
+      y: 26,
+      width: 448,
+      height: 144,
+    },
+  );
 });
 
 test("assistant paints no partial or tool detail, then paginates only the completed result", async () => {
@@ -165,24 +229,51 @@ test("assistant paints no partial or tool detail, then paginates only the comple
   let renders = 0;
   let followUps = 0;
   let closes = 0;
-  const layer = new AssistantLayer({ requestRender: () => { renders++; } }, {
-    onFollowUp: () => { followUps++; }, onCancel: () => {}, onClose: () => { closes++; },
-  });
+  const layer = new AssistantLayer(
+    {
+      requestRender: () => {
+        renders++;
+      },
+    },
+    {
+      onFollowUp: () => {
+        followUps++;
+      },
+      onCancel: () => {},
+      onClose: () => {
+        closes++;
+      },
+    },
+  );
   layer.startTurn();
   layer.onTextDelta("private", "private reasoning draft");
   layer.onToolActivity("calendar.secret_tool");
   const workingImage = imageRecorder();
   layer.paint(context(), () => workingImage);
-  assert.deepEqual(workingImage.commands, [],
-    "even a stale paint of a running turn must be completely transparent");
+  assert.deepEqual(
+    workingImage.commands,
+    [],
+    "even a stale paint of a running turn must be completely transparent",
+  );
 
-  layer.onTurnDone("Result one\nResult two\nResult three\nResult four\nResult five\nResult six");
+  layer.onTurnDone(
+    "Result one\nResult two\nResult three\nResult four\nResult five\nResult six",
+  );
   const firstPage = imageRecorder();
   layer.paint(context(), () => firstPage);
-  assert.deepEqual(firstPage.commands.find((command) => command.type === "panel"), {
-    type: "panel", x: 96, y: 100, width: 448, height: 144,
-  });
-  const firstText = firstPage.commands.filter((command) => command.type === "text").map((command) => command.text);
+  assert.deepEqual(
+    firstPage.commands.find((command) => command.type === "panel"),
+    {
+      type: "panel",
+      x: 96,
+      y: 100,
+      width: 448,
+      height: 144,
+    },
+  );
+  const firstText = firstPage.commands
+    .filter((command) => command.type === "text")
+    .map((command) => command.text);
   assert.ok(firstText.includes("1/2"));
   assert.ok(firstText.includes("Result one"));
   assert.ok(!firstText.includes("Result six"));
@@ -191,10 +282,16 @@ test("assistant paints no partial or tool detail, then paginates only the comple
   layer.handleInput({ type: "scroll-down" }, context());
   const secondPage = imageRecorder();
   layer.paint(context(), () => secondPage);
-  const secondText = secondPage.commands.filter((command) => command.type === "text").map((command) => command.text);
+  const secondText = secondPage.commands
+    .filter((command) => command.type === "text")
+    .map((command) => command.text);
   assert.ok(secondText.includes("2/2"));
   assert.ok(secondText.includes("Result six"));
-  assert.ok(secondText.some((text) => text.includes("· follow-up") && text.includes("·· dismiss")));
+  assert.ok(
+    secondText.some(
+      (text) => text.includes("· follow-up") && text.includes("·· dismiss"),
+    ),
+  );
   layer.handleInput({ type: "click", source: "ring" }, context());
   layer.handleInput({ type: "double-click", source: "ring" }, context());
   assert.equal(followUps, 1);
@@ -205,45 +302,91 @@ test("assistant paints no partial or tool detail, then paginates only the comple
 test("voice capture and review use compact shell and nested coordinates", async () => {
   const { VoiceInputLayer } = await loadVoiceLayer();
   const actions = {
-    requestRender() {}, startVoiceCapture: () => 7, stopVoiceCapture() {},
+    requestRender() {},
+    startVoiceCapture: () => 7,
+    stopVoiceCapture() {},
   };
-  const layer = new VoiceInputLayer({ actions, onClosed() {}, dismiss() {},
-    sendTargets: [{ id: "assistant", label: "Send to Hermes", onSend() {} }], finishOnClick: true });
+  const layer = new VoiceInputLayer({
+    actions,
+    onClosed() {},
+    dismiss() {},
+    sendTargets: [{ id: "assistant", label: "Send to Hermes", onSend() {} }],
+    finishOnClick: true,
+  });
   layer.finalizedText = "one\ntwo\nthree\nfour";
 
   const shellCapture = imageRecorder();
   layer.paint(context(), () => shellCapture);
-  assert.deepEqual(shellCapture.commands.find((command) => command.type === "panel"), {
-    type: "panel", x: 96, y: 116, width: 448, height: 112,
-  });
-  const captureText = shellCapture.commands.filter((command) => command.type === "text").map((command) => command.text);
+  assert.deepEqual(
+    shellCapture.commands.find((command) => command.type === "panel"),
+    {
+      type: "panel",
+      x: 96,
+      y: 116,
+      width: 448,
+      height: 112,
+    },
+  );
+  const captureText = shellCapture.commands
+    .filter((command) => command.type === "text")
+    .map((command) => command.text);
   assert.ok(captureText.some((value) => value.startsWith("... two")));
   assert.ok(!captureText.includes("one"));
 
   layer.phase = "menu";
   const shellReview = imageRecorder();
   layer.paint(context(), () => shellReview);
-  assert.deepEqual(shellReview.commands.find((command) => command.type === "panel"), {
-    type: "panel", x: 96, y: 100, width: 448, height: 144,
-  });
-  assert.equal(shellReview.commands.filter((command) => command.type === "selection").length, 1);
-  const reviewText = shellReview.commands.filter((command) => command.type === "text").map((command) => command.text);
+  assert.deepEqual(
+    shellReview.commands.find((command) => command.type === "panel"),
+    {
+      type: "panel",
+      x: 96,
+      y: 100,
+      width: 448,
+      height: 144,
+    },
+  );
+  assert.equal(
+    shellReview.commands.filter((command) => command.type === "selection")
+      .length,
+    1,
+  );
+  const reviewText = shellReview.commands
+    .filter((command) => command.type === "text")
+    .map((command) => command.text);
   assert.ok(reviewText.includes("Send to Hermes"));
   assert.ok(reviewText.includes("1/3"));
-  assert.ok(!reviewText.includes("Continue"), "only the selected action is painted");
+  assert.ok(
+    !reviewText.includes("Continue"),
+    "only the selected action is painted",
+  );
 
   layer.phase = "capturing";
   const nestedCapture = imageRecorder(532, 196);
   layer.paint(context(532, 196), () => nestedCapture);
-  assert.deepEqual(nestedCapture.commands.find((command) => command.type === "panel"), {
-    type: "panel", x: 42, y: 42, width: 448, height: 112,
-  });
+  assert.deepEqual(
+    nestedCapture.commands.find((command) => command.type === "panel"),
+    {
+      type: "panel",
+      x: 42,
+      y: 42,
+      width: 448,
+      height: 112,
+    },
+  );
   layer.phase = "menu";
   const nestedReview = imageRecorder(532, 196);
   layer.paint(context(532, 196), () => nestedReview);
-  assert.deepEqual(nestedReview.commands.find((command) => command.type === "panel"), {
-    type: "panel", x: 42, y: 26, width: 448, height: 144,
-  });
+  assert.deepEqual(
+    nestedReview.commands.find((command) => command.type === "panel"),
+    {
+      type: "panel",
+      x: 42,
+      y: 26,
+      width: 448,
+      height: 144,
+    },
+  );
 });
 
 test("Continue appends a follow-up without an Anthropic key", async () => {
@@ -251,8 +394,13 @@ test("Continue appends a follow-up without an Anthropic key", async () => {
   globalThis.__assistantRefineCalls = 0;
   const { VoiceInputLayer } = await loadVoiceLayer();
   const layer = new VoiceInputLayer({
-    actions: { requestRender() {}, startVoiceCapture: () => 9, stopVoiceCapture() {} },
-    onClosed() {}, dismiss() {},
+    actions: {
+      requestRender() {},
+      startVoiceCapture: () => 9,
+      stopVoiceCapture() {},
+    },
+    onClosed() {},
+    dismiss() {},
     sendTargets: [{ id: "assistant", label: "Send", onSend() {} }],
   });
   layer.phase = "menu";
@@ -272,13 +420,24 @@ test("Continue appends a follow-up without an Anthropic key", async () => {
 test("short assistant alert uses the same compact optical card", async () => {
   const { ShellAlertLayer } = await loadAlertLayer();
   let dismisses = 0;
-  const layer = new ShellAlertLayer("Timer set for ten minutes.", () => { dismisses++; });
+  const layer = new ShellAlertLayer("Timer set for ten minutes.", () => {
+    dismisses++;
+  });
   const image = imageRecorder();
   layer.paint(context(), () => image);
-  assert.deepEqual(image.commands.find((command) => command.type === "panel"), {
-    type: "panel", x: 96, y: 132, width: 448, height: 80,
-  });
-  const text = image.commands.filter((command) => command.type === "text").map((command) => command.text);
+  assert.deepEqual(
+    image.commands.find((command) => command.type === "panel"),
+    {
+      type: "panel",
+      x: 96,
+      y: 132,
+      width: 448,
+      height: 80,
+    },
+  );
+  const text = image.commands
+    .filter((command) => command.type === "text")
+    .map((command) => command.text);
   assert.ok(text.includes("Hermes"));
   assert.ok(text.includes("Timer set for ten minutes."));
   layer.handleInput({ type: "click", source: "ring" }, context());
@@ -297,24 +456,42 @@ test("completed assistant alerts offer one-click voice reply and double-click di
     assert.equal(delay, 6000);
     return { fakeTimer: scheduled };
   };
-  globalThis.clearTimeout = () => { cleared++; };
+  globalThis.clearTimeout = () => {
+    cleared++;
+  };
   try {
     let dismissed = 0;
     let replies = 0;
     const replyCard = new ShellAlertLayer(
       "A completed result that must stay readable.",
-      () => { dismissed++; },
+      () => {
+        dismissed++;
+      },
       "until-dismiss-or-sleep",
-      { onReply: () => { replies++; } },
+      {
+        onReply: () => {
+          replies++;
+        },
+      },
     );
-    assert.equal(scheduled, 0, "persistent results must rely only on the global screen timeout");
+    assert.equal(
+      scheduled,
+      0,
+      "persistent results must rely only on the global screen timeout",
+    );
     const image = imageRecorder();
     replyCard.paint(context(), () => image);
-    const footer = image.commands.filter((command) => command.type === "text").at(-1)?.text;
+    const footer = image.commands
+      .filter((command) => command.type === "text")
+      .at(-1)?.text;
     assert.equal(footer, "· reply   ·· dismiss");
     replyCard.handleInput({ type: "click", source: "ring" }, context());
     assert.equal(replies, 1, "one click enters the reviewed voice reply path");
-    assert.equal(dismissed, 0, "reply owns dismissal so unavailable voice can leave the card readable");
+    assert.equal(
+      dismissed,
+      0,
+      "reply owns dismissal so unavailable voice can leave the card readable",
+    );
     replyCard.handleInput({ type: "double-click", source: "ring" }, context());
     assert.equal(dismissed, 1, "double-click dismisses the completed result");
     replyCard.onRemoved();
@@ -329,19 +506,38 @@ test("completed assistant alerts offer one-click voice reply and double-click di
       timerCallback = callback;
       return { fakeTimer: scheduled };
     };
-    const ordinaryAlert = new ShellAlertLayer("Transient notice.", () => { ordinaryDismissed++; });
-    assert.equal(scheduled, 0, "a transient candidate must not expire before frame acknowledgement");
+    const ordinaryAlert = new ShellAlertLayer("Transient notice.", () => {
+      ordinaryDismissed++;
+    });
+    assert.equal(
+      scheduled,
+      0,
+      "a transient candidate must not expire before frame acknowledgement",
+    );
     ordinaryAlert.armTransientDismissTimer();
     ordinaryAlert.armTransientDismissTimer();
-    assert.equal(scheduled, 1, "acknowledgement arms exactly one six-second expiry");
+    assert.equal(
+      scheduled,
+      1,
+      "acknowledgement arms exactly one six-second expiry",
+    );
     timerCallback();
     assert.equal(ordinaryDismissed, 1);
     ordinaryAlert.onRemoved();
     assert.equal(cleared, 0, "an already-fired timer needs no teardown clear");
 
-    const ordinaryDoubleClick = new ShellAlertLayer("Generic alert.", () => { ordinaryDismissed++; });
-    ordinaryDoubleClick.handleInput({ type: "double-click", source: "ring" }, context());
-    assert.equal(ordinaryDismissed, 2, "generic alert gesture semantics stay unchanged");
+    const ordinaryDoubleClick = new ShellAlertLayer("Generic alert.", () => {
+      ordinaryDismissed++;
+    });
+    ordinaryDoubleClick.handleInput(
+      { type: "double-click", source: "ring" },
+      context(),
+    );
+    assert.equal(
+      ordinaryDismissed,
+      2,
+      "generic alert gesture semantics stay unchanged",
+    );
   } finally {
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
@@ -356,26 +552,46 @@ test("short and direct completed replies enter the existing reviewed assistant v
   );
   assert.match(helper, /voiceControlEnabledSetting\.get\(\)/);
   assert.match(helper, /this\.isAssistantAvailable\(\)/);
-  assert.match(helper,
-    /dismissResult\(\)[\s\S]*this\.openVoiceDialog\(\{[\s\S]*finishOnClick: true,[\s\S]*defaultTarget: "assistant"/);
-  assert.match(helper, /returnToSleepOnClose/,
-    "a reply opened from a sleep-origin result inherits the prior sleep state");
-  assert.match(helper, /returnToSleepOnClose && !this\.assistantOnlyPresentation[\s\S]*this\.setAssistantOnlyPresentation\(true\)/,
-    "direct sleep-origin replies isolate retained app surfaces before replacing their card");
-  assert.doesNotMatch(helper, /sendUtterance|onTextDelta|onToolActivity/,
-    "the result gesture must reuse reviewed voice capture instead of bypassing it");
+  assert.match(
+    helper,
+    /dismissResult\(\)[\s\S]*this\.openVoiceDialog\(\{[\s\S]*finishOnClick: true,[\s\S]*defaultTarget: "assistant"/,
+  );
+  assert.match(
+    helper,
+    /returnToSleepOnClose/,
+    "a reply opened from a sleep-origin result inherits the prior sleep state",
+  );
+  assert.match(
+    helper,
+    /returnToSleepOnClose && !this\.assistantOnlyPresentation[\s\S]*this\.setAssistantOnlyPresentation\(true\)/,
+    "direct sleep-origin replies isolate retained app surfaces before replacing their card",
+  );
+  assert.doesNotMatch(
+    helper,
+    /sendUtterance|onTextDelta|onToolActivity/,
+    "the result gesture must reuse reviewed voice capture instead of bypassing it",
+  );
 
   const pending = shell.slice(
     shell.indexOf("private flushPendingAssistantResult"),
     shell.indexOf("private startAssistantFollowUp"),
   );
-  assert.match(pending, /this\.showAlert\([\s\S]*"until-dismiss-or-sleep",[\s\S]*"assistant-reply"/);
+  assert.match(
+    pending,
+    /this\.showAlert\([\s\S]*"until-dismiss-or-sleep",[\s\S]*"assistant-reply"/,
+  );
 
   const direct = shell.slice(
     shell.indexOf("async notifyAssistantResult("),
     shell.indexOf("async showAlert("),
   );
-  assert.match(direct, /onReply:\s*\(\)\s*=>\s*this\.startAssistantResultReply/);
-  assert.match(direct, /directNotificationReturnToSleep/,
-    "direct Hermes cards retain exact prior-sleep ownership through dismissal");
+  assert.match(
+    direct,
+    /onReply:\s*\(\)\s*=>\s*this\.startAssistantResultReply/,
+  );
+  assert.match(
+    direct,
+    /directNotificationReturnToSleep/,
+    "direct Hermes cards retain exact prior-sleep ownership through dismissal",
+  );
 });

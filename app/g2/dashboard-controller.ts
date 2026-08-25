@@ -370,7 +370,12 @@ class DashboardController {
         clockAlertCoordinator.releaseTerminalVisualForForeground(),
       isDirectAssistantResultPresentationAllowed: () => this.isDirectAssistantResultPresentationAllowed(),
       prepareAssistantResultDisplay: (isAllowed) => this.prepareAssistantResultDisplay(isAllowed),
-      prepareIsolatedAssistantResultDisplay: (isAllowed) => this.beginAssistantResultDisplay(isAllowed),
+      prepareAssistantResultPresentationIsolation: (isAllowed) =>
+        this.prepareMusicCardDisplay(isAllowed),
+      revealAssistantResultPresentationIsolation: (isAllowed) =>
+        this.revealMusicCardDisplay(isAllowed),
+      releaseAssistantResultPresentationIsolation: () =>
+        this.releaseMusicCardPresentationIsolation(),
       prepareDirectAssistantResultDisplay: (isAllowed) => this.beginDirectAssistantResultDisplay(isAllowed),
       prepareMusicCardDisplay: (isAllowed) => this.prepareMusicCardDisplay(isAllowed),
       revealMusicCardDisplay: (isAllowed) => this.revealMusicCardDisplay(isAllowed),
@@ -921,13 +926,22 @@ class DashboardController {
     isolated: boolean,
   ): Promise<boolean> {
     const foregroundId = shell.foregroundWindow()?.windowId;
+    const mutations: Promise<void>[] = [];
     for (const window of shell.getWindows()) {
       if (this.communicator !== communicator || this.phase !== "connected") return false;
-      await communicator.setSurfaceVisible(
-        window.surfaceId,
-        !isolated && window.windowId === foregroundId,
+      // Enqueue the complete visibility batch before yielding. The Java bridge
+      // is serialized, so a wake/unblank requested immediately after this
+      // fire-and-forget reconciliation cannot overtake a later window hide.
+      mutations.push(
+        communicator.setSurfaceVisible(
+          window.surfaceId,
+          !isolated && window.windowId === foregroundId,
+        ),
       );
     }
+    const results = await Promise.allSettled(mutations);
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
     return this.communicator === communicator && this.phase === "connected";
   }
 
@@ -2368,19 +2382,13 @@ class DashboardController {
         }
         return;
       }
-      const wakewordShouldWake =
-        event.kind === "even-ai" &&
-        event.eventType === EvenAIStatus.EVEN_AI_WAKE_UP &&
-        wakeWordActionSetting.get() !== "off";
       const displayShouldWake = event.kind === "display-wake";
       let shellPreWoke = false;
-      if (wakewordShouldWake || displayShouldWake) {
-        if (displayShouldWake) {
-          // Firmware can exit its layout while the phone-side shell still
-          // believes the display is on. The later directional wake event is
-          // nevertheless an explicit recovery edge for the durable inbox.
-          directNotificationInbox.retryPresentation();
-        }
+      if (displayShouldWake) {
+        // Firmware can exit its layout while the phone-side shell still
+        // believes the display is on. The later directional wake event is
+        // nevertheless an explicit recovery edge for the durable inbox.
+        directNotificationInbox.retryPresentation();
         if (!shell.isScreenOn()) {
           shellPreWoke = shell.wake("sidebar");
         }
@@ -2391,6 +2399,11 @@ class DashboardController {
           }
         }
       }
+      // Wakewords intentionally reach Shell before any wake. Shell must see
+      // the exact prior screen state so voice input can hide retained app/HUD
+      // surfaces and preserve return-to-sleep ownership. Its wake callback
+      // starts the ordinary EvenHub lifecycle barrier after that isolation is
+      // installed. Synthetic wakewords use this same even-ai event path.
       frameTimings.spanStart(frameId, "handle-input");
       let outcome: ShellInputOutcome;
       try {

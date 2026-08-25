@@ -26,15 +26,15 @@ experimental feature in the repository.
 
 ## Canonical repository state
 
-| Area                 | State                                                                                                                                                                                                                                                                                                            |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Development base     | `main`, exclusively                                                                                                                                                                                                                                                                                              |
-| Application baseline | Public source `db6098d545ba8cd20d3cc02d3db0d975afc0fdd6`: 952/952 tests, TypeScript typecheck, dependency probes, and debug plus unsigned-production build verification passed. The functionally equivalent `b04f1c83718faf5f995aa4f0e8284a21c67d768e` source remains installed on the Fold7 with data preserved |
-| Android identity     | `versionCode 1000003`, `versionName 1.0.0-preview.3`; this identifies the next internal candidate, not a published release                                                                                                                                                                                       |
-| Pull requests        | One focused PR at a time, based on current `main`                                                                                                                                                                                                                                                                |
-| Active work          | [Issue #59](https://github.com/not-benny/hermes-g2/issues/59) only: prove the real owner Hermes loop                                                                                                                                                                                                             |
-| Publication          | Source repositories and the source-pinned installer are public. Protected APK publication remains disabled; repository variable `PROTECTED_RELEASE_ENABLED` remains `false`                                                                                                                                      |
-| Installed identity   | The owner Fold7 has the exact `b04f1c83718faf5f995aa4f0e8284a21c67d768e` source upgrade installed, signed with the existing legacy Android development certificate. The package was updated without uninstalling or clearing app data; this is internal upgrade evidence only                                    |
+| Area                 | State                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Development base     | `main`, exclusively                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Application baseline | Public `main` at `753bfa42ccff573d9fc469011e2f4f45b2081fc0`. Validated app tree `8941a72f6926102f1ce8c1e4df3f7bd044519973`, tree-identical to source lock `db6098d545ba8cd20d3cc02d3db0d975afc0fdd6`: 952/952 tests, TypeScript typecheck, dependency probes, and debug plus unsigned-production build verification passed. The functionally equivalent `b04f1c83718faf5f995aa4f0e8284a21c67d768e` source remains installed on the Fold7 with data preserved |
+| Android identity     | `versionCode 1000003`, `versionName 1.0.0-preview.3`; this identifies the next internal candidate, not a published release                                                                                                                                                                                                                                                                                                                                   |
+| Pull requests        | One focused PR at a time, based on current `main`                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Active work          | [Issue #59](https://github.com/not-benny/hermes-g2/issues/59) only: prove the real owner Hermes loop                                                                                                                                                                                                                                                                                                                                                         |
+| Publication          | Source repositories and the source-pinned installer are public. Distribution prerelease [`v0.1.0`](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.0) passed an independent disposable install. Protected APK publication remains disabled; repository variable `PROTECTED_RELEASE_ENABLED` remains `false`                                                                                                                            |
+| Installed identity   | The owner Fold7 has the exact `b04f1c83718faf5f995aa4f0e8284a21c67d768e` source upgrade installed, signed with the existing legacy Android development certificate. The package was updated without uninstalling or clearing app data; this is internal upgrade evidence only                                                                                                                                                                                |
 
 ## Supported owner envelope
 
@@ -92,13 +92,23 @@ experimental feature in the repository.
   TypeScript typecheck, then built, signed, and installed over the existing
   Fold7 package. Android retained the current app data. This proves the
   same-identity owner upgrade path, not production signing or public release.
-- Current public source commit
+- Validated app-source tree
   `db6098d545ba8cd20d3cc02d3db0d975afc0fdd6` passed 952/952 tests,
   TypeScript typecheck, dependency probes, and debug plus unsigned-production
-  build verification. Its additional changes affect development dependencies,
-  so the installed app remains the functionally equivalent `b04f1c...` build.
+  build verification. It is tree-identical to rebased `main` commit
+  `8941a72f6926102f1ce8c1e4df3f7bd044519973`; the final documentation merge is
+  `753bfa42ccff573d9fc469011e2f4f45b2081fc0`. All four merge checks passed and
+  the previously open `uuid` and `yauzl` dependency alerts are closed. These
+  additional changes do not require replacing the functionally equivalent
+  installed `b04f1c...` build. Permanent provenance tags
+  `distribution-v0.1.0-android-source` and
+  `owner-preview3-installed-source-20260825` retain both exact build inputs.
 - The public source-pinned setup is published at
   [`not-benny/hermes-g2-distribution`](https://github.com/not-benny/hermes-g2-distribution).
+  Its reviewed
+  [`v0.1.0` prerelease](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.0)
+  pins the exact bridge, workflow, Hermes capability baseline, and Android
+  source commits.
   An independent disposable install fetched all four exact source commits,
   installed both plugins, verified all thirteen workflow tools and the digest
   grant, and did not start a gateway. Hermes itself remains a prerequisite.

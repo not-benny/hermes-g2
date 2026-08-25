@@ -54,14 +54,14 @@ External bridge calls are connection- and turn-bound. Sensitive R1 health tools
 fail closed for the external bridge unless a separately trusted caller policy is
 established; encrypted transport alone does not make a caller trusted.
 
-The optional Hermes mobile companion uses that same authenticated WSS connection
-to receive bounded, redacted status, recent-session, voice/usage, tool-activity,
-and error summaries. It sends only fixed refresh/open/resume/cancel/new-voice
-operations with opaque operation and generation identifiers. The companion
-schema and host adapter exclude credentials, prompts, transcripts, raw tool
-arguments/results, and private logs; bridge and gateway tokens are never shown
-on the companion page. The host gateway connection is loopback-only and does not
-add a second phone-facing administration service.
+There is no Hermes mobile companion or generic administration channel. The
+authenticated WSS connection carries Host Session MCP and the private phone
+Device MCP. The bounded Cockpit projection exposes only current or recent G2
+session state plus exact reviewed answer, deny/allow-once, steer, and interrupt
+commands. It excludes credentials, prompts, raw transcripts, raw tool
+arguments/results, unrelated sessions, and private logs. Thinking, tool
+progress, reconnect snapshots, and Cockpit state never become a second
+wearer-visible assistant result.
 
 Optional proactive actions are disabled unless the user enables the local master
 gate. Eligible actions remain subject to proactive-safe flags and rate limits,

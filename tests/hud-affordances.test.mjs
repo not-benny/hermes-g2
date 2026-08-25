@@ -31,6 +31,71 @@ test("an active hidden assistant turn makes sleeping push-to-talk inert", () => 
   assert.ok(guard >= 0 && guard < activity && guard < wake);
 });
 
+test("a sleep-origin wakeword transfers opaque prior-state ownership to its Hermes reply", () => {
+  const shell = read("app/ui/shell/shell.ts");
+  const input = shell.slice(
+    shell.indexOf("async receiveInput("),
+    shell.indexOf("// A second sleeping PTT press", shell.indexOf("async receiveInput(")),
+  );
+  const beganAsleep = input.indexOf("const beganScreenOff = !this.screenOn");
+  const isolate = input.indexOf("this.setAssistantOnlyPresentation(true)", beganAsleep);
+  const wake = input.indexOf('this.wake("sidebar")', isolate);
+  const dialog = input.indexOf("this.openVoiceDialog({", wake);
+  assert.ok(beganAsleep >= 0 && beganAsleep < isolate && isolate < wake && wake < dialog,
+    "sleep ownership and retained-surface isolation must be installed before wake");
+  assert.match(input.slice(dialog), /handsFree: true,[\s\S]*returnToSleepOnClose: beganScreenOff/);
+
+  const activeGuard = input.indexOf("this.assistantSession?.isTurnActive()", beganAsleep);
+  const activity = input.indexOf("this.noteUserActivity()", activeGuard);
+  assert.ok(activeGuard >= 0 && activeGuard < activity,
+    "a second sleeping wakeword must be rejected before it can expose the HUD");
+  assert.match(input.slice(beganAsleep, activity), /return \{ shell: false, window: false \}/);
+
+  const handoff = shell.slice(
+    shell.indexOf("private finishSleepingAssistantVoiceHandoff"),
+    shell.indexOf("private finishSleepingAssistantVoiceDismissal"),
+  );
+  assert.match(handoff, /this\.isolatedAssistantTurn = layer[\s\S]*this\.sleep\(\)/,
+    "the wakeword query must hand its exact result owner back to sleep while Hermes works");
+});
+
+test("hardware and synthetic wakewords reach shell before any controller wake", () => {
+  const controller = read("app/g2/dashboard-controller.ts");
+  const input = controller.slice(
+    controller.indexOf("private async handleInputEvent"),
+    controller.indexOf("/** Launch or focus", controller.indexOf("private async handleInputEvent")),
+  );
+  const preWake = input.slice(
+    input.indexOf('const displayShouldWake = event.kind === "display-wake"'),
+    input.indexOf('frameTimings.spanStart(frameId, "handle-input")'),
+  );
+  assert.match(preWake, /if \(displayShouldWake\)/);
+  assert.doesNotMatch(preWake, /wakewordShouldWake|EVEN_AI_WAKE_UP/,
+    "the controller must not erase a wakeword's sleep origin before Shell receives it");
+
+  const synthetic = controller.slice(
+    controller.indexOf("private buildSyntheticRingInput"),
+    controller.indexOf("private emit()", controller.indexOf("private buildSyntheticRingInput")),
+  );
+  assert.match(synthetic, /case "wakeword":[\s\S]*kind: "even-ai"[\s\S]*EvenAIStatus\.EVEN_AI_WAKE_UP/,
+    "the phone test control must exercise the exact hardware wakeword route");
+});
+
+test("an awake wakeword does not acquire sleep-origin result isolation", () => {
+  const shell = read("app/ui/shell/shell.ts");
+  const input = shell.slice(
+    shell.indexOf("if (event.type === \"wakeword\")"),
+    shell.indexOf("// A second sleeping PTT press"),
+  );
+  const isolationGuard = input.slice(
+    input.indexOf('if (action === "voice-input" && beganScreenOff)'),
+    input.indexOf("this.noteUserActivity()"),
+  );
+  assert.match(isolationGuard, /beganScreenOff/);
+  assert.doesNotMatch(input, /returnToSleepOnClose: true/,
+    "awake wakewords preserve the visible HUD rather than manufacturing sleep ownership");
+});
+
 test("sleep assistant presentation paints only its top dialogue over blank", () => {
   const layers = read("app/ui/layers.ts");
   const shell = read("app/ui/shell/shell.ts");

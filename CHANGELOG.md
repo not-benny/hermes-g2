@@ -68,6 +68,15 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
   state, and optical-safe sidebar/window geometry.
 - Grouped HUD notification icons per source app, added drawable fallback, and
   added shared bounded emoji-to-text fallback for unsupported glyphs.
+- Increased the effective repeat rate of ring and touchpad scrolling by 25
+  percent at sensitivity levels 1 through 4. The saved five-level setting and
+  raw level 5 behavior are unchanged, and non-scroll gestures are unaffected.
+- Unified the wearer UI around one 4-bit-safe tone, spacing, radius, focus,
+  card, progress, and motion system across the HUD, launcher, menus, Assistant,
+  notifications, media, Clock, and Conversate. Fresh notification cards now
+  show the exact cached Android app icon with a deterministic initial fallback,
+  while retaining the full 576-pixel wearer-visible message width and the
+  configured notification text size.
 - Added paged notification digest/action menus and double-tap dismiss while
   preserving Back, Reply, Android actions, and Dismiss.
 - Present fresh phone notifications as opaque, blank-first cards. A tap opens
@@ -114,15 +123,21 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
   with the existing owner identity, and was installed upgrade-in-place on the
   Fold7. Android retained the current app data. Physical worn-glasses acceptance
   remains separate and pending.
-- Current public source commit
+- Validated source tree
   `db6098d545ba8cd20d3cc02d3db0d975afc0fdd6` additionally passed the full
   952-test suite, dependency probes, TypeScript typecheck, and debug plus
-  unsigned-production build verification.
+  unsigned-production build verification. It is tree-identical to rebased
+  `main` commit `8941a72f6926102f1ce8c1e4df3f7bd044519973`; final documentation
+  merged at `753bfa42ccff573d9fc469011e2f4f45b2081fc0` after every required check
+  passed. The two open dependency alerts are closed. Permanent provenance tags
+  retain the exact validated and installed source inputs after branch cleanup.
 - The Hermes G2 bridge is now separately public under Apache-2.0 at
   [`not-benny/hermes-g2-bridge`](https://github.com/not-benny/hermes-g2-bridge).
   The workflow MCP remains a separate Apache-2.0 publication. The reviewed
   source installer and exact source locks are public at
   [`not-benny/hermes-g2-distribution`](https://github.com/not-benny/hermes-g2-distribution).
+  The independently verified source setup is published as distribution
+  prerelease [`v0.1.0`](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.0).
   Production APK signing and broad support remain separate gates.
 
 ## [1.0.0-preview.1] - 2026-08-21
