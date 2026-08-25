@@ -26,9 +26,12 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
   host tools without widening the phone MCP allowlist or moving authority into
   SOUL; browser attachment still requires Chromium's visible per-connection
   approval and consequential actions retain approval.
-- Added twelve exact high-level workflows for Work Tasks, Clock timers, Clock
-  alarms, reminders, weather, National Rail departures, app/window management,
-  media, navigation, notifications, ring-health summary, and calendar agenda.
+- Added thirteen exact high-level workflows for Work Tasks, parked Hermes
+  Kanban cards, Clock timers, Clock alarms, reminders, weather, National Rail
+  departures, app/window management, media, navigation, notifications,
+  ring-health summary, and calendar agenda. Kanban creation requires an exact
+  existing board and leaves the card blocked and unassigned without starting a
+  worker.
 - Added digest-bound, expiring exact-turn capabilities, schema-pinned private
   phone routes, deterministic operation IDs, replay protection, standard MCP
   cancellation, and typed receipt validation.
@@ -102,20 +105,25 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
 
 ### Verification and limits
 
-- Phone suite: 950/950 tests passed; TypeScript typecheck passed.
-- Native gateway suite: 314 passed with one optional live test skipped.
-- Portable workflow MCP: 26 tests plus current MCP SDK and plugin-doctor checks.
+- Phone suite: 952/952 tests passed; TypeScript typecheck passed.
+- Native gateway suite: 354 passed with one optional live test skipped.
+- Portable workflow MCP: 30 tests plus current MCP SDK and plugin-doctor checks.
 - Hermes capability/plugin suite: 335 tests.
 - Exact GitHub source commit
   `b04f1c83718faf5f995aa4f0e8284a21c67d768e` built successfully, was signed
   with the existing owner identity, and was installed upgrade-in-place on the
   Fold7. Android retained the current app data. Physical worn-glasses acceptance
   remains separate and pending.
+- Current public source commit
+  `db6098d545ba8cd20d3cc02d3db0d975afc0fdd6` additionally passed the full
+  952-test suite, dependency probes, TypeScript typecheck, and debug plus
+  unsigned-production build verification.
 - The Hermes G2 bridge is now separately public under Apache-2.0 at
   [`not-benny/hermes-g2-bridge`](https://github.com/not-benny/hermes-g2-bridge).
-  The workflow MCP remains a separate Apache-2.0 publication. Public all-in-one
-  distribution is still pending app packaging, containment, privacy,
-  production-signing, and support acceptance.
+  The workflow MCP remains a separate Apache-2.0 publication. The reviewed
+  source installer and exact source locks are public at
+  [`not-benny/hermes-g2-distribution`](https://github.com/not-benny/hermes-g2-distribution).
+  Production APK signing and broad support remain separate gates.
 
 ## [1.0.0-preview.1] - 2026-08-21
 
