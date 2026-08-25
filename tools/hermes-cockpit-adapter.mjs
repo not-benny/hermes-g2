@@ -123,16 +123,12 @@ export class HermesCockpitAdapter {
     const session = this.#sharedByHermes(event.session_id);
     if (!session || sourceGeneration !== session.generation || ["completed", "failed", "interrupted"].includes(session.state)) return null;
     const data = event.data && typeof event.data === "object" ? event.data : {};
-    if (event.type === "reasoning.delta" || event.type === "thinking.delta") return null;
-    if (event.type === "message.delta" || event.type === "message.complete") {
+    if (event.type === "reasoning.delta" || event.type === "thinking.delta" ||
+        event.type === "message.delta" || event.type.startsWith("tool.")) return null;
+    if (event.type === "message.complete") {
       const text = data.redacted === true ? boundedText(data.cockpit_text, 240) : null;
       if (!text) return null;
       return this.#appendTimeline(session, "assistant", text, "done", event.type);
-    }
-    if (["tool.start", "tool.progress", "tool.complete"].includes(event.type)) {
-      const name = boundedText(data.name, 80) ?? "tool";
-      const status = event.type === "tool.start" || event.type === "tool.progress" ? "running" : data.error ? "failed" : "done";
-      return this.#appendTimeline(session, "tool", `${name} · ${status}`, status, `${event.type}:${session.revision}`);
     }
     if (event.type === "clarify.request") return this.#openQuestion(session, data);
     if (event.type === "approval.request") return this.#openPermission(session, data);

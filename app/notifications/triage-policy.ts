@@ -200,6 +200,18 @@ function resolveTier(notification: NotificationPolicyInput, policy: Notification
     });
     if (rule) return { tier: rule.tier, reason: `${scope} rule: ${rule.tier}` };
   }
+  // The Android listener admits only the exact clearable, auto-cancel Codex
+  // completion channel. Treat that final agent turn as urgent so the user's
+  // explicit app selection actually wakes G2 during quiet hours. Any authored
+  // sender/channel/app rule above remains authoritative and can mute it.
+  if (
+    notification.packageName === "com.openai.chatgpt" &&
+    notification.channelId === "codex" &&
+    notification.clearable &&
+    !notification.groupSummary
+  ) {
+    return { tier: "urgent", reason: "Codex final result: urgent" };
+  }
   if (notification.category === "call" || notification.category === "alarm") {
     return { tier: "urgent", reason: `${notification.category} category: urgent` };
   }

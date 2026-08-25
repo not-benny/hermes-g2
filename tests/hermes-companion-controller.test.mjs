@@ -60,16 +60,15 @@ test("negotiated unsupported state clears stale authority and remains action-ine
   assert.equal(controller.snapshot().synchronized, false, "negotiation alone grants no snapshot authority");
 });
 
-test("bridge gates companion frames on authenticated WSS and revokes authority on loss", () => {
+test("legacy Companion frames and commands are absent from the MCP-only bridge", () => {
   const bridge = readFileSync(new URL("../app/assistant/bridge-client.ts", import.meta.url), "utf8");
   assert.match(bridge, /wss:\/\//);
   assert.match(bridge, /readonly companion = new HermesCompanionController/);
-  assert.match(bridge, /capabilities: \["chat", "mcp", "cockpit-v1", "hermes-companion-v1"\]/);
-  assert.match(bridge, /case "companion":\s*\n\s*if \(!this\.requireAuthenticated\(generation\)\) return;\s*\n\s*if \(!this\.companionSupported\) return;\s*\n\s*this\.companion\.handleFrame\(frame\)/);
-  assert.match(bridge, /frame\.capabilities\.includes\("hermes-companion-v1"\)/);
-  assert.match(bridge, /this\.companion\.setSupported\(this\.companionSupported\)/);
-  assert.match(bridge, /if \(!this\.companionSupported\) return;/);
+  assert.match(bridge, /capabilities: \["mcp", "host-mcp-v1"\]/);
+  assert.match(bridge, /case "companion":\s*\n\s*return; \/\/ No legacy Companion command channel in the MCP-only bridge\./);
+  assert.doesNotMatch(bridge, /hermes-companion-v1/);
+  assert.doesNotMatch(bridge, /chan: "companion"/);
+  assert.doesNotMatch(bridge, /private sendCompanion/);
   assert.match(bridge, /this\.companion\.disconnect\(\)/);
-  assert.match(bridge, /private sendCompanion/);
   assert.doesNotMatch(bridge, /http:\/\//);
 });

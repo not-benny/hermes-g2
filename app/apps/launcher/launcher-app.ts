@@ -51,6 +51,14 @@ const LABEL_GAP = 2;
 /** Extra top inset for the folder-name header while inside a folder. */
 const FOLDER_HEADER_HEIGHT = 16;
 
+/** Scale a cell icon only when its label would otherwise cross the next row. */
+export function launcherCellIconSize(rowHeight: number, fontLineHeight: number): number {
+  return Math.max(24, Math.min(
+    ICON_SIZE,
+    Math.floor(rowHeight - LABEL_GAP - Math.max(1, fontLineHeight)),
+  ));
+}
+
 type LauncherMode = "row" | "item";
 
 /** One cell of the grid: an app, or a folder holding some of the apps. */
@@ -157,6 +165,7 @@ class LauncherGridLayer implements Layer {
     const gridBottom = height - FOOTER_HEIGHT;
     const rowH = (gridBottom - gridTop) / VISIBLE_ROWS;
     const colW = width / COLS;
+    const iconSize = launcherCellIconSize(rowH, font.lineHeight);
 
     // Scroll to keep the selected row among the fully-visible rows.
     this.scrollRow = scrollToKeepSelectionVisible(this.scrollRow, this.selectedRow, FULL_ROWS, rows);
@@ -176,10 +185,10 @@ class LauncherGridLayer implements Layer {
       const entry = entries[index]!;
       const row = Math.floor(index / COLS);
       if (row < this.scrollRow) continue;
-      const blockTop = rowY(row) + Math.max(2, (rowH - ICON_SIZE - font.lineHeight - LABEL_GAP) / 2);
+      const blockTop = rowY(row) + Math.max(2, (rowH - iconSize - font.lineHeight - LABEL_GAP) / 2);
       if (blockTop >= gridBottom) break; // fully below the grid
       const centerX = (index % COLS) * colW + colW / 2;
-      const icon = renderIcon(entry.kind === "app" ? entry.icon : "folder-filled", ICON_SIZE);
+      const icon = renderIcon(entry.kind === "app" ? entry.icon : "folder-filled", iconSize);
       if (icon) {
         // Clip the icon at the grid bottom so a peeking row shows only its top.
         const clipHeight = Math.min(icon.height, Math.floor(gridBottom - blockTop));
@@ -188,7 +197,7 @@ class LauncherGridLayer implements Layer {
           transparentZero: true,
         });
       }
-      const labelY = Math.round(blockTop + ICON_SIZE + LABEL_GAP);
+      const labelY = Math.round(blockTop + iconSize + LABEL_GAP);
       if (labelY + font.lineHeight <= gridBottom) {
         const label = truncateText(font, entry.label, colW - 8);
         image.drawText(font, Math.round(centerX - font.measureText(label) / 2), labelY, label, 210);

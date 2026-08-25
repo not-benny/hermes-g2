@@ -2,6 +2,7 @@ import { GrayImage } from "../../graphics/image";
 import { LayerActions } from "../../ui/layers";
 import { EditTextSettingLayer } from "../../ui/dashboard-settings";
 import { createSettingsPanelLayer } from "../../ui/dashboard/settings-menus";
+import { createDebugTestsMenu } from "../debug-tests/debug-tests-app";
 import { createInProcessWindow, type InProcessWindow } from "../../ui/shell/in-process-window";
 import { type ShellWindow } from "../../ui/shell/shell";
 
@@ -23,6 +24,8 @@ export type SettingsAppWindow = {
   requestRender: () => void;
   /** Select a section in the left column by label (e.g. "Terminal"). */
   focusSection: (label: string) => void;
+  /** Open the developer diagnostics submenu over the settings panel. */
+  openDebugTests: () => void;
   /** Whether the glasses-side text-setting editor is the top layer. */
   isTextEditorOnTop: () => boolean;
   /** Pop the text-setting editor if it is on top; returns whether it was. */
@@ -60,6 +63,15 @@ export function createSettingsAppWindow(options: SettingsAppOptions): SettingsAp
     requestRender,
     focusSection: (label) => {
       panel.focusSection(label);
+      requestRender();
+    },
+    openDebugTests: () => {
+      // A debug-control request is an explicit deep-link. Reset any existing
+      // settings submenu first so it cannot stack duplicate diagnostic menus.
+      void options.actions.endTextSettingEdit();
+      stack.clearToBase();
+      panel.focusSection("Developer");
+      stack.push(createDebugTestsMenu("settings"));
       requestRender();
     },
     isTextEditorOnTop: () => stack.topMatches((layer) => layer instanceof EditTextSettingLayer),

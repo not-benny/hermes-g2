@@ -40,7 +40,7 @@
                 <Label text="Live captions and translation" class="section-heading" />
                 <Label text="Configure volatile on-glasses captions, provider processing, and optional translation."
                        class="supporting-text m-t-4" textWrap="true" />
-                <Button text="Live captions &amp; translation" tap="{{ onCaptionSettingsTap }}" class="-secondary m-t-12" />
+                <Button text="Conversate &amp; captions" tap="{{ onCaptionSettingsTap }}" class="-secondary m-t-12" />
             </StackLayout>
 
             <Label text="Appearance" class="section-label m-t-20" />

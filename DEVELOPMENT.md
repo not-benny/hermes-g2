@@ -90,18 +90,19 @@ verification commands are in [`docs/debug-control.md`](docs/debug-control.md).
 
 ## Repository map
 
-- `STATUS.md` — sole current product and operational state
-- `ROADMAP.md` — single active milestone and deferred boundaries
-- `app/assistant/` — bridge, MCP server, tool registry, and direct backends
-- `app/g2/` — dashboard controller and G2 session lifecycle
-- `app/health/` — R1 frame parsing, health state, and persistence contracts
-- `app/native/` — NativeScript-to-Android bridges
-- `app/ui/` — glasses shell, layers, settings, notifications, and rendering
-- `App_Resources/Android/` — Android manifest, Java BLE implementation, and assets
-- `tests/` — host-side regression tests
-- `docs/` — maintained component contracts and integration documentation
-- `notes/` — research, threat models, and dated evidence; never current status
-- `firmware-research/` — source-only G2 firmware port research; no proprietary binaries
+- `STATUS.md` - sole current product and operational state
+- `ROADMAP.md` - single active milestone and deferred boundaries
+- `app/assistant/` - bridge, MCP server, tool registry, and direct backends
+- `app/g2/` - dashboard controller and G2 session lifecycle
+- `app/health/` - R1 frame parsing, health state, and persistence contracts
+- `app/native/` - NativeScript-to-Android bridges
+- `app/ui/` - glasses shell, layers, settings, notifications, and rendering
+- `App_Resources/Android/` - Android manifest, Java BLE implementation, and assets
+- `tests/` - host-side regression tests
+- `docs/` - maintained component contracts and integration documentation
+- `gateway/even-g2/` - public-safe SOUL and MCP cutover configuration templates
+- `notes/` - research, threat models, and dated evidence; never current status
+- `firmware-research/` - source-only G2 firmware port research; no proprietary binaries
 
 ## Safety boundaries
 
@@ -109,8 +110,11 @@ Do not weaken the repository's fail-closed gates to make a test pass.
 
 - R1 pairing ownership, NVM provisioning, reset, wipe, DFU/OTA, power-control,
   and destructive raw commands remain blocked.
-- Public MCP/skill publication remains blocked until transport, identity,
-  licensing, credential, generic-client, and real-device gates are met.
+- The portable workflow MCP and native transport have separate publication
+  boundaries. Do not copy the redistribution-prohibited native bridge into this
+  repository. Combined public distribution remains blocked until licensing,
+  artifact, containment, credential, and real-device gates are met. See
+  `docs/hermes-mcp-architecture.md`.
 - Custom G2 firmware may brick hardware. The owner-unit boot report is not a
   recovery guarantee or broad compatibility proof.
 - Keep health data, Bluetooth captures, firmware binaries, credentials, device

@@ -36,6 +36,39 @@ test("controller publishes only validated synchronized projections", () => {
   assert.deepEqual(sent, []);
 });
 
+test("only a fresh final assistant row emits a wearer result notification", () => {
+  const controller = new AgentCockpitController(() => {}, {
+    createCommandId: () => "command_1234567890",
+  });
+  const results = [];
+  controller.onAssistantResult((result) => results.push(result));
+  assert.equal(controller.handleFrame(snapshot), true);
+  assert.deepEqual(results, [], "snapshot/reconnect state never wakes the wearer");
+
+  assert.equal(controller.handleFrame({
+    v: 1, chan: "cockpit", type: "timeline_append", sequence: 2,
+    session_id: session.session_id, generation: 4, revision: 2,
+    row: { id: "timeline_tool_1234", kind: "tool", text: "private_tool · done", status: "done" },
+  }), true);
+  assert.deepEqual(results, [], "tool activity never becomes a result notification");
+
+  assert.equal(controller.handleFrame({
+    v: 1, chan: "cockpit", type: "timeline_append", sequence: 3,
+    session_id: session.session_id, generation: 4, revision: 3,
+    row: { id: "timeline_answer_1234", kind: "assistant", text: "Focused tests pass", status: "done" },
+  }), true);
+  assert.deepEqual(results, [{
+    sessionId: session.session_id, generation: 4, revision: 3, text: "Focused tests pass",
+  }]);
+
+  assert.equal(controller.handleFrame({
+    v: 1, chan: "cockpit", type: "timeline_append", sequence: 4,
+    session_id: session.session_id, generation: 4, revision: 4,
+    row: { id: "timeline_answer_1234", kind: "assistant", text: "Focused tests pass", status: "done" },
+  }), true);
+  assert.equal(results.length, 1, "same row identity cannot wake twice");
+});
+
 test("disconnect clears authority and reconnect snapshot never replays queued actions", () => {
   const sent = [];
   const controller = new AgentCockpitController((command) => sent.push(command), {
@@ -72,11 +105,27 @@ test("question answers and permission decisions send only store-issued exact han
   assert.ok(sent.every((item) => item.generation === 4 && item.session_id === session.session_id));
 });
 
-test("authenticated bridge multiplexes cockpit frames and retires authority on disconnect", () => {
+test("Cockpit status is Host MCP-only and the legacy channel is inert", () => {
   const bridge = readFileSync(new URL("../app/assistant/bridge-client.ts", import.meta.url), "utf8");
   assert.match(bridge, /readonly cockpit = new AgentCockpitController/);
-  assert.match(bridge, /capabilities: \["chat", "mcp", "cockpit-v1", "hermes-companion-v1"\]/);
-  assert.match(bridge, /case "cockpit":\s*\n\s*if \(!this\.requireAuthenticated\(generation\)\) return;\s*\n\s*this\.cockpit\.handleFrame\(frame\)/);
+  assert.match(bridge, /capabilities: \["mcp", "host-mcp-v1"\]/);
+  assert.match(bridge, /case "cockpit":\s*\n\s*return; \/\/ Cockpit state is read only through Host MCP resources\./);
+  assert.doesNotMatch(bridge, /legacyCockpitSupported/);
+  assert.doesNotMatch(bridge, /chan: "cockpit"/);
   assert.match(bridge, /this\.cockpit\.disconnect\(\)/);
-  assert.match(bridge, /chan: "cockpit"/);
+});
+
+test("status-only Host MCP projection marks Cockpit online without command authority", () => {
+  const sent = [];
+  const controller = new AgentCockpitController((command) => sent.push(command));
+  assert.equal(controller.handleMcpStatus({
+    connectionGeneration: "host_connection_0123456789abcdef0123456789abcdef",
+    voiceTurnState: "idle",
+  }), true);
+  const state = controller.snapshot();
+  assert.equal(state.synchronized, true);
+  assert.deepEqual(state.sessions, []);
+  assert.equal(state.connectionGeneration, "host_connection_0123456789abcdef0123456789abcdef");
+  assert.equal(controller.interrupt("missing-session", 1), null);
+  assert.deepEqual(sent, []);
 });

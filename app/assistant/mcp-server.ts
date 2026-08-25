@@ -109,6 +109,17 @@ export class AssistantMcpServer {
       case "notifications/initialized":
         if (isNotification && this.lifecycle === "initializing") this.lifecycle = "initialized";
         return;
+      case "notifications/cancelled": {
+        if (!isNotification || this.lifecycle !== "initialized" || !msg.params ||
+            typeof msg.params !== "object" || Array.isArray(msg.params)) return;
+        const keys = Object.keys(msg.params);
+        if (!keys.includes("requestId") || keys.some((key) => key !== "requestId" && key !== "reason")) return;
+        const requestId = msg.params.requestId;
+        if (typeof requestId !== "string" && typeof requestId !== "number") return;
+        if (msg.params.reason !== undefined && typeof msg.params.reason !== "string") return;
+        this.activeCallControllers.get(`${typeof requestId}:${String(requestId)}`)?.abort();
+        return;
+      }
       case "ping":
         this.reply(id, {});
         return;
@@ -200,32 +211,47 @@ export class AssistantMcpServer {
         this.replyToolError(id, "Proactive action rate limit exceeded; try again later");
         return;
       }
+      const isProactiveStillAllowed = () => !proactive || this.options.allowProactive();
       const result = await this.registry.callTool(name, args, {
         proactive,
         turnGeneration,
         isTurnGenerationActive: () =>
           !callController.signal.aborted &&
           (this.options.isConnectionGenerationActive?.() ?? false) &&
+          isProactiveStillAllowed() &&
           (proactive || (this.options.isTurnActive() && this.options.getTurnGeneration?.() === turnGeneration)),
         isCallAllowed: () => {
           if (!(this.options.isConnectionGenerationActive?.() ?? false)) return "The owning MCP connection is no longer active";
+          if (!isProactiveStillAllowed()) return "Proactive assistant actions are disabled in Settings";
           return this.healthPolicyError(name, turnGeneration);
         },
         signal: callController.signal,
         executionContext: {
           caller: "mcp",
+          proactive,
           profileId: this.options.getProfileId?.() ?? this.options.profileId,
           connectionGeneration: this.options.connectionGeneration,
           turnGeneration,
         },
       });
+      if (callController.signal.aborted) return;
       if (this.closed || epoch !== this.epoch) return;
+      if (
+        proactive &&
+        !this.options.allowProactive() &&
+        !(name === "glasses.notify_result" && result.ok)
+      ) {
+        this.replyToolError(id, "Proactive assistant actions were disabled before completion; no success was reported");
+        return;
+      }
       this.reply(id, {
         content: [{ type: "text", text: result.ok ? result.content ?? "" : result.error ?? "Tool error" }],
         isError: !result.ok,
       });
     } catch (error) {
-      if (!this.closed && epoch === this.epoch) this.replyError(id, -32603, String((error as Error)?.message ?? error));
+      if (!callController.signal.aborted && !this.closed && epoch === this.epoch) {
+        this.replyError(id, -32603, String((error as Error)?.message ?? error));
+      }
     } finally {
       this.activeCallControllers.delete(requestKey);
       this.activeRequestIds.delete(requestKey);
@@ -238,10 +264,19 @@ export class AssistantMcpServer {
   }
 
   private profilePolicyError(name: string): string | null {
-    if (!name.startsWith("glasses.context_dashboard.")) return null;
-    return (this.options.getProfileId?.() ?? this.options.profileId) !== "even-g2"
-      ? "Context dashboards are available only to the authenticated even-g2 profile"
-      : null;
+    const requiresEvenG2 =
+      name === "glasses.notify_result" ||
+      name.startsWith("glasses.work_board.") ||
+      name.startsWith("glasses.clock.") ||
+      name.startsWith("glasses.context_dashboard.");
+    if (!requiresEvenG2 || (this.options.getProfileId?.() ?? this.options.profileId) === "even-g2") return null;
+    return name === "glasses.notify_result"
+      ? "Direct glasses result notifications are available only to the authenticated even-g2 profile"
+      : name.startsWith("glasses.work_board.")
+        ? "Work Tasks is available only to the authenticated even-g2 profile"
+      : name.startsWith("glasses.clock.")
+        ? "Clock is available only to the authenticated even-g2 profile"
+      : "Context dashboards are available only to the authenticated even-g2 profile";
   }
 
   private healthPolicyError(name: string, expectedTurnGeneration?: string | null): string | null {
@@ -306,6 +341,7 @@ export class AssistantMcpServer {
     if (this.options.connectionGeneration !== undefined) {
       this.registry.closeExecutionOwner({
         caller: "mcp",
+        proactive: false,
         profileId: this.options.getProfileId?.() ?? this.options.profileId,
         connectionGeneration: this.options.connectionGeneration,
         turnGeneration: null,

@@ -17,7 +17,7 @@ export class ScreenTestLayer implements Layer {
   private scrollRow = 0;
 
   paint(ctx: LayerContext): GrayImage {
-    // Sized to the hosting stack (the Debug tests app viewport).
+    // Sized to the hosting Settings Developer submenu viewport.
     const { width, height } = ctx.stack.getBaseSize();
     const image = new GrayImage(width, height, 0);
     const font = getDefaultSmallFont();

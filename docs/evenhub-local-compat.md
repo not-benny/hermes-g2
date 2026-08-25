@@ -24,6 +24,11 @@ hash, source and license. Tests recompute the digest; at runtime the compiled
 singleton object and exact canonical content are allowlisted without claiming a
 second cryptographic verification.
 
+The app projects that reviewed local view onto the same bounded, deterministic
+component compositor used by dynamic dashboards. This is a presentation reuse,
+not an assistant-owned contextual dashboard: Local Counter remains an offline,
+durable phone-local app with no live-turn dependency, remote owner, or TTL.
+
 The V1 host schema allowlists six methods: inert display replacement, namespaced
 storage get/set/remove, and one-shot timer set/clear. Requests require an exact
 live session generation, the next monotonic safe-integer sequence, and a bounded
@@ -81,7 +86,7 @@ Run:
 - `node --test tests/evenhub-compat.test.mjs`
 - `npm run test`
 - `npm run typecheck`
-- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk ANDROID_HOME=/home/benny/Android/Sdk npm run build`
+- `JAVA_HOME=/path/to/jdk-21 ANDROID_HOME=/path/to/android-sdk npm run build`
 - `git diff --check`
 
 Real G2 evidence must show the complete sample inside the centred 576x288 optical

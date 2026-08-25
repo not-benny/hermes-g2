@@ -102,7 +102,7 @@ export class DirectAssistantBackend {
               block.type === "tool_use",
           );
           if (result.stopReason !== "tool_use" || toolUses.length === 0) {
-            options.callbacks.onTurnDone({ stopReason: result.stopReason });
+            options.callbacks.onTurnDone({ stopReason: result.stopReason, text: result.text });
             return;
           }
           void this.runToolCalls(toolUses, options, turnGeneration, turnController.signal, () => !cancelled)
@@ -158,7 +158,7 @@ export class DirectAssistantBackend {
         turnGeneration,
         isTurnGenerationActive: isTurnActive,
         signal,
-        executionContext: { caller: "direct", turnGeneration },
+        executionContext: { caller: "direct", proactive: false, turnGeneration },
       });
       const content = result.ok ? result.content ?? "" : result.error ?? "Tool error";
       results.push({

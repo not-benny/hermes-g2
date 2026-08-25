@@ -22,6 +22,11 @@ Calls and alarms default to Urgent; other accepted notifications default to Imme
 - Exact duplicates are ignored; same-key updates replace their queued revision rather than creating another entry.
 - The queue is capped globally and per app. Digest selection uses deterministic round-robin app ordering so one noisy app cannot monopolize a burst.
 - Android group summaries and empty notifications remain excluded; children are authoritative.
+- Codex/ChatGPT progress is classified from Android metadata, never message text:
+  ongoing `codex_remote_session` and unknown `codex*` channels stay hidden, while
+  an explicitly selected app may wake G2 only for the clearable, auto-cancel
+  `codex` final-result channel. An authored channel/app rule can still mute or
+  defer it.
 - Removed Android notifications are deleted from active and queued Hermes state immediately. Dismiss and clear-all tombstones prevent late callbacks from resurfacing stale items.
 
 Quiet hours default to 22:00–07:00. Digest wake-up is deliberately inexact: a one-minute in-process tick and every notification event opportunistically process due work. A late tick is allowed; elapsed-time deadlines prevent wall-clock or timezone changes from delivering early. No exact-alarm permission is required for digest behavior.

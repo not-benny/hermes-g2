@@ -68,7 +68,12 @@ type ActiveCapture = {
   cloudClient: CloudSttClient | null;
   started: boolean;
   commitSent: boolean;
+  finishPromise: Promise<void> | null;
+  resolveFinish: (() => void) | null;
+  finishTimer: ReturnType<typeof setTimeout> | null;
 };
+
+const PROVIDER_FINISH_TIMEOUT_MS = 5_000;
 
 export class FaceclawVoiceControlBridge {
   private readonly statusListeners = new Set<(state: VoiceControlState) => void>();
@@ -109,12 +114,15 @@ export class FaceclawVoiceControlBridge {
   /** Allocate identity before permission work begins. */
   reservePushToTalk(): number {
     if (this.activeCapture?.holder === "continuous") {
-      this.setStatus(null, "Stop Transcribe before starting a voice turn.");
+      this.setStatus(null, "Pause or end Conversate before starting a voice turn.");
       return 0;
     }
     if (this.activeCapture) this.cancelCapture(this.activeCapture.generation);
     const generation = this.turnGate.reserve();
-    this.activeCapture = { generation, holder: "ptt", cloudClient: null, started: false, commitSent: false };
+    this.activeCapture = {
+      generation, holder: "ptt", cloudClient: null, started: false, commitSent: false,
+      finishPromise: null, resolveFinish: null, finishTimer: null,
+    };
     this.setStatus(generation, "Waiting for microphone permission...");
     return generation;
   }
@@ -146,18 +154,44 @@ export class FaceclawVoiceControlBridge {
 
   reserveContinuousCapture(): number {
     if (this.activeCapture) {
-      this.setStatus(null, "Finish the active voice turn before opening Transcribe.");
+      this.setStatus(null, "Finish the active voice turn before starting Conversate.");
       return 0;
     }
     const generation = this.turnGate.reserve();
-    this.activeCapture = { generation, holder: "continuous", cloudClient: null, started: false, commitSent: false };
+    this.activeCapture = {
+      generation, holder: "continuous", cloudClient: null, started: false, commitSent: false,
+      finishPromise: null, resolveFinish: null, finishTimer: null,
+    };
     this.setStatus(generation, "Waiting for microphone permission...");
     return generation;
   }
 
-  /** Begin continuous capture (Transcribe) as an isolated mic generation. */
+  /** Begin continuous capture (Conversate) as an isolated mic generation. */
   startContinuousCapture(generation: number, options: PushToTalkOptions): void {
     this.startReservedCapture(generation, "continuous", options);
+  }
+
+  /**
+   * Stop accepting audio but keep this exact generation alive long enough for
+   * the native/on-provider final transcript. Resolves after that final event or
+   * a bounded provider timeout; cancellation remains a separate immediate path.
+   */
+  finishContinuousCapture(generation: number): Promise<void> {
+    const capture = this.activeCapture;
+    if (!capture || capture.holder !== "continuous" || capture.generation !== generation) {
+      return Promise.resolve();
+    }
+    if (!capture.finishPromise) {
+      capture.finishPromise = new Promise<void>((resolve) => {
+        capture.resolveFinish = resolve;
+      });
+    }
+    if (this.turnGate.finish(generation)) {
+      if (capture.started && global.isAndroid) this.controller?.stop(generation);
+      else this.completeCapture(generation);
+      capture.started = false;
+    }
+    return capture.finishPromise;
   }
 
   stopContinuousCapture(generation: number): void {
@@ -226,6 +260,7 @@ export class FaceclawVoiceControlBridge {
         const capture = this.activeCapture;
         if (capture?.generation !== generation || capture.cloudClient !== exactClient || !this.turnGate.accepts(generation)) return;
         this.emitTranscript({ ...event, generation, receivedAtMs: Date.now() });
+        if (event.isFinal && capture.commitSent) this.releaseCompletedCapture(capture, false);
       },
       onStatus: (status: string) => {
         const capture = this.activeCapture;
@@ -278,12 +313,12 @@ export class FaceclawVoiceControlBridge {
     const capture = this.activeCapture;
     if (!capture || capture.generation !== generation) return;
     const cancelled = this.turnGate.cancel(generation);
-    if (!cancelled && this.turnGate.accepts(generation)) return;
+    if (!cancelled && this.turnGate.accepts(generation) && !capture.commitSent) return;
     if (capture.started && global.isAndroid) this.controller?.stop(generation);
     capture.started = false;
     capture.cloudClient?.stop();
     capture.cloudClient = null;
-    this.activeCapture = null;
+    this.releaseCompletedCapture(capture, false);
   }
 
   private failCapture(generation: number, message: string): void {
@@ -293,6 +328,7 @@ export class FaceclawVoiceControlBridge {
     capture.started = false;
     capture.cloudClient?.stop();
     capture.cloudClient = null;
+    this.releaseCompletedCapture(capture, false);
     this.setStatus(generation, message, true);
   }
 
@@ -306,7 +342,36 @@ export class FaceclawVoiceControlBridge {
       return;
     }
     capture.commitSent = true;
-    capture.cloudClient?.finish();
+    if (!capture.cloudClient) {
+      // Android posts its final on-device transcript before onCaptureStopped,
+      // so reaching this callback proves that listener already ran.
+      this.releaseCompletedCapture(capture, false);
+      return;
+    }
+    try {
+      capture.cloudClient.finish();
+    } catch {
+      this.releaseCompletedCapture(capture, true);
+      return;
+    }
+    if (this.activeCapture === capture && capture.finishTimer === null) {
+      capture.finishTimer = setTimeout(() => {
+        if (this.activeCapture === capture) this.releaseCompletedCapture(capture, true);
+      }, PROVIDER_FINISH_TIMEOUT_MS);
+    }
+  }
+
+  private releaseCompletedCapture(capture: ActiveCapture, stopClient: boolean): void {
+    if (capture.finishTimer !== null) clearTimeout(capture.finishTimer);
+    capture.finishTimer = null;
+    if (stopClient) {
+      try { capture.cloudClient?.stop(); } catch { /* provider is already terminal */ }
+    }
+    capture.cloudClient = null;
+    if (this.activeCapture === capture) this.activeCapture = null;
+    const resolve = capture.resolveFinish;
+    capture.resolveFinish = null;
+    resolve?.();
   }
 
   stop(): void {

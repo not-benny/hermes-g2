@@ -16,11 +16,10 @@ async function loadRenderLayer() {
   const layerSource = readFileSync(new URL("../app/ui/shell/render-view-layer.ts", import.meta.url), "utf8")
     .replace(/^import .*;\n/gm, "");
   const harness = `
-    const G2_LENS_WIDTH = 640;
-    const MIN_WINDOW_HEIGHT = 288;
     const GESTURE_DOUBLE_CLICK = "double-click";
-    const minWindowTop = () => 0;
-    const visibleAppViewportRect = () => ({ x: 72, y: 28, width: 536, height: 260 });
+    const shellContentOverlayViewport = (baseSize) => baseSize.width === 640 && baseSize.height === 480
+      ? { x: 72, y: 56, width: 536, height: 232 }
+      : { x: 0, y: 0, width: Math.min(baseSize.width, 536), height: baseSize.height };
     const font = { lineHeight: 12, measureText: (text) => text.length * 6 };
     const getDefaultSmallFont = () => font;
     const truncateText = (_font, text) => text;
@@ -34,12 +33,12 @@ async function loadRenderLayer() {
   return import("data:text/javascript;base64," + Buffer.from(layerJs).toString("base64"));
 }
 
-function paintRenderLayer(ShellRemoteViewLayer, selectedAction, actions) {
+function paintRenderLayer(ShellRemoteViewLayer, selectedAction, actions, baseSize = { width: 568, height: 232 }) {
   const commands = [];
   const image = {
     commands,
-    width: 568,
-    height: 260,
+    width: baseSize.width,
+    height: baseSize.height,
     fillRoundedRect: (x, y, width, height) => commands.push({ type: "panel", x, y, width, height }),
     drawRoundedRect: (x, y, width, height) => commands.push({ type: "border", x, y, width, height }),
     drawText: (_font, x, y, text) => commands.push({ type: "text", x, y, text }),
@@ -58,7 +57,7 @@ function paintRenderLayer(ShellRemoteViewLayer, selectedAction, actions) {
     selectedAction,
     expiresAtMs: Number.MAX_SAFE_INTEGER,
   }, () => true, () => {});
-  layer.paint({}, () => image);
+  layer.paint({ stack: { getBaseSize: () => baseSize } }, () => image);
   return commands;
 }
 
@@ -200,14 +199,20 @@ test("shell geometry clips the min app viewport to the centered 576x288 G2 raste
   }).outputText;
   const geometry = await import("data:text/javascript;base64," + Buffer.from(geometryJs).toString("base64"));
   assert.equal(geometry.G2_VISIBLE_WIDTH, 576);
-  assert.deepEqual(geometry.visibleAppViewportRect("min"), { x: 72, y: 28, width: 536, height: 260 });
+  assert.deepEqual(geometry.visibleAppViewportRect("min"), { x: 72, y: 56, width: 536, height: 232 });
+  assert.deepEqual(geometry.shellContentOverlayViewport({ width: 640, height: 480 }),
+    { x: 72, y: 56, width: 536, height: 232 });
+  assert.deepEqual(geometry.shellContentOverlayViewport({ width: 568, height: 232 }),
+    { x: 0, y: 0, width: 536, height: 232 });
+  assert.deepEqual(geometry.shellContentOverlayViewport({ width: 532, height: 196 }),
+    { x: 0, y: 0, width: 532, height: 196 });
 });
 
 test("render-view layout stays inside the real 576x288 optical and shell viewport", async () => {
   const { ShellRemoteViewLayer } = await loadRenderLayer();
   const actions = ["Increment", "Reset", "Start timer"].map((label, index) => ({ id: `a${index}`, label }));
   const commands = paintRenderLayer(ShellRemoteViewLayer, 0, actions);
-  const safeViewport = { left: 0, top: 0, right: 536, bottom: 260 };
+  const safeViewport = { left: 0, top: 0, right: 536, bottom: 232 };
   for (const command of commands) {
     assert.ok(command.x >= safeViewport.left, `${command.type} starts before shell/optical viewport: ${JSON.stringify(command)}`);
     assert.ok(command.y >= safeViewport.top, `${command.type} starts above shell viewport: ${JSON.stringify(command)}`);
@@ -217,6 +222,22 @@ test("render-view layout stays inside the real 576x288 optical and shell viewpor
   const text = commands.filter((command) => command.type === "text").map((command) => command.text);
   for (const required of ["Local Counter", "Count", "9999", "Status", "Increment", "Reset", "Start timer"])
     assert.ok(text.includes(required), `missing ${required}: ${JSON.stringify(text)}`);
+});
+
+test("render-view uses global app geometry on the shell and local geometry in an app window", async () => {
+  const { ShellRemoteViewLayer } = await loadRenderLayer();
+  const actions = [{ id: "a0", label: "Select" }];
+  const local = paintRenderLayer(ShellRemoteViewLayer, 0, actions);
+  const full = paintRenderLayer(ShellRemoteViewLayer, 0, actions, { width: 640, height: 480 });
+  assert.deepEqual(local.find((command) => command.type === "panel"),
+    { type: "panel", x: 8, y: 8, width: 520, height: 216 });
+  assert.deepEqual(full.find((command) => command.type === "panel"),
+    { type: "panel", x: 80, y: 64, width: 520, height: 216 });
+  for (const command of full) {
+    assert.ok(command.x >= 72 && command.y >= 56, JSON.stringify(command));
+    if (command.width !== undefined) assert.ok(command.x + command.width <= 608, JSON.stringify(command));
+    if (command.height !== undefined) assert.ok(command.y + command.height <= 288, JSON.stringify(command));
+  }
 });
 
 test("render-view actions paginate around selection and expose position and scroll cues", async () => {

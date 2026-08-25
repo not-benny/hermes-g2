@@ -10,6 +10,7 @@ import "@nativescript/core/globals";
 import { setForegroundActivity } from "../../native/foreground-service";
 import { GrayImage } from "../../graphics/image";
 import { getDefaultSmallFont, getFont } from "../../graphics/bdffont";
+import { truncateText, wrapText } from "../../graphics/textwrap";
 import * as frameTimings from "../../native/frame-timings";
 import type { DashboardInputEvent } from "../../ui/layers";
 import { defaultWindowMenuItems, WindowMenu } from "../../ui/window-menu";
@@ -29,12 +30,11 @@ import {
 } from "../../native/mapbox";
 import { bearingDegrees, haversineMeters, RouteFollower, type RouteProgress } from "./route-follower";
 import { drawManeuverGlyph } from "./maneuver-icons";
+import { navigateLayout, visibleTextRows } from "./navigate-layout";
 
 declare const global: any;
 declare const com: any;
 
-const MAP_SIZE = 260;
-const PANEL_X = MAP_SIZE + 10;
 /** Map refetch policy knobs (design doc: never per-fix, only when stale). */
 const BEARING_BUCKET_DEG = 15;
 const MOVE_REFRESH_FRACTION = 0.15;
@@ -484,11 +484,13 @@ function maybeRefreshMap(): void {
   if (!isMapboxConfigured()) return;
   const view = desiredMapView();
   if (!view) return;
+  const mapSize = navigateLayout(window.viewportWidth, window.viewportHeight).mapSize;
+  const fetchedKey = `${view.key}|size:${mapSize}`;
 
-  let stale = mapImage === null || view.key !== mapFetchedKey;
+  let stale = mapImage === null || fetchedKey !== mapFetchedKey;
   if (!stale && view.camera.kind === "center" && mapLastFetchCenter) {
     const moved = haversineMeters(mapLastFetchCenter, [view.camera.longitude, view.camera.latitude]);
-    const viewportMeters = MAP_SIZE * metersPerPixel(view.camera.zoom, view.camera.latitude);
+    const viewportMeters = mapSize * metersPerPixel(view.camera.zoom, view.camera.latitude);
     if (moved > viewportMeters * MOVE_REFRESH_FRACTION) stale = true;
     else if (Date.now() - mapLastFetchAtMs > IDLE_REFRESH_MS && moved > IDLE_REFRESH_MIN_MOVE_M) stale = true;
   }
@@ -498,8 +500,8 @@ function maybeRefreshMap(): void {
   const generation = routeGeneration;
   fetchStaticMapGray({
     camera: view.camera,
-    width: MAP_SIZE,
-    height: MAP_SIZE,
+    width: mapSize,
+    height: mapSize,
     routePath: view.path.length >= 2 ? view.path : undefined,
   })
     .then((image) => {
@@ -507,7 +509,7 @@ function maybeRefreshMap(): void {
       if (generation !== routeGeneration) return; // Route/mode changed mid-fetch.
       boostContrast(image);
       mapImage = image;
-      mapFetchedKey = view.key;
+      mapFetchedKey = fetchedKey;
       mapLastFetchAtMs = Date.now();
       mapLastFetchCenter = view.camera.kind === "center" ? [view.camera.longitude, view.camera.latitude] : null;
       mapLastError = "";
@@ -688,87 +690,124 @@ function paintContent(win: NavWindow): GrayImage {
 }
 
 function paintIdle(image: GrayImage): void {
+  const layout = navigateLayout(image.width, image.height);
   image.drawText(mediumFont, 24, 16, "Navigate", 245);
   const busy = phase !== "idle";
   const hint = isMapboxConfigured()
     ? "Ask the voice assistant to navigate somewhere, or use Voice input from the long-press menu to say a destination."
     : "Set a Mapbox token in Settings > API Keys to enable navigation.";
-  image.drawTextWrapped({ font: smallFont, x: 24, y: 64, width: image.width - 48, text: hint, value: 170 });
+  drawWrappedWithin(
+    image,
+    smallFont,
+    24,
+    64,
+    image.width - 48,
+    hint,
+    170,
+    statusMessage ? 122 : layout.footerY - 8,
+  );
   if (statusMessage) {
-    image.drawTextWrapped({
-      font: smallFont,
-      x: 24,
-      y: 130,
-      width: image.width - 48,
-      text: statusMessage,
-      value: busy ? 220 : 190,
-    });
+    drawWrappedWithin(
+      image,
+      smallFont,
+      24,
+      130,
+      image.width - 48,
+      statusMessage,
+      busy ? 220 : 190,
+      layout.footerY - 8,
+    );
   }
   drawFooter(image, `${GESTURE_DOUBLE_CLICK} back`);
 }
 
 function paintNavigating(image: GrayImage, win: NavWindow): void {
+  const layout = navigateLayout(win.viewportWidth, win.viewportHeight);
+  const { mapSize, panelX, panelWidth } = layout;
   // Map pane (left).
   if (mapImage) {
-    image.bitBlt(mapImage, 0, 0);
-    if (mapMode === "follow") drawChevron(image, MAP_SIZE / 2, MAP_SIZE / 2);
+    image.bitBlt(mapImage, 0, 0, { width: mapSize, height: mapSize });
+    if (mapMode === "follow") drawChevron(image, mapSize / 2, mapSize / 2);
   } else {
-    image.drawRect(0, 0, MAP_SIZE, MAP_SIZE, 60);
+    image.drawRect(0, 0, mapSize, mapSize, 60);
     const text = mapLastError ? "Map unavailable" : "Loading map...";
-    image.drawText(smallFont, 24, MAP_SIZE / 2 - 8, text, 120);
+    image.drawText(smallFont, 24, mapSize / 2 - 8, text, 120);
   }
 
   // Guidance panel (right) — its own region so text deltas never overlap the map's.
-  const panelWidth = win.viewportWidth - PANEL_X;
   if (phase === "arrived") {
-    drawManeuverGlyph(image, PANEL_X + 8, 14, 56, "arrive", "", 245);
-    image.drawText(mediumFont, PANEL_X + 76, 26, "Arrived", 245);
-    image.drawTextWrapped({
-      font: smallFont,
-      x: PANEL_X + 8,
-      y: 84,
-      width: panelWidth - 16,
-      text: destinationName,
-      value: 200,
-    });
-    drawFooter(image, `${GESTURE_CLICK} done   ${GESTURE_DOUBLE_CLICK} back`);
+    drawManeuverGlyph(image, panelX + 8, 14, 56, "arrive", "", 245);
+    image.drawText(mediumFont, panelX + 76, 26, "Arrived", 245);
+    drawWrappedWithin(
+      image,
+      smallFont,
+      panelX + 8,
+      84,
+      panelWidth - 16,
+      destinationName,
+      200,
+      layout.footerY - 8,
+    );
+    drawFooter(image, `${GESTURE_CLICK} done   ${GESTURE_DOUBLE_CLICK} back`, panelX + 8);
     return;
   }
 
   const step = follower && progress ? follower.route.steps[progress.nextStepIndex] : null;
   if (step && progress) {
-    drawManeuverGlyph(image, PANEL_X + 8, 14, 56, step.maneuverType, step.maneuverModifier, 245);
+    drawManeuverGlyph(image, panelX + 8, 14, 56, step.maneuverType, step.maneuverModifier, 245);
     if (step.exit !== null && (step.maneuverType === "roundabout" || step.maneuverType === "rotary")) {
-      image.drawText(smallFont, PANEL_X + 30, 46, String(step.exit), 245);
+      image.drawText(smallFont, panelX + 30, 46, String(step.exit), 245);
     }
-    image.drawText(largeFont, PANEL_X + 76, 24, formatDistanceShort(progress.metersToNextManeuver), 250);
-    image.drawTextWrapped({
-      font: mediumFont,
-      x: PANEL_X + 8,
-      y: 84,
-      width: panelWidth - 16,
-      text: step.instruction || step.name || step.maneuverType,
-      value: 220,
-    });
+    image.drawText(largeFont, panelX + 76, 24, formatDistanceShort(progress.metersToNextManeuver), 250);
+    drawWrappedWithin(
+      image,
+      mediumFont,
+      panelX + 8,
+      84,
+      panelWidth - 16,
+      step.instruction || step.name || step.maneuverType,
+      220,
+      layout.etaY - 8,
+    );
     const eta = `${formatDistance(progress.remainingMeters)} · ${formatDurationShort(progress.remainingSec)} · ${formatClock(
       Date.now() + progress.remainingSec * 1000,
     )}`;
-    image.drawText(smallFont, PANEL_X + 8, win.viewportHeight - 62, eta, 170);
+    image.drawText(smallFont, panelX + 8, layout.etaY, truncateText(smallFont, eta, panelWidth - 16), 170);
   } else {
-    image.drawTextWrapped({
-      font: mediumFont,
-      x: PANEL_X + 8,
-      y: 24,
-      width: panelWidth - 16,
-      text: `Waiting for GPS...`,
-      value: 200,
-    });
+    drawWrappedWithin(image, mediumFont, panelX + 8, 24, panelWidth - 16, "Waiting for GPS...", 200, layout.statusY - 8);
   }
   if (statusMessage) {
-    image.drawText(smallFont, PANEL_X + 8, win.viewportHeight - 44, statusMessage, 200);
+    image.drawText(
+      smallFont,
+      panelX + 8,
+      layout.statusY,
+      truncateText(smallFont, statusMessage, panelWidth - 16),
+      200,
+    );
   }
   const modeHint = mapMode === "follow" ? "overview" : "follow";
-  drawFooter(image, `${GESTURE_SCROLL} zoom   ${GESTURE_CLICK} ${modeHint}   ${GESTURE_DOUBLE_CLICK} back`, PANEL_X + 8);
+  drawFooter(image, `${GESTURE_SCROLL} zoom   ${GESTURE_CLICK} ${modeHint}   ${GESTURE_DOUBLE_CLICK} back`, panelX + 8);
+}
+
+/** Paint only complete wrapped rows before a reserved status/footer region. */
+function drawWrappedWithin(
+  image: GrayImage,
+  font: typeof smallFont,
+  x: number,
+  y: number,
+  width: number,
+  text: string,
+  value: number,
+  bottom: number,
+): void {
+  const allLines = wrapText(font, text, width, { breakLongWords: true });
+  const rowCount = visibleTextRows(y, bottom, font.lineHeight);
+  if (rowCount <= 0) return;
+  const lines = allLines.slice(0, rowCount);
+  if (allLines.length > lines.length && lines.length > 0) {
+    lines[lines.length - 1] = truncateText(font, `${lines[lines.length - 1]}...`, width);
+  }
+  lines.forEach((line, index) => image.drawText(font, x, y + index * font.lineHeight, line, value));
 }
 
 /** Position chevron, fixed at the map center (heading-up: it always points up). */
@@ -809,7 +848,7 @@ function fillTriangle(image: GrayImage, x0: number, y0: number, x1: number, y1: 
 }
 
 function drawFooter(image: GrayImage, text: string, x = 16): void {
-  image.drawText(smallFont, x, image.height - 22, text, 115);
+  image.drawText(smallFont, x, image.height - 22, truncateText(smallFont, text, image.width - x - 8), 115);
 }
 
 // ---------------------------------------------------------------------------

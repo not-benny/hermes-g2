@@ -11,7 +11,7 @@ import type { WorkerAppReply } from "./shell/worker-window";
 /**
  * The window long-press menu. By convention every app answers a long-press by
  * opening one of these: its app-specific actions followed by the default
- * entries (Voice input, Close window). This is a convenience path, not the
+ * entries (Voice input, Window management, Close window). This is a convenience path, not the
  * safety net — the shell separately opens its own escape menu when the press
  * is held long enough, so an unresponsive app can always be closed.
  */
@@ -97,13 +97,12 @@ export function defaultWindowMenuItems(
       },
     },
     {
-      // Pick this tab up for sidebar reordering. Kept unconditional here (the
-      // worker can't see the shell's window set); the shell ignores it when the
-      // tab can't move, e.g. this is the only app open.
-      label: "Reorder",
+      // Enter the shared sidebar management mode. The shell decides whether
+      // the selected tab can move, is pinned, or should be closed/hidden.
+      label: "Window management",
       onSelect: (ctx) => {
         ctx.stack.pop();
-        post({ type: "reorder-window-request", windowId });
+        post({ type: "window-management-request", windowId });
       },
     },
     {

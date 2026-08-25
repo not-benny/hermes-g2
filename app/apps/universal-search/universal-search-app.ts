@@ -1,4 +1,3 @@
-import { assistantBridge } from "../../assistant/bridge-client";
 import { getDefaultMediumFont, getDefaultSmallFont } from "../../graphics/bdffont";
 import { GrayImage } from "../../graphics/image";
 import { truncateText, wrapText } from "../../graphics/textwrap";
@@ -30,14 +29,27 @@ import { shell } from "../../ui/shell/shell";
 
 export const UNIVERSAL_SEARCH_WINDOW_ID = "universal-search";
 export const UNIVERSAL_SEARCH_SURFACE_ID = "window:universal-search";
+const RESULT_LIST_TOP = 57;
+const RESULT_ROW_MAX_PITCH = 40;
+const RESULT_ROW_MIN_PITCH = 29;
+const RESULT_HIGHLIGHT_MAX_HEIGHT = 35;
+const FOOTER_DIVIDER_OFFSET = 31;
+
+/** Preserve four result rows while fitting them above the compact footer. */
+export function universalSearchRowPitch(viewportHeight: number, rowCount: number): number {
+  const count = Math.max(1, Math.floor(rowCount));
+  const footerY = Math.floor(viewportHeight) - FOOTER_DIVIDER_OFFSET;
+  return Math.max(
+    RESULT_ROW_MIN_PITCH,
+    Math.min(RESULT_ROW_MAX_PITCH, Math.floor((footerY - RESULT_LIST_TOP) / count)),
+  );
+}
+
 const SOURCE_FILTERS: ReadonlyArray<{ id: SearchSourceId; label: string }> = [
   { id: "apps", label: "Apps" },
   { id: "calendar", label: "Calendar" },
   { id: "notifications", label: "Notifications" },
   { id: "files", label: "Files" },
-  { id: "hermes_sessions", label: "Hermes sessions" },
-  { id: "roam", label: "Roam (unavailable)" },
-  { id: "terminal", label: "Terminal (unavailable)" },
   { id: "media", label: "Media (unavailable)" },
   { id: "health", label: "Health (unavailable)" },
 ];
@@ -134,14 +146,6 @@ class UniversalSearchLayer implements Layer {
         if (!entry || entry.isSymbolicLink || entry.modifiedMs !== modifiedMs || signal.aborted) return false;
         return pushDetail(entry.name, [entry.isDirectory ? "Folder" : "File", `${entry.sizeBytes} bytes`, "Bookmarked location"]);
       },
-      cockpitSnapshot: () => assistantBridge.cockpit.snapshot(),
-      openHermesSession: async (sessionId, generation, signal) => {
-        if (signal.aborted) return false;
-        const snapshot = assistantBridge.cockpit.snapshot();
-        if (!snapshot.synchronized) return false;
-        const session = snapshot.sessions.find((session) => session.session_id === sessionId && session.generation === generation);
-        return session && !signal.aborted ? pushDetail(session.title, [session.summary ?? "", session.state]) : false;
-      },
     }), { providerTimeoutMs: 1500, resultLimit: 40 });
   }
 
@@ -207,7 +211,7 @@ class UniversalSearchLayer implements Layer {
     image.drawText(medium, 24, 10, "Search", 240);
     image.drawText(small, 24, 31, truncateText(small, screen.query ? `“${screen.query}”` : "long-press · Voice input", width - 48), 125);
     image.drawLine(24, 47, width - 24, 47, 65);
-    let y = 57;
+    let y = RESULT_LIST_TOP;
     if (!screen.rows.length) {
       const message = screen.query ? "No matching results" : "Apps only by default. Enable private sources in the window menu.";
       for (const line of wrapText(small, message, width - 48).slice(0, 3)) {
@@ -215,11 +219,22 @@ class UniversalSearchLayer implements Layer {
         y += small.lineHeight + 5;
       }
     }
+    const rowPitch = universalSearchRowPitch(height, screen.rows.length);
     for (const row of screen.rows) {
-      if (row.selected) drawSelectionHighlight(image, 19, y - 3, width - 38, 35, true, 5);
+      if (row.selected) {
+        drawSelectionHighlight(
+          image,
+          19,
+          y - 3,
+          width - 38,
+          Math.min(RESULT_HIGHLIGHT_MAX_HEIGHT, rowPitch - 1),
+          true,
+          5,
+        );
+      }
       image.drawText(small, 25, y, truncateText(small, `${row.selected ? "›" : " "} ${row.sourceLabel} · ${row.title}`, width - 50), 210);
       image.drawText(small, 35, y + 16, truncateText(small, `${formatFreshness(row.freshnessMs)} · ${row.snippet}`, width - 70), 115);
-      y += 40;
+      y += rowPitch;
     }
     const footer = this.actionStatus || `${screen.page}/${screen.pageCount} · ${screen.status || "filters in menu"}`;
     image.drawLine(24, height - 31, width - 24, height - 31, 60);

@@ -33,11 +33,32 @@ function createIntent(
   return intent;
 }
 
+/**
+ * Release updates are idempotent. Android O+ may reject an ordinary service
+ * start while the app is backgrounded when the shared service is already
+ * absent; in that case there is no foreground lease left to release.
+ */
+function startReleaseUpdate(
+  context: android.content.Context,
+  intent: android.content.Intent,
+): void {
+  try {
+    context.startService(intent);
+  } catch (error) {
+    const nativeError = (error as { nativeException?: unknown } | null)?.nativeException ?? error;
+    if (nativeError instanceof java.lang.IllegalStateException) return;
+    throw error;
+  }
+}
+
 export function setForegroundActivities(activities: ForegroundActivities, text: string): void {
   if (!global.isAndroid) return;
   if (!activities.connectedDevice && !activities.phoneMic && !activities.location) {
     const context = getContext();
-    context.startService(createIntent(com.faceclaw.app.FaceclawForegroundService.ACTION_STOP));
+    startReleaseUpdate(
+      context,
+      createIntent(com.faceclaw.app.FaceclawForegroundService.ACTION_STOP),
+    );
     return;
   }
   const context = getContext();
@@ -54,7 +75,19 @@ export function setForegroundActivity(
   const context = getContext();
   const activities: Partial<ForegroundActivities> = { [activity]: active };
   const intent = createIntent(com.faceclaw.app.FaceclawForegroundService.ACTION_UPDATE, text, activities);
-  androidx.core.content.ContextCompat.startForegroundService(context, intent);
+  if (active) {
+    // Android requires every startForegroundService() request to reach
+    // Service.startForeground(), even if another queued update immediately
+    // releases the same activity. Only a positive activity claim may create
+    // that contract; a false update can legitimately leave no foreground
+    // service type to promote.
+    androidx.core.content.ContextCompat.startForegroundService(context, intent);
+  } else {
+    // This is a partial release rather than ACTION_STOP: Clock recovery or a
+    // different activity may still own the shared service. When the service
+    // is absent, a background-start rejection is an idempotent no-op.
+    startReleaseUpdate(context, intent);
+  }
 }
 
 export function startForegroundNotification(text: string): void {

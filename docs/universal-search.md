@@ -25,9 +25,6 @@ There is no query/result/recent persistence. Clear and window close revoke the c
 | Calendar | private content | existing bounded upcoming-event read | Reports permission/provider/query failure distinctly; re-reads and matches event ID + start time before showing exact event detail. Search never requests permission. |
 | Notifications | private content | existing bounded active notification snapshot | Requires listener access and re-reads the exact Android notification key + observed post time before opening a Search-owned read-only detail. Notification actions, reply and dismissal are not exposed by Search. |
 | Files | private content | names/metadata one level below user bookmarks only | Requires the existing all-files grant, exact bookmark root, canonical confinement, non-symlink entry and exact path + modified time before showing metadata. It never recursively indexes storage or reads file content. |
-| Hermes sessions | private content | explicitly shared, synchronized cockpit projections only | Requires a synchronized current snapshot and exact public session ID + execution generation before showing read-only detail. Search exposes no answer, permission, steer or interrupt command. |
-| Roam | private content | unavailable | The current API has exact page lookup but no typed bounded broad-search contract. Search reports unavailable and never uses the edit-capable token. |
-| Terminal | terminal content | unavailable | Current socket/view identity is not restart-safe enough for exact cross-window resume. No terminal text or command authority is exposed. |
 | Media | private content | unavailable | Current queue IDs are not bound strongly enough to an exact media-session incarnation. No play/queue action is exposed. |
 | Health | restricted health | unavailable | No bounded consent-scoped summary/search projection exists. Search does not inspect health history. |
 
@@ -45,9 +42,9 @@ The compact layout is bounded to four selectable rows in the minimum G2 app view
 
 ## Privacy and safety boundaries
 
-Search never requests Android permissions, executes a URL or shell command, issues a terminal command, mutates Roam, changes media, reads health history, sends a cockpit command, or invokes notification actions. File failures use content-free log messages rather than paths or exception bodies. Provider exceptions are converted to coarse source state and are never interpolated into logs or UI.
+Search never requests Android permissions, executes a URL or shell command, mutates an external service, changes media, reads health history, reads Hermes session projections, sends a cockpit command, or invokes notification actions. File failures use content-free log messages rather than paths or exception bodies. Provider exceptions are converted to coarse source state and are never interpolated into logs or UI. The retired Terminal/G2Mirror surface is neither indexed nor launchable.
 
-The fixture tests contain synthetic data only. Coverage includes Unicode ranking, duplicate identities, empty/disabled filters, pagination, stale non-cooperative providers, provider-timeout abort, permission/offline/unavailable state, malformed throwing/proxy objects, exact-generation one-shot action and in-flight-action revocation, exact notification/file/session replacement, symbolic bookmark root/entry rejection, clear/restart-like revocation and source-registration/privacy contracts.
+The fixture tests contain synthetic data only. Coverage includes Unicode ranking, duplicate identities, empty/disabled filters, pagination, stale non-cooperative providers, provider-timeout abort, permission/offline/unavailable state, malformed throwing/proxy objects, exact-generation one-shot action and in-flight-action revocation, exact notification/file replacement, symbolic bookmark root/entry rejection, clear/restart-like revocation and source-registration/privacy contracts.
 
 ## Verification and rollback
 

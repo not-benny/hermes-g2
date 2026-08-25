@@ -108,7 +108,7 @@ export class GrayImage {
   drawText(font: BdfFont, x: number, y: number, text: string, value: number): void {
     let cursorX = x;
     const fill = clampByte(value);
-    for (const char of text) {
+    for (const char of font.textForDisplay(text)) {
       if (char === "\n") {
         cursorX = x;
         y += font.lineHeight;

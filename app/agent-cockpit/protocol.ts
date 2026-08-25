@@ -184,7 +184,7 @@ export function validateCockpitFrame(value: unknown): string | null {
 function cloneSession(session: CockpitSession): CockpitSession {
   return {
     ...session,
-    timeline: session.timeline.map((row) => ({ ...row })),
+    timeline: session.timeline.filter((row) => row.kind !== "tool").map((row) => ({ ...row })),
     pending: session.pending.map((request) => request.kind === "question"
       ? { ...request, choices: request.choices.map((choice) => ({ ...choice })) }
       : { ...request, choices: [...request.choices] }),
@@ -265,7 +265,7 @@ export class AgentCockpitStore {
       if (frame.summary !== undefined) session.summary = frame.summary;
       if (TERMINAL_STATES.has(frame.state)) session.pending = [];
     } else if (frame.type === "timeline_append") {
-      if (!session.timeline.some((row) => row.id === frame.row.id)) {
+      if (frame.row.kind !== "tool" && !session.timeline.some((row) => row.id === frame.row.id)) {
         session.timeline.push({ ...frame.row });
         if (session.timeline.length > 40) session.timeline.splice(0, session.timeline.length - 40);
       }

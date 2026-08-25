@@ -10,8 +10,8 @@ Quicklist is Even's version of a todo app, in the form of a dashboard card
 that you add to and remove from with assistant voice commands. It's pretty
 simple to build once a general voice assistant is in place, but I don't
 actually like their design: a todo list really wants to be synchronized
-with something external like Roam or Notion, so I think it'd be better to
-build one of those integrations instead.
+with an external task or notes service, so it would be better to design that
+as a future, explicitly chosen integration.
 
 ## Stocks, News
 
@@ -84,4 +84,3 @@ Brightness, head-up trigger
 
 
 # Other Apps
-

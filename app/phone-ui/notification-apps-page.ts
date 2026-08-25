@@ -9,8 +9,14 @@ export function navigatingTo(args: EventData): void {
   }
 }
 
+export function loaded(args: EventData): void {
+  const page = args.object as Page;
+  const model = page.bindingContext as NotificationAppsViewModel | null;
+  model?.activate();
+}
+
 export function unloaded(args: EventData): void {
   const page = args.object as Page;
   const model = page.bindingContext as NotificationAppsViewModel | null;
-  model?.dispose();
+  model?.deactivate();
 }

@@ -21,6 +21,7 @@ import {
   GESTURE_LONG_PRESS,
   GESTURE_SCROLL,
 } from "../../ui/gestures";
+import { blocksLayout, type BlocksLayout } from "./blocks-layout";
 
 declare const global: any;
 declare const com: any;
@@ -31,10 +32,6 @@ const smallFont = getDefaultSmallFont();
 
 const COLS = 10;
 const ROWS = 20;
-const CELL = 12;
-const BOARD_X = 60;
-const BOARD_Y = 10;
-const PANEL_X = 230;
 
 /** Gravity starts here and speeds up with score (see dropIntervalMs). */
 const BASE_DROP_MS = 1200;
@@ -536,25 +533,32 @@ function paint(window: BlocksWindow): GrayImage {
 
 function paintContent(window: BlocksWindow): GrayImage {
   const image = new GrayImage(window.viewportWidth, window.viewportHeight, 0);
-  image.drawRect(BOARD_X - 2, BOARD_Y - 2, COLS * CELL + 4, ROWS * CELL + 4, 120);
+  const layout = blocksLayout(window.viewportHeight);
+  image.drawRect(
+    layout.boardX - 2,
+    layout.boardY - 2,
+    layout.boardWidth + 4,
+    layout.boardHeight + 4,
+    120,
+  );
   if (window.phase === "paused") {
     // Hide the board so pausing can't be used to study the stack.
-    drawCenteredIn(image, mediumFont, BOARD_X, COLS * CELL, BOARD_Y + 90, "PAUSED", 230);
-    drawCenteredIn(image, smallFont, BOARD_X, COLS * CELL, BOARD_Y + 130, `${GESTURE_CLICK} resume`, 150);
-    drawCenteredIn(image, smallFont, BOARD_X, COLS * CELL, BOARD_Y + 150, `${GESTURE_DOUBLE_CLICK} leave`, 150);
+    drawCenteredIn(image, mediumFont, layout.boardX, layout.boardWidth, layout.boardY + 70, "PAUSED", 230);
+    drawCenteredIn(image, smallFont, layout.boardX, layout.boardWidth, layout.boardY + 112, `${GESTURE_CLICK} resume`, 150);
+    drawCenteredIn(image, smallFont, layout.boardX, layout.boardWidth, layout.boardY + 132, `${GESTURE_DOUBLE_CLICK} leave`, 150);
   } else {
-    paintBoard(image, window);
-    if (window.phase === "game-over") paintGameOver(image, window);
+    paintBoard(image, window, layout);
+    if (window.phase === "game-over") paintGameOver(image, window, layout);
   }
-  paintPanel(image, window);
+  paintPanel(image, window, layout);
   return image;
 }
 
-function paintBoard(image: GrayImage, window: BlocksWindow): void {
+function paintBoard(image: GrayImage, window: BlocksWindow, layout: BlocksLayout): void {
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
       const shade = window.board[y * COLS + x]!;
-      if (shade !== 0) drawCell(image, x, y, shade);
+      if (shade !== 0) drawCell(image, layout, x, y, shade);
     }
   }
   if (window.phase !== "playing") return;
@@ -566,49 +570,67 @@ function paintBoard(image: GrayImage, window: BlocksWindow): void {
   for (const [cx, cy] of pieceCells(window)) {
     const x = window.pieceX + cx;
     if (ghostY + cy >= 0 && ghostY > window.pieceY) {
-      image.drawRect(BOARD_X + x * CELL, BOARD_Y + (ghostY + cy) * CELL, CELL - 1, CELL - 1, 70);
+      image.drawRect(
+        layout.boardX + x * layout.cell,
+        layout.boardY + (ghostY + cy) * layout.cell,
+        layout.cell - 1,
+        layout.cell - 1,
+        70,
+      );
     }
-    if (window.pieceY + cy >= 0) drawCell(image, x, window.pieceY + cy, shade);
+    if (window.pieceY + cy >= 0) drawCell(image, layout, x, window.pieceY + cy, shade);
   }
 }
 
-function drawCell(image: GrayImage, x: number, y: number, shade: number): void {
-  image.fillRect(BOARD_X + x * CELL, BOARD_Y + y * CELL, CELL - 1, CELL - 1, shade);
+function drawCell(image: GrayImage, layout: BlocksLayout, x: number, y: number, shade: number): void {
+  image.fillRect(
+    layout.boardX + x * layout.cell,
+    layout.boardY + y * layout.cell,
+    layout.cell - 1,
+    layout.cell - 1,
+    shade,
+  );
 }
 
-function paintGameOver(image: GrayImage, window: BlocksWindow): void {
-  const boxY = BOARD_Y + 70;
-  image.fillRect(BOARD_X, boxY, COLS * CELL, 100, 0);
-  image.drawRect(BOARD_X + 4, boxY + 4, COLS * CELL - 8, 92, 150);
-  drawCenteredIn(image, mediumFont, BOARD_X, COLS * CELL, boxY + 16, "GAME", 245);
-  drawCenteredIn(image, mediumFont, BOARD_X, COLS * CELL, boxY + 40, "OVER", 245);
-  drawCenteredIn(image, smallFont, BOARD_X, COLS * CELL, boxY + 70, `${GESTURE_CLICK} new game`, 150);
+function paintGameOver(image: GrayImage, window: BlocksWindow, layout: BlocksLayout): void {
+  const boxY = layout.boardY + 56;
+  image.fillRect(layout.boardX, boxY, layout.boardWidth, 100, 0);
+  image.drawRect(layout.boardX + 4, boxY + 4, layout.boardWidth - 8, 92, 150);
+  drawCenteredIn(image, mediumFont, layout.boardX, layout.boardWidth, boxY + 16, "GAME", 245);
+  drawCenteredIn(image, mediumFont, layout.boardX, layout.boardWidth, boxY + 40, "OVER", 245);
+  drawCenteredIn(image, smallFont, layout.boardX, layout.boardWidth, boxY + 70, `${GESTURE_CLICK} new game`, 150);
 }
 
-function paintPanel(image: GrayImage, window: BlocksWindow): void {
-  image.drawText(smallFont, PANEL_X, BOARD_Y, "Next", 140);
-  const previewBoxSize = 4 * CELL + 16;
-  const previewY = BOARD_Y + 22;
-  image.drawRect(PANEL_X, previewY, previewBoxSize, previewBoxSize, 90);
+function paintPanel(image: GrayImage, window: BlocksWindow, layout: BlocksLayout): void {
+  image.drawText(smallFont, layout.panelX, layout.boardY, "Next", 140);
+  const previewBoxSize = 4 * layout.cell + 16;
+  const previewY = layout.boardY + 22;
+  image.drawRect(layout.panelX, previewY, previewBoxSize, previewBoxSize, 90);
   const def = PIECE_DEFS[window.nextPieceIndex]!;
   const cells = PIECE_ROTATIONS[window.nextPieceIndex]![0]!;
   const minX = Math.min(...cells.map(([x]) => x));
   const maxX = Math.max(...cells.map(([x]) => x));
   const minY = Math.min(...cells.map(([, y]) => y));
   const maxY = Math.max(...cells.map(([, y]) => y));
-  const offsetX = PANEL_X + Math.round((previewBoxSize - (maxX - minX + 1) * CELL) / 2);
-  const offsetY = previewY + Math.round((previewBoxSize - (maxY - minY + 1) * CELL) / 2);
+  const offsetX = layout.panelX + Math.round((previewBoxSize - (maxX - minX + 1) * layout.cell) / 2);
+  const offsetY = previewY + Math.round((previewBoxSize - (maxY - minY + 1) * layout.cell) / 2);
   for (const [cx, cy] of cells) {
-    image.fillRect(offsetX + (cx - minX) * CELL, offsetY + (cy - minY) * CELL, CELL - 1, CELL - 1, def.shade);
+    image.fillRect(
+      offsetX + (cx - minX) * layout.cell,
+      offsetY + (cy - minY) * layout.cell,
+      layout.cell - 1,
+      layout.cell - 1,
+      def.shade,
+    );
   }
 
-  const statX = PANEL_X + previewBoxSize + 40;
-  drawStat(image, statX, BOARD_Y + 10, "Score", String(window.score));
-  drawStat(image, statX, BOARD_Y + 70, "Lines", String(window.lines));
-  drawStat(image, statX, BOARD_Y + 130, "Level", String(level(window)));
+  const statX = layout.panelX + previewBoxSize + 40;
+  drawStat(image, statX, layout.boardY + 10, "Score", String(window.score));
+  drawStat(image, statX, layout.boardY + 70, "Lines", String(window.lines));
+  drawStat(image, statX, layout.boardY + 130, "Level", String(level(window)));
 
-  image.drawText(smallFont, PANEL_X, 200, `${GESTURE_SCROLL} move   ${GESTURE_CLICK} rotate`, 115);
-  image.drawText(smallFont, PANEL_X, 222, `${GESTURE_LONG_PRESS} drop   ${GESTURE_DOUBLE_CLICK} pause`, 115);
+  image.drawText(smallFont, layout.panelX, layout.firstHintY, `${GESTURE_SCROLL} move   ${GESTURE_CLICK} rotate`, 115);
+  image.drawText(smallFont, layout.panelX, layout.secondHintY, `${GESTURE_LONG_PRESS} drop   ${GESTURE_DOUBLE_CLICK} pause`, 115);
 }
 
 function drawStat(image: GrayImage, x: number, y: number, label: string, value: string): void {

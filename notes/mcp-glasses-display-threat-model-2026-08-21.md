@@ -6,6 +6,10 @@
 > Preserve the external server, licensing, generic-client, privacy, and real-G2
 > publication gates below; those remain NO-GO. Current status is in
 > `docs/mcp-glasses-display.md` and `docs/audit-remediation-2026-08-21.md`.
+> The Roam integration described in this dated snapshot was later retired and
+> is no longer part of the app or assistant-tool registry.
+> The current MCP-only channel, workflow, reminder, and release boundary is in
+> `docs/hermes-mcp-architecture.md`.
 
 ## Decision and scope
 
@@ -131,15 +135,14 @@ malicious users.
 | Proactive MCP | Boolean “some turn active” test, default-off setting, and a sliding quota of 6 calls/minute after preflight. | Explicit turn-bound intent and per-session policy evidence remain required. |
 | Registry | Schema preflight; 10 s default caller timeout; live 25 s overrides include `navigate-tools.ts:42` and `roam-tools.ts:31`; timeout aborts the handler signal, with the display handler observing it at delivery and completion boundaries. | Other handlers remain caller-deadline-only; complete operation-ID/idempotency coverage is still required for every side-effecting tool. |
 | Display today | `glasses.show_alert` is capped at 160 plain-text characters, rejects control/markup/URL content, fails closed when the display is off/unavailable, and uses an owner-specific cancellable delivery receipt. | Device result evidence, full integration/race coverage, and broader operation-ID coverage remain required. |
-| Streamed reply today | `AssistantLayer` retains the full stream; only the visible tail is clipped by HUD geometry. | Visual clipping is not input bounding; cap bytes/chars before retention and transport. |
+| Assistant reply today | Bridge deltas and tool activity are never painted; the sibling bridge emits only bounded terminal text and the compact result card bounds its visible pages. | Keep terminal-result bounds at every producer and retain strict display ACK/retry evidence. |
 | Proposed view | Audit design specifies singleton, 16 KiB encoded spec, 32 blocks, 8 actions, 8 KiB total text, 1 KiB/text block, title 80, label 40, ID 64 ASCII, TTL 30–3600 s, 2 updates/s. | No implementation or race/fuzz/golden/hardware evidence exists. Adopt, do not redesign, these limits. |
 | Android | Manifest blocks cleartext and disables backup; feature permissions remain broad for the existing app surface. | Complete least-privilege review and user-visible permission/privacy behavior. |
 | Sibling bridge | Private Hermes adapter requires TLS for non-loopback, uses token hello, exact-turn ownership, bounded deadlines and one durable glasses session. | License authority, public deployment, generic-client/adapter and real-hardware evidence remain open. |
 
-In particular, a clipped tail in the HUD is only a presentation limit. Alert
-input is now bounded before shell retention and delivery; streamed-reply input
-still is not bounded before it is retained, serialized, or passed to the
-compositor.
+In particular, visual clipping is not a data bound. Alerts and sibling-bridge
+terminal replies are bounded before delivery, and intermediate assistant
+activity is discarded at the display boundary rather than relying on clipping.
 
 ## Threat register
 
@@ -212,7 +215,7 @@ verdict therefore remain unchanged.
 
 ## Ordered exact-change backlog
 
-### P0 — global bridge, turn, and idempotency gates
+### P0 - global bridge, turn, and idempotency gates
 
 Target `app/assistant/bridge-client.ts`, `app/assistant/mcp-server.ts`,
 `app/assistant/tool-registry.ts`, `app/assistant/bridge-connection-guard.ts`,
@@ -223,7 +226,7 @@ Add authenticated transport/server proof, unique live-turn authorization,
 pre-side-effect revalidation, cancellation or operation IDs/idempotency, and
 secret-safe failure behavior. Keep public scope empty while evidence is absent.
 
-### P1 — bounded static `render_view` implementation and tests
+### P1 - bounded static `render_view` implementation and tests
 
 The private implementation now targets shell/registry integration (`app/ui/shell/`,
 `app/assistant/`), a dedicated schema/handler module, and focused render tests.
@@ -233,7 +236,7 @@ replace-only, revisions, owner epoch, tombstones, exact size/text/action/TTL
 limits, no wake/focus, and safe result/error semantics. Remaining P1 evidence is
 fuzz/golden coverage plus A32+real-G2 create/update/TTL/no-wake/escape behavior.
 
-### P2 — adapter/docs/skill
+### P2 - adapter/docs/skill
 
 Only after P0/P1 evidence: establish a versioned generic MCP endpoint and
 Hermes/OpenClaw adapter contract, obtain sibling licensing clearance, write

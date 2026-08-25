@@ -1,10 +1,9 @@
 import { AssistantMcpServer } from "./mcp-server";
+import { HostSessionMcpClient } from "./host-session-mcp-client";
 import { toolRegistry } from "./tool-registry";
 import { BridgeConnectionGuard } from "./bridge-connection-guard";
 import { AgentCockpitController } from "../agent-cockpit/controller";
-import type { CockpitClientCommand } from "../agent-cockpit/protocol";
 import { HermesCompanionController } from "../hermes-companion/controller";
-import type { HermesCompanionClientCommand } from "../hermes-companion/protocol";
 import type { AssistantContext, AssistantTurnCallbacks, AssistantTurnHandle } from "./types";
 
 declare const com: any;
@@ -13,13 +12,11 @@ declare const com: any;
  * Dial-out websocket client for the Hermes Agent bridge (or another compatible
  * server on the user's machine; see
  * notes/voice-assistant-design.md "External mode"). One JSON object per text
- * frame, five multiplexed channels:
+ * frame, three multiplexed channels:
  *
  *   ctl:  hello/hello-ack auth handshake, ping/pong, error
- *   chat: utterance in, streamed reply out (per-turn)
  *   mcp:  raw MCP JSON-RPC; the phone is the MCP *server* (ToolRegistry)
- *   cockpit: bounded structured Hermes/Kanban events and exact actions
- *   companion: redacted mobile status/session/usage projections and bounded actions
+ *   host-mcp: raw MCP JSON-RPC; the authenticated Hermes host is the MCP server
  *
  * Unlike G2MirrorClient (per-terminal-window, no reconnect), this connection
  * is a long-lived shell service: it stays up while configured so the remote
@@ -56,13 +53,13 @@ export type AssistantBridgeOptions = {
 type ActiveTurn = {
   turnId: string;
   callbacks: AssistantTurnCallbacks;
-  textSoFar: string;
   timer: ReturnType<typeof setTimeout>;
+  cancelTransport: () => void;
 };
 
 export class AssistantBridgeClient {
-  readonly cockpit = new AgentCockpitController((command) => this.sendCockpit(command));
-  readonly companion = new HermesCompanionController((command) => this.sendCompanion(command));
+  readonly cockpit = new AgentCockpitController(() => {});
+  readonly companion = new HermesCompanionController(() => {});
   private options: AssistantBridgeOptions | null = null;
   private ws: any = null;
   private listenerProxy: any = null;
@@ -77,7 +74,8 @@ export class AssistantBridgeClient {
   private activeTurn: ActiveTurn | null = null;
   private turnSeq = 0;
   private mcpServer: AssistantMcpServer | null = null;
-  private companionSupported = false;
+  private hostMcpClient: HostSessionMcpClient | null = null;
+  private hostMcpSupported = false;
   private authenticatedProfileId: string | null = null;
   private unsubscribeToolsChanged: (() => void) | null = null;
   private readonly connectionGuard = new BridgeConnectionGuard();
@@ -114,12 +112,14 @@ export class AssistantBridgeClient {
   /** Disconnect and stay down until the next configure(). */
   stop(): void {
     this.stopped = true;
-    this.companionSupported = false;
+    this.hostMcpSupported = false;
     this.authenticatedProfileId = null;
     this.connectionGuard.invalidateCurrent();
     this.clearReconnectTimer();
     this.clearKeepalive();
     this.clearAuthTimer();
+    this.hostMcpClient?.close("Bridge connection closed");
+    this.hostMcpClient = null;
     this.failActiveTurn("Bridge connection closed");
     this.cockpit.disconnect();
     this.companion.disconnect();
@@ -155,22 +155,40 @@ export class AssistantBridgeClient {
       callbacks.onError(`Hermes Agent bridge is not connected (${this.status})`);
       return { cancel: () => {} };
     }
-    this.failActiveTurn("Superseded by a new request");
+    this.failActiveTurn("Superseded by a new request", true);
     const turnId = `t${++this.turnSeq}`;
     this.activeTurn = {
       turnId,
       callbacks,
-      textSoFar: "",
+      cancelTransport: () => {},
       timer: setTimeout(() => {
         if (this.activeTurn?.turnId !== turnId) return;
-        this.failActiveTurn("The agent took too long to reply");
+        this.failActiveTurn("The agent took too long to reply", true);
       }, TURN_TIMEOUT_MS),
     };
-    this.send({ chan: "chat", type: "utterance", turnId, text, ctx });
+
+    if (!this.hostMcpSupported || !this.hostMcpClient) {
+      this.clearActiveTurn();
+      callbacks.onError("Hermes Host MCP is not ready");
+      return { cancel: () => {} };
+    }
+    const call = this.hostMcpClient.callVoiceTurn({ turnId, text, context: ctx });
+    this.activeTurn.cancelTransport = () => call.cancel("Cancelled by the user");
+    void call.result.then((result) => {
+      const turn = this.activeTurn;
+      if (!turn || turn.turnId !== turnId) return;
+      this.clearActiveTurn();
+      turn.callbacks.onTurnDone({ stopReason: result.stopReason, text: result.text });
+    }).catch((error) => {
+      const turn = this.activeTurn;
+      if (!turn || turn.turnId !== turnId) return;
+      this.clearActiveTurn();
+      turn.callbacks.onError(String((error as Error)?.message ?? error));
+    });
     return {
       cancel: () => {
         if (this.activeTurn?.turnId !== turnId) return;
-        this.send({ chan: "chat", type: "cancel", turnId });
+        this.activeTurn.cancelTransport();
         this.clearActiveTurn();
       },
     };
@@ -191,7 +209,7 @@ export class AssistantBridgeClient {
         this.startAuthTimer(generation, socket);
         this.send({ chan: "ctl", type: "hello", version: PROTOCOL_VERSION, token: this.options!.token,
           deviceName: this.options!.deviceName,
-          capabilities: ["chat", "mcp", "cockpit-v1", "hermes-companion-v1"] });
+          capabilities: ["mcp", "host-mcp-v1"] });
       },
       onTextMessage: (message: string) => {
         if (!this.isCurrentSocket(generation, socket)) return;
@@ -256,9 +274,7 @@ export class AssistantBridgeClient {
         this.handleCtl(frame, generation);
         return;
       case "chat":
-        if (!this.requireAuthenticated(generation)) return;
-        this.handleChat(frame);
-        return;
+        return; // Legacy custom turns are never an authority path.
       case "mcp":
         if (!this.requireAuthenticated(generation)) return;
         this.mcpServer?.handleMessage(
@@ -270,15 +286,15 @@ export class AssistantBridgeClient {
               : undefined,
         );
         return;
+      case "host-mcp":
+        if (!this.requireAuthenticated(generation)) return;
+        if (!this.hostMcpSupported) return;
+        this.hostMcpClient?.handleMessage(frame.msg);
+        return;
       case "cockpit":
-        if (!this.requireAuthenticated(generation)) return;
-        this.cockpit.handleFrame(frame);
-        return;
+        return; // Cockpit state is read only through Host MCP resources.
       case "companion":
-        if (!this.requireAuthenticated(generation)) return;
-        if (!this.companionSupported) return;
-        this.companion.handleFrame(frame);
-        return;
+        return; // No legacy Companion command channel in the MCP-only bridge.
       default:
         return;
     }
@@ -294,9 +310,24 @@ export class AssistantBridgeClient {
       }
       this.authenticatedProfileId = frame.profile === "even-g2" ? "even-g2" : null;
       if (!this.connectionGuard.authenticate(generation)) { this.authenticatedProfileId = null; return; }
-      this.companionSupported = Array.isArray(frame.capabilities) &&
-        frame.capabilities.includes("hermes-companion-v1");
-      this.companion.setSupported(this.companionSupported);
+      this.hostMcpSupported = Array.isArray(frame.capabilities) &&
+        frame.capabilities.includes("host-mcp-v1");
+      this.hostMcpClient?.close("Host MCP session replaced");
+      this.hostMcpClient = null;
+      const socket = this.ws;
+      if (!this.hostMcpSupported || !socket || !this.isCurrentSocket(generation, socket)) {
+        this.hostMcpSupported = false;
+        this.handleConnectionLost("Bridge does not support the required Host MCP", generation);
+        try { socket?.close(1002, "host MCP required"); } catch { /* already torn down */ }
+        return;
+      }
+      this.hostMcpClient = new HostSessionMcpClient({
+        connectionGeneration: generation,
+        isConnectionGenerationActive: () =>
+          this.isCurrentSocket(generation, socket) && this.connectionGuard.canHandlePrivileged(generation),
+        send: (msg) => this.sendHostMcpForSocket(generation, socket, msg),
+        onStatus: (status) => this.cockpit.handleMcpStatus(status),
+      });
       this.clearAuthTimer();
       this.reconnectDelayMs = RECONNECT_MIN_MS;
       this.lastTrafficMs = Date.now();
@@ -317,39 +348,12 @@ export class AssistantBridgeClient {
     }
   }
 
-  private handleChat(frame: any): void {
-    const turn = this.activeTurn;
-    if (!turn || frame.turnId !== turn.turnId) return;
-    switch (frame.type) {
-      case "text-delta": {
-        const text = typeof frame.text === "string" ? frame.text : "";
-        turn.textSoFar = frame.replace === true ? text : turn.textSoFar + text;
-        turn.callbacks.onTextDelta(text, turn.textSoFar);
-        return;
-      }
-      case "tool-activity":
-        turn.callbacks.onToolActivity(String(frame.label ?? "tool"));
-        return;
-      case "turn-done": {
-        this.clearActiveTurn();
-        turn.callbacks.onTurnDone({
-          stopReason: typeof frame.stopReason === "string" ? frame.stopReason : null,
-        });
-        return;
-      }
-      case "turn-error":
-        this.clearActiveTurn();
-        turn.callbacks.onError(String(frame.message ?? "Agent error"));
-        return;
-      default:
-        return;
-    }
-  }
-
   private handleConnectionLost(status: string, generation: number): void {
     if (!this.connectionGuard.invalidate(generation)) return;
-    this.companionSupported = false;
+    this.hostMcpSupported = false;
     this.authenticatedProfileId = null;
+    this.hostMcpClient?.close("Bridge connection lost");
+    this.hostMcpClient = null;
     this.mcpServer?.close();
     this.mcpServer = null;
     this.ws = null;
@@ -433,9 +437,10 @@ export class AssistantBridgeClient {
     this.activeTurn = null;
   }
 
-  private failActiveTurn(message: string): void {
+  private failActiveTurn(message: string, cancelTransport = false): void {
     const turn = this.activeTurn;
     if (!turn) return;
+    if (cancelTransport) turn.cancelTransport();
     this.clearActiveTurn();
     turn.callbacks.onError(message);
   }
@@ -452,14 +457,10 @@ export class AssistantBridgeClient {
     catch { /* socket callback handles failure */ }
   }
 
-  private sendCockpit(command: CockpitClientCommand): void {
-    if (this.phase !== "connected") return;
-    this.send({ ...command, chan: "cockpit" });
-  }
-
-  private sendCompanion(command: HermesCompanionClientCommand): void {
-    if (this.phase !== "connected" || !this.companionSupported) return;
-    this.send({ ...command, chan: "companion" });
+  private sendHostMcpForSocket(generation: number, socket: any, msg: object): void {
+    if (!this.isCurrentSocket(generation, socket) || !this.connectionGuard.canHandlePrivileged(generation)) return;
+    try { socket.sendText(JSON.stringify({ v: PROTOCOL_VERSION, chan: "host-mcp", msg })); }
+    catch { /* socket callback handles failure */ }
   }
 
   private isCurrentSocket(generation: number, socket: any): boolean {

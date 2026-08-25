@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -56,12 +56,20 @@ test("credential settings migrate to Android Keystore encryption before plaintex
   assert.match(javaStore, /pendingKey/);
   assert.match(javaStore, /pendingCleanupRequired/);
   assert.match(javaStore, /decrypt\(securePrefs\.getString\(pendingKey/);
+  assert.match(javaStore, /primaryCiphertext[\s\S]*pendingCiphertext[\s\S]*primaryCiphertext\.equals\(pendingCiphertext\)/,
+    "a failed cleanup may expose only the already-committed identical ciphertext");
   assert.match(javaStore, /if \(prefs\.contains\(key\)\)[\s\S]*prefs\.getString/);
+  assert.match(javaStore,
+    /if \(!securePrefs\.edit\(\)\.putString\(key, encrypted\)\.commit\(\)\)[\s\S]*return false;[\s\S]*remove\(pendingKey\)\.commit\(\)[\s\S]*return true;/,
+    "the verified primary ciphertext commit, not best-effort pending cleanup, defines write success");
+  assert.doesNotMatch(javaStore, /boolean cleaned = securePrefs\.edit\(\)\.remove\(pendingKey\)\.commit\(\);[\s\S]*return cleaned;/);
+  assert.match(javaStore,
+    /public synchronized boolean setSecret\([\s\S]*if \(!prefs\.edit\(\)\.remove\(key\)\.commit\(\)\) \{[\s\S]*legacy encrypted-setting cleanup will retry[\s\S]*notifyChanged\(key\);[\s\S]*return stored;/,
+    "legacy plaintext cleanup cannot negate an already committed encrypted write");
   for (const key of [
     "assistant.bridgeToken",
     "voice.openAiApiKey",
     "maps.mapboxApiKey",
-    "integrations.nightscout.apiToken",
     "terminal.connections",
   ]) {
     assert.match(tsStore, new RegExp(key.replaceAll(".", "\\.")));
@@ -82,8 +90,6 @@ test("phone credential management provides explicit per-secret clear actions", (
     "onClearElevenLabsTap",
     "onClearSonioxTap",
     "onClearMapboxTap",
-    "onClearNightscoutTap",
-    "onClearRoamTap",
     "onClearEvenTap",
     "onClearTerminalTap",
   ]) {
@@ -101,8 +107,48 @@ test("phone credential management provides explicit per-secret clear actions", (
     "deepgramApiKeySetting",
     "anthropicApiKeySetting",
     "mapboxApiKeySetting",
-    "roamApiTokenSetting",
   ]) assert.doesNotMatch(glassesMenus, new RegExp(`textSettingMenuItem\\(${setting}\\)`));
+});
+
+test("retired Nightscout and Roam credentials are purged and live surfaces stay removed", () => {
+  const javaStore = read("App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawSettings.java");
+  for (const key of [
+    "integrations.nightscout.siteUrl",
+    "integrations.nightscout.apiToken",
+    "integrations.roam.graphName",
+    "integrations.roam.apiToken",
+  ]) assert.match(javaStore, new RegExp(key.replaceAll(".", "\\.")));
+  assert.match(javaStore, /purgeRetiredIntegrationSettings\s*\(\s*\)/);
+  assert.match(javaStore, /for \(String key : RETIRED_SETTING_KEYS\) plaintext\.remove\(key\)/);
+  assert.match(javaStore, /for \(String key : RETIRED_SECRET_SETTING_KEYS\)[\s\S]*encrypted\.remove\(key\)[\s\S]*encrypted\.remove\(key \+ "\.__pending"\)/);
+  assert.match(javaStore, /plaintext\.commit\(\)[\s\S]*encrypted\.commit\(\)[\s\S]*cleanup will retry/);
+
+  for (const path of [
+    "app/apps/nightscout/index.ts",
+    "app/native/nightscout-bridge.ts",
+    "app/apps/roam/index.ts",
+    "app/assistant/roam-tools.ts",
+    "app/ui/document/document-model.ts",
+    "images/nightscout.svg",
+  ]) assert.equal(existsSync(new URL(`../${path}`, import.meta.url)), false, `${path} must stay retired`);
+
+  const liveSurfaces = [
+    "app/apps/all-apps.ts",
+    "app/g2/dashboard-controller.ts",
+    "app/ui/dashboard-settings.ts",
+    "app/ui/dashboard/settings-menus.ts",
+    "app/phone-ui/api-keys-page.xml",
+    "app/phone-ui/api-keys-view-model.ts",
+    "app/search/core.ts",
+    "app/search/providers.ts",
+    "app/search/view-model.ts",
+    "app/apps/universal-search/universal-search-app.ts",
+    "debug-control/control-protocol.ts",
+  ].map(read).join("\n");
+  assert.doesNotMatch(liveSurfaces, /nightscout|\broam\b/i);
+
+  const controller = read("app/g2/dashboard-controller.ts");
+  assert.match(controller, /const known = new Set\(ALL_APPS\.map[\s\S]*if \(!known\.has\(appId\)\) continue[\s\S]*this\.persistOpenApps\(\)/);
 });
 
 test("terminal launch revalidates authorization before remote and local side effects", () => {

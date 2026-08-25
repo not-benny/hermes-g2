@@ -22,10 +22,6 @@ function fixtureDependencies(calls) {
     ["/safe", { name: "safe", path: "/safe", isDirectory: true, sizeBytes: 0, modifiedMs: 10 }],
     ["/safe/plan.md", { name: "plan.md", path: "/safe/plan.md", isDirectory: false, sizeBytes: 20, modifiedMs: 11 }],
   ]);
-  let cockpit = {
-    synchronized: true,
-    sessions: [{ session_id: "session-1", generation: 3, revision: 1, title: "Plan release", summary: "Ready", updated_at_ms: 12 }],
-  };
   return {
     apps: () => apps,
     launchApp: async (appId) => { calls.push(["app", appId]); return apps.some((app) => app.appId === appId); },
@@ -44,21 +40,15 @@ function fixtureDependencies(calls) {
       calls.push(["file", path, rootPath, modifiedMs]);
       return rootPath === "/safe" && files.get(path)?.modifiedMs === modifiedMs;
     },
-    cockpitSnapshot: () => cockpit,
-    openHermesSession: async (sessionId, generation) => {
-      calls.push(["hermes", sessionId, generation]);
-      return cockpit.synchronized && cockpit.sessions.some((session) => session.session_id === sessionId && session.generation === generation);
-    },
-    setCockpit: (next) => { cockpit = next; },
   };
 }
 
-test("five local adapters return bounded inert labelled results without broadening source authority", async () => {
+test("four local adapters return bounded inert labelled results without broadening source authority", async () => {
   const calls = [];
   const dependencies = fixtureDependencies(calls);
   const providers = createSearchProviders(dependencies);
   const controller = new SearchController(providers, { providerTimeoutMs: 50, resultLimit: 20, tokenFactory: (() => { let id = 0; return () => `h-${++id}`; })() });
-  const enabled = new Set(["apps", "calendar", "notifications", "files", "hermes_sessions"]);
+  const enabled = new Set(["apps", "calendar", "notifications", "files"]);
   const state = await controller.search("plan", enabled);
 
   assert.deepEqual(new Set(state.results.map((result) => result.sourceId)), enabled);
@@ -72,31 +62,26 @@ test("exact adapter actions revalidate current identity and never fall back", as
   const calls = [];
   const dependencies = fixtureDependencies(calls);
   const controller = new SearchController(createSearchProviders(dependencies), { providerTimeoutMs: 50, resultLimit: 20 });
-  const enabled = new Set(["files", "hermes_sessions"]);
+  const enabled = new Set(["files"]);
   const state = await controller.search("plan", enabled);
   const file = state.results.find((result) => result.sourceId === "files");
-  const session = state.results.find((result) => result.sourceId === "hermes_sessions");
 
   assert.equal(await controller.executeAction(file.actionHandle), "executed");
-  dependencies.setCockpit({ synchronized: true, sessions: [{ session_id: "session-1", generation: 4, revision: 1, title: "Replacement", summary: "", updated_at_ms: 20 }] });
-  assert.equal(await controller.executeAction(session.actionHandle), "stale");
-  assert.deepEqual(calls, [["file", "/safe/plan.md", "/safe", 11], ["hermes", "session-1", 3]]);
+  assert.deepEqual(calls, [["file", "/safe/plan.md", "/safe", 11]]);
 });
 
-test("permission and offline states are explicit and providers do not prompt", async () => {
+test("permission states are explicit and providers do not prompt", async () => {
   const calls = [];
   const dependencies = fixtureDependencies(calls);
   dependencies.notificationAccess = () => false;
   dependencies.hasFileAccess = () => false;
   dependencies.readCalendar = () => ({ status: "permission_denied" });
-  dependencies.setCockpit({ synchronized: false, sessions: [] });
   const controller = new SearchController(createSearchProviders(dependencies), { providerTimeoutMs: 50, resultLimit: 20 });
-  const state = await controller.search("plan", new Set(["calendar", "notifications", "files", "hermes_sessions"]));
+  const state = await controller.search("plan", new Set(["calendar", "notifications", "files"]));
   assert.deepEqual(state.sources.map(({ sourceId, state: status }) => [sourceId, status]), [
     ["calendar", "permission_denied"],
     ["notifications", "permission_denied"],
     ["files", "permission_denied"],
-    ["hermes_sessions", "offline"],
   ]);
   assert.deepEqual(calls, []);
 });
@@ -104,10 +89,8 @@ test("permission and offline states are explicit and providers do not prompt", a
 test("sources without an exact safe adapter report unavailable instead of overclaiming coverage", async () => {
   const calls = [];
   const controller = new SearchController(createSearchProviders(fixtureDependencies(calls)), { providerTimeoutMs: 50, resultLimit: 20 });
-  const state = await controller.search("plan", new Set(["roam", "terminal", "media", "health"]));
+  const state = await controller.search("plan", new Set(["media", "health"]));
   assert.deepEqual(state.sources.map(({ sourceId, state: status }) => [sourceId, status]), [
-    ["roam", "unavailable"],
-    ["terminal", "unavailable"],
     ["media", "unavailable"],
     ["health", "unavailable"],
   ]);

@@ -289,18 +289,21 @@ test("caption settings are bounded and disclose local versus cloud processing", 
   assert.equal(settings.effectiveCaptionProvider("soniox", { soniox: true }), "soniox");
 });
 
-test("caption integration exposes foreground and screen lifecycle hooks and removes implicit export", () => {
-  const transcribe = readFileSync(new URL("../app/apps/transcribe/transcribe.ts", import.meta.url), "utf8");
-  const app = readFileSync(new URL("../app/apps/transcribe/transcribe-app.ts", import.meta.url), "utf8");
+test("Conversate is explicit-session, foreground bound, and never implicitly exports", () => {
+  const conversate = readFileSync(new URL("../app/apps/conversate/conversate.ts", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../app/apps/conversate/conversate-app.ts", import.meta.url), "utf8");
   const windowHost = readFileSync(new URL("../app/ui/shell/in-process-window.ts", import.meta.url), "utf8");
-  assert.doesNotMatch(transcribe, /writeTextToDownloads/);
+  assert.doesNotMatch(conversate, /writeTextToDownloads|setStringSetting|setSecret|File\./);
+  assert.match(conversate, /startConversation\(\): void/);
+  assert.match(conversate, /if \(!foreground && this\.isSessionOpen\(\)\) this\.endImmediately\(\)/);
+  assert.match(conversate, /if \(!on && this\.isSessionOpen\(\)\) this\.endImmediately\(\)/);
   assert.match(app, /onForegroundChanged/);
   assert.match(app, /onScreenChanged/);
   assert.match(app, /onVoiceInputChanged/);
   assert.match(windowHost, /onForegroundChanged/);
   assert.match(windowHost, /onScreenChanged/);
   assert.match(windowHost, /onVoiceInputChanged/);
-  assert.match(transcribe, /event\.generation !== this\.captureGeneration/);
+  assert.match(conversate, /event\.generation !== this\.captureGeneration/);
 });
 
 test("phone settings are bounded, disclose cloud use, and keep vocabulary phone-only when unsupported", () => {
@@ -308,11 +311,15 @@ test("phone settings are bounded, disclose cloud use, and keep vocabulary phone-
   const model = readFileSync(new URL("../app/phone-ui/caption-settings-view-model.ts", import.meta.url), "utf8");
   const dashboard = readFileSync(new URL("../app/ui/dashboard-settings.ts", import.meta.url), "utf8");
   assert.match(page, /Privacy &amp; processing/);
+  assert.match(page, /Transcription provider/);
+  assert.match(page, /On-device is the default/);
   assert.match(page, /Speaker labels/);
   assert.match(model, /captionProviderCapabilities/);
   assert.match(model, /stays local and is not sent/);
   assert.match(dashboard, /captions\.sourceLanguage/);
   assert.match(dashboard, /captions\.targetLanguage/);
+  assert.match(dashboard, /conversate\.transcriptionProvider/);
+  assert.match(dashboard, /defaultValue: "onboard"/);
 });
 
 test("capture permission requests and provider callbacks are generation bound", () => {
@@ -326,11 +333,11 @@ test("capture permission requests and provider callbacks are generation bound", 
   assert.doesNotMatch(controller, /restartContinuousCaptureAfterSettingsChange\(\): void \{[\s\S]*this\.stopContinuousVoiceCapture\(\);[\s\S]*this\.startContinuousVoiceCapture\(\);/);
   assert.match(controller, /Caption settings will apply to the next capture session/);
   assert.match(bridge, /private readonly turnGate = new VoiceTurnGate\(\)/);
-  const transcribe = readFileSync(new URL("../app/apps/transcribe/transcribe.ts", import.meta.url), "utf8");
-  assert.match(transcribe, /private captureGeneration: number \| null = null/);
-  assert.match(transcribe, /event\.generation !== this\.captureGeneration/);
-  assert.match(transcribe, /state\.generation !== this\.captureGeneration/);
-  assert.doesNotMatch(transcribe, /event\.generation > currentGeneration/);
+  const conversate = readFileSync(new URL("../app/apps/conversate/conversate.ts", import.meta.url), "utf8");
+  assert.match(conversate, /private captureGeneration: number \| null = null/);
+  assert.match(conversate, /event\.generation !== this\.captureGeneration/);
+  assert.match(conversate, /state\.generation !== this\.captureGeneration/);
+  assert.doesNotMatch(conversate, /event\.generation > currentGeneration/);
   assert.match(bridge, /startContinuousCapture\(generation: number, options: PushToTalkOptions\)/);
   assert.match(bridge, /capture\.cloudClient !== exactClient/);
   assert.match(bridge, /reserveContinuousCapture\(\): number/);

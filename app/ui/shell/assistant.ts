@@ -1,27 +1,28 @@
-import { G2_LENS_WIDTH, GrayImage } from "../../graphics/image";
-import { getDefaultSmallFont, type BdfFont } from "../../graphics/bdffont";
-import { GESTURE_DOUBLE_CLICK } from "../gestures";
-import { drawSelectionHighlight } from "../menu";
+import { GrayImage } from "../../graphics/image";
+import { getDefaultMediumFont, getDefaultSmallFont } from "../../graphics/bdffont";
+import {
+  GESTURE_CLICK,
+  GESTURE_DOUBLE_CLICK,
+  GESTURE_SCROLL,
+  gestureHints,
+} from "../gestures";
 import { Layer, type DashboardInputEvent, type LayerActions, type LayerContext } from "../layers";
 import { wrapText, truncateText } from "../../graphics/textwrap";
-import { MIN_WINDOW_HEIGHT, minWindowTop } from "./geometry";
+import {
+  ASSISTANT_CARD_WIDTH,
+  ASSISTANT_ERROR_CARD_HEIGHT,
+  assistantCardRect,
+} from "./geometry";
 
-const DIALOG_X = 40;
-const DIALOG_W = G2_LENS_WIDTH - 80;
-// The dialog fits inside the min-height window band (like the other shell
-// overlays), wherever the vertical position setting puts it.
-const DIALOG_MARGIN_Y = 24;
-const DIALOG_H = MIN_WINDOW_HEIGHT - 2 * DIALOG_MARGIN_Y;
-const TEXT_MAX_WIDTH = DIALOG_W - 32;
-const MENU_ROW_H = 20;
-const MENU_ROWS = 2;
+const CARD_RADIUS = 12;
+const CARD_PADDING = 16;
+const BODY_LINE_HEIGHT = 16;
+const RESULT_LINES_PER_PAGE = 5;
+const MAX_RESULT_PAGES = 3;
+const RESULT_BASE_HEIGHT = 64;
+const RESULT_MAX_HEIGHT = RESULT_BASE_HEIGHT + RESULT_LINES_PER_PAGE * BODY_LINE_HEIGHT;
 
-/** Dialog top edge; band-relative, so computed per paint. */
-function dialogY(): number {
-  return minWindowTop() + DIALOG_MARGIN_Y;
-}
-
-/** thinking: turn running; done/error: finished, showing the Follow-up/Done menu. */
+/** thinking: hidden turn running; done/error: finished result card. */
 type AssistantPhase = "thinking" | "done" | "error";
 
 export type AssistantLayerCallbacks = {
@@ -29,23 +30,23 @@ export type AssistantLayerCallbacks = {
   onFollowUp: () => void;
   /** Abort the in-flight turn (double-click while thinking). */
   onCancel: () => void;
-  /** The user closed the overlay (Done). */
+  /** The user dismissed the completed overlay. */
   onClose: () => void;
   /** The layer left the stack by any path (Done, or the screen sleeping). */
   onRemoved?: () => void;
 };
 
 /**
- * The assistant overlay: streamed reply text with a status line for tool
- * activity, and a Follow-up / Done menu once the turn ends. Double-click
- * cancels an in-flight turn. The shell owns the AssistantSession and drives
- * this layer's state through the on* methods as the turn streams.
+ * The assistant overlay renders only a bounded, paginated final result.
+ * Thinking, streamed partials, and tool activity are deliberately transparent
+ * even if a stale render observes the layer before the shell detaches it. The
+ * shell owns the AssistantSession and drives this layer through the on* methods.
  */
 export class AssistantLayer implements Layer {
   private phase: AssistantPhase = "thinking";
   private replyText = "";
   private status = "Thinking...";
-  private menuIndex = 0;
+  private pageIndex = 0;
 
   constructor(
     private readonly actions: LayerActions,
@@ -57,32 +58,33 @@ export class AssistantLayer implements Layer {
     this.phase = "thinking";
     this.replyText = "";
     this.status = "Thinking...";
-    this.menuIndex = 0;
+    this.pageIndex = 0;
     this.actions.requestRender();
   }
 
   onTextDelta(_delta: string, textSoFar: string): void {
     this.replyText = textSoFar;
-    if (this.phase === "thinking") this.status = "Thinking...";
-    this.actions.requestRender();
+    // Streamed text is retained but intentionally not painted. External
+    // backends may report commentary/reasoning through a generic partial-text
+    // callback; only the completed assistant turn becomes wearer-visible.
   }
 
-  onToolActivity(label: string): void {
-    if (this.phase === "thinking") this.status = `→ ${label}`;
-    this.actions.requestRender();
+  onToolActivity(_label: string): void {
+    // Tool identity and step-by-step activity are private execution detail.
   }
 
-  onTurnDone(): void {
+  onTurnDone(text: string): void {
+    this.replyText = text;
     this.phase = "done";
     this.status = this.replyText.trim() ? "" : "(no reply)";
-    this.menuIndex = 0;
+    this.pageIndex = 0;
     this.actions.requestRender();
   }
 
   onError(message: string): void {
     this.phase = "error";
     this.status = message;
-    this.menuIndex = 0;
+    this.pageIndex = 0;
     this.actions.requestRender();
   }
 
@@ -90,49 +92,57 @@ export class AssistantLayer implements Layer {
     return this.replyText;
   }
 
-  paint(_ctx: LayerContext, paintBelow: () => GrayImage): GrayImage {
-    const font = getDefaultSmallFont();
+  /** Shell fail-closed guard: a running layer must never own visible input. */
+  isRunning(): boolean {
+    return this.phase === "thinking";
+  }
+
+  paint(ctx: LayerContext, paintBelow: () => GrayImage): GrayImage {
     const image = paintBelow();
-    const top = dialogY();
-
-    // Solid dialog box (fill 1, matching the voice dialog: opaque after 4bpp
-    // quantization, but not the color-key transparent 0).
-    image.fillRoundedRect(DIALOG_X, top, DIALOG_W, DIALOG_H, 1, 10);
-    image.drawRoundedRect(DIALOG_X, top, DIALOG_W, DIALOG_H, 90, 10);
-
-    const left = DIALOG_X + 16;
-    image.drawText(font, left, top + 12, this.phase === "thinking" ? "Assistant ●" : "Assistant", 220);
-    if (this.status) {
-      const statusValue = this.phase === "error" ? 200 : 130;
-      image.drawText(font, left, top + 30, truncateText(font, this.status, TEXT_MAX_WIDTH), statusValue);
+    if (this.phase === "thinking") {
+      // Defense in depth: backgroundAssistantLayer normally detaches this
+      // before startTurn(), but an already-queued/stale paint must still be a
+      // true no-op. Never put generic progress or cancellation chrome on G2.
+      return image;
     }
 
-    const inMenu = this.phase !== "thinking";
-    const textBottom = inMenu ? top + DIALOG_H - MENU_ROWS * MENU_ROW_H - 8 : top + DIALOG_H - 8;
-    const textTop = top + 56;
-    const maxLines = Math.max(1, ((textBottom - textTop) / 16) | 0);
+    const small = getDefaultSmallFont();
+    const medium = getDefaultMediumFont();
+    const baseSize = ctx.stack.getBaseSize();
+    const displayText = this.phase === "error"
+      ? this.status || "The assistant could not finish this turn."
+      : this.replyText.trim() || this.status || "(no reply)";
+    const textWidth = ASSISTANT_CARD_WIDTH - CARD_PADDING * 2;
+    const allLines = boundedResultLines(small, displayText, textWidth);
+    const pageCount = Math.max(1, Math.ceil(allLines.length / RESULT_LINES_PER_PAGE));
+    this.pageIndex = Math.max(0, Math.min(this.pageIndex, pageCount - 1));
+    const first = this.pageIndex * RESULT_LINES_PER_PAGE;
+    const pageLines = allLines.slice(first, first + RESULT_LINES_PER_PAGE);
+    const resultHeight = pageCount > 1
+      ? RESULT_MAX_HEIGHT
+      : Math.max(
+          this.phase === "error" ? ASSISTANT_ERROR_CARD_HEIGHT : RESULT_BASE_HEIGHT + BODY_LINE_HEIGHT,
+          RESULT_BASE_HEIGHT + pageLines.length * BODY_LINE_HEIGHT,
+        );
+    const rect = assistantCardRect(baseSize, resultHeight);
+    const left = rect.x + CARD_PADDING;
+    const contentWidth = rect.width - CARD_PADDING * 2;
 
-    const wrapped = wrapText(font, this.replyText, TEXT_MAX_WIDTH);
-    // Keep the tail visible as text streams past the bottom.
-    const firstLine = Math.max(0, wrapped.length - maxLines);
-    for (let index = firstLine; index < wrapped.length; index++) {
-      image.drawText(font, left, textTop + (index - firstLine) * 16, wrapped[index]!, 235);
+    image.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, CARD_RADIUS);
+    image.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, this.phase === "error" ? 150 : 100, CARD_RADIUS);
+    image.drawText(medium, left, rect.y + 12, this.phase === "error" ? "Couldn't finish" : "Hermes", 240);
+    if (pageCount > 1) {
+      const pageLabel = `${this.pageIndex + 1}/${pageCount}`;
+      image.drawText(small, rect.x + rect.width - CARD_PADDING - small.measureText(pageLabel), rect.y + 15, pageLabel, 145);
     }
-
-    if (inMenu) {
-      const rows = ["Follow-up", "Done"];
-      const menuTop = top + DIALOG_H - MENU_ROWS * MENU_ROW_H - 2;
-      for (let i = 0; i < rows.length; i++) {
-        const rowY = menuTop + i * MENU_ROW_H;
-        const selected = i === this.menuIndex;
-        if (selected) {
-          drawSelectionHighlight(image, left - 4, rowY - 2, DIALOG_W - 24, MENU_ROW_H - 2, true, 6);
-        }
-        image.drawText(font, left + 4, rowY + 2, rows[i]!, selected ? 255 : 200);
-      }
-    } else {
-      image.drawText(font, left, top + DIALOG_H - 14, `${GESTURE_DOUBLE_CLICK} cancel`, 110);
+    for (let index = 0; index < pageLines.length; index++) {
+      image.drawText(small, left, rect.y + 38 + index * BODY_LINE_HEIGHT, pageLines[index]!, this.phase === "error" ? 210 : 235);
     }
+    const followUpLabel = this.phase === "error" ? "retry" : "follow-up";
+    const hints: Array<[string, string]> = [];
+    if (pageCount > 1) hints.push([GESTURE_SCROLL, "page"]);
+    hints.push([GESTURE_CLICK, followUpLabel], [GESTURE_DOUBLE_CLICK, "dismiss"]);
+    image.drawText(small, left, rect.y + rect.height - 16, truncateText(small, gestureHints(hints), contentWidth), 110);
     return image;
   }
 
@@ -141,28 +151,28 @@ export class AssistantLayer implements Layer {
       if (event.type === "double-click") {
         this.callbacks.onCancel();
         this.phase = "done";
+        this.replyText = "";
         this.status = "Cancelled";
-        this.menuIndex = 0;
+        this.pageIndex = 0;
         this.actions.requestRender();
       }
       return;
     }
-    // done / error: the Follow-up / Done menu.
+    // Completed answers use direct gestures, leaving the card body available
+    // for paginated result text instead of a large two-row menu.
     switch (event.type) {
       case "scroll-up":
-        this.menuIndex = (this.menuIndex + MENU_ROWS - 1) % MENU_ROWS;
-        this.actions.requestRender();
+        if (this.pageIndex > 0) {
+          this.pageIndex--;
+          this.actions.requestRender();
+        }
         return;
       case "scroll-down":
-        this.menuIndex = (this.menuIndex + 1) % MENU_ROWS;
+        this.pageIndex++;
         this.actions.requestRender();
         return;
       case "click":
-        if (this.menuIndex === 0) {
-          this.callbacks.onFollowUp();
-        } else {
-          this.callbacks.onClose();
-        }
+        this.callbacks.onFollowUp();
         return;
       case "double-click":
         this.callbacks.onClose();
@@ -175,4 +185,18 @@ export class AssistantLayer implements Layer {
   onRemoved(): void {
     this.callbacks.onRemoved?.();
   }
+}
+
+/** Bound plain result rendering to three five-line pages. */
+function boundedResultLines(
+  font: ReturnType<typeof getDefaultSmallFont>,
+  text: string,
+  width: number,
+): string[] {
+  const maximumLines = RESULT_LINES_PER_PAGE * MAX_RESULT_PAGES;
+  const wrapped = wrapText(font, text, width);
+  if (wrapped.length <= maximumLines) return wrapped;
+  const lines = wrapped.slice(0, maximumLines);
+  lines[lines.length - 1] = truncateText(font, `${lines[lines.length - 1]}...`, width);
+  return lines;
 }

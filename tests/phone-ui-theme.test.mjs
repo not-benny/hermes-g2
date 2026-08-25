@@ -146,7 +146,7 @@ test("Settings and captions adopt semantics without losing current behavior", ()
     "onHealthProfileTap",
     "onApiKeysTap",
     "onCaptionSettingsTap",
-    "Live captions &amp; translation",
+    "Conversate &amp; captions",
     "uiFontItems",
   ]) {
     assert.ok(settings.includes(value), `Settings lost ${value}`);
@@ -157,7 +157,8 @@ test("Settings and captions adopt semantics without losing current behavior", ()
   for (const value of [
     "screen-content",
     "Privacy &amp; processing",
-    "Captions remain in memory only",
+    "Conversation text remains in memory only",
+    "onProviderTap",
     "onBackTap",
     "onSourceTap",
     "onTargetTap",
@@ -177,7 +178,7 @@ test("credential surfaces remain masked, replace-only, and explicitly clearable"
   const credentials = read("app/phone-ui/api-keys-page.xml");
   assert.match(credentials, /class="surface-card m-t-20"/);
   assert.equal((credentials.match(/secure="true"/g) ?? []).length, 7);
-  assert.equal((credentials.match(/class="-danger m-t-8"/g) ?? []).length, 11);
+  assert.equal((credentials.match(/class="-danger m-t-8"/g) ?? []).length, 9);
   for (const [hint, binding] of [
     ["Bridge token", "onBridgeTokenTextChange"],
     ["Anthropic API key", "onAnthropicTextChange"],
@@ -200,8 +201,6 @@ test("credential surfaces remain masked, replace-only, and explicitly clearable"
     "onClearElevenLabsTap",
     "onClearSonioxTap",
     "onClearMapboxTap",
-    "onClearNightscoutTap",
-    "onClearRoamTap",
     "onClearEvenTap",
     "onClearTerminalTap",
     "onSaveTap",
@@ -223,7 +222,7 @@ test("installed-app lists keep notification triage behavior and semantic rows", 
     "onResetPrioritiesTap",
     "tierLabel",
     "onTierTap",
-    "onNotificationAppTap",
+    "onToggleTap",
     "onBackTap",
   ]) {
     assert.ok(notifications.includes(value), `notification list lost ${value}`);

@@ -69,10 +69,12 @@ and evidence limits below remain in force with the corrected visible viewport.
 - Pixel zero is the transparent key on keyed shell surfaces; intentional black
   uses value one (`app/ui/shell/geometry.ts:16-21`). Designs must not depend on
   subtle adjacent shades.
-- The standard shell reserves a **72 px sidebar** and **28 px top bar**. Its
-  logical app viewport is 568×260, but clipping that viewport to the centred
-  **576 px wearer-visible raster** leaves **536×260** visible; a full-height
-  window has **536×452** visible. The standard 288 px band can be moved
+- The standard shell reserves a **72 px sidebar** and **56 px two-row HUD**. Its
+  logical app viewport is 568×232, but clipping that viewport to the centred
+  **576 px wearer-visible raster** leaves **536×232** visible; a full-height
+  window has **536×424** visible. Tabs scroll in the sidebar's optically useful
+  x=36..71 column; x=0..35 is retained only to keep app geometry stable. The
+  standard 288 px band can be moved
   vertically by the wearer (`app/ui/shell/geometry.ts`).
 - Delta transport aligns changed rectangles to four horizontal pixels and two
   rows. Full-screen changes fall back to a full update, while separated local

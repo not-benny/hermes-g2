@@ -72,6 +72,15 @@
                 <Label col="0" text="Voice control" class="control-row-label" />
                 <Switch col="1" checked="{{ voiceControlChecked }}" accessibilityLabel="Voice control" />
             </GridLayout>
+            <GridLayout columns="*,auto" class="control-row">
+                <StackLayout col="0">
+                    <Label text="Send to assistant without confirming" class="control-row-label" textWrap="true" />
+                    <Label text="When enabled, a finished assistant transcript sends automatically. App dictation still requires review."
+                           class="supporting-text m-t-4" textWrap="true" />
+                </StackLayout>
+                <Switch col="1" checked="{{ assistantSkipConfirmationChecked }}"
+                        accessibilityLabel="Send to assistant without confirming" />
+            </GridLayout>
             <Button text="{{ voiceProviderLabel }}" tap="{{ onVoiceProviderTap }}" class="m-t-8" />
             <Button text="{{ wakeWordActionLabel }}" tap="{{ onWakeWordActionTap }}" class="m-t-8" />
             <GridLayout columns="*,auto" class="control-row">

@@ -56,3 +56,43 @@ test("group-summary and empty notifications are filtered from the mirrored list"
   assert.match(service, /Notification\.EXTRA_BIG_TEXT/);
   assert.match(service, /value\.toString\(\)\.trim\(\)\.length\(\) > 0/);
 });
+
+test("Codex notification mirroring admits only a metadata-authenticated final turn", () => {
+  const service = read(
+    "App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawMediaNotificationListenerService.java",
+  );
+  assert.match(service, /OPENAI_PACKAGE = "com\.openai\.chatgpt"/);
+  assert.match(service, /CODEX_CHANNEL_PREFIX = "codex"/);
+  assert.match(service, /CODEX_FINAL_CHANNEL = "codex"/);
+
+  const classifier = service.slice(
+    service.indexOf("private static boolean isCodexChannel"),
+    service.indexOf("private static boolean shouldShowNotificationIcon"),
+  );
+  assert.match(classifier, /channelId\.startsWith\(CODEX_CHANNEL_PREFIX\)/);
+  assert.match(classifier, /isUnclassifiableOpenAiNotification/);
+  assert.match(classifier, /Build\.VERSION\.SDK_INT < 26/);
+  assert.match(classifier, /OPENAI_PACKAGE\.equals\(statusBarNotification\.getPackageName\(\)\)/);
+  assert.match(classifier, /CODEX_FINAL_CHANNEL\.equals\(channelId\)/);
+  assert.match(classifier, /statusBarNotification\.isClearable\(\)/);
+  for (const flag of ["FLAG_AUTO_CANCEL", "FLAG_ONGOING_EVENT", "FLAG_NO_CLEAR", "FLAG_FOREGROUND_SERVICE", "FLAG_GROUP_SUMMARY"]) {
+    assert.match(classifier, new RegExp(`Notification\\.${flag}`), flag);
+  }
+  assert.doesNotMatch(classifier, /EXTRA_(?:TITLE|TEXT|BIG_TEXT)/, "lifecycle must never be inferred from content");
+
+  const mirrorCandidate = service.slice(
+    service.indexOf("private static boolean isNotificationMirrorCandidate"),
+    service.indexOf("private static boolean hasDisplayableContent"),
+  );
+  assert.match(mirrorCandidate, /isUnclassifiableOpenAiNotification\(statusBarNotification\)/);
+  assert.match(mirrorCandidate, /isCodexChannel\(statusBarNotification\) && !isCodexFinalResult\(statusBarNotification\)/);
+  assert.match(service, /if \(isCodexFinalResult\(statusBarNotification\)\) \{\s*return !alreadyActive;/);
+
+  // The app/channel classifier is a privacy prefilter. The user's selected-app
+  // setting remains a separate, authoritative gate after it.
+  const listFilter = service.slice(
+    service.indexOf("private static boolean shouldShowNotificationInList"),
+    service.indexOf("private static boolean isNotificationMirrorCandidate"),
+  );
+  assert.ok(listFilter.indexOf("isNotificationMirrorCandidate") < listFilter.indexOf("passesUserNotificationFilter"));
+});

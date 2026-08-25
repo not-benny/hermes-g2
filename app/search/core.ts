@@ -2,23 +2,19 @@ export const SEARCH_SOURCE_IDS = [
   "apps",
   "calendar",
   "files",
-  "hermes_sessions",
   "notifications",
   "media",
   "health",
-  "roam",
-  "terminal",
 ] as const;
 
 export type SearchSourceId = (typeof SEARCH_SOURCE_IDS)[number];
-export type SearchPrivacyClass = "public_metadata" | "private_content" | "restricted_health" | "terminal_content";
+export type SearchPrivacyClass = "public_metadata" | "private_content" | "restricted_health";
 
 export type SearchActionDescriptor =
   | { kind: "open_app"; appId: string }
   | { kind: "open_calendar_event"; eventId: number; startMs: number }
   | { kind: "open_notification"; notificationKey: string; postTime: number }
-  | { kind: "open_file"; path: string; rootPath: string; modifiedMs: number }
-  | { kind: "open_hermes_session"; sessionId: string; generation: number };
+  | { kind: "open_file"; path: string; rootPath: string; modifiedMs: number };
 
 export type SearchResult = {
   sourceId: SearchSourceId;
@@ -166,12 +162,6 @@ function parseAction(value: SearchActionDescriptor | undefined): SearchActionDes
       return typeof path === "string" && path.length > 0 && path.length <= 1000 &&
         typeof rootPath === "string" && rootPath.length > 0 && rootPath.length <= 1000 && Number.isFinite(modifiedMs)
         ? { kind, path, rootPath, modifiedMs } : null;
-    }
-    if (kind === "open_hermes_session") {
-      const sessionId = value.sessionId;
-      const generation = value.generation;
-      return typeof sessionId === "string" && sessionId.length > 0 && sessionId.length <= 160 && Number.isInteger(generation) && generation > 0
-        ? { kind, sessionId, generation } : null;
     }
   } catch {
     return null;

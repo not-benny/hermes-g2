@@ -990,6 +990,102 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         interruptibleSleep.interrupt();
     }
 
+    /**
+     * Replace every queued sound with a Clock-owned sequence. Clock alerts are
+     * the exclusive buzzer owner while active; replacement (rather than
+     * append) makes low/high boundaries and concurrent alarms deterministic.
+     */
+    public boolean playClockBuzzerSequence(
+            java.nio.ByteBuffer payload,
+            String campaignJson,
+            FaceclawClockBuzzerListener deliveryListener) {
+        synchronized (lock) {
+            if (!running || !sessionReady || !fixedLayoutCreated) {
+                logLine("skip Clock buzzer sequence; session not ready");
+                return false;
+            }
+            byte[] bytes = new byte[payload == null ? 0 : payload.remaining()];
+            if (payload != null) {
+                payload.get(bytes);
+            }
+            if (bytes.length < 3) {
+                logLine("skip Clock buzzer sequence; empty payload");
+                return false;
+            }
+            clearMessagesOfKindLocked("sound");
+            clearMessagesOfKindLocked("clock-sound");
+            OutboundMessage message = messageBuilder.imagePayload(
+                "clock-sound",
+                DASHBOARD_TILE,
+                nextMapSessionId(),
+                bytes,
+                "Clock buzzer sequence " + bytes.length + "B",
+                connectionOptions.sendImagesToLeft
+            );
+            final java.util.concurrent.atomic.AtomicBoolean receiptSent =
+                    new java.util.concurrent.atomic.AtomicBoolean(false);
+            Runnable rejected = () -> deliverClockBuzzerReceipt(
+                    deliveryListener, receiptSent, false);
+            message.onAck = () -> {
+                boolean persisted = FaceclawClockScheduler.recordCampaignAck(appContext, campaignJson);
+                if (!persisted) {
+                    logLine("Clock buzzer ACK could not persist campaign; stopping fail-closed");
+                    stopBuzzerUrgent();
+                }
+                deliverClockBuzzerReceipt(deliveryListener, receiptSent, persisted);
+            };
+            message.onTimeout = () -> {
+                logLine("Clock buzzer sequence ack timeout; dropped");
+                rejected.run();
+            };
+            message.onDiscard = rejected;
+            pendingMessages.addFirst(message);
+            logLine("queue " + message.label);
+        }
+        interruptibleSleep.interrupt();
+        return true;
+    }
+
+    private void deliverClockBuzzerReceipt(
+            FaceclawClockBuzzerListener listener,
+            java.util.concurrent.atomic.AtomicBoolean receiptSent,
+            boolean delivered) {
+        if (listener == null || !receiptSent.compareAndSet(false, true)) return;
+        try {
+            listener.onClockBuzzerResult(delivered);
+        } catch (Throwable error) {
+            logLine("Clock buzzer receipt callback failed: " + safeMessage(error));
+        }
+    }
+
+    /**
+     * Silence the PWM sequencer immediately. CFW mode 5 kind 2 stops its
+     * one-shot timer; clearing queued ordinary/Clock sounds first prevents an
+     * older cue from restarting after the stop lands.
+     */
+    public void stopBuzzerUrgent() {
+        synchronized (lock) {
+            clearMessagesOfKindLocked("sound");
+            clearMessagesOfKindLocked("clock-sound");
+            if (!running || !sessionReady || !fixedLayoutCreated) {
+                return;
+            }
+            byte[] stopPayload = new byte[] { 0x05, 0x02, 0x00 };
+            OutboundMessage message = messageBuilder.imagePayload(
+                "clock-sound",
+                DASHBOARD_TILE,
+                nextMapSessionId(),
+                stopPayload,
+                "Clock buzzer stop",
+                connectionOptions.sendImagesToLeft
+            );
+            message.onTimeout = () -> logLine("Clock buzzer stop ack timeout");
+            pendingMessages.addFirst(message);
+            logLine("queue Clock buzzer stop");
+        }
+        interruptibleSleep.interrupt();
+    }
+
     public boolean sendShutdown(int exitMode) {
         return sendShutdownInternal(exitMode, true);
     }
@@ -2987,6 +3083,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         while (iterator.hasNext()) {
             if (iterator.next() == message) {
                 iterator.remove();
+                if (message.onDiscard != null) message.onDiscard.run();
                 magicPool.release(message.sid, message.magic, message.label, "write failed");
                 return true;
             }
@@ -3660,6 +3757,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             OutboundMessage message = pendingIterator.next();
             if (kind.equals(message.kind)) {
                 pendingIterator.remove();
+                if (message.onDiscard != null) message.onDiscard.run();
                 discardPrewriteIfMatchesLocked(message);
                 if ("image".equals(kind)) {
                     discardImageUpdateStatsLocked(message.imageUpdateId, "pending messages cleared (" + kind + ")");
@@ -3672,6 +3770,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             OutboundMessage message = inFlightIterator.next();
             if (kind.equals(message.kind)) {
                 inFlightIterator.remove();
+                if (message.onDiscard != null) message.onDiscard.run();
                 if ("image".equals(kind)) {
                     discardImageUpdateStatsLocked(message.imageUpdateId, "inflight messages cleared (" + kind + ")");
                 }
@@ -3708,6 +3807,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 continue;
             }
             pendingIterator.remove();
+            if (message.onDiscard != null) message.onDiscard.run();
             discardPrewriteIfMatchesLocked(message);
             discardImageUpdateStatsLocked(
                 message.imageUpdateId,
@@ -3738,6 +3838,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private void clearPendingMessagesLocked(String reason) {
         while (!pendingMessages.isEmpty()) {
             var message = pendingMessages.removeFirst();
+            if (message.onDiscard != null) message.onDiscard.run();
             discardPrewriteIfMatchesLocked(message);
             discardImageUpdateStatsLocked(message.imageUpdateId, "pending messages cleared: " + reason);
             magicPool.release(message.sid, message.magic, message.label, "cleared pending: " + reason);
@@ -3747,6 +3848,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private void clearInFlightMessagesLocked(String reason) {
         while (!inFlightMessages.isEmpty()) {
             var message = inFlightMessages.removeFirst();
+            if (message.onDiscard != null) message.onDiscard.run();
             discardImageUpdateStatsLocked(message.imageUpdateId, "inflight messages cleared: " + reason);
             magicPool.release(message.sid, message.magic, message.label, "cleared inflight: " + reason);
         }
@@ -4068,7 +4170,11 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private void emitWearState(boolean wearing) {
         final FaceclawBleCommunicatorListener current = listener;
         if (current == null) return;
+        final long deliveryGeneration = currentGlassesConnectionGeneration();
         mainHandler.post(() -> {
+            if (deliveryGeneration != currentGlassesConnectionGeneration()) {
+                return;
+            }
             try {
                 current.onWearState(wearing);
             } catch (Throwable t) {

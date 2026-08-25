@@ -16,6 +16,10 @@ const ICON_CACHE_MS = 60_000;
 
 let cachedIcons: GrayImage[] = [];
 let cachedAtMs = 0;
+/** Largest icon count requested by the native fetch that populated the cache. */
+let cachedRequestLimit = 0;
+/** True when native returned fewer icons than requested, proving the cache contains every renderable source app. */
+let cachedIconsExhaustive = false;
 const keyedIconCache = new Map<string, { icon: GrayImage | null; atMs: number }>();
 const KEYED_ICON_CACHE_MAX = 128;
 let notificationListenerProxy: any | null = null;
@@ -89,28 +93,34 @@ export type NotificationIconsResult = {
  * on what is in the tray.
  */
 export function readActiveNotificationIcons(maxIcons: number, allowStale: boolean): NotificationIconsResult {
-  if (!global.isAndroid || maxIcons <= 0) return { icons: [], stale: false };
+  const limit = Number.isFinite(maxIcons) ? Math.max(0, Math.floor(maxIcons)) : 0;
+  if (!global.isAndroid || limit <= 0) return { icons: [], stale: false };
 
   const now = Date.now();
-  if (cachedAtMs > 0 && now - cachedAtMs < ICON_CACHE_MS) {
+  const cacheIsFresh = cachedAtMs > 0 && now - cachedAtMs < ICON_CACHE_MS;
+  // A fetch performed for a narrow HUD cannot answer a later wider layout
+  // unless native proved it had already exhausted all renderable app groups.
+  // Conversely, always slice a wider cache for a narrower caller so cached
+  // icons can never overflow the newly available tray geometry.
+  if (cacheIsFresh && (cachedIconsExhaustive || cachedRequestLimit >= limit)) {
     logCurrent("notification icons served from cache");
-    return { icons: cachedIcons.map(icon => icon.clone()), stale: false };
+    return { icons: cachedIcons.slice(0, limit).map(icon => icon.clone()), stale: false };
   }
   if (allowStale) {
     logCurrent("notification icons served stale");
-    return { icons: cachedIcons.map(icon => icon.clone()), stale: true };
+    return { icons: cachedIcons.slice(0, limit).map(icon => icon.clone()), stale: true };
   }
 
   const bytes = spanCurrent("fetch-notification-icons", () =>
     toUint8Array(
       com.faceclaw.app.FaceclawMediaNotificationListenerService.getActiveNotificationIconGrays(
         ICON_SIZE,
-        maxIcons,
+        limit,
       ),
     ),
   );
   const iconByteLength = ICON_SIZE * ICON_SIZE;
-  const iconCount = Math.floor(bytes.length / iconByteLength);
+  const iconCount = Math.min(limit, Math.floor(bytes.length / iconByteLength));
   const icons: GrayImage[] = [];
   for (let index = 0; index < iconCount; index++) {
     const icon = new GrayImage(ICON_SIZE, ICON_SIZE, 0);
@@ -120,6 +130,8 @@ export function readActiveNotificationIcons(maxIcons: number, allowStale: boolea
 
   cachedIcons = icons;
   cachedAtMs = now;
+  cachedRequestLimit = limit;
+  cachedIconsExhaustive = iconCount < limit;
   return { icons: icons.map(icon => icon.clone()), stale: false };
 }
 

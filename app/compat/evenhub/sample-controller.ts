@@ -1,3 +1,4 @@
+import type { DynamicAppComponent, DynamicAppState } from "../../assistant/dynamic-app";
 import type { RenderViewState } from "../../assistant/render-view";
 import { BUNDLED_COUNTER_PACKAGE, type EvenHubView } from "./protocol";
 import { EvenHubCompatRuntime } from "./runtime";
@@ -50,6 +51,52 @@ export class EvenHubCounterController {
       actions: this.view.actions.map((action) => ({ ...action })),
       selectedAction: this.selectedAction,
       expiresAtMs: Number.MAX_SAFE_INTEGER,
+    };
+  }
+
+  /**
+   * Project the reviewed local package onto the same deterministic component
+   * compositor used by dynamic dashboards. Ownership and lifecycle stay local:
+   * the counter remains available offline, has no assistant turn/TTL, and keeps
+   * its namespaced durable state behind the EvenHub compatibility boundary.
+   */
+  dashboardState(): DynamicAppState {
+    const state = this.state();
+    const components: DynamicAppComponent[] = state.blocks.map((block, index) => {
+      const id = `counter-block-${index}`;
+      if (block.type === "text") {
+        return block.emphasis === "strong"
+          ? { id, type: "heading", text: block.text }
+          : { id, type: "text", text: block.text };
+      }
+      if (block.type === "key_value") {
+        return { id, type: "status", label: block.label, value: block.value, tone: "neutral" };
+      }
+      if (block.type === "progress") {
+        return { id, type: "progress", label: block.label, value: block.value };
+      }
+      return { id, type: "divider" };
+    });
+    if (state.actions.length) components.push({ id: "counter-actions-divider", type: "divider" });
+    for (const action of state.actions) {
+      components.push({
+        id: `counter-action-${action.id}`,
+        type: "button",
+        label: action.label,
+        action_handle: `local_counter_${action.id}_action`,
+      });
+    }
+    return {
+      viewId: state.viewId,
+      revision: state.revision,
+      ownerKey: state.ownerKey,
+      title: state.title,
+      state: "ready",
+      privacy: "private",
+      components,
+      selectedAction: state.selectedAction,
+      scrollOffset: 0,
+      expiresAtMs: state.expiresAtMs,
     };
   }
 

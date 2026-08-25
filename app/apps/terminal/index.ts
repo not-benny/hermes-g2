@@ -4,6 +4,9 @@ const terminalApp: AppDefinition = {
   appId: "terminal",
   title: "Terminal",
   icon: "terminal",
+  // Retained as dormant source for rollback/security tests, but intentionally
+  // absent from launcher, app-search, and assistant app-launch surfaces.
+  showInLauncher: false,
   launch: (ctx) =>
     launchWorkerAppWindow(ctx, {
       createWorker: () => new Worker("./terminal-app.worker"),

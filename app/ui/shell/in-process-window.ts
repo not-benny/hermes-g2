@@ -30,7 +30,7 @@ export type InProcessWindowOptions = {
   heightMode?: WindowHeightMode;
   /**
    * App-specific entries for the window's long-press menu, listed ahead of
-   * the default Voice input / Close window entries. Called at open time, so
+   * the default Voice input / Window management / Close window entries. Called at open time, so
    * the items can reflect current app state.
    */
   menuItems?: () => MenuItem[];
@@ -161,13 +161,14 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
         shell.startVoiceInput();
       },
     });
-    // Pick this tab up for reordering; only offered when it can actually move.
-    if (shell.canReorder(options.windowId)) {
+    // Enter the shared Window Management mode; it can close/hide the selected
+    // card and offers reorder only after a second long-press on a movable tab.
+    if (options.closeable) {
       items.push({
-        label: "Reorder",
+        label: "Window management",
         onSelect: (ctx) => {
           ctx.stack.pop();
-          shell.beginReorderFromMenu(options.windowId);
+          shell.beginWindowManagementFromMenu(options.windowId);
         },
       });
     }

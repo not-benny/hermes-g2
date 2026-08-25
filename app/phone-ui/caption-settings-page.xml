@@ -1,12 +1,15 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" loaded="loaded">
-    <ActionBar title="Live captions">
+    <ActionBar title="Conversate">
         <NavigationButton text="Back" tap="{{ onBackTap }}" />
     </ActionBar>
     <ScrollView>
         <StackLayout class="screen-content phone-content">
             <Label text="Privacy &amp; processing" class="section-label" />
             <Label text="{{ disclosure }}" textWrap="true" class="supporting-text m-t-4" />
-            <Label text="Captions remain in memory only and clear when the window closes. Translation never hides source text when it is late or unavailable."
+            <Button text="Transcription provider: {{ provider }}" tap="{{ onProviderTap }}" class="-primary m-t-8" />
+            <Label text="On-device is the default. A configured cloud provider is used only after you explicitly select it; Hermes never silently sends the same audio to another provider."
+                   textWrap="true" class="supporting-text m-t-8" />
+            <Label text="Conversation text remains in memory only and clears when the window closes. Conversate never retains raw audio. Translation never hides source text when it is late or unavailable."
                    textWrap="true" class="supporting-text m-t-8" />
 
             <Label text="Languages" class="section-label m-t-20" />

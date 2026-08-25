@@ -57,18 +57,18 @@ The operator must mark each checkpoint below `GO: <record ID>` immediately befor
 acting. If the record does not name the exact action and data scope, stop and
 mark the affected rows BLOCKED; do not infer permission from a broader GO.
 
-- **G0 — prerequisites and build:** after only passive collection of the reviewed
+- **G0 - prerequisites and build:** after only passive collection of the reviewed
   commit, Node version, package version, and tool availability; before `npm ci`,
   tests, typecheck, Android build, or APK hashing. This is build-only scope with
   no device discovery or install.
-- **G0R — artifact re-confirmation:** after the build/hash/package is recorded and
+- **G0R - artifact re-confirmation:** after the build/hash/package is recorded and
   before any device action; authorizer re-signs the exact artifact.
-- **G1 — phone/app setup:** before ADB install, launch, logcat, or screenshots.
-- **G2 — wakeword/mic:** before changing voice settings or speaking a wakeword.
-- **G3 — calendar:** before calendar permission, fixture reads, or provider calls.
-- **G4 — Terminal/g2mirror:** before connecting/querying g2mirror, foregrounding a
+- **G1 - phone/app setup:** before ADB install, launch, logcat, or screenshots.
+- **G2 - wakeword/mic:** before changing voice settings or speaking a wakeword.
+- **G3 - calendar:** before calendar permission, fixture reads, or provider calls.
+- **G4 - Terminal/g2mirror:** before connecting/querying g2mirror, foregrounding a
   disposable view, sending input, or reading a screen.
-- **G5 — evidence:** before capturing screenshots, through-lens photos, or logs;
+- **G5 - evidence:** before capturing screenshots, through-lens photos, or logs;
   evidence permission does not authorize additional actions.
 
 ## 2. Prerequisites and version record
@@ -148,7 +148,7 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 
 ### 4.1 Build, setup, and calendar
 
-#### DA-01 — direct calendar happy path
+#### DA-01 - direct calendar happy path
 
 - Checkpoint: G1, then G3, then G5 for evidence.
 - Setup: authorized debug APK installed; voice master/action enabled; disposable
@@ -164,15 +164,16 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
   tool result; the response contains exactly, in chronological order,
   `earliest` then `later`, with no unrelated event or field. Empty success is
   not an acceptable happy-path result.
-- Expected phone/lens UI: `Thinking...`, canonical `→ calendar.list_events`, a
-  concise answer, then Follow-up/Done; no sensitive fixture fields appear.
+- Expected phone/lens UI: no reasoning, draft, or tool-name frame while the
+  turn runs; then one compact final answer card with direct follow-up/close
+  hints. No sensitive fixture fields appear.
 - Safe data: synthetic titles only, no attendees/location/notes.
 - Evidence: redacted tool/provider trace, phone screenshot, through-lens photo,
   and foreground proof.
 - Verdict: PASS only when all expected request, UI, ordering, and redaction
   evidence is present; otherwise FAIL with observed details.
 
-#### DA-02 — empty calendar fixture
+#### DA-02 - empty calendar fixture
 
 - Checkpoint: G3 before reading the empty disposable fixture; G5 before evidence.
 - Setup: authorized fixture is empty for the next 24 hours.
@@ -186,7 +187,7 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 - Evidence: redacted trace and screenshots proving the fixture/window.
 - Verdict: PASS/FAIL per shared record.
 
-#### DA-03 — calendar permission denied/error
+#### DA-03 - calendar permission denied/error
 
 - Checkpoint: G3 explicitly names permission revocation and G5 evidence.
 - Setup: use only the disposable fixture; deny or remove calendar permission as
@@ -209,7 +210,7 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 - Evidence: redacted error/tool trace and authorized screenshot.
 - Verdict: PASS/FAIL per shared record.
 
-#### DA-04 — calendar bounds and ordering
+#### DA-04 - calendar bounds and ordering
 
 - Checkpoint: G3 and G5.
 - Setup: create one disposable synthetic fixture relative to the recorded
@@ -241,29 +242,27 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
   boundary case.
 - Verdict: PASS/FAIL per shared record.
 
-#### DA-05 — direct assistant turn/tool UI and cancellation
+#### DA-05 - direct assistant turn privacy and final-result UI
 
 - Checkpoint: G3 for the authorized calendar call, G5 for UI evidence.
 - Setup: authorized direct provider and disposable fixture; no unrelated tools.
 - Exact action: type `Show my upcoming calendar events within 24 hours`, permit
-  exactly `calendar.list_events({"within_hours":24,"max_events":10})`. In a
-  separately authorized cancellation run, while the assistant shows
-  `Thinking...`, perform one glasses double-click; this is the implemented
-  cancel gesture (there is no tappable Cancel control). Do not claim a
-  tool-iteration or timeout boundary from this row.
-- Expected request/response: the authorized calendar call completes, or the
-  second run cancels the in-flight request without a hanging continuation; tool
-  activity uses the canonical name. This row does not verify the internal turn
-  cap.
-- Expected phone/lens UI: `Thinking...`, `→ <tool>`, streamed tail, error when
-  applicable, then Follow-up/Done; no clipped or duplicated stale response.
+  exactly `calendar.list_events({"within_hours":24,"max_events":10})`, and do
+  not issue another input until the terminal result. Do not claim a hidden
+  tool-iteration or cancellation boundary from this row.
+- Expected request/response: the authorized calendar call completes and the
+  authoritative terminal result is returned. This row does not verify the
+  internal turn cap.
+- Expected phone/lens UI: the underlying view remains free of thinking text,
+  draft deltas, and tool labels; completion wakes if needed and shows exactly
+  one compact final card with no clipped or duplicated stale response.
 - Safe data: synthetic prompt and calendar result.
 - Evidence: bounded trace with timestamps and authorized UI captures.
 - Verdict: PASS/FAIL per shared record.
 
 ### 4.2 Wakeword and voice policy
 
-#### VW-01 — wakeword, voice master/action enabled, confirmation OFF
+#### VW-01 - wakeword, voice master/action enabled, confirmation OFF
 
 - Checkpoint: G2 before changing settings or speaking; G3 if the utterance is a
   calendar request; G5 for recording evidence.
@@ -284,7 +283,7 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
 - Evidence: authorized phone/lens evidence and redacted timestamps.
 - Verdict: PASS/FAIL per shared record.
 
-#### VW-02 — wakeword, skip-confirmation ON auto-send
+#### VW-02 - wakeword, skip-confirmation ON auto-send
 
 - Checkpoint: G2 explicitly names auto-send; G3/provider scope if applicable; G5.
 - Setup: voice master/action enabled and skip-confirmation ON.
@@ -292,13 +291,13 @@ authorization, hardware, service, or evidence prerequisite is unavailable.
   `Show my HERMES_G2_QA_<TRACE> calendar events today`; do not tap Send.
 - Expected request/response: capture auto-sends after wakeword without a manual
   confirmation; request stays within the GO data scope.
-- Expected phone/lens UI: wake/capture, `Thinking...`, tool status if used, and
-  final response; no duplicate submission.
+- Expected phone/lens UI: wake/capture, no intermediate thinking/tool detail,
+  then one compact final response; no duplicate submission.
 - Safe data: synthetic utterance only.
 - Evidence: redacted request timing and authorized UI evidence.
 - Verdict: PASS/FAIL per shared record.
 
-#### VW-03 — voice master/action OFF ignored behavior
+#### VW-03 - voice master/action OFF ignored behavior
 
 - Checkpoint: G2 explicitly names the setting changes and wakeword attempt; G5.
 - Setup: voice master OFF, then separately voice action OFF as authorized; no
@@ -330,7 +329,7 @@ window. Do not claim `list_sessions` selects a target or exposes a session ID.
 The only permitted input is exactly
 `printf '%s\n' 'HERMES_G2_QA_<TRACE>'`.
 
-#### TM-01 — background `list_sessions`
+#### TM-01 - background `list_sessions`
 
 - Checkpoint: G4 before g2mirror connection/query and G5 for evidence.
 - Setup: G4 authorizes isolation/preparation; record that the named disposable
@@ -348,7 +347,7 @@ The only permitted input is exactly
 - Verdict: PASS/FAIL; a timeout at 15 seconds is FAIL unless GO explicitly covers
   a negative timeout case.
 
-#### TM-02 — background `send_input`
+#### TM-02 - background `send_input`
 
 - Checkpoint: G4 explicitly authorizes isolation/preparation and exactly the
   printf command; G5.
@@ -369,7 +368,7 @@ The only permitted input is exactly
 - Verdict: PASS/FAIL; timeout at 15 seconds is FAIL except authorized negative
   timeout coverage.
 
-#### TM-03 — background `read_screen`
+#### TM-03 - background `read_screen`
 
 - Checkpoint: G4 explicitly authorizes isolation/preparation and G5.
 - Setup: same proven single-host/single-session isolation and background target
@@ -390,7 +389,7 @@ The only permitted input is exactly
 - Verdict: PASS/FAIL; timeout at 15 seconds is FAIL except authorized negative
   timeout coverage.
 
-#### TM-04 — no active view errors for send/read
+#### TM-04 - no active view errors for send/read
 
 - Checkpoint: G4 explicitly authorizes the no-active-view setup; G5.
 - Setup: authorized g2mirror has no active, last-active, or sole view; do not
@@ -426,7 +425,7 @@ completed authorized rows; never extrapolate their result to another row.
 A blocked result must include:
 
 ```text
-BLOCKED — row:
+BLOCKED - row:
 Missing authorization/prerequisite:
 Last permitted action and timestamp:
 Exact unblock condition:

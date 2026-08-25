@@ -1,17 +1,20 @@
-<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" unloaded="unloaded">
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" loaded="loaded" unloaded="unloaded">
     <ActionBar title="Notification Apps" />
     <GridLayout rows="auto,auto,auto,auto,*,auto" class="screen-content">
         <Label row="0" text="{{ status }}" textWrap="true" class="status-banner status-info" />
         <Label row="1" text="Precedence: sender → channel → category → app → Default. Urgent can bypass quiet hours; Digest and capped bursts wait locally." textWrap="true" class="supporting-text m-t-8" />
         <Button row="2" text="Refresh installed apps" tap="{{ onRefreshTap }}" class="-secondary m-t-8" />
         <Button row="3" text="Reset app priorities" tap="{{ onResetPrioritiesTap }}" class="-danger m-t-8" />
-        <ListView row="4" items="{{ apps }}" itemTap="{{ onNotificationAppTap }}" class="m-t-12">
+        <ListView row="4" items="{{ apps }}" class="m-t-12">
             <ListView.itemTemplate>
-                <GridLayout columns="auto,*,auto" rows="auto,auto" class="list-row">
-                    <Label col="0" rowSpan="2" text="{{ enabledGlyph }}" class="m-r-12" />
+                <GridLayout columns="auto,*" rows="auto,auto,auto" class="list-row">
+                    <Label col="0" rowSpan="3" text="{{ enabledGlyph }}" class="m-r-12" />
                     <Label col="1" row="0" text="{{ appName }}" class="list-row-title" />
                     <Label col="1" row="1" text="{{ packageName }}" class="supporting-text" />
-                    <Button col="2" rowSpan="2" text="{{ tierLabel }}" tap="{{ onTierTap }}" class="-secondary" />
+                    <GridLayout col="1" row="2" columns="*,*" class="m-t-4">
+                        <Button col="0" text="{{ toggleLabel }}" tap="{{ onToggleTap }}" accessibilityLabel="{{ toggleAccessibilityLabel }}" class="-secondary" />
+                        <Button col="1" text="{{ tierLabel }}" tap="{{ onTierTap }}" class="-secondary" />
+                    </GridLayout>
                 </GridLayout>
             </ListView.itemTemplate>
         </ListView>

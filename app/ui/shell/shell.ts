@@ -1,7 +1,9 @@
 import { G2_LENS_HEIGHT, G2_LENS_WIDTH, GrayImage } from "../../graphics/image";
-import { getDefaultSmallFont } from "../../graphics/bdffont";
+import { getDefaultMediumFont, getDefaultSmallFont } from "../../graphics/bdffont";
+import { truncateText, wrapText } from "../../graphics/textwrap";
 import { EvenAIStatus, EventSourceType, OsEventTypeList } from "../../g2/events";
 import type { RawInputEvent } from "../../native/faceclaw-communicator";
+import type { AndroidNotification } from "../../native/notification-icons";
 import { DashboardInputEvent, Layer, LayerActions, LayerContext, LayerStack, noopLayerActions } from "../layers";
 import { MenuLayer, type MenuItem } from "../menu";
 import { VoiceInputLayer, type VoiceSendTarget } from "./voice-input";
@@ -32,17 +34,32 @@ import {
 } from "../dashboard-settings";
 import { ShellChromeLayer, sidebarLeftColumnUsed, type ShellChromeState, type ShellChromeWindow } from "./chrome-layer";
 import { EdgeBounce, EdgeWrapScroller } from "../edge-scroll";
+import { GESTURE_CLICK, GESTURE_DOUBLE_CLICK } from "../gestures";
 import { ShellModalLayer } from "./modal-layer";
 import { ToolDebugMenuLayer } from "./tool-debug-layer";
 import { playEventBeep } from "../event-beeps";
+import { isSuccessfulFrameOutcome } from "../../g2/display-frame-outcomes";
+import {
+  AssistantResultWakeOwnership,
+  prepareAtomicAssistantResultLayer,
+  type AssistantResultWakeLease,
+} from "./assistant-result-wake";
+import { awaitWithAbortSignal, isStrictLayerOwner, startDetachedCleanup } from "./strict-layer-owner";
 import { MusicCardLayer } from "./music-card";
+import { ClockAlertLayer, type ClockAlertVisualState } from "./clock-alert-layer";
+import {
+  nextWindowManagementIndex,
+  selectionIndexAfterManagementRemoval,
+} from "./window-management-selection";
 import { toolRegistry } from "../../assistant/tool-registry";
 import type { RenderViewState } from "../../assistant/render-view";
 import type { DynamicAppState } from "../../assistant/dynamic-app";
 import { ShellRemoteViewLayer } from "./render-view-layer";
 import { ShellDynamicAppLayer } from "./dynamic-app-layer";
 import { shouldRestoreDisplacedAssistant } from "./dynamic-app-rollback";
+import { formatDirectNotificationHeaderParts } from "../../assistant/direct-notification-format";
 import {
+  assistantCardRect,
   MIN_WINDOW_HEIGHT,
   minWindowTop,
   SIDEBAR_COLUMN_WIDTH,
@@ -124,18 +141,65 @@ export type ShellConfig = {
   waitForShellRenderIdle?: () => Promise<void>;
   /** True only while a real glasses transport/session can accept frames. */
   isDisplayAvailable?: () => boolean;
+  /** True only when no opaque device-owned surface hides assistant output. */
+  isAssistantResultPresentationAllowed?: () => boolean;
+  /** Direct Hermes notifications additionally require a confirmed current wear snapshot. */
+  isDirectAssistantResultPresentationAllowed?: () => boolean;
+  /** Wake and await the real display lifecycle before presenting a completed assistant turn. */
+  prepareAssistantResultDisplay?: (isAllowed?: () => boolean) => Promise<boolean>;
+  /** Sleep-origin in-turn results keep their wake provisional through strict frame ACK. */
+  prepareIsolatedAssistantResultDisplay?: (
+    isAllowed: () => boolean,
+  ) => Promise<AssistantResultDisplayPreparation>;
+  /** Direct results retain provisional wake ownership until their own frame ACK. */
+  prepareDirectAssistantResultDisplay?: (
+    isAllowed: () => boolean,
+  ) => Promise<AssistantResultDisplayPreparation>;
   /** Screen on/off changed: the controller blanks/unblanks the compositor. */
   onScreenStateChanged: (on: boolean) => void;
+  /** Hide retained app surfaces while a sleeping long-press is assistant-only. */
+  setAssistantOnlyPresentation?: (active: boolean) => void;
+  /** A foreground shell blocker closed; retry the phone-owned direct inbox. */
+  onDirectNotificationOpportunity?: () => void;
   /** Window registered/removed or foreground changed (persists the open-app list). */
   onWindowsChanged?: () => void;
   /** The Health side card was hidden/shown (persists the choice). */
   onHealthHiddenChanged?: (hidden: boolean) => void;
 };
 
+export type AssistantResultDisplayPreparation = {
+  ready: boolean;
+  commit: () => void;
+  rollback: () => void;
+};
+
+export type DirectAssistantResultDeliveryReceipt = {
+  acknowledged: true;
+  /** False when authorization ended only after the physical frame ACK. */
+  successAllowed: boolean;
+};
+
+export type DirectAssistantResultCloseReason = "dismissed" | "sleep" | "preempted";
+
+export type DirectAssistantResultPresentation = {
+  receivedAtMs: number;
+  position: number;
+  total: number;
+  /** Securely tombstone the FIFO record before the provisional wake commits. */
+  onStrictFrameAcknowledged: () => void;
+  onClosed: (reason: DirectAssistantResultCloseReason) => void;
+};
+
 /** Which surfaces need re-rendering after an input event. */
 export type ShellInputOutcome = { shell: boolean; window: boolean };
 
 type FocusKind = "sidebar" | "window";
+
+export type WindowFocusClaim = {
+  windowId: string;
+  epoch: number;
+  selectionRevision: number;
+};
 
 const noopActions: LayerActions = noopLayerActions;
 
@@ -164,48 +228,96 @@ class ShellOverlayMenuLayer extends MenuLayer {
   }
 }
 
-/** How long a show_alert popup stays before auto-dismissing. */
+/** How long an ordinary show_alert popup stays before auto-dismissing. */
 const ALERT_DISMISS_MS = 6000;
-const ALERT_X = 40;
-const ALERT_W = G2_LENS_WIDTH - 80;
-const ALERT_Y = 96;
-const ALERT_H = 96;
+const ALERT_PADDING = 16;
+const ALERT_LINE_HEIGHT = 16;
+const ALERT_MAX_BODY_LINES = 4;
+const ALERT_BASE_HEIGHT = 64;
+type ShellAlertLifetime = "transient" | "until-dismiss-or-sleep";
+type ShellAlertOptions = {
+  header?: string;
+  /** Drawn at the right edge so FIFO position survives leading truncation. */
+  headerTrailing?: string;
+  /** Completed Hermes replies may start reviewed voice follow-up on one click. */
+  onReply?: () => void;
+  onRemoved?: (reason: DirectAssistantResultCloseReason) => void;
+};
 
 /**
- * A brief text popup on the shell surface (the assistant's show_alert tool and
- * other short notices). Auto-dismisses after a few seconds; a click or
- * double-click dismisses it early.
+ * A compact text popup on the shell surface. Ordinary show_alert notices are
+ * transient; completed assistant results opt into persistence so they remain
+ * readable until the user dismisses them or the global screen timeout sleeps
+ * the display.
  */
 class ShellAlertLayer implements Layer {
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private removed = false;
+  private closeReason: DirectAssistantResultCloseReason = "preempted";
 
-  constructor(private readonly text: string, private readonly onDismiss: () => void) {
+  constructor(
+    private readonly text: string,
+    private readonly onDismiss: () => void,
+    private readonly lifetime: ShellAlertLifetime = "transient",
+    private readonly options: ShellAlertOptions = {},
+  ) {}
+
+  /** Arm an ordinary notice only after its candidate frame is acknowledged. */
+  armTransientDismissTimer(): void {
+    if (this.lifetime !== "transient" || this.timer !== null) return;
     this.timer = setTimeout(() => {
       this.timer = null;
       this.onDismiss();
     }, ALERT_DISMISS_MS);
   }
 
-  paint(_ctx: LayerContext, paintBelow: () => GrayImage): GrayImage {
+  markCloseReason(reason: DirectAssistantResultCloseReason): void {
+    this.closeReason = reason;
+  }
+
+  paint(ctx: LayerContext, paintBelow: () => GrayImage): GrayImage {
     const image = paintBelow();
-    const font = getDefaultSmallFont();
-    // Positioned within the min-height window band, like the other shell overlays.
-    const alertY = minWindowTop() + ALERT_Y;
-    image.fillRoundedRect(ALERT_X, alertY, ALERT_W, ALERT_H, 1, 10);
-    image.drawRoundedRect(ALERT_X, alertY, ALERT_W, ALERT_H, 90, 10);
-    image.drawText(font, ALERT_X + 16, alertY + 12, "Assistant", 200);
-    image.drawTextWrapped({
-      font,
-      x: ALERT_X + 16,
-      y: alertY + 34,
-      width: ALERT_W - 32,
-      text: this.text,
-      value: 235,
-    });
+    const small = getDefaultSmallFont();
+    const medium = getDefaultMediumFont();
+    const sizing = assistantCardRect(ctx.stack.getBaseSize(), ALERT_BASE_HEIGHT + ALERT_LINE_HEIGHT);
+    const contentWidth = sizing.width - ALERT_PADDING * 2;
+    const wrapped = wrapText(small, this.text, contentWidth);
+    const lines = wrapped.slice(0, ALERT_MAX_BODY_LINES);
+    if (wrapped.length > ALERT_MAX_BODY_LINES && lines.length) {
+      lines[lines.length - 1] = truncateText(small, `${lines[lines.length - 1]}...`, contentWidth);
+    }
+    const rect = assistantCardRect(
+      ctx.stack.getBaseSize(),
+      ALERT_BASE_HEIGHT + Math.max(1, lines.length) * ALERT_LINE_HEIGHT,
+    );
+    const left = rect.x + ALERT_PADDING;
+    image.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, 12);
+    image.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 100, 12);
+    const headerTrailing = this.options.headerTrailing ?? "";
+    const trailingWidth = headerTrailing ? medium.measureText(headerTrailing) : 0;
+    const leadingWidth = Math.max(1, contentWidth - trailingWidth - (headerTrailing ? 12 : 0));
+    image.drawText(medium, left, rect.y + 12,
+      truncateText(medium, this.options.header ?? "Hermes", leadingWidth), 240);
+    if (headerTrailing) {
+      image.drawText(medium, left + contentWidth - trailingWidth, rect.y + 12, headerTrailing, 190);
+    }
+    for (let index = 0; index < lines.length; index++) {
+      image.drawText(small, left, rect.y + 36 + index * ALERT_LINE_HEIGHT, lines[index]!, 235);
+    }
+    const footer = this.options.onReply
+      ? `${GESTURE_CLICK} reply   ${GESTURE_DOUBLE_CLICK} dismiss`
+      : this.lifetime === "until-dismiss-or-sleep"
+      ? `${GESTURE_CLICK} dismiss   ${GESTURE_DOUBLE_CLICK} back`
+      : `${GESTURE_CLICK} dismiss`;
+    image.drawText(small, left, rect.y + rect.height - 16, footer, 110);
     return image;
   }
 
   handleInput(event: DashboardInputEvent, _ctx: LayerContext): void {
+    if (event.type === "click" && this.options.onReply) {
+      this.options.onReply();
+      return;
+    }
     if (event.type === "click" || event.type === "double-click") {
       this.clearTimer();
       this.onDismiss();
@@ -214,6 +326,9 @@ class ShellAlertLayer implements Layer {
 
   onRemoved(): void {
     this.clearTimer();
+    if (this.removed) return;
+    this.removed = true;
+    this.options.onRemoved?.(this.closeReason);
   }
 
   private clearTimer(): void {
@@ -221,6 +336,31 @@ class ShellAlertLayer implements Layer {
       clearTimeout(this.timer);
       this.timer = null;
     }
+  }
+}
+
+/** Exact wake ownership for a shell notification modal. */
+export class NotificationModalWakeOwnership<T extends object> {
+  private owner: { modal: T; activityRevision: number } | null = null;
+
+  claim(modal: T, activityRevision: number): void {
+    this.owner = { modal, activityRevision };
+  }
+
+  clear(): void {
+    this.owner = null;
+  }
+
+  /** Retire this identity and report whether it may return the display to sleep. */
+  release(
+    modal: T,
+    activityRevision: number,
+    removedWhileTop: boolean,
+  ): boolean {
+    const owner = this.owner;
+    if (!owner || owner.modal !== modal) return false;
+    this.owner = null;
+    return removedWhileTop && owner.activityRevision === activityRevision;
   }
 }
 
@@ -233,20 +373,28 @@ class Shell {
   /** Window ids in most-recently-visible-first order; closing the visible window returns to the next entry. */
   private mruWindowIds: string[] = [];
   private focus: FocusKind = "sidebar";
-  // Sidebar reorder: the id of the tab "picked up" by a long-press, moved with
-  // scroll and dropped with a tap. null when not reordering. The moved order is
-  // the window array order, which onWindowsChanged persists like any switch.
+  // Window Management move substate: the id of the tab "picked up" by a
+  // second long-press, moved with scroll and dropped with a tap. The moved
+  // order is the window array order, which onWindowsChanged persists.
   private reorderingWindowId: string | null = null;
-  // Quick-close mode: long-press a sidebar card to arm it, then scroll to pick a
-  // card and tap to close it. Double-tap exits. Lets windows be closed fast
-  // without focusing each and walking its menu.
+  // Unified Window Management mode: the first long-press arms select/close;
+  // another long-press picks the selected movable tab for reorder. Click
+  // closes in select mode or drops in move mode; double-click always exits.
   private closingActive = false;
+  /** ID-owned management selection; never infer it from MRU after a removal. */
+  private managementSelectedWindowId: string | null = null;
+  /** Monotonic user-selection token used to reject stale focus requests. */
+  private selectionRevision = 0;
+  /** Only the newest async launch may claim focus after surface setup. */
+  private focusClaimEpoch = 0;
   // Ring-sensitivity throttle: timestamp of the last honored scroll. A physical
   // swipe fires a burst of scroll events; at lower sensitivity we drop the ones
   // that arrive within the configured interval so one swipe steps once or twice.
   private lastScrollHonoredAtMs = 0;
   private screenOn = true;
   private lastInputAtMs = Date.now();
+  private activityRevision = 0;
+  private screenWakeActivityRevision = -1;
   private battery: ShellChromeState["battery"] = {
     headset: null,
     headsetCharging: null,
@@ -262,18 +410,38 @@ class Shell {
   private activeVoiceLayer: VoiceInputLayer | null = null;
   private assistantTurnBackgrounded = false;
   private assistantOverlayRestorePending = false;
+  private assistantOverlayDelivery = false;
   private pendingAssistantResult: string | null = null;
   private pendingAssistantResultDelivery = false;
   private assistantSession: AssistantSession | null = null;
   private musicCard: MusicCardLayer | null = null;
   private musicCardWokeScreen = false;
+  /** Full-screen, opaque Clock alert; controller owns ring/wear dismissal. */
+  private clockAlertLayer: ClockAlertLayer | null = null;
   private assistantLayer: AssistantLayer | null = null;
+  /** True from a sleeping long-press until its voice result is dismissed. */
+  private assistantOnlyPresentation = false;
+  /** Exact sleeping PTT turn whose final answer must return in isolation. */
+  private isolatedAssistantTurn: AssistantLayer | null = null;
+  /** Isolation ownership moved from a completed turn to its compact result. */
+  private pendingAssistantResultIsolated = false;
+  /** Keeps the isolated surface leased while a result card opens follow-up capture. */
+  private assistantOnlyReplyStarting = false;
   /** Assistant displaced by a context dashboard but still owning an active turn. */
   private detachedAssistantLayer: AssistantLayer | null = null;
   private alertLayer: ShellAlertLayer | null = null;
+  /** Dedicated FIFO result card; ordinary show_alert never replaces it. */
+  private directNotificationLayer: ShellAlertLayer | null = null;
   private alertRevision = 0;
+  private notifyResultRevision = 0;
+  private suppressDirectNotificationOpportunity = false;
+  private readonly assistantResultWakeOwnership = new AssistantResultWakeOwnership();
+  private readonly notificationModalWakeOwnership =
+    new NotificationModalWakeOwnership<ShellModalLayer>();
   private remoteViewLayer: ShellRemoteViewLayer | null = null;
   private dynamicAppLayer: ShellDynamicAppLayer | null = null;
+  /** Sleep-origin atomic answer that must return to darkness when it closes. */
+  private assistantOnlyDynamicAppLayer: ShellDynamicAppLayer | null = null;
   private contextDashboardVoicePrefix: string | null = null;
   private escapeMenuTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly actions: LayerActions = { ...noopActions };
@@ -286,6 +454,14 @@ class Shell {
   private readonly stack = new LayerStack(
     new ShellChromeLayer(() => this.chromeState()),
     this.actions,
+    undefined,
+    undefined,
+    () => {
+      // Covers programmatic/modal/dynamic overlay teardown paths, not only
+      // voice and ordinary alert closures. Global sleep suppresses the whole
+      // teardown sequence so closing an earlier overlay cannot pump FIFO.
+      this.notifyDirectNotificationOpportunity();
+    },
   );
 
   // Top-bar settings we mirror into the chrome; a change to either repaints
@@ -298,6 +474,8 @@ class Shell {
   private ringHeartRate: number | null = null;
   private lastBridgeBackend: string | null = null;
   private lastBridgeHost: string | null = null;
+  /** Credential presence only; never retain the bridge secret in HUD state. */
+  private lastBridgeTokenPresent: boolean | null = null;
   private bridgePhase: AssistantBridgePhase = assistantBridge.state().phase;
 
   configure(config: ShellConfig): void {
@@ -314,18 +492,21 @@ class Shell {
     this.lastBrightness = brightnessSetting.get();
     this.lastBridgeBackend = assistantBackendSetting.get();
     this.lastBridgeHost = assistantBridgeHostSetting.get().trim();
+    this.lastBridgeTokenPresent = assistantBridgeTokenSetting.get().length > 0;
     onAnySettingChanged(() => {
       const batteryMode = batteryDisplayModeSetting.get();
       const timeFormat = timeFormatSetting.get();
       const brightness = brightnessSetting.get();
       const bridgeBackend = assistantBackendSetting.get();
       const bridgeHost = assistantBridgeHostSetting.get().trim();
+      const bridgeTokenPresent = assistantBridgeTokenSetting.get().length > 0;
       if (
         batteryMode === this.lastBatteryDisplayMode &&
         timeFormat === this.lastTimeFormat &&
         brightness === this.lastBrightness &&
         bridgeBackend === this.lastBridgeBackend &&
-        bridgeHost === this.lastBridgeHost
+        bridgeHost === this.lastBridgeHost &&
+        bridgeTokenPresent === this.lastBridgeTokenPresent
       ) {
         return;
       }
@@ -334,6 +515,7 @@ class Shell {
       this.lastBrightness = brightness;
       this.lastBridgeBackend = bridgeBackend;
       this.lastBridgeHost = bridgeHost;
+      this.lastBridgeTokenPresent = bridgeTokenPresent;
       this.config.requestShellRender();
     });
     // The bridge glyph tracks live connection phase; repaint the bar on change.
@@ -342,6 +524,18 @@ class Shell {
       this.bridgePhase = state.phase;
       this.config.requestShellRender();
       if (state.phase === "connected") this.flushPendingAssistantResult();
+    });
+    // Cockpit snapshots are state synchronization and must never wake G2.
+    // The controller emits this hook only for a fresh, validated final
+    // assistant row received after synchronization, so it can share the same
+    // retained wake + strict delivery path as a completed voice turn.
+    assistantBridge.cockpit.onAssistantResult(({ text }) => {
+      const result = text.trim();
+      if (!result) return;
+      this.pendingAssistantResult = result;
+      this.pendingAssistantResultIsolated = false;
+      void playEventBeep("assistantReply", this.config.actions.playBuzzerSequence);
+      this.flushPendingAssistantResult();
     });
   }
 
@@ -380,15 +574,26 @@ class Shell {
     if (this.reorderingWindowId === windowId) {
       this.reorderingWindowId = null;
     }
+    const removedWindow = this.windows[index]!;
+    const wasManagementSelected = this.managementSelectedWindowId === windowId;
+    if (wasManagementSelected) this.selectedIndex = index;
     const wasSelected = index === this.selectedIndex;
     this.windows.splice(index, 1);
+    this.selectionRevision++;
+    this.focusClaimEpoch++;
     this.attention.delete(windowId);
     this.mruWindowIds = this.mruWindowIds.filter((id) => id !== windowId);
     if (wasSelected) {
-      // Return to the most recently visible remaining window.
+      // Ordinary close restores MRU, but Window Management owns selection by
+      // visual slot: after closing a selected card, keep that slot (or the
+      // preceding card when the removed card was last). Consulting MRU here is
+      // what caused Notifications/Music batch-close to jump to the top.
+      const managementClose = this.closingActive && wasManagementSelected;
+      const nextIndex = selectionIndexAfterManagementRemoval(index, this.windows.length);
       const mruIndex = this.mostRecentWindowIndex();
-      this.selectedIndex =
-        mruIndex >= 0 ? mruIndex : Math.min(index, Math.max(0, this.windows.length - 1));
+      this.selectedIndex = managementClose
+        ? nextIndex
+        : mruIndex >= 0 ? mruIndex : nextIndex;
     } else if (this.selectedIndex > index) {
       this.selectedIndex--;
     }
@@ -397,12 +602,20 @@ class Shell {
     }
     if (wasSelected) {
       // Hand the foreground to whatever is now selected.
+      removedWindow.setForeground?.(false);
       const next = this.windows[this.selectedIndex];
       if (next) {
         this.noteWindowVisible(next.windowId);
         next.setForeground?.(true);
         next.requestRender();
       }
+    }
+    if (wasManagementSelected) {
+      this.managementSelectedWindowId = this.windows[this.selectedIndex]?.windowId ?? null;
+    } else if (this.managementSelectedWindowId) {
+      // Keep ID ownership stable when a different card is removed before it.
+      const managementIndex = this.windows.findIndex((w) => w.windowId === this.managementSelectedWindowId);
+      if (managementIndex >= 0) this.selectedIndex = managementIndex;
     }
     this.config.onWindowsChanged?.();
     this.config.requestShellRender();
@@ -431,6 +644,10 @@ class Shell {
     // Keep the currently-selected window selected (inverse of removeWindow's
     // decrement) so the sidebar highlight does not jump when health reappears.
     if (insertAt <= this.selectedIndex) this.selectedIndex++;
+    if (this.closingActive && this.managementSelectedWindowId) {
+      const managedIndex = this.windows.findIndex((window) => window.windowId === this.managementSelectedWindowId);
+      if (managedIndex >= 0) this.selectedIndex = managedIndex;
+    }
     this.config.onWindowsChanged?.();
     this.config.requestShellRender();
   }
@@ -515,9 +732,32 @@ class Shell {
     return this.screenOn;
   }
 
+  /** Physical G2 transport availability, independent of current screen power. */
+  isDisplayTransportAvailable(): boolean {
+    return this.config.isDisplayAvailable ? this.config.isDisplayAvailable() : this.screenOn;
+  }
+
+  /** The dedicated result slot may wake from sleep, but never steals another shell overlay. */
+  canStartDirectAssistantResultPresentation(): boolean {
+    return Boolean(
+      this.config.requestShellDelivery &&
+      !this.assistantOnlyPresentation &&
+      this.directNotificationLayer === null &&
+      this.activeVoiceLayer === null &&
+      this.stack.isAtBase(),
+    );
+  }
+
+  private notifyDirectNotificationOpportunity(): void {
+    if (this.screenOn && !this.suppressDirectNotificationOpportunity) {
+      this.config.onDirectNotificationOpportunity?.();
+    }
+  }
+
   /** Retry a retained short assistant result after the real G2 session returns. */
   retryPendingAssistantResult(): void {
-    this.flushPendingAssistantResult();
+    this.flushDeferredAssistantUi();
+    this.notifyDirectNotificationOpportunity();
   }
 
   /** Current headset battery levels (for the assistant's get_state tool). */
@@ -536,20 +776,29 @@ class Shell {
   }
 
   noteUserActivity(nowMs = Date.now()): void {
+    this.activityRevision++;
+    this.restartScreenTimeout(nowMs);
+    this.assistantResultWakeOwnership.invalidate();
+  }
+
+  /** Re-baseline idle sleep without claiming or invalidating a provisional wake. */
+  private restartScreenTimeout(nowMs = Date.now()): void {
     this.lastInputAtMs = nowMs;
   }
 
   /** Turn the screen on (if off) and set focus. Returns whether it was off. */
   wake(focus: FocusKind, nowMs = Date.now()): boolean {
-    this.lastInputAtMs = nowMs;
+    this.noteUserActivity(nowMs);
     this.focus = focus;
     if (this.screenOn) return false;
     this.screenOn = true;
+    this.screenWakeActivityRevision = this.activityRevision;
     this.config.onScreenStateChanged(true);
     for (const window of this.windows) {
       window.setScreenOn?.(true);
     }
     this.flushDeferredAssistantUi();
+    this.notifyDirectNotificationOpportunity();
     // Refresh the foreground window; the compositor restored its retained
     // frame, but its content may be stale (e.g. a running stopwatch).
     this.foregroundWindow()?.requestRender();
@@ -558,34 +807,94 @@ class Shell {
 
   /** Turn the screen off, closing any shell overlays. Sidebar selection is kept. */
   sleep(): void {
+    this.assistantResultWakeOwnership.invalidate();
+    this.notificationModalWakeOwnership.clear();
     if (!this.screenOn) return;
     this.cancelEscapeMenuTimer();
-    this.closingActive = false;
-    // A remote MCP view is transient and must not survive a display-off
-    // transition in retained manager state or reappear after wake.
-    this.remoteViewLayer?.close();
-    this.dynamicAppLayer?.close();
-    const detachedAssistant = this.detachedAssistantLayer;
-    this.detachedAssistantLayer = null;
-    detachedAssistant?.onRemoved();
-    this.screenOn = false;
-    this.stack.clearToBase();
-    // clearToBase pops the card and fires its onRemoved (timers cleared); null
-    // the refs so an idle/external sleep can't leave a dangling card.
-    this.musicCard = null;
-    this.musicCardWokeScreen = false;
-    for (const window of this.windows) {
-      window.setScreenOn?.(false);
+    this.exitWindowManagement();
+    this.suppressDirectNotificationOpportunity = true;
+    try {
+      // A remote MCP view is transient and must not survive a display-off
+      // transition in retained manager state or reappear after wake.
+      this.remoteViewLayer?.close();
+      this.dynamicAppLayer?.close();
+      const detachedAssistant = this.detachedAssistantLayer;
+      this.detachedAssistantLayer = null;
+      detachedAssistant?.onRemoved();
+      this.screenOn = false;
+      this.directNotificationLayer?.markCloseReason("sleep");
+      this.stack.clearToBase();
+      // clearToBase pops cards and fires onRemoved (timers cleared); retire exact
+      // layer identities so an in-flight strict result cannot survive this sleep.
+      this.alertLayer = null;
+      this.directNotificationLayer = null;
+      this.clockAlertLayer = null;
+      this.alertRevision++;
+      this.musicCard = null;
+      this.musicCardWokeScreen = false;
+      for (const window of this.windows) {
+        window.setScreenOn?.(false);
+      }
+      // Queue the physical/compositor blank before restoring any retained app
+      // surface hidden by an assistant-only lease. Both operations share the
+      // communicator's serialized Java-call boundary, preventing a one-frame
+      // HUD flash as sleep-origin voice capture closes.
+      this.config.onScreenStateChanged(false);
+      this.setAssistantOnlyPresentation(false);
+    } finally {
+      this.suppressDirectNotificationOpportunity = false;
     }
-    this.config.onScreenStateChanged(false);
+  }
+
+  /** Acquire rollback ownership only for an off/shared-pending result wake. */
+  acquireAssistantResultWake(focus: FocusKind): AssistantResultWakeLease {
+    return this.assistantResultWakeOwnership.acquire(
+      this.screenOn,
+      () => this.wake(focus),
+      () => this.restartScreenTimeout(),
+    );
+  }
+
+  /** An authorized result claims the shared wake, preventing later rollback. */
+  commitAssistantResultWake(lease: AssistantResultWakeLease): void {
+    this.assistantResultWakeOwnership.commit(lease);
+  }
+
+  /** Roll back only the exact still-unclaimed wake created for this result. */
+  rollbackAssistantResultWake(lease: AssistantResultWakeLease): boolean {
+    return this.assistantResultWakeOwnership.rollback(
+      lease,
+      () => this.screenOn,
+      () => this.sleep(),
+    );
+  }
+
+  /**
+   * Reserve an async launch's right to focus its window after surface setup.
+   * A later launch or any user/sidebar selection invalidates this claim.
+   */
+  reserveWindowFocusClaim(windowId: string): WindowFocusClaim {
+    this.focusClaimEpoch++;
+    return {
+      windowId,
+      epoch: this.focusClaimEpoch,
+      selectionRevision: this.selectionRevision,
+    };
   }
 
   /** Foreground and focus a window by id (e.g. a wake path opening content in it). */
-  focusWindow(windowId: string): void {
+  focusWindow(windowId: string, claim?: WindowFocusClaim): boolean {
+    if (this.closingActive) return false;
+    if (claim && (
+      claim.windowId !== windowId ||
+      claim.epoch !== this.focusClaimEpoch ||
+      claim.selectionRevision !== this.selectionRevision
+    )) return false;
     const index = this.windows.findIndex((w) => w.windowId === windowId);
-    if (index < 0) return;
+    if (index < 0) return false;
     this.setSelectedIndex(index);
     this.focus = "window";
+    return true;
   }
 
   /** Idle timeout: sleep if the configured timeout elapsed. Returns whether it slept. */
@@ -595,10 +904,14 @@ class Shell {
     // An open voice dialog suspends the timeout: a long dictation or refine
     // has no button presses, but the screen must stay on for it. Sliding
     // lastInputAtMs forward also restarts the full timeout when it closes.
-    // An in-flight assistant turn suspends it for the same reason (a tool loop
-    // can run for a while with no input); once the turn ends and the
-    // Follow-up/Done menu is showing, the normal idle timeout resumes.
-    if (this.activeVoiceLayer || this.assistantSession?.isTurnActive() || this.musicCard) {
+    // A visible in-flight assistant turn suspends it for the same reason. A
+    // background turn is intentionally silent and must not keep a forgotten
+    // display awake while the agent works.
+    const visibleAssistantTurn =
+      this.assistantSession?.isTurnActive() &&
+      this.assistantLayer !== null &&
+      !this.assistantTurnBackgrounded;
+    if (this.activeVoiceLayer || visibleAssistantTurn || this.musicCard) {
       // A live music card owns the screen (drop/hold/rise + its own dismiss
       // timer); suspend the idle timeout so it can't race the card's own blank.
       this.lastInputAtMs = nowMs;
@@ -611,20 +924,50 @@ class Shell {
 
   /**
    * Show a new notification in a shell modal over the app viewport. If the
-   * notification woke the screen, closing the modal goes back to sleep
-   * (matching the old sleep-popup behavior).
+   * notification's exact wake remains otherwise unclaimed, closing the modal
+   * goes back to sleep. Later user activity or another overlay keeps it awake.
    */
-  async openNotificationModal(notificationKey: string, revision: string, wokeScreen: boolean): Promise<boolean> {
-    if (!this.screenOn || !this.config.requestShellDelivery) return false;
+  async openNotificationModal(
+    notificationKey: string,
+    revision: string,
+    wokeScreen: boolean,
+    retainedNotification: AndroidNotification,
+    retainedReason: string,
+  ): Promise<boolean> {
+    if (
+      !this.screenOn ||
+      this.clockAlertLayer !== null ||
+      this.assistantOnlyPresentation ||
+      this.activeVoiceLayer ||
+      !this.config.requestShellDelivery
+    ) return false;
+    // Waking the shell schedules an ordinary retained-state repaint. Drain it
+    // before the modal becomes stack-top; otherwise that ordinary frame can
+    // send the modal first and the strict delivery immediately dedupes as "no
+    // change", falsely treating a visible notification as failure and closing
+    // it again.
+    if (this.config.waitForShellRenderIdle) await this.config.waitForShellRenderIdle();
+    if (
+      !this.screenOn ||
+      this.clockAlertLayer !== null ||
+      this.assistantOnlyPresentation ||
+      this.activeVoiceLayer ||
+      !this.config.requestShellDelivery
+    ) return false;
+    this.assistantResultWakeOwnership.invalidate();
     // A notification preempts an active music card. Evict the card first (it is
     // always top when active) and inherit its wake ownership, so closing the
     // notification still re-sleeps if the card is what woke the screen. Without
     // this, the card's later rise would fail popIfTop and strand a zombie layer.
-    let owned = wokeScreen;
+    let ownsWake = wokeScreen &&
+      this.screenWakeActivityRevision === this.activityRevision;
     if (this.musicCard) {
       const card = this.musicCard;
       this.stack.popIfTop((l) => l === card);
-      if (this.musicCardWokeScreen) owned = true;
+      if (
+        this.musicCardWokeScreen &&
+        this.screenWakeActivityRevision === this.activityRevision
+      ) ownsWake = true;
       this.musicCard = null;
       this.musicCardWokeScreen = false;
     }
@@ -632,49 +975,138 @@ class Shell {
       new SingleNotificationLayer(notificationKey, {
         origin: "new-notification-modal",
         expectedRevision: revision,
-        closeModal: () => this.closeNotificationModal(modal, owned),
+        retainedNotification,
+        retainedReason,
+        closeModal: () => this.closeNotificationModal(modal),
       }),
       this.config.actions,
     );
     this.stack.push(modal);
+    if (ownsWake) this.notificationModalWakeOwnership.claim(modal, this.activityRevision);
+    this.restartScreenTimeout();
     try {
-      await this.config.requestShellDelivery(() =>
-        this.screenOn && this.stack.topMatches((layer) => layer === modal),
-      );
+      const isOwner = () => this.screenOn && this.stack.topMatches((layer) => layer === modal);
+      await this.config.requestShellDelivery(isOwner);
+      if (!isOwner()) throw new Error("The notification modal was superseded before presentation.");
+      this.restartScreenTimeout();
       return true;
     } catch {
-      this.closeNotificationModal(modal, owned);
+      this.closeNotificationModal(modal);
       return false;
     }
   }
 
   async openNotificationDigest(
-    entries: readonly { key: string; revision: string; reason: string }[],
+    entries: readonly {
+      key: string;
+      revision: string;
+      reason: string;
+      notification: AndroidNotification;
+    }[],
     wokeScreen: boolean,
   ): Promise<boolean> {
-    if (!this.screenOn || !entries.length || !this.config.requestShellDelivery) return false;
-    let owned = wokeScreen;
+    if (
+      !this.screenOn ||
+      this.clockAlertLayer !== null ||
+      this.assistantOnlyPresentation ||
+      this.activeVoiceLayer ||
+      !entries.length ||
+      !this.config.requestShellDelivery
+    ) return false;
+    if (this.config.waitForShellRenderIdle) await this.config.waitForShellRenderIdle();
+    if (
+      !this.screenOn ||
+      this.clockAlertLayer !== null ||
+      this.assistantOnlyPresentation ||
+      this.activeVoiceLayer ||
+      !entries.length ||
+      !this.config.requestShellDelivery
+    ) return false;
+    this.assistantResultWakeOwnership.invalidate();
+    let ownsWake = wokeScreen &&
+      this.screenWakeActivityRevision === this.activityRevision;
     if (this.musicCard) {
       const card = this.musicCard;
       this.stack.popIfTop((layer) => layer === card);
-      if (this.musicCardWokeScreen) owned = true;
+      if (
+        this.musicCardWokeScreen &&
+        this.screenWakeActivityRevision === this.activityRevision
+      ) ownsWake = true;
       this.musicCard = null;
       this.musicCardWokeScreen = false;
     }
     const modal: ShellModalLayer = new ShellModalLayer(
-      new NotificationDigestLayer(entries, () => this.closeNotificationModal(modal, owned)),
+      new NotificationDigestLayer(entries, () => this.closeNotificationModal(modal)),
       this.config.actions,
     );
     this.stack.push(modal);
+    if (ownsWake) this.notificationModalWakeOwnership.claim(modal, this.activityRevision);
+    this.restartScreenTimeout();
     try {
-      await this.config.requestShellDelivery(() =>
-        this.screenOn && this.stack.topMatches((layer) => layer === modal),
-      );
+      const isOwner = () => this.screenOn && this.stack.topMatches((layer) => layer === modal);
+      await this.config.requestShellDelivery(isOwner);
+      if (!isOwner()) throw new Error("The notification digest was superseded before presentation.");
+      this.restartScreenTimeout();
       return true;
     } catch {
-      this.closeNotificationModal(modal, owned);
+      this.closeNotificationModal(modal);
       return false;
     }
+  }
+
+  /** Install/update Clock visual before waking, so retained HUD never flashes. */
+  async showClockAlert(state: ClockAlertVisualState): Promise<boolean> {
+    if (this.clockAlertLayer) {
+      this.clockAlertLayer.update(state);
+      if (!this.stack.topMatches((top) => top === this.clockAlertLayer)) {
+        this.stack.remove(this.clockAlertLayer);
+        this.stack.push(this.clockAlertLayer);
+      }
+    } else {
+      this.assistantResultWakeOwnership.invalidate();
+      this.notificationModalWakeOwnership.clear();
+      this.clockAlertLayer = new ClockAlertLayer(state);
+      this.stack.push(this.clockAlertLayer);
+    }
+    if (!this.screenOn) this.wake("sidebar");
+    this.restartScreenTimeout();
+    const layer = this.clockAlertLayer;
+    const isOwner = () =>
+      this.screenOn &&
+      this.clockAlertLayer === layer &&
+      this.stack.topMatches((top) => top === layer);
+    try {
+      // Wake/session callbacks may already have queued an ordinary repaint.
+      // Drain it, then alter one visually-black nonce pixel so this Clock
+      // layer receives its own non-deduped transport receipt.
+      if (this.config.waitForShellRenderIdle) await this.config.waitForShellRenderIdle();
+      if (!isOwner()) return false;
+      layer.bumpDeliveryNonce();
+      if (this.config.requestShellDelivery) {
+        await this.config.requestShellDelivery(isOwner);
+      } else {
+        await this.config.requestShellRender();
+      }
+      if (!isOwner()) return false;
+      this.restartScreenTimeout();
+      return true;
+    } catch {
+      // Retain exact layer ownership. The coordinator retries on the next
+      // phase/session opportunity rather than consuming a false presentation.
+      return false;
+    }
+  }
+
+  closeClockAlert(): void {
+    const layer = this.clockAlertLayer;
+    if (!layer) return;
+    this.clockAlertLayer = null;
+    this.stack.remove(layer);
+    this.config.requestShellRender();
+  }
+
+  isClockAlertVisible(): boolean {
+    return this.clockAlertLayer !== null && this.screenOn;
   }
 
   /** Whether the screen-off now-playing card is currently up. */
@@ -687,12 +1119,13 @@ class Shell {
    * wakes the screen first. Returns false if another overlay owns the screen.
    */
   openMusicCard(wokeScreen: boolean): boolean {
-    if (!this.screenOn) return false;
+    if (!this.screenOn || this.clockAlertLayer || this.assistantOnlyPresentation) return false;
     if (this.musicCard) {
       this.musicCard.onTrackChanged();
       return true;
     }
     if (!this.stack.isAtBase()) return false; // notification / voice / menu owns the screen
+    this.assistantResultWakeOwnership.invalidate();
     const card = new MusicCardLayer({
       actions: this.config.actions,
       onDismissed: () => this.closeMusicCard(card),
@@ -714,11 +1147,14 @@ class Shell {
     else this.config.requestShellRender();
   }
 
-  private closeNotificationModal(modal: ShellModalLayer, wokeScreen: boolean): void {
-    this.stack.remove(modal);
-    if (wokeScreen) {
-      this.sleep();
-    }
+  private closeNotificationModal(modal: ShellModalLayer): void {
+    const wasTop = this.stack.topMatches((layer) => layer === modal);
+    const removed = this.stack.remove(modal);
+    if (this.notificationModalWakeOwnership.release(
+      modal,
+      this.activityRevision,
+      wasTop && removed,
+    )) this.sleep();
     this.config.requestShellRender();
   }
 
@@ -737,6 +1173,13 @@ class Shell {
     if (!this.screenOn) {
       return new GrayImage(G2_LENS_WIDTH, G2_LENS_HEIGHT, 0);
     }
+    if (this.assistantOnlyPresentation) {
+      // The app surfaces are separately composited and are hidden by the
+      // controller for this lease. Paint only the active assistant dialog over
+      // a blank shell surface; otherwise the wake transition would flash the
+      // retained HUD/sidebar before VoiceInputLayer is installed.
+      return this.stack.paintTopOverBlank();
+    }
     return this.stack.paint();
   }
 
@@ -744,7 +1187,7 @@ class Shell {
     // The stock lifecycle has already interpreted the physical double tap as
     // "wake". Keep that directionality if delivery is delayed or duplicated.
     if (event.type === "display-wake") {
-      this.lastInputAtMs = Date.now();
+      this.noteUserActivity();
       const wokeScreen = !this.screenOn && this.wake("sidebar");
       return { shell: wokeScreen, window: false };
     }
@@ -763,10 +1206,11 @@ class Shell {
         return { shell: false, window: false };
       }
 
-      this.lastInputAtMs = Date.now();
+      this.noteUserActivity();
       const wokeScreen = !this.screenOn && this.wake("sidebar");
       if (action === "voice-input" && this.assistantSession?.isTurnActive()) {
-        if (this.assistantLayer) this.restoreBackgroundAssistantLayer(this.assistantLayer);
+        // The active turn remains visually silent. Its final result will
+        // present itself through the display-wake barrier.
       } else if (action === "voice-input" && !this.activeVoiceLayer) {
         if (this.assistantLayer) {
           // The assistant overlay is up; a wakeword continues that conversation.
@@ -779,8 +1223,20 @@ class Shell {
       return { shell: wokeScreen || action === "voice-input", window: false };
     }
 
-    this.lastInputAtMs = Date.now();
+    // A second sleeping PTT press cannot start another capture while the
+    // original turn is live. Reject it before activity bookkeeping or wake so
+    // an invisible background turn never produces an empty black frame.
+    if (
+      !this.screenOn &&
+      event.type === "long-press" &&
+      this.assistantSession?.isTurnActive()
+    ) {
+      return { shell: false, window: false };
+    }
+
+    this.noteUserActivity();
     this.flushDeferredAssistantUi();
+    this.detachStaleRunningAssistantLayer();
 
     // Anything but the long-press itself means the press ended (or the event
     // stream moved on), so the escape countdown stops.
@@ -792,11 +1248,10 @@ class Shell {
     // the generic screen-off short circuit; the matching release below ends
     // capture. The master voice switch remains authoritative.
     if (!this.screenOn && event.type === "long-press" && voiceControlEnabledSetting.get()) {
+      this.setAssistantOnlyPresentation(true);
       this.wake("sidebar");
-      if (this.assistantSession?.isTurnActive()) {
-        if (this.assistantLayer) this.restoreBackgroundAssistantLayer(this.assistantLayer);
-      } else if (!this.assistantSession?.isTurnActive() && !this.activeVoiceLayer) {
-        this.openVoiceDialog({ defaultTarget: "assistant" });
+      if (!this.activeVoiceLayer) {
+        this.openVoiceDialog({ defaultTarget: "assistant", returnToSleepOnClose: true });
       }
       return { shell: true, window: false };
     }
@@ -825,9 +1280,31 @@ class Shell {
       if (this.dynamicAppLayer) {
         const layer = this.dynamicAppLayer;
         if (this.contextDashboardVoicePrefix) {
-          const contextState = layer.state as DynamicAppState & { contextIntent?: string };
-          const focusedId = contextState.components[contextState.scrollOffset]?.id ?? "summary";
-          this.contextDashboardVoicePrefix = `Context dashboard intent: ${contextState.contextIntent}. Focused item: ${focusedId}.`;
+          // A contextual overlay must not steal the shell's established
+          // sidebar long-press. Dismiss the temporary presentation and enter
+          // Window Management mode; window focus retains contextual voice follow-up.
+          if (
+            this.focus === "sidebar" &&
+            !this.closingActive &&
+            !this.activeVoiceLayer &&
+            this.hasManageableWindow() &&
+            this.stack.topMatches((candidate) => candidate === layer)
+          ) {
+            layer.close();
+            this.enterWindowManagement();
+            this.startEscapeMenuTimer();
+            this.config.requestShellRender();
+            return { shell: true, window: false };
+          }
+          const contextState = layer.state as DynamicAppState & {
+            contextIntent?: string;
+            presentationMode?: "single" | "deck";
+            pageId?: string;
+          };
+          const focusContext = contextState.presentationMode === "deck"
+            ? `Current page: ${contextState.title} (${contextState.pageId ?? "cover"})`
+            : `Focused item: ${contextState.components[contextState.scrollOffset]?.id ?? "summary"}`;
+          this.contextDashboardVoicePrefix = `Context dashboard intent: ${contextState.contextIntent}. ${focusContext}.`;
           this.startEscapeMenuTimer();
           this.openVoiceDialog({ defaultTarget: "assistant" });
           return { shell: true, window: false };
@@ -836,24 +1313,27 @@ class Shell {
         this.startEscapeMenuTimer();
         return { shell: true, window: false };
       }
-      // While reordering, swallow long-presses so the window menu can't open
-      // over the grab; a tap (handled in the sidebar reorder branch) ends it.
+      // While moving a tab, swallow long-presses so the window menu can't open
+      // over the grab; a tap (handled in the sidebar management branch) drops it.
       if (this.reorderingWindowId !== null) {
         return { shell: true, window: false };
       }
-      // A long-press on the sidebar arms quick-close mode (scroll to pick, tap
-      // to close, double-tap to exit). The window menu stays reachable by first
-      // clicking a card to focus its window, then long-pressing.
+      // The first sidebar long-press enters Window Management. A subsequent
+      // long-press on a movable selected card picks it up for reorder.
       if (
         this.focus === "sidebar" &&
-        !this.closingActive &&
         this.stack.isAtBase() &&
         !this.activeVoiceLayer &&
-        this.hasCloseableWindow()
+        this.hasManageableWindow()
       ) {
-        this.closingActive = true;
+        if (!this.closingActive) {
+          this.enterWindowManagement();
+        } else {
+          const selected = this.windows[this.selectedIndex];
+          if (selected && this.isReorderable(selected)) this.beginWindowMove(selected.windowId);
+        }
         // Keep the escape-menu timer so a longer hold still opens it (which
-        // supersedes close mode); a quick long-press-and-release stays in close.
+        // supersedes Window Management); a quick release stays in management.
         this.startEscapeMenuTimer();
         this.config.requestShellRender();
         return { shell: true, window: false };
@@ -931,8 +1411,8 @@ class Shell {
   /**
    * Screen rect actually occupied by content, for cropping screenshots: the
    * foreground window's band (full screen for a max-height window, the
-   * vertical-position-dependent 288px band otherwise), minus the sidebar's
-   * left column when no icons have overflowed into it.
+   * vertical-position-dependent 288px band otherwise), starting at the only
+   * optically useful sidebar column. The hidden left reserve is never used.
    */
   screenshotCropRect(): { x: number; y: number; width: number; height: number } {
     const heightMode = this.foregroundWindow()?.heightMode ?? "min";
@@ -959,14 +1439,63 @@ class Shell {
     return this.screenOn && this.foregroundWindow()?.windowId === windowId;
   }
 
-  /** Any window the user can close (i.e. not the pinned launcher). */
-  private hasCloseableWindow(): boolean {
-    return this.windows.some((w) => w.closeable !== false);
+  /** Any card Window Management can act on: closeable, or visible Health. */
+  private hasManageableWindow(): boolean {
+    return this.windows.some((window) => window.closeable !== false || window === this.healthWindow);
+  }
+
+  private enterWindowManagement(): void {
+    this.closingActive = true;
+    this.managementSelectedWindowId = this.windows[this.selectedIndex]?.windowId ?? null;
+    this.selectionRevision++;
+    // A new management session is a user claim over selection; pending async
+    // launch focus must not steal it when surface setup eventually resolves.
+    this.focusClaimEpoch++;
+  }
+
+  private exitWindowManagement(): void {
+    this.closingActive = false;
+    this.reorderingWindowId = null;
+    this.managementSelectedWindowId = null;
+    this.focusClaimEpoch++;
+  }
+
+  private beginWindowMove(windowId: string): boolean {
+    const index = this.windows.findIndex((window) => window.windowId === windowId);
+    if (index < 0 || !this.canReorder(windowId) || !this.closingActive) return false;
+    this.setSelectedIndex(index);
+    this.managementSelectedWindowId = windowId;
+    this.reorderingWindowId = windowId;
+    this.focusClaimEpoch++;
+    const window = this.windows[index]!;
+    window.setForeground?.(true);
+    window.requestRender();
+    this.config.requestShellRender();
+    return true;
   }
 
   private handleSidebarInput(event: DashboardInputEvent): ShellInputOutcome {
-    // Quick-close mode: scroll picks a card, tap closes it, double-tap exits.
+    // Unified Window Management: select/close when idle within the mode;
+    // scroll/move and tap/drop while a tab is picked up.
     if (this.closingActive) {
+      if (this.reorderingWindowId !== null) {
+        switch (event.type) {
+          case "scroll-up":
+            this.moveReorder(-1);
+            return { shell: true, window: false };
+          case "scroll-down":
+            this.moveReorder(1);
+            return { shell: true, window: false };
+          case "click":
+            this.endReorder();
+            return { shell: true, window: false };
+          case "double-click":
+            this.exitWindowManagement();
+            return { shell: true, window: false };
+          default:
+            return { shell: false, window: false };
+        }
+      }
       switch (event.type) {
         case "scroll-up":
           this.moveSelection(-1);
@@ -975,38 +1504,22 @@ class Shell {
           this.moveSelection(1);
           return { shell: true, window: false };
         case "click": {
-          const window = this.windows[this.selectedIndex];
+          const window = this.managementSelectedWindowId
+            ? this.windows.find((candidate) => candidate.windowId === this.managementSelectedWindowId)
+            : this.windows[this.selectedIndex];
           if (window === this.healthWindow) {
             this.setHealthHidden(true);
           } else if (window && window.closeable !== false) {
             this.closeWindow(window.windowId);
           }
           // Stay armed while there is still something to close; else exit.
-          if (!this.hasCloseableWindow()) this.closingActive = false;
+          if (!this.hasManageableWindow()) this.exitWindowManagement();
           this.config.requestShellRender();
           return { shell: true, window: false };
         }
         case "double-click":
-          this.closingActive = false;
+          this.exitWindowManagement();
           this.config.requestShellRender();
-          return { shell: true, window: false };
-        default:
-          return { shell: false, window: false };
-      }
-    }
-    // While a tab is picked up, scroll moves it and a tap (or double-tap) drops
-    // it; the screen-sleep double-tap is suspended so a drop can't sleep.
-    if (this.reorderingWindowId !== null) {
-      switch (event.type) {
-        case "scroll-up":
-          this.moveReorder(-1);
-          return { shell: true, window: false };
-        case "scroll-down":
-          this.moveReorder(1);
-          return { shell: true, window: false };
-        case "click":
-        case "double-click":
-          this.endReorder();
           return { shell: true, window: false };
         default:
           return { shell: false, window: false };
@@ -1024,6 +1537,10 @@ class Shell {
         return { shell: true, window: false };
       case "click":
         if (this.windows.length) {
+          // A user click is an explicit selection/focus claim even when the
+          // highlighted index was already current; revoke deferred launches.
+          this.selectionRevision++;
+          this.focusClaimEpoch++;
           this.focus = "window";
           // Repaint the window now so its selection highlight reflects focus
           // this frame, not one frame late.
@@ -1037,15 +1554,39 @@ class Shell {
 
   private moveSelection(delta: number): void {
     if (!this.windows.length) return;
+    if (this.closingActive && this.reorderingWindowId === null) {
+      this.moveManagementSelection(delta);
+      return;
+    }
     const count = this.windows.length;
     const dir = delta > 0 ? 1 : -1;
-    const step = this.sidebarScroller.step(this.selectedIndex, count, dir, Date.now());
+    const ownedIndex = this.closingActive && this.managementSelectedWindowId
+      ? this.windows.findIndex((window) => window.windowId === this.managementSelectedWindowId)
+      : this.selectedIndex;
+    const currentIndex = ownedIndex >= 0 ? ownedIndex : this.selectedIndex;
+    const step = this.sidebarScroller.step(currentIndex, count, dir, Date.now());
     if (step.atEdge) {
       // Stopped hard against an end: bounce, don't move or wrap yet.
       this.sidebarBounce.trigger(dir, () => this.config.requestShellRender());
       return;
     }
     this.setSelectedIndex(step.index);
+    if (this.closingActive) this.managementSelectedWindowId = this.windows[step.index]?.windowId ?? null;
+  }
+
+  /** Management selection is deliberately bounded: one burst cannot wrap to the top. */
+  private moveManagementSelection(delta: number): void {
+    const ownedIndex = this.managementSelectedWindowId
+      ? this.windows.findIndex((window) => window.windowId === this.managementSelectedWindowId)
+      : -1;
+    const currentIndex = ownedIndex >= 0 ? ownedIndex : this.selectedIndex;
+    const nextIndex = nextWindowManagementIndex(currentIndex, delta < 0 ? -1 : 1, this.windows.length);
+    if (nextIndex === currentIndex) {
+      this.sidebarBounce.trigger(delta < 0 ? -1 : 1, () => this.config.requestShellRender());
+      return;
+    }
+    this.setSelectedIndex(nextIndex);
+    this.managementSelectedWindowId = this.windows[nextIndex]?.windowId ?? null;
   }
 
   /** A tab is reorderable unless it is pinned (the uncloseable launcher). */
@@ -1056,7 +1597,7 @@ class Shell {
   /**
    * Whether a window's tab can be picked up right now: it must be movable (not
    * the pinned launcher) and there must be another movable tab to swap with.
-   * The window menus use this to show the "Reorder" entry only when it works.
+   * Window Management uses this to advertise and arm HOLD move only when it works.
    */
   canReorder(windowId: string): boolean {
     const window = this.windows.find((w) => w.windowId === windowId);
@@ -1064,22 +1605,22 @@ class Shell {
     return this.windows.filter((w) => this.isReorderable(w)).length >= 2;
   }
 
-  /**
-   * Enter reorder mode for a window, chosen from its long-press menu. Focuses
-   * the sidebar and picks up that tab, so scroll then moves it and a tap drops
-   * it. No-op (returns false) if the window can no longer be reordered.
-   */
-  beginReorderFromMenu(windowId: string): boolean {
+  /** Enter Window Management for a menu-selected window; HOLD starts moving. */
+  beginWindowManagementFromMenu(windowId: string): boolean {
     const index = this.windows.findIndex((w) => w.windowId === windowId);
-    if (index < 0 || !this.canReorder(windowId)) return false;
-    this.selectedIndex = index;
+    const target = this.windows[index];
+    if (index < 0 || (!target?.closeable && target !== this.healthWindow)) return false;
+    this.setSelectedIndex(index);
     this.focus = "sidebar";
-    this.reorderingWindowId = windowId;
-    const window = this.windows[index]!;
-    window.setForeground?.(true);
-    window.requestRender();
+    this.enterWindowManagement();
+    this.managementSelectedWindowId = windowId;
     this.config.requestShellRender();
     return true;
+  }
+
+  /** @deprecated Kept as a source-compatible alias for older worker generations. */
+  beginReorderFromMenu(windowId: string): boolean {
+    return this.beginWindowManagementFromMenu(windowId);
   }
 
   /**
@@ -1129,6 +1670,10 @@ class Shell {
     if (index === this.selectedIndex) return;
     const previous = this.windows[this.selectedIndex];
     this.selectedIndex = index;
+    this.selectionRevision++;
+    if (this.closingActive) {
+      this.managementSelectedWindowId = this.windows[index]?.windowId ?? null;
+    }
     const next = this.windows[index];
     if (next) this.noteWindowVisible(next.windowId);
     previous?.setForeground?.(false);
@@ -1141,16 +1686,18 @@ class Shell {
     finishOnClick?: boolean;
     handsFree?: boolean;
     defaultTarget: "assistant" | "app";
+    /** Sleep-origin capture must not reveal the retained HUD when it closes. */
+    returnToSleepOnClose?: boolean;
   }): void {
     // Master voice switch: off suppresses all voice input (manual or wakeword).
     if (!voiceControlEnabledSetting.get()) return;
     const targets = this.buildVoiceSendTargets();
     let defaultIndex = targets.findIndex((target) => target.id === options.defaultTarget);
     if (defaultIndex < 0) defaultIndex = 0;
-    // Skip the menu only for a hands-free (wakeword) capture aimed at the
-    // assistant, when the user has opted into it.
+    // The opt-in follows the destination, not the gesture: wakeword,
+    // sleeping push-to-talk, contextual voice, and result replies all target
+    // the assistant. App dictation retains its review step.
     const autoSend =
-      Boolean(options.handsFree) &&
       options.defaultTarget === "assistant" &&
       targets[defaultIndex]?.id === "assistant" &&
       assistantSkipConfirmationSetting.get();
@@ -1166,6 +1713,15 @@ class Shell {
           this.flushDeferredAssistantUi();
           // The idle countdown restarts in full once voice input ends.
           this.noteUserActivity();
+          // Auto-send calls onSend immediately after dismissing the voice
+          // layer. Defer this check one turn so that assistantOnlyPresentation
+          // survives into the assistant turn/result rather than revealing the
+          // retained HUD between the two callbacks.
+          queueMicrotask(() => {
+            if (this.finishSleepingAssistantVoiceHandoff()) return;
+            if (this.finishSleepingAssistantVoiceDismissal(options.returnToSleepOnClose === true)) return;
+            this.endAssistantOnlyPresentationIfIdle();
+          });
         }
       },
       dismiss: () => {
@@ -1229,10 +1785,7 @@ class Shell {
    */
   startVoiceInput(): void {
     if (!this.screenOn || this.activeVoiceLayer || !this.stack.isAtBase()) return;
-    if (this.assistantSession?.isTurnActive()) {
-      if (this.assistantLayer) this.restoreBackgroundAssistantLayer(this.assistantLayer);
-      return;
-    }
+    if (this.assistantSession?.isTurnActive()) return;
     // The transcript is aimed at the window whose menu requested it; the menu
     // entry point defaults the highlight to Type Into App.
     this.focus = "window";
@@ -1299,11 +1852,8 @@ class Shell {
       ).catch(() => { /* configuration notice is best-effort while disconnected */ });
       return;
     }
+    if (session.isTurnActive()) return;
     if (!this.screenOn) this.wake("sidebar");
-    if (session.isTurnActive()) {
-      if (this.assistantLayer) this.restoreBackgroundAssistantLayer(this.assistantLayer);
-      return;
-    }
     let layer = this.assistantLayer;
     if (!layer) {
       const detached = this.detachedAssistantLayer;
@@ -1318,6 +1868,7 @@ class Shell {
           // stop the turn and drop the reference so a later query starts clean.
           this.assistantSession?.cancel();
           if (this.assistantLayer === created) this.assistantLayer = null;
+          if (this.isolatedAssistantTurn === created) this.isolatedAssistantTurn = null;
         },
       });
       layer = created;
@@ -1329,30 +1880,25 @@ class Shell {
   }
 
   private runAssistantTurn(session: AssistantSession, layer: AssistantLayer, text: string): void {
-    if (session.isTurnActive()) {
-      this.restoreBackgroundAssistantLayer(layer);
-      return;
-    }
-    if (this.assistantTurnBackgrounded) this.restoreBackgroundAssistantLayer(layer);
+    if (session.isTurnActive() || this.assistantTurnBackgrounded) return;
+    // Detach before startTurn requests its first paint. Thinking, streamed
+    // text, and tool activity never become a glasses frame.
+    this.backgroundAssistantLayer(layer);
     layer.startTurn();
     session.sendUtterance(text, this.buildAssistantContext(), {
-      onTextDelta: (delta, textSoFar) => layer.onTextDelta(delta, textSoFar),
-      onToolActivity: (label) => {
-        void playEventBeep("assistantTool", this.config.actions.playBuzzerSequence);
-        layer.onToolActivity(label);
-        this.backgroundAssistantLayer(layer);
-      },
-      onTurnDone: () => {
+      onTextDelta: () => {},
+      onToolActivity: () => {},
+      onTurnDone: (result) => {
         void playEventBeep("assistantReply", this.config.actions.playBuzzerSequence);
-        layer.onTurnDone();
+        layer.onTurnDone(result.text);
         if (this.detachedAssistantLayer === layer) this.detachedAssistantLayer = null;
         this.finishBackgroundAssistantTurn(layer);
       },
       onError: (message) => {
         void playEventBeep("assistantError", this.config.actions.playBuzzerSequence);
-        this.restoreBackgroundAssistantLayer(layer);
         layer.onError(message);
         if (this.detachedAssistantLayer === layer) this.detachedAssistantLayer = null;
+        this.queueAssistantOverlayResult(layer);
       },
     });
   }
@@ -1364,6 +1910,18 @@ class Shell {
     // onRemoved so cancellation remains reserved for real teardown.
     this.stack.detach(layer);
     this.config.requestShellRender();
+  }
+
+  /** Repair a stale attached thinking layer before routing the same input. */
+  private detachStaleRunningAssistantLayer(): void {
+    const layer = this.assistantLayer;
+    if (
+      !layer ||
+      this.assistantTurnBackgrounded ||
+      !layer.isRunning() ||
+      !this.stack.topMatches((top) => top === layer)
+    ) return;
+    this.backgroundAssistantLayer(layer);
   }
 
   private restoreBackgroundAssistantLayer(layer: AssistantLayer): void {
@@ -1382,44 +1940,177 @@ class Shell {
     if (this.assistantLayer !== layer || !this.assistantTurnBackgrounded) return;
     const reply = layer.getReplyText().trim();
     if (!reply || assistantReplyNeedsOverlay(reply)) {
-      this.restoreBackgroundAssistantLayer(layer);
+      this.queueAssistantOverlayResult(layer);
       return;
     }
+    const isolated = this.isolatedAssistantTurn === layer;
     this.assistantTurnBackgrounded = false;
     this.assistantLayer = null;
+    if (isolated) this.isolatedAssistantTurn = null;
+    // Baseline/invalidate any older wake before flush synchronously acquires
+    // the exact provisional wake for this completed result.
+    this.noteUserActivity();
     if (reply) {
       this.pendingAssistantResult = reply;
+      this.pendingAssistantResultIsolated = isolated;
       this.flushPendingAssistantResult();
     }
-    this.noteUserActivity();
     this.config.requestShellRender();
   }
 
   private flushDeferredAssistantUi(): void {
     if (this.activeVoiceLayer) return;
     if (this.assistantOverlayRestorePending && this.assistantLayer) {
-      this.restoreBackgroundAssistantLayer(this.assistantLayer);
+      this.flushPendingAssistantOverlay();
     }
     this.flushPendingAssistantResult();
+    this.notifyDirectNotificationOpportunity();
+  }
+
+  private queueAssistantOverlayResult(layer: AssistantLayer): void {
+    if (this.assistantLayer !== layer || !this.assistantTurnBackgrounded) return;
+    this.assistantOverlayRestorePending = true;
+    this.noteUserActivity();
+    this.flushPendingAssistantOverlay();
+  }
+
+  private flushPendingAssistantOverlay(): void {
+    if (
+      this.assistantOverlayDelivery ||
+      !this.assistantOverlayRestorePending ||
+      !this.assistantLayer ||
+      this.activeVoiceLayer ||
+      (this.config.isDisplayAvailable && !this.config.isDisplayAvailable())
+    ) return;
+    const layer = this.assistantLayer;
+    const isolated = this.isolatedAssistantTurn === layer;
+    const isPending = () =>
+      this.isolatedAssistantTurn === layer &&
+      this.assistantLayer === layer &&
+      this.assistantTurnBackgrounded &&
+      this.assistantOverlayRestorePending &&
+      !this.activeVoiceLayer;
+    this.assistantOverlayDelivery = true;
+    let preparation: AssistantResultDisplayPreparation | null = null;
+    let strictAcknowledged = false;
+    void (async () => {
+      if (isolated) this.setAssistantOnlyPresentation(true);
+      try {
+        let ready: boolean;
+        if (isolated) {
+          preparation = this.config.prepareIsolatedAssistantResultDisplay
+            ? await this.config.prepareIsolatedAssistantResultDisplay(isPending)
+            : null;
+          ready = preparation?.ready === true;
+        } else {
+          ready = this.config.prepareAssistantResultDisplay
+            ? await this.config.prepareAssistantResultDisplay()
+            : this.screenOn;
+        }
+        if (
+          !ready ||
+          !this.screenOn ||
+          this.activeVoiceLayer ||
+          !this.assistantOverlayRestorePending ||
+          this.assistantLayer !== layer
+        ) return;
+        this.restoreBackgroundAssistantLayer(layer);
+        this.restartScreenTimeout();
+        // Keep retry ownership until the completed card itself receives a
+        // transport ACK; the wake barrier alone only proves lifecycle state.
+        this.assistantOverlayRestorePending = true;
+        const isOwner = () =>
+          this.assistantLayer === layer &&
+          !this.assistantTurnBackgrounded &&
+          this.screenOn &&
+          !this.activeVoiceLayer &&
+          this.stack.topMatches((top) => top === layer);
+        if (this.config.requestShellDelivery) {
+          await this.config.requestShellDelivery(isOwner);
+        } else {
+          await this.config.requestShellRender();
+        }
+        if (isOwner()) {
+          this.restartScreenTimeout();
+          this.assistantOverlayRestorePending = false;
+          preparation?.commit();
+          strictAcknowledged = true;
+          if (isolated && this.isolatedAssistantTurn === layer) {
+            this.isolatedAssistantTurn = null;
+          }
+        }
+      } catch {
+        // Keep the completed overlay queued for the next wake or reconnect.
+      } finally {
+        if (isolated && !strictAcknowledged) {
+          // Detach the retryable final before rollback sleep clears visible
+          // layers, then blank/sleep before releasing the assistant-only app
+          // surfaces. Reversing the latter operations can flash retained HUD.
+          this.rehideIsolatedAssistantOverlayForRetry(layer, true);
+          preparation?.rollback();
+          this.setAssistantOnlyPresentation(false);
+        }
+        this.assistantOverlayDelivery = false;
+      }
+    })();
   }
 
   private flushPendingAssistantResult(): void {
     if (
       this.pendingAssistantResultDelivery ||
       !this.pendingAssistantResult ||
-      !this.screenOn ||
       this.activeVoiceLayer ||
       (this.config.isDisplayAvailable && !this.config.isDisplayAvailable())
     ) return;
     const pending = this.pendingAssistantResult;
+    const isolated = this.pendingAssistantResultIsolated;
+    const isPending = () =>
+      this.pendingAssistantResult === pending &&
+      this.pendingAssistantResultIsolated === isolated &&
+      !this.activeVoiceLayer;
     this.pendingAssistantResultDelivery = true;
+    let delivered = false;
+    let preparation: AssistantResultDisplayPreparation | null = null;
     void (async () => {
+      if (isolated) this.setAssistantOnlyPresentation(true);
       try {
-        await this.showAlert(pending);
-        if (this.pendingAssistantResult === pending) this.pendingAssistantResult = null;
+        let ready: boolean;
+        if (isolated) {
+          preparation = this.config.prepareIsolatedAssistantResultDisplay
+            ? await this.config.prepareIsolatedAssistantResultDisplay(isPending)
+            : null;
+          ready = preparation?.ready === true;
+        } else {
+          ready = this.config.prepareAssistantResultDisplay
+            ? await this.config.prepareAssistantResultDisplay()
+            : this.screenOn;
+        }
+        if (
+          !ready ||
+          !this.screenOn ||
+          this.activeVoiceLayer ||
+          this.pendingAssistantResult !== pending
+        ) return;
+        await this.showAlert(
+          pending,
+          undefined,
+          isPending,
+          isolated ? () => preparation?.commit() : undefined,
+          "until-dismiss-or-sleep",
+          "assistant-reply",
+        );
+        if (isPending()) {
+          this.pendingAssistantResult = null;
+          this.pendingAssistantResultIsolated = false;
+          delivered = true;
+        }
       } catch {
         // Keep the result for the next wake, reconnect, or completed voice input.
       } finally {
+        if (isolated && !delivered) {
+          preparation?.rollback();
+          this.setAssistantOnlyPresentation(false);
+        }
         const queuedNext = this.pendingAssistantResult !== null && this.pendingAssistantResult !== pending;
         this.pendingAssistantResultDelivery = false;
         if (queuedNext) this.flushPendingAssistantResult();
@@ -1436,10 +2127,7 @@ class Shell {
     const layer = this.assistantLayer;
     const session = this.assistantSession;
     if (!layer || !session || this.activeVoiceLayer) return;
-    if (session.isTurnActive()) {
-      this.restoreBackgroundAssistantLayer(layer);
-      return;
-    }
+    if (session.isTurnActive()) return;
     const voiceOwner = this.foregroundWindow();
     voiceOwner?.setVoiceInputActive?.(true);
     const voice = new VoiceInputLayer({
@@ -1450,6 +2138,13 @@ class Shell {
           voiceOwner?.setVoiceInputActive?.(false);
           this.flushDeferredAssistantUi();
           this.noteUserActivity();
+          // An isolated completed answer can start another hidden turn. Once
+          // its reviewed utterance is handed off, blank the display exactly as
+          // the original sleep-origin PTT flow does.
+          queueMicrotask(() => {
+            if (this.finishSleepingAssistantVoiceHandoff()) return;
+            this.endAssistantOnlyPresentationIfIdle();
+          });
         }
       },
       dismiss: () => {
@@ -1460,7 +2155,7 @@ class Shell {
       ],
       finishOnClick: !handsFree,
       handsFree,
-      autoSend: handsFree && assistantSkipConfirmationSetting.get(),
+      autoSend: assistantSkipConfirmationSetting.get(),
     });
     this.activeVoiceLayer = voice;
     this.stack.push(voice);
@@ -1472,15 +2167,265 @@ class Shell {
     // Popping fires the layer's onRemoved, which cancels the turn and clears
     // this.assistantLayer.
     const layer = this.assistantLayer;
+    if (this.isolatedAssistantTurn === layer) this.isolatedAssistantTurn = null;
     this.assistantTurnBackgrounded = false;
     if (layer) this.stack.popIfTop((top) => top === layer);
     this.noteUserActivity();
+    this.endAssistantOnlyPresentationIfIdle();
     this.config.requestShellRender();
   }
 
-  /** Show a brief text popup on the lenses (assistant show_alert / notices). */
-  async showAlert(text: string, signal?: AbortSignal, isSideEffectAllowed?: () => boolean): Promise<void> {
+  /** Replace a completed result card with the existing reviewed voice flow. */
+  private startAssistantResultReply(dismissResult: () => void): void {
+    if (
+      !this.screenOn ||
+      this.activeVoiceLayer ||
+      this.assistantSession?.isTurnActive() ||
+      !voiceControlEnabledSetting.get() ||
+      !this.isAssistantAvailable()
+    ) return;
+    this.assistantOnlyReplyStarting = this.assistantOnlyPresentation;
+    dismissResult();
+    this.openVoiceDialog({
+      finishOnClick: true,
+      defaultTarget: "assistant",
+      returnToSleepOnClose: this.assistantOnlyReplyStarting,
+    });
+    this.assistantOnlyReplyStarting = false;
+    this.config.requestShellRender();
+  }
+
+  /** Enter/leave the isolated assistant surface and its app-surface lease. */
+  private setAssistantOnlyPresentation(active: boolean): void {
+    if (this.assistantOnlyPresentation === active) return;
+    this.assistantOnlyPresentation = active;
+    this.config.setAssistantOnlyPresentation?.(active);
+    this.config.requestShellRender();
+  }
+
+  private endAssistantOnlyPresentationIfIdle(): void {
+    if (!this.assistantOnlyPresentation) return;
+    if (
+      this.activeVoiceLayer ||
+      this.assistantOnlyReplyStarting ||
+      this.assistantTurnBackgrounded ||
+      this.assistantLayer ||
+      this.alertLayer ||
+      this.directNotificationLayer ||
+      this.dynamicAppLayer ||
+      this.pendingAssistantResult ||
+      this.assistantSession?.isTurnActive()
+    ) return;
+    this.setAssistantOnlyPresentation(false);
+  }
+
+  /**
+   * A sleeping PTT capture has handed its utterance to a hidden live turn.
+   * Release the isolated surface immediately, remember the exact final owner,
+   * and return the display to sleep while backend work continues detached.
+   */
+  private finishSleepingAssistantVoiceHandoff(): boolean {
+    const layer = this.assistantLayer;
+    if (
+      !this.assistantOnlyPresentation ||
+      this.activeVoiceLayer ||
+      !layer ||
+      !this.assistantTurnBackgrounded ||
+      !this.assistantSession?.isTurnActive()
+    ) return false;
+    this.isolatedAssistantTurn = layer;
+    if (this.screenOn) this.sleep();
+    else this.setAssistantOnlyPresentation(false);
+    return true;
+  }
+
+  /** A discarded/empty sleep-origin capture returns to darkness, never HUD. */
+  private finishSleepingAssistantVoiceDismissal(returnToSleepOnClose: boolean): boolean {
+    if (
+      !returnToSleepOnClose ||
+      !this.assistantOnlyPresentation ||
+      this.activeVoiceLayer ||
+      this.assistantTurnBackgrounded ||
+      this.assistantLayer ||
+      this.alertLayer ||
+      this.directNotificationLayer ||
+      this.pendingAssistantResult ||
+      this.assistantSession?.isTurnActive()
+    ) return false;
+    if (this.screenOn) this.sleep();
+    else this.setAssistantOnlyPresentation(false);
+    return true;
+  }
+
+  /** Detach a failed isolated final before wake rollback clears stack overlays. */
+  private rehideIsolatedAssistantOverlayForRetry(layer: AssistantLayer, isolated: boolean): void {
+    if (!isolated || this.isolatedAssistantTurn !== layer) return;
+    if (this.assistantLayer === layer && !this.assistantTurnBackgrounded) {
+      this.backgroundAssistantLayer(layer);
+    }
+  }
+
+  /** Wake and strictly deliver one completed direct Hermes result. */
+  async notifyAssistantResult(
+    text: string,
+    signal?: AbortSignal,
+    isSideEffectAllowed?: () => boolean,
+    presentation?: DirectAssistantResultPresentation,
+  ): Promise<DirectAssistantResultDeliveryReceipt> {
+    if (
+      !presentation ||
+      !Number.isSafeInteger(presentation.receivedAtMs) || presentation.receivedAtMs < 0 ||
+      !Number.isSafeInteger(presentation.position) || presentation.position < 1 ||
+      !Number.isSafeInteger(presentation.total) || presentation.total < presentation.position ||
+      presentation.total > 32
+    ) throw new Error("Direct notification presentation metadata is invalid.");
+
+    // Install ownership before waking: shell.wake synchronously re-enters other
+    // deferred UI flushing, and the dedicated direct slot must remain unclaimed.
+    const revision = ++this.notifyResultRevision;
+    const isCallAuthorized = () =>
+      !signal?.aborted &&
+      (!isSideEffectAllowed || isSideEffectAllowed());
+    const isDeviceAllowed = () =>
+      (!this.config.isDirectAssistantResultPresentationAllowed ||
+        this.config.isDirectAssistantResultPresentationAllowed());
+    const canAcquireSlot = () =>
+      this.activeVoiceLayer === null &&
+      this.directNotificationLayer === null &&
+      this.stack.isAtBase() &&
+      isDeviceAllowed();
+    const isWakeOwner = () =>
+      this.notifyResultRevision === revision &&
+      isCallAuthorized() &&
+      canAcquireSlot();
+    if (!isWakeOwner()) throw new Error("The direct notification is not currently presentable.");
+    if (!this.config.requestShellDelivery) {
+      throw new Error("Strict glasses frame acknowledgement is unavailable.");
+    }
+
+    let preparation: { ready: boolean; commit: () => void; rollback: () => void } | null = null;
+    let acknowledged = false;
+    let layer: ShellAlertLayer | null = null;
+    try {
+      if (this.config.prepareDirectAssistantResultDisplay) {
+        preparation = await awaitWithAbortSignal(
+          this.config.prepareDirectAssistantResultDisplay(isWakeOwner),
+          signal,
+          "The direct notification was cancelled during display preparation.",
+        );
+      } else {
+        const ready = this.config.prepareAssistantResultDisplay
+          ? await awaitWithAbortSignal(
+            this.config.prepareAssistantResultDisplay(isWakeOwner),
+            signal,
+            "The direct notification was cancelled during display preparation.",
+          )
+          : this.screenOn;
+        preparation = { ready, commit: () => {}, rollback: () => {} };
+      }
+      if (!preparation.ready || !this.screenOn || !isWakeOwner()) {
+        throw new Error("The glasses display could not be prepared for the direct notification.");
+      }
+
+      if (this.config.waitForShellRenderIdle) {
+        await awaitWithAbortSignal(
+          this.config.waitForShellRenderIdle(),
+          signal,
+          "The direct notification was cancelled while waiting for the shell renderer.",
+        );
+      }
+      if (!isWakeOwner()) throw new Error("The direct notification presentation slot was superseded.");
+      const directHeader = formatDirectNotificationHeaderParts(
+        presentation.receivedAtMs,
+        presentation.position,
+        presentation.total,
+        timeFormatSetting.get(),
+      );
+      const directLayer = new ShellAlertLayer(
+        text,
+        () => {
+          directLayer.markCloseReason("dismissed");
+          this.stack.remove(directLayer);
+          if (this.directNotificationLayer === directLayer) this.directNotificationLayer = null;
+          this.config.requestShellRender();
+        },
+        "until-dismiss-or-sleep",
+        {
+          header: directHeader.leading,
+          headerTrailing: directHeader.trailing,
+          onReply: () => this.startAssistantResultReply(() => {
+            directLayer.markCloseReason("dismissed");
+            this.stack.remove(directLayer);
+            if (this.directNotificationLayer === directLayer) this.directNotificationLayer = null;
+            this.config.requestShellRender();
+          }),
+          onRemoved: (reason) => {
+            if (this.directNotificationLayer === directLayer) this.directNotificationLayer = null;
+            presentation.onClosed(reason);
+          },
+        },
+      );
+      layer = directLayer;
+      this.directNotificationLayer = directLayer;
+      this.stack.push(directLayer);
+      this.restartScreenTimeout();
+      const isLayerOwner = () =>
+        this.notifyResultRevision === revision &&
+        this.directNotificationLayer === directLayer &&
+        this.stack.topMatches((top) => top === directLayer) &&
+        isCallAuthorized() &&
+        this.activeVoiceLayer === null &&
+        isDeviceAllowed();
+      const delivery = this.config.requestShellDelivery(isLayerOwner);
+      await awaitWithAbortSignal(delivery, signal, "The direct notification was cancelled during delivery.");
+      if (isLayerOwner()) {
+        // The encrypted FIFO tombstone must commit before the provisional wake.
+        // If this throws, catch removes the card and rolls the exact wake back.
+        presentation.onStrictFrameAcknowledged();
+        acknowledged = true;
+        preparation!.commit();
+        this.restartScreenTimeout();
+        // No cue occurs while off-head/unknown or while merely queued.
+        void playEventBeep("assistantReply", this.config.actions.playBuzzerSequence);
+      }
+      if (!acknowledged) throw new Error("The direct notification was not visibly acknowledged.");
+      return { acknowledged: true, successAllowed: isLayerOwner() };
+    } catch (error) {
+      if (!acknowledged) {
+        if (layer) {
+          layer.markCloseReason("preempted");
+          this.stack.remove(layer);
+          if (this.directNotificationLayer === layer) this.directNotificationLayer = null;
+          // Do not retain durable-inbox ownership while a best-effort base
+          // repaint drains. Layout/session churn can keep the ordinary render
+          // coalescer alive indefinitely; the next explicit lifecycle edge
+          // must remain able to retry this still-pending notification.
+          startDetachedCleanup(() => this.config.requestShellRender());
+        }
+        preparation?.rollback();
+        throw error;
+      }
+      return { acknowledged: true, successAllowed: false };
+    }
+  }
+
+  /** Show a compact text popup; ordinary assistant show_alert notices remain transient by default. */
+  async showAlert(
+    text: string,
+    signal?: AbortSignal,
+    isSideEffectAllowed?: () => boolean,
+    onStrictFrameAcknowledged?: () => void,
+    lifetime: ShellAlertLifetime = "transient",
+    interaction: "dismiss-only" | "assistant-reply" = "dismiss-only",
+  ): Promise<void> {
     if (!this.screenOn) throw new Error("The glasses display is off; no alert was sent.");
+    if (this.clockAlertLayer) throw new Error("A Clock alert owns the glasses display.");
+    // Assistant result cards explicitly use the persistent lifetime; every
+    // ordinary alert is unrelated shell chrome and must not preempt isolated
+    // voice capture/result presentation.
+    if (this.assistantOnlyPresentation && lifetime !== "until-dismiss-or-sleep") {
+      throw new Error("The assistant voice presentation owns the display; no unrelated alert was sent.");
+    }
     if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) throw new Error("The alert operation was cancelled; no alert was sent.");
     if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
       throw new Error("The glasses are disconnected; no alert was sent.");
@@ -1496,14 +2441,31 @@ class Shell {
     }
     if (this.alertLayer) this.stack.remove(this.alertLayer);
     let layer: ShellAlertLayer;
-    const isOwner = () => this.alertRevision === revision && this.alertLayer === layer;
-    layer = new ShellAlertLayer(text, () => {
+    const isOwner = () => isStrictLayerOwner(
+      revision,
+      this.alertRevision,
+      layer,
+      this.alertLayer,
+      this.stack.topMatches((top) => top === layer),
+    );
+    const dismiss = () => {
+      layer.markCloseReason("dismissed");
       this.stack.remove(layer);
       if (this.alertLayer === layer) this.alertLayer = null;
+      this.endAssistantOnlyPresentationIfIdle();
       this.config.requestShellRender();
+    };
+    layer = new ShellAlertLayer(text, dismiss, lifetime, {
+      onReply: interaction === "assistant-reply"
+        ? () => this.startAssistantResultReply(dismiss)
+        : undefined,
+      onRemoved: () => this.notifyDirectNotificationOpportunity(),
     });
     this.alertLayer = layer;
     this.stack.push(layer);
+    // Prevent a stale pre-presentation idle deadline from sleeping the display
+    // while this exact frame is still passing through strict delivery.
+    this.restartScreenTimeout();
     let abortReject: ((reason?: unknown) => void) | null = null;
     const abortPromise = signal
       ? new Promise<void>((_resolve, reject) => { abortReject = reject; })
@@ -1517,13 +2479,26 @@ class Shell {
         ? this.config.requestShellDelivery(() => isOwner() && !signal?.aborted && (!isSideEffectAllowed || isSideEffectAllowed()))
         : Promise.resolve(this.config.requestShellRender());
       await (abortPromise ? Promise.race([delivery, abortPromise]) : delivery);
+      if (isOwner()) {
+        // Start the full global reading interval at the accepted presentation,
+        // without invalidating a direct result's provisional wake lease.
+        this.restartScreenTimeout();
+        layer.armTransientDismissTimer();
+        onStrictFrameAcknowledged?.();
+      }
       if (!isOwner() || signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
         throw new Error("The alert operation was superseded or cancelled; no alert was sent.");
       }
     } catch (error) {
       this.stack.remove(layer);
       if (this.alertLayer === layer) this.alertLayer = null;
-      try { await this.config.requestShellRender(); } catch { /* preserve transport error */ }
+      if (lifetime === "until-dismiss-or-sleep") {
+        // A retained assistant result may still own a provisional wake. Do not
+        // delay its caller's rollback behind a best-effort cleanup repaint.
+        startDetachedCleanup(() => this.config.requestShellRender());
+      } else {
+        try { await this.config.requestShellRender(); } catch { /* preserve transport error */ }
+      }
       throw error;
     } finally {
       signal?.removeEventListener("abort", onAbort);
@@ -1538,6 +2513,12 @@ class Shell {
     onGesture: (type: "scroll-up" | "scroll-down" | "click", foreground: boolean) => boolean,
     onClose: () => void,
   ): Promise<void> {
+    if (this.clockAlertLayer) {
+      throw new Error("A Clock alert owns the glasses display; no remote view was sent.");
+    }
+    if (this.assistantOnlyPresentation) {
+      throw new Error("The assistant voice presentation owns the display; no remote view was sent.");
+    }
     if (!this.screenOn) throw new Error("The glasses display is off; no view was sent.");
     if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
       throw new Error("The glasses are disconnected; no view was sent.");
@@ -1550,6 +2531,7 @@ class Shell {
     if (prior) this.stack.remove(prior);
     this.remoteViewLayer = layer;
     this.stack.push(layer);
+    this.assistantResultWakeOwnership.invalidate();
     const isOwner = () =>
       this.remoteViewLayer === layer &&
       !signal?.aborted &&
@@ -1586,63 +2568,168 @@ class Shell {
     isSideEffectAllowed: (() => boolean) | undefined,
     onInput: (type: "scroll-up" | "scroll-down" | "click", foreground: boolean) => boolean,
     onClose: () => void,
+    options: Readonly<{ assistantTurnResult?: boolean }> = {},
   ): Promise<{ status: "acknowledged"; frameId: number }> {
-    if (!this.screenOn) throw new Error("The glasses display is off; no dynamic app was sent.");
+    const contextState = state as DynamicAppState & {
+      contextIntent?: string;
+      dashboardId?: string;
+      dashboardState?: string;
+      answerPresentation?: string;
+      presentationMode?: "single" | "deck";
+      pageId?: string;
+    };
+    const finalContextAnswer = Boolean(
+      options.assistantTurnResult === true &&
+      contextState.answerPresentation === "atomic-final-only" &&
+      contextState.dashboardId &&
+      contextState.contextIntent &&
+      ["ready", "empty", "error", "offline"].includes(contextState.dashboardState ?? "") &&
+      isSideEffectAllowed,
+    );
+    const answerAssistant = finalContextAnswer ? this.assistantLayer : null;
+    const answerStillCurrent = () => Boolean(
+      finalContextAnswer &&
+      answerAssistant &&
+      this.assistantLayer === answerAssistant &&
+      this.assistantTurnBackgrounded &&
+      this.assistantSession?.isTurnActive() &&
+      !this.activeVoiceLayer &&
+      !signal?.aborted &&
+      isSideEffectAllowed?.(),
+    );
+    const mayPresentAssistantAnswer = answerStillCurrent() && (
+      this.screenOn
+        ? (!this.assistantOnlyPresentation || this.isolatedAssistantTurn === answerAssistant)
+        : this.isolatedAssistantTurn === answerAssistant
+    );
+    if (this.clockAlertLayer) {
+      throw new Error("A Clock alert owns the glasses display; no dynamic app was sent.");
+    }
+    if (this.assistantOnlyPresentation && !mayPresentAssistantAnswer) {
+      throw new Error("The assistant voice presentation owns the display; no dynamic app was sent.");
+    }
+    if (!this.screenOn && !mayPresentAssistantAnswer) {
+      throw new Error("The glasses display is off; no dynamic app was sent.");
+    }
     if (this.config.isDisplayAvailable && !this.config.isDisplayAvailable()) {
       throw new Error("The glasses are disconnected; no dynamic app was sent.");
     }
     if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
       throw new Error("The dynamic app operation is stale.");
     }
+    const isolatedAnswer = mayPresentAssistantAnswer && !this.screenOn;
     let prior = this.dynamicAppLayer;
-    if (prior && prior.state.viewId !== state.viewId) {
-      // A different manager/view is claiming the one remote-app surface. Tell
-      // the displaced owner first so its timers/events cannot remain live.
-      prior.close();
-      prior = null;
-    }
+    const priorWasAssistantOnly = prior !== null && this.assistantOnlyDynamicAppLayer === prior;
     const priorContextPrefix = prior ? this.contextDashboardVoicePrefix : null;
-    const layer = new ShellDynamicAppLayer(state, onInput, onClose);
-    const contextState = state as DynamicAppState & { contextIntent?: string; dashboardId?: string };
-    // A dashboard opened by the current assistant turn must become visible
-    // before that turn can continue. Detach the assistant overlay without its
-    // onRemoved cancellation hook; callbacks may finish the still-live turn in
-    // the background while the dashboard owns the lenses.
-    const displacedAssistant = contextState.dashboardId ? this.assistantLayer : null;
-    if (displacedAssistant) {
-      this.stack.detach(displacedAssistant);
-      this.assistantLayer = null;
-      this.detachedAssistantLayer = displacedAssistant;
-      // Tool activity may already have removed this overlay through the
-      // background-task path. Once a context dashboard owns the same turn,
-      // detachedAssistantLayer is the sole retained owner; stale background
-      // bookkeeping would otherwise duplicate the next assistant layer.
-      this.assistantTurnBackgrounded = false;
-      this.assistantOverlayRestorePending = false;
+    const layer = new ShellDynamicAppLayer(
+      state,
+      onInput,
+      onClose,
+      () => this.focus === "sidebar" && this.hasManageableWindow() ? "window management" : "ask",
+    );
+    let preparation: AssistantResultDisplayPreparation | null = null;
+    let displacedAssistant: AssistantLayer | null = null;
+    const installFinalLayer = () => {
+      if (prior && prior.state.viewId !== state.viewId) {
+        // A different manager/view is claiming the one remote-app surface. Tell
+        // the displaced owner first so its timers/events cannot remain live.
+        prior.close();
+        prior = null;
+      }
+      // A dashboard opened by the current assistant turn must become visible
+      // before that turn can continue. Detach the assistant overlay without its
+      // onRemoved cancellation hook; callbacks may finish the still-live turn in
+      // the background while the dashboard owns the lenses.
+      displacedAssistant = contextState.dashboardId && !finalContextAnswer ? this.assistantLayer : null;
+      if (displacedAssistant) {
+        this.stack.detach(displacedAssistant);
+        this.assistantLayer = null;
+        this.detachedAssistantLayer = displacedAssistant;
+        // Tool activity may already have removed this overlay through the
+        // background-task path. Once a context dashboard owns the same turn,
+        // detachedAssistantLayer is the sole retained owner; stale background
+        // bookkeeping would otherwise duplicate the next assistant layer.
+        this.assistantTurnBackgrounded = false;
+        this.assistantOverlayRestorePending = false;
+      }
+      if (prior) this.stack.remove(prior);
+      this.dynamicAppLayer = layer;
+      if (isolatedAnswer || priorWasAssistantOnly) this.assistantOnlyDynamicAppLayer = layer;
+      this.contextDashboardVoicePrefix = contextState.dashboardId && contextState.contextIntent
+        ? `Context dashboard intent: ${contextState.contextIntent}. ${contextState.presentationMode === "deck"
+            ? `Current page: ${state.title} (${contextState.pageId ?? "cover"})`
+            : `Focused item: ${state.components[state.scrollOffset]?.id ?? "summary"}`}.`
+        : null;
+      this.stack.push(layer);
+    };
+    if (isolatedAnswer) {
+      // Wake over a deliberately blank isolated shell first. Installing the
+      // result layer before this barrier lets the wake-triggered ordinary
+      // render race the strict send and turn it into a no-change receipt.
+      const wakeOwner = () => this.dynamicAppLayer === prior && answerStillCurrent();
+      preparation = await prepareAtomicAssistantResultLayer({
+        enterIsolation: () => this.setAssistantOnlyPresentation(true),
+        prepare: async () => this.config.prepareIsolatedAssistantResultDisplay
+          ? this.config.prepareIsolatedAssistantResultDisplay(wakeOwner)
+          : null,
+        isReadyCurrent: () => this.screenOn && wakeOwner(),
+        // Drain the blank wake render before making the unique final frame
+        // paintable. The provisional wake remains owned throughout this wait.
+        drainBlankRender: async () => {
+          if (this.config.waitForShellRenderIdle) await this.config.waitForShellRenderIdle();
+        },
+        installFinalLayer,
+        releaseIsolationIfAsleep: () => {
+          if (!this.screenOn) this.setAssistantOnlyPresentation(false);
+        },
+      });
+    } else {
+      installFinalLayer();
     }
-    if (prior) this.stack.remove(prior);
-    this.dynamicAppLayer = layer;
-    this.contextDashboardVoicePrefix = contextState.dashboardId && contextState.contextIntent
-      ? `Context dashboard intent: ${contextState.contextIntent}. Focused item: ${state.components[state.scrollOffset]?.id ?? "summary"}.`
-      : null;
-    this.stack.push(layer);
+    // The isolated result's acquired wake stays provisional until its own
+    // unique frame is strictly acknowledged. Ordinary dynamic apps still
+    // claim any older assistant-result wake immediately.
+    if (!isolatedAnswer) this.assistantResultWakeOwnership.invalidate();
     const isOwner = () =>
       this.dynamicAppLayer === layer &&
       !signal?.aborted &&
-      (!isSideEffectAllowed || isSideEffectAllowed());
+      (!isSideEffectAllowed || isSideEffectAllowed()) &&
+      (!finalContextAnswer || answerStillCurrent());
+    let acknowledged = false;
     try {
+      // The pre-send and accepted-result deadlines are both based on the full
+      // global reading timeout. Re-baselining does not invalidate a provisional
+      // assistant-result wake lease (noteUserActivity would).
+      this.restartScreenTimeout();
       const receipt = this.config.requestShellDelivery
         ? await this.config.requestShellDelivery(isOwner)
         : (() => { this.config.requestShellRender(); return { frameId: 0, outcome: "unverified" }; })();
-      if (!isOwner() || receipt.frameId <= 0 || receipt.outcome !== "sent") {
+      if (!isOwner() || receipt.frameId <= 0 || !isSuccessfulFrameOutcome(receipt.outcome)) {
         throw new Error("The dynamic app did not receive a current transport acknowledgement.");
       }
+      this.restartScreenTimeout();
+      // Only the exact strictly acknowledged final card may replace the hidden
+      // assistant. Until this point, a failed wake leaves the live turn intact
+      // so Hermes can return a compact fallback result instead.
+      if (finalContextAnswer && answerAssistant && this.assistantLayer === answerAssistant) {
+        this.stack.detach(answerAssistant);
+        this.assistantLayer = null;
+        this.detachedAssistantLayer = answerAssistant;
+        this.assistantTurnBackgrounded = false;
+        this.assistantOverlayRestorePending = false;
+        if (this.isolatedAssistantTurn === answerAssistant) this.isolatedAssistantTurn = null;
+      }
+      preparation?.commit();
+      acknowledged = true;
       return { status: "acknowledged", frameId: receipt.frameId };
     } catch (error) {
       const ownsLayer = this.dynamicAppLayer === layer;
       this.stack.remove(layer);
       if (ownsLayer) {
         this.dynamicAppLayer = prior;
+        if (this.assistantOnlyDynamicAppLayer === layer) {
+          this.assistantOnlyDynamicAppLayer = priorWasAssistantOnly ? prior : null;
+        }
         this.contextDashboardVoicePrefix = priorContextPrefix;
         if (prior) this.stack.push(prior);
         if (displacedAssistant && shouldRestoreDisplacedAssistant({
@@ -1658,8 +2745,19 @@ class Shell {
           this.stack.push(displacedAssistant);
         }
       }
-      try { await this.config.requestShellRender(); } catch { /* preserve delivery error */ }
+      if (isolatedAnswer) {
+        // Roll back the provisional wake before releasing hidden app surfaces;
+        // a best-effort repaint here could otherwise expose the retained HUD.
+        preparation?.rollback();
+        if (!this.screenOn) this.setAssistantOnlyPresentation(false);
+      } else {
+        try { await this.config.requestShellRender(); } catch { /* preserve delivery error */ }
+      }
       throw error;
+    } finally {
+      if (isolatedAnswer && !acknowledged && preparation?.ready === true && !this.screenOn) {
+        this.setAssistantOnlyPresentation(false);
+      }
     }
   }
 
@@ -1668,8 +2766,19 @@ class Shell {
     if (!layer || layer.state.viewId !== identity.viewId || layer.state.revision !== identity.revision) return;
     this.stack.remove(layer);
     this.dynamicAppLayer = null;
+    const closedAssistantOnlyAnswer = this.assistantOnlyDynamicAppLayer === layer;
+    if (closedAssistantOnlyAnswer) this.assistantOnlyDynamicAppLayer = null;
     this.contextDashboardVoicePrefix = null;
     this.config.requestShellRender();
+    if (closedAssistantOnlyAnswer) {
+      // clearDynamicApp can run from inside sleep(). Defer the return-to-sleep
+      // decision until that outer transition has either completed or yielded.
+      queueMicrotask(() => {
+        if (this.dynamicAppLayer || !this.assistantOnlyPresentation) return;
+        if (this.screenOn) this.sleep();
+        else this.setAssistantOnlyPresentation(false);
+      });
+    }
   }
 
   /** Physical transport loss tombstones remote authority before any reconnect. */
@@ -1699,8 +2808,8 @@ class Shell {
    */
   private openEscapeMenu(): void {
     if (!this.screenOn || this.activeVoiceLayer || !this.stack.isAtBase()) return;
-    // A longer hold opening the escape menu supersedes quick-close mode.
-    this.closingActive = false;
+    // A longer hold opening the escape menu supersedes Window Management.
+    this.exitWindowManagement();
     const foreground = this.foregroundWindow();
     if (!foreground) return;
     const items: MenuItem[] = [];
@@ -1764,6 +2873,7 @@ class Shell {
           : this.windows[this.selectedIndex]?.closeable === false
             ? "pinned"
             : "close",
+      managementCanMove: this.canReorder(this.windows[this.selectedIndex]?.windowId ?? ""),
       ringConfigured: this.ringConfigured,
       ...this.reorderChromeState(),
       foregroundHeightMode: this.foregroundWindow()?.heightMode ?? "min",
@@ -1773,10 +2883,12 @@ class Shell {
         .sort()
         .map((key) => this.trayIcons.get(key)!),
       bridge: {
-        // Only meaningful with the external backend and a configured host.
-        show:
-          assistantBackendSetting.get() === "external" &&
-          assistantBridgeHostSetting.get().trim().length > 0,
+        // External mode always identifies the gateway, including a SETUP
+        // state when the host is blank; on-phone/direct backends omit it.
+        show: assistantBackendSetting.get() === "external",
+        configured:
+          assistantBridgeHostSetting.get().trim().length > 0 &&
+          assistantBridgeTokenSetting.get().length > 0,
         phase: this.bridgePhase,
       },
     };

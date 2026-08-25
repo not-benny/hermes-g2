@@ -103,9 +103,9 @@ export function createAgentCockpitWindow(options: InProcessAppOptions): InProces
   const app = createInProcessWindow({
     appId: "agent-cockpit",
     windowId: AGENT_COCKPIT_WINDOW_ID,
-    title: "Hermes",
+    title: "Hermes Cockpit",
     iconLetter: "H",
-    icon: "terminal",
+    icon: "hermes-h",
     closeable: true,
     actions: options.actions,
     baseLayer: layer,

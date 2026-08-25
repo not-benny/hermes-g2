@@ -1,5 +1,6 @@
 import { ImageSource, Utils } from "@nativescript/core";
 import * as frameTimings from "./frame-timings";
+import type { ClockCampaignAckInput } from "./clock-scheduler";
 
 declare const com: any;
 
@@ -195,6 +196,7 @@ export class FaceclawCommunicatorBridge {
   private readonly silentModeListeners = new Set<(silent: boolean) => void>();
   private readonly wearStateListeners = new Set<(wearing: boolean) => void>();
   private readonly phoneLockStateListeners = new Set<(locked: boolean) => void>();
+  private latestPhase: CommunicatorPhase = "disconnected";
   private latestWearState: boolean | null = null;
   private latestPhoneLockState: boolean | null = null;
   private readonly evenAppConflictListeners = new Set<(message: string) => void>();
@@ -226,6 +228,8 @@ export class FaceclawCommunicatorBridge {
           phase: String(phase) as CommunicatorPhase,
           status: String(status),
         };
+        this.latestPhase = state.phase;
+        if (state.phase !== "connected") this.latestWearState = null;
         this.emitAsync(this.stateListeners, state);
       },
       onRingEvent: (
@@ -264,6 +268,10 @@ export class FaceclawCommunicatorBridge {
         this.emitAsync(this.silentModeListeners, Boolean(silent));
       },
       onWearState: (wearing: boolean) => {
+        // Wear snapshots belong to one live transport session. A native
+        // callback queued behind disconnect/charging must never seed the next
+        // onWearState subscriber with a stale value.
+        if (this.latestPhase !== "connected") return;
         this.latestWearState = Boolean(wearing);
         this.emitAsync(this.wearStateListeners, this.latestWearState);
       },
@@ -754,6 +762,53 @@ export class FaceclawCommunicatorBridge {
     await this.enqueueJavaCall(() => {
       this.communicator.playBuzzerSequence(snapshot.buffer);
     });
+  }
+
+  /** Replace queued cues with the Clock alert's bounded firmware sequence. */
+  async playClockBuzzerSequence(
+    payload: Uint8Array,
+    campaign: ClockCampaignAckInput,
+    isAllowed: () => boolean = () => true,
+  ): Promise<boolean> {
+    const snapshot = new Uint8Array(payload);
+    return new Promise<boolean>((resolve, reject) => {
+      let settled = false;
+      const finish = (delivered: boolean) => {
+        if (settled) return;
+        settled = true;
+        resolve(delivered);
+      };
+      const receipt = new com.faceclaw.app.FaceclawClockBuzzerListener({
+        onClockBuzzerResult: (delivered: boolean) => {
+          setTimeout(() => finish(Boolean(delivered)), 0);
+        },
+      });
+      try {
+        const accepted = isAllowed() && Boolean(
+          this.communicator.playClockBuzzerSequence(
+            snapshot.buffer,
+            JSON.stringify(campaign),
+            receipt,
+          ),
+        );
+        if (!accepted) finish(false);
+      } catch (error) {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      }
+    });
+  }
+
+  /** Preempt the active PWM sequence and every queued sound. */
+  async stopBuzzerUrgent(): Promise<void> {
+    try {
+      // Urgent Clock/ring cancellation must bypass queued readiness/frame
+      // calls. The Java implementation is synchronized and thread-safe.
+      this.communicator.stopBuzzerUrgent();
+    } catch (error) {
+      return Promise.reject(error);
+    }
   }
 
   async close(): Promise<boolean> {

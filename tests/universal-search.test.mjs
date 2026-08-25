@@ -101,14 +101,14 @@ test("provider permission and offline failures remain honest and isolated", asyn
       search: async () => { throw new SearchProviderFailure("permission_denied"); },
     },
     {
-      sourceId: "hermes_sessions", label: "Hermes", privacyClass: "private_content",
+      sourceId: "files", label: "Files", privacyClass: "private_content",
       search: async () => { throw new SearchProviderFailure("offline"); },
     },
   ], { providerTimeoutMs: 20, resultLimit: 10 });
-  const state = await controller.search("plan", new Set(["calendar", "hermes_sessions"]));
+  const state = await controller.search("plan", new Set(["calendar", "files"]));
   assert.deepEqual(state.sources.map(({ sourceId, state: sourceState }) => [sourceId, sourceState]), [
     ["calendar", "permission_denied"],
-    ["hermes_sessions", "offline"],
+    ["files", "offline"],
   ]);
 });
 
@@ -128,7 +128,7 @@ test("malformed provider objects fail only their source without evaluating execu
   } } });
   const controller = new SearchController([
     { sourceId: "files", label: "Files", privacyClass: "private_content", search: async () => [hostile] },
-    { sourceId: "roam", label: "Roam", privacyClass: "private_content", search: async () => hostileArray },
+    { sourceId: "media", label: "Media", privacyClass: "private_content", search: async () => hostileArray },
     { sourceId: "health", label: "Health", privacyClass: "sensitive_content", search: async () => hostileSpecies },
     {
       sourceId: "apps", label: "Apps", privacyClass: "public_metadata",
@@ -136,10 +136,10 @@ test("malformed provider objects fail only their source without evaluating execu
     },
   ], { providerTimeoutMs: 20, resultLimit: 10 });
 
-  const state = await controller.search("plan", new Set(["files", "roam", "health", "apps"]));
+  const state = await controller.search("plan", new Set(["files", "media", "health", "apps"]));
   assert.deepEqual(state.results.map((result) => result.resultId), ["planner"]);
   assert.equal(state.sources.find((source) => source.sourceId === "files").state, "error");
-  assert.equal(state.sources.find((source) => source.sourceId === "roam").state, "error");
+  assert.equal(state.sources.find((source) => source.sourceId === "media").state, "error");
   assert.equal(state.sources.find((source) => source.sourceId === "health").state, "ready");
   assert.equal(state.sources.find((source) => source.sourceId === "apps").state, "ready");
 });
@@ -155,11 +155,11 @@ test("provider proxy reentrancy cannot publish a stale search generation", async
     return Reflect.get(target, property);
   } });
   controller = new SearchController([
-    { sourceId: "roam", label: "Roam", privacyClass: "private_content", search: async () => reentrant },
+    { sourceId: "media", label: "Media", privacyClass: "private_content", search: async () => reentrant },
     { sourceId: "apps", label: "Apps", privacyClass: "public_metadata", search: async () => [] },
   ], { providerTimeoutMs: 20, resultLimit: 10 });
 
-  await controller.search("old", new Set(["roam"]), (state) => updates.push(state.generation));
+  await controller.search("old", new Set(["media"]), (state) => updates.push(state.generation));
   await replacement;
   const replacementIndex = updates.indexOf(2);
   assert.ok(replacementIndex >= 0);

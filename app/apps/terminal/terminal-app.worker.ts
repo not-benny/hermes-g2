@@ -843,15 +843,7 @@ function connectedControls(): ControlConnection[] {
 }
 
 function windowMenuItems(window: TerminalWindow): MenuItem[] {
-  const items: MenuItem[] = [
-    {
-      label: "Settings",
-      onSelect: (ctx) => {
-        ctx.stack.pop();
-        post({ type: "open-settings", section: "Terminal" });
-      },
-    },
-  ];
+  const items: MenuItem[] = [];
   if (window.kind === "hub") {
     const connected = connectedControls();
     const multiHost = connected.length > 1;

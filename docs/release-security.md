@@ -32,14 +32,36 @@ This document is the maintained release contract for Hermes G2. Historical previ
 
 ## Credentials and storage
 
-Bridge, provider, Even, Mapbox, Roam, Nightscout, and terminal token-bearing settings are encrypted with an Android Keystore AES-GCM key. Legacy plaintext values migrate only after an encrypted commit and decrypting read-back succeeds; otherwise the plaintext remains so the only valid copy is not lost. Clear actions remove both encrypted and legacy copies.
+Bridge, provider, Even, Mapbox, and dormant legacy terminal token-bearing settings are encrypted with an Android Keystore AES-GCM key. Legacy plaintext values migrate only after an encrypted commit and decrypting read-back succeeds; otherwise the plaintext remains so the only valid copy is not lost. Clear actions remove both encrypted and legacy copies. Settings-store initialization also purges plaintext, encrypted, and pending copies of credentials belonging to retired integrations; failed commits retry at the next process start.
+
+The local Work Tasks board uses the same Keystore boundary for one strict,
+bounded, versioned document. Mutations commit the task and a content-free
+idempotency receipt in the same encrypted write before success is reported.
+The authenticated `even-g2` profile exposes only the fixed active-turn add
+route; it does not expose Hermes Kanban as an alternative store.
+
+The direct Hermes notification inbox is a separate strict, bounded, versioned
+Keystore document. Pending entries retain only the inert result text, a
+phone-owned receipt timestamp, monotonic FIFO metadata, and hashed operation and
+payload identities; plaintext operation IDs are never stored. Unknown or
+off-head wear state, transport loss, lock, foreground voice, or proactive opt-out
+pauses presentation without deleting the queue. A confirmed-worn strict frame
+acknowledgement atomically replaces pending text with a bounded content-free
+tombstone before the wake transaction commits. The acknowledged card remains in
+RAM until wearer dismissal or the global screen timeout; a phone-process crash
+during that interval cannot reconstruct the already-acknowledged card.
 
 Android backup is disabled. Keystore keys are device/app-install scoped: uninstall or app-data clear destroys the key and settings. Reinstalling does not recover credentials. Upgrade-in-place preserves them when Android preserves app data and signing identity. The developer pull/push preference scripts are not a credential backup mechanism and must not be used for release migration.
 
 ## Transport and optional integrations
 
-- Hermes bridge traffic requires authenticated `wss://`; public bridge/MCP publication remains NO-GO pending the maintained server, certificate-identity, licensing, generic-client, privacy, idempotency, and real-G2 gates.
-- Terminal/g2mirror requires TLS for every non-loopback host. Plain `g2mirror://` is accepted only for localhost/loopback development. Token-bearing connection records are encrypted and raw URLs are never used as display labels.
+- Hermes bridge traffic requires authenticated `wss://`. The private owner
+  deployment uses Host Session MCP, private Device MCP, and the portable static
+  workflow MCP described in `hermes-mcp-architecture.md`. Combined public
+  distribution remains NO-GO because the current native bridge is
+  redistribution-prohibited and the remaining artifact, containment, privacy,
+  and physical-device gates are open.
+- Terminal/G2Mirror is retired from launcher, search, debug control, persisted-window restore, and Settings navigation. Dormant source and any legacy encrypted records are retained only for rollback and explicit credential cleanup; no connection is started.
 - WhatsApp startup and pairing UI are disabled. The bundled Node runtime is not proven compatible with 16 KiB page-size Android devices, live pairing has not passed the disposable-number gate, and Baileys production custody/licensing remain unresolved.
 
 ## Build and CI gates
@@ -61,4 +83,8 @@ The current personal-development package requests broad capabilities for glasses
 
 ## Gated operations
 
-No release or review authorizes pairing ownership, R1 provisioning/NVM, reset/wipe/power commands, R1 DFU, G2 firmware flashing/recovery experiments, signing-key rotation, public MCP publication, or live WhatsApp pairing. Those remain separate explicit gates.
+No release or review authorizes pairing ownership, R1 provisioning/NVM,
+reset/wipe/power commands, R1 DFU, G2 firmware flashing/recovery experiments,
+signing-key rotation, publication of the native bridge, activation of the
+general public-web candidate, or live WhatsApp pairing. Those remain separate
+explicit gates.

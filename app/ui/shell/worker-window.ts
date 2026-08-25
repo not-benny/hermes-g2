@@ -64,7 +64,12 @@ export type WorkerAppReply =
       windowId: string;
     }
   | {
-      /** Window-menu pick: pick this tab up for sidebar reordering. */
+      /** Window-menu pick: enter unified Window Management for this tab. */
+      type: "window-management-request";
+      windowId: string;
+    }
+  | {
+      /** Legacy worker generation; treated as Window Management. */
       type: "reorder-window-request";
       windowId: string;
     }
@@ -220,10 +225,11 @@ export class WorkerAppHost {
             this.options.requestShellRender();
           }
           break;
+        case "window-management-request":
         case "reorder-window-request":
-          // The shell no-ops if this window can no longer be reordered.
+          // The shell no-ops if this window can no longer be managed.
           if (this.openWindows.has(message.windowId)) {
-            shell.beginReorderFromMenu(message.windowId);
+            shell.beginWindowManagementFromMenu(message.windowId);
           }
           break;
         case "open-settings":
@@ -351,14 +357,13 @@ export class WorkerAppHost {
       },
     };
     shell.registerWindow(window);
+    const focusClaim = spec.focus ? shell.reserveWindowFocusClaim(spec.windowId) : undefined;
     // Configure the surface before any foregrounding so the worker's first
     // frame has somewhere to land.
     void this.options
       .configureSurface(surfaceId, false, heightMode)
       .then(() => {
-        if (spec.focus) {
-          shell.focusWindow(spec.windowId);
-        }
+        if (focusClaim) shell.focusWindow(spec.windowId, focusClaim);
         this.options.requestShellRender();
       })
       .catch((error) => {

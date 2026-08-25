@@ -34,10 +34,25 @@ export function loadPersistedOpenApps(): PersistedOpenApps {
       foreground?: unknown;
     };
     if (parsed.version !== STATE_VERSION || !Array.isArray(parsed.open)) return empty;
-    return {
-      open: parsed.open.filter((appId): appId is string => typeof appId === "string"),
-      foreground: typeof parsed.foreground === "string" ? parsed.foreground : null,
-    };
+    const open: string[] = [];
+    for (const value of parsed.open) {
+      if (typeof value !== "string") continue;
+      // Transcribe was replaced by Conversate. Preserve a user's open-window
+      // intent across an install without keeping a second legacy launcher app.
+      const migratedAppId = value === "transcribe" ? "conversate" : value;
+      const appId = migratedAppId === "timer" ? "clock" : migratedAppId;
+      // Terminal/G2Mirror is intentionally retired from every reachable UI.
+      // Ignore an old persisted window without deleting its dormant settings.
+      if (appId === "terminal") continue;
+      if (!open.includes(appId)) open.push(appId);
+    }
+    const foreground = typeof parsed.foreground === "string"
+      ? parsed.foreground === "terminal"
+        ? null
+        : parsed.foreground === "transcribe" ? "conversate"
+          : parsed.foreground === "timer" ? "clock" : parsed.foreground
+      : null;
+    return { open, foreground };
   } catch (error) {
     console.warn("open-apps state read failed", error);
     return empty;

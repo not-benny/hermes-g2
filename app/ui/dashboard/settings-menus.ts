@@ -12,6 +12,7 @@ import {
   startLocalModelDownload,
 } from "../../native/llama";
 import { TextViewerLayer } from "../../apps/files/text-viewer";
+import { createDebugTestsMenu } from "../../apps/debug-tests/debug-tests-app";
 import type { LayerContext } from "../layers";
 import { drawRightValueMenuItem, openModalMenu, type MenuItem } from "../menu";
 import { shell } from "../shell/shell";
@@ -25,15 +26,11 @@ import {
   batteryDisplayModeSetting,
   brightnessSetting,
   ringSensitivitySetting,
-  roamGraphNameSetting,
   enumSettingMenuItem,
   firmwareDebugFlagsSetting,
   lockScreenEnabledSetting,
   saveVoiceRecordingsSetting,
   suspendEvenHubWhenScreenOffSetting,
-  terminalAutoReconnectSetting,
-  terminalLaunchPresetsSetting,
-  terminalWakeOnBellSetting,
   textSettingMenuItem,
   timeFormatSetting,
   toggleSettingMenuItem,
@@ -101,7 +98,6 @@ function settingsSections(): SettingsSection[] {
         toggleSettingMenuItem(beepEventSettings.notification),
         toggleSettingMenuItem(beepEventSettings.assistantReply),
         toggleSettingMenuItem(beepEventSettings.assistantError),
-        toggleSettingMenuItem(beepEventSettings.assistantTool),
         toggleSettingMenuItem(beepEventSettings.timer),
         toggleSettingMenuItem(beepEventSettings.connect),
         toggleSettingMenuItem(beepEventSettings.disconnect),
@@ -123,8 +119,8 @@ function settingsSections(): SettingsSection[] {
         enumSettingMenuItem(assistantBackendSetting),
         enumSettingMenuItem(assistantModelSetting),
         localModelMenuItem(),
-        // When on, a wakeword utterance goes straight to the assistant with no
-        // Send/Type menu step.
+        // Assistant-targeted voice goes straight through; app dictation keeps
+        // its explicit review/send step.
         toggleSettingMenuItem(assistantSkipConfirmationSetting),
         textSettingMenuItem(assistantBridgeHostSetting),
         textSettingMenuItem(assistantBridgePortSetting),
@@ -139,24 +135,15 @@ function settingsSections(): SettingsSection[] {
       ],
     },
     {
-      label: "Terminal",
-      // Connections (g2mirror:// strings) are managed inside the Terminal
-      // app's Manage Connections section, not here.
-      items: [
-        textSettingMenuItem(terminalLaunchPresetsSetting),
-        toggleSettingMenuItem(terminalAutoReconnectSetting),
-        toggleSettingMenuItem(terminalWakeOnBellSetting),
-      ],
-    },
-    {
-      label: "Roam",
-      items: [
-        textSettingMenuItem(roamGraphNameSetting),
-      ],
-    },
-    {
       label: "Developer",
       items: [
+        {
+          label: "Debug tests",
+          description: "Display, sound, motion, and resource diagnostics for development hardware checks.",
+          onSelect: (ctx) => {
+            ctx.stack.push(createDebugTestsMenu("settings"));
+          },
+        },
         toggleSettingMenuItem(saveVoiceRecordingsSetting),
         toggleSettingMenuItem(firmwareDebugFlagsSetting),
         toggleSettingMenuItem(suspendEvenHubWhenScreenOffSetting),

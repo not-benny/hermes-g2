@@ -211,9 +211,9 @@ export class CockpitViewModel {
     if (pending) rows.push({ label: `Needs you (${pending})`, tone: "attention" });
     rows.push(...sorted.map((session) => ({ label: session.title, tone: session.pending.length ? "attention" as const : "normal" as const })));
     this.selected = Math.min(this.selected, Math.max(0, rows.length - 1));
-    return { mode: "active", title: "HERMES", body: [], rows, selected: this.selected,
+    return { mode: "active", title: "HERMES COCKPIT", body: rows.length ? [] : ["Connected", "No Hermes sessions are currently shared."], rows, selected: this.selected,
       ...this.viewport(rows.length),
-      footer: "scroll · click open · double-click back" };
+      footer: rows.length ? "scroll · click open · double-click back" : "double-click back" };
   }
 
   private inboxScreen(): CockpitScreen {
@@ -230,7 +230,8 @@ export class CockpitViewModel {
     const session = this.currentRun();
     if (!session) return { mode: "detail", title: "RUN RETIRED", body: ["This exact run generation is no longer current."],
       rows: [], selected: 0, footer: "double-click back" };
-    const body = session.timeline.slice(-2).map((row) => `${row.kind.toUpperCase()} ${row.status === "running" ? "…" : row.status === "failed" ? "×" : "✓"} ${row.text}`);
+    const body = session.timeline.filter((row) => row.kind !== "tool").slice(-2)
+      .map((row) => `${row.kind.toUpperCase()} ${row.status === "running" ? "…" : row.status === "failed" ? "×" : "✓"} ${row.text}`);
     if (session.summary) body.push(`${session.state.toUpperCase()} ${session.summary}`);
     const rows: CockpitScreen["rows"] = session.pending.map((item) => ({
       label: `${item.kind === "permission" ? "!" : "?"} ${item.title}`, tone: "attention",

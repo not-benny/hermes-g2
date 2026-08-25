@@ -7,6 +7,10 @@ purpose of the file is to pass control to the app’s first module.
 import { Application } from '@nativescript/core'
 import { registerShareIntentHandler } from './native/share-intents'
 import { seedPreviewDemo } from './native/preview-demo'
+// Exact-alarm receivers can cold-start NativeScriptApplication without an
+// Activity. Eager construction registers the durable Clock listener and
+// coordinator before the receiver dispatches its persisted due edge.
+import './g2/dashboard-controller'
 
 registerShareIntentHandler()
 

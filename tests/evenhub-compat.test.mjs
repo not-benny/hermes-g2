@@ -219,6 +219,34 @@ test("wearer input drives the bundled sample through the compatibility boundary"
   assert.ok(changes >= 3);
 });
 
+test("counter projects through the dynamic dashboard component renderer without changing local ownership", () => {
+  const controller = new EvenHubCounterController({
+    read: () => null,
+    write: () => {},
+    remove: () => {},
+  }, () => {}, true);
+  const dashboard = controller.dashboardState();
+  assert.equal(dashboard.title, "Local Counter");
+  assert.equal(dashboard.state, "ready");
+  assert.equal(dashboard.privacy, "private");
+  assert.equal(dashboard.expiresAtMs, Number.MAX_SAFE_INTEGER);
+  assert.equal(dashboard.components.find((component) => component.type === "status" && component.label === "Count").value, "0");
+  assert.deepEqual(
+    dashboard.components.filter((component) => component.type === "button").map((component) => [component.label, component.action_handle]),
+    [
+      ["Increment", "local_counter_increment_action"],
+      ["Reset", "local_counter_reset_action"],
+      ["Start timer", "local_counter_timer_action"],
+    ],
+  );
+  controller.handleInput("click");
+  assert.equal(
+    controller.dashboardState().components.find((component) => component.type === "status" && component.label === "Count").value,
+    "1",
+  );
+  controller.close();
+});
+
 test("counter remains responsive beyond the former request tombstone budget", () => {
   const persisted = new Map();
   const controller = new EvenHubCounterController({
@@ -256,10 +284,18 @@ test("backgrounding cancels the sample timer and reports truthful resumed state"
 
 test("sample is registered as an in-process app with lifecycle and clear-data wiring", () => {
   const registry = readFileSync(new URL("../app/apps/all-apps.ts", import.meta.url), "utf8");
+  const appDefinition = readFileSync(new URL("../app/apps/evenhub-sample/index.ts", import.meta.url), "utf8");
   const app = readFileSync(new URL("../app/apps/evenhub-sample/evenhub-sample-app.ts", import.meta.url), "utf8");
+  const icons = readFileSync(new URL("../app/graphics/icons.ts", import.meta.url), "utf8");
   const windowHost = readFileSync(new URL("../app/ui/shell/in-process-window.ts", import.meta.url), "utf8");
   assert.match(registry, /import evenHubSampleApp from "\.\/evenhub-sample"/);
   assert.equal((registry.match(/evenHubSampleApp,/g) ?? []).length, 1);
+  assert.match(appDefinition, /icon: "plus-one"/);
+  assert.match(app, /icon: "plus-one"/);
+  assert.match(app, /ShellDynamicAppLayer/);
+  assert.match(app, /controller\.dashboardState\(\)/);
+  assert.doesNotMatch(app, /ShellRemoteViewLayer/);
+  assert.match(icons, /"plus-one":\s*'[\s\S]*M3 10h8[\s\S]*m15 8 2-2v12/);
   assert.match(app, /onForegroundChanged: \(foreground\) => controller\.setForeground\(foreground\)/);
   assert.match(app, /onScreenChanged: \(on\) => controller\.setScreenOn\(on\)/);
   assert.match(app, /label: "Clear local data"/);

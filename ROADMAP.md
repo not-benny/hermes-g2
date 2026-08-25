@@ -1,11 +1,11 @@
 # Hermes G2 roadmap
 
-Current as of 23 August 2026. The current product state is defined only in
+Current as of 25 August 2026. The current product state is defined only in
 [`STATUS.md`](STATUS.md).
 
 ## The one active milestone
 
-### v1.0.0-preview.3 — Owner Hermes Loop
+### v1.0.0-preview.3 - Owner Hermes Loop
 
 **Goal:** prove the existing private Hermes product, without adding features, on
 the owner's Fold7, already-provisioned G2 already running the reviewed owner
@@ -27,17 +27,22 @@ security, privacy, data-loss, or hardware-safety finding.
   permitted action. Obtain explicit owner approval for microphone, optional R1
   health, and evidence capture. Exclude pairing, provisioning, firmware,
   recovery, reset, wipe, data clear, permission changes, and unrelated data.
-- [ ] Configure one certificate-validated, authenticated, licensed private
-  Hermes gateway. Record versions and capabilities without recording secrets.
-- [ ] Build the exact current `main`, pass CI/typecheck/release-surface checks,
-  record the source commit and APK SHA-256, and upgrade-install on the Fold7
-  without clearing app data or changing signing identity.
-- [ ] Prove the phone companion against that gateway: truthful status, session
-  list and refresh, resume, cancel, new voice session, and usage/cost only when
-  the provider advertises those capabilities.
-- [ ] Prove the glasses cockpit against the same gateway: projected session,
-  streamed response, one bounded tool result, reviewed answer/deny, steering,
-  interrupt, and terminal state.
+- [x] Configure one certificate-validated, authenticated private Hermes
+  gateway and record versions/capabilities without recording secrets. The
+  MCP-only transport and phone WSS were healthy on 25 August; public
+  redistribution of the native bridge remains separately blocked.
+- [x] Build the exact owner candidate, pass the 873-test phone suite,
+  TypeScript, gateway/workflow/Hermes capability suites, and upgrade-install on
+  the Fold7 without clearing app data or changing signing identity. Record the
+  public source commit after this documentation commit lands.
+- [x] Prove the phone companion against that gateway: authenticated Host MCP,
+  exact cancellation/status contracts, truthful online state, legacy-channel
+  rejection, and final-only result handling. Hermes Cockpit reported online
+  after the installed candidate launched.
+- [ ] Prove the status-only glasses Cockpit and final assistant card on the
+  lenses. Cockpit intentionally has no projected session list, command, review,
+  steering, interrupt, or terminal surface; those earlier acceptance rows were
+  retired with the custom channel.
 - [ ] Prove the core voice loop: wearer capture, remote response, background tool
   work, overlay restoration, and honest empty/error outcomes.
 - [ ] Prove exact ownership through screen-off, G2 reconnect, gateway restart,
@@ -66,7 +71,9 @@ support.
 
 - Production signing, package/data migration, Play Store or public distribution
   ([issue #69](https://github.com/not-benny/hermes-g2/issues/69)).
-- Public MCP/skill publication or untrusted remote rendering.
+- Public distribution of the native bridge, general public-web activation, or
+  untrusted remote rendering. The portable workflow MCP is a separate Apache
+  publication unit.
 - Home Assistant mutation, WhatsApp, new integrations, and new applications.
 - G2 firmware/recovery, R1 provisioning/ownership/DFU, and R1 sleep decoding.
 - Broader phone, firmware, or user support.

@@ -43,10 +43,6 @@ import {
   type CaptionTargetLanguage,
 } from "~/captions/caption-settings";
 
-export type NightscoutSettings = {
-  siteUrl: string;
-  apiToken: string;
-};
 export type BatteryDisplayMode = "icon" | "percentage";
 export type TimeFormat = "24h" | "12h";
 export type ScreenTimeoutSetting = "15s" | "30s" | "1m" | "3m" | "never";
@@ -398,13 +394,17 @@ const voiceProviderLabels: Record<VoiceProvider, string> = {
   soniox: "Soniox",
 };
 
+export function voiceProviderLabel(value: VoiceProvider): string {
+  return voiceProviderLabels[value] ?? value;
+}
+
 export const voiceProviderSetting = new ConfigSettingEnum<VoiceProvider>({
   id: "voice-provider",
-  label: "Transcription Provider",
+  label: "Assistant voice provider",
   storageKey: "voice.provider",
   defaultValue: "onboard",
   values: ["onboard", "deepgram", "elevenlabs", "whisper", "soniox"],
-  formatValue: (value) => voiceProviderLabels[value] ?? value,
+  formatValue: voiceProviderLabel,
   isDisabled: (value) => {
     if (value === "deepgram") return deepgramApiKeySetting.get().trim().length === 0;
     if (value === "elevenlabs") return elevenLabsApiKeySetting.get().trim().length === 0;
@@ -412,7 +412,29 @@ export const voiceProviderSetting = new ConfigSettingEnum<VoiceProvider>({
     if (value === "soniox") return sonioxApiKeySetting.get().trim().length === 0;
     return false;
   },
-  description: "Speech-to-text engine for voice input. Deepgram, ElevenLabs, Whisper, and Soniox are cloud services that need an API key, with significantly better accuracy than on-device transcription.",
+  description: "Speech-to-text engine for assistant voice input. Conversate has its own independent provider choice. Cloud services need an API key.",
+});
+
+/**
+ * Conversate deliberately owns a provider choice separate from assistant PTT.
+ * It defaults to the bundled Moonshine model and never selects a cloud service
+ * unless the wearer explicitly chooses one with a configured key.
+ */
+export const conversateProviderSetting = new ConfigSettingEnum<VoiceProvider>({
+  id: "conversate-provider",
+  label: "Conversate provider",
+  storageKey: "conversate.transcriptionProvider",
+  defaultValue: "onboard",
+  values: ["onboard", "deepgram", "elevenlabs", "whisper", "soniox"],
+  formatValue: voiceProviderLabel,
+  isDisabled: (value) => {
+    if (value === "deepgram") return deepgramApiKeySetting.get().trim().length === 0;
+    if (value === "elevenlabs") return elevenLabsApiKeySetting.get().trim().length === 0;
+    if (value === "whisper") return openAiApiKeySetting.get().trim().length === 0;
+    if (value === "soniox") return sonioxApiKeySetting.get().trim().length === 0;
+    return false;
+  },
+  description: "Transcription used only by Conversate. On-device is the default and keeps microphone audio on the phone; selecting a configured cloud provider sends live audio to that provider.",
 });
 
 export const captionSourceLanguageSetting = new ConfigSettingEnum<CaptionSourceLanguage>({
@@ -432,7 +454,7 @@ export const captionTargetLanguageSetting = new ConfigSettingEnum<CaptionTargetL
   defaultValue: "off",
   values: CAPTION_TARGET_LANGUAGES,
   normalize: normalizeCaptionTargetLanguage,
-  isDisabled: (value) => value !== "off" && voiceProviderSetting.get() !== "soniox",
+  isDisabled: (value) => value !== "off" && conversateProviderSetting.get() !== "soniox",
   description: "Optional Soniox translation target. Off keeps transcript-only captions and requires no translation service.",
 });
 
@@ -513,9 +535,12 @@ export const saveVoiceRecordingsSetting = new ConfigSettingBoolean({
 export const assistantSkipConfirmationSetting = new ConfigSettingBoolean({
   id: "assistant-skip-confirmation",
   label: "Send to assistant without confirming",
+  // Keep the legacy storage key so existing opt-ins survive the widened UI
+  // semantics (wakeword, sleeping push-to-talk, and assistant follow-up).
   storageKey: "assistant.skipConfirmationAfterWakeword",
   defaultValue: false,
-  description: "After a wakeword utterance, send the transcript straight to the assistant instead of stopping at the Send/Type confirmation menu.",
+  description:
+    "Send a finished assistant transcript immediately instead of stopping at the review menu. App dictation is never auto-sent.",
 });
 
 const notificationFilterModeLabels: Record<NotificationFilterMode, string> = {
@@ -1042,55 +1067,6 @@ export const terminalWakeOnBellSetting = new ConfigSettingBoolean({
     "When a terminal rings its bell while the glasses are asleep, wake them and focus that terminal's window (or the terminals list if it has no window open).",
 });
 
-export const roamGraphNameSetting = new ConfigSettingString({
-  id: "roam-graph-name",
-  label: "Roam graph name",
-  storageKey: "integrations.roam.graphName",
-  defaultValue: "",
-  editorTitle: "Roam graph name",
-  glassesEditTitle: "Edit Roam graph",
-  normalize: (value) => (value ?? "").replace(/[\x00-\x1f]+/g, "").trim(),
-  formatValue: emptySettingDisplay,
-  description: "Name of the Roam Research graph the Roam app reads and writes (as shown in Roam's graph switcher).",
-});
-
-export const roamApiTokenSetting = new ConfigSettingString({
-  id: "roam-api-token",
-  label: "Roam API token",
-  storageKey: "integrations.roam.apiToken",
-  defaultValue: "",
-  editorTitle: "Roam API token (roam-graph-token-...)",
-  glassesEditTitle: "Edit Roam token",
-  normalize: (value) => (value ?? "").replace(/[\x00-\x1f]+/g, "").trim(),
-  formatValue: maskToken,
-  description: "API token for the graph, created in Roam under Settings > Graph > API tokens. Needs edit access for checking off todos.",
-});
-
-export const nightscoutSiteUrlSetting = new ConfigSettingString({
-  id: "nightscout-site-url",
-  label: "Nightscout site URL",
-  storageKey: "integrations.nightscout.siteUrl",
-  defaultValue: "",
-  editorTitle: "Nightscout site URL",
-  glassesEditTitle: "Edit Nightscout URL",
-  normalize: normalizeNightscoutSiteUrl,
-  formatValue: emptySettingDisplay,
-  description: "Base URL of a Nightscout site to fetch glucose readings from, for the dashboard's glucose card.",
-});
-
-export const nightscoutApiTokenSetting = new ConfigSettingString({
-  id: "nightscout-api-token",
-  label: "Nightscout API token",
-  storageKey: "integrations.nightscout.apiToken",
-  defaultValue: "",
-  editorTitle: "Nightscout API token",
-  glassesEditTitle: "Edit API token",
-  normalize: normalizeNightscoutApiToken,
-  formatValue: maskToken,
-  description: "Access token for the Nightscout site's API.",
-});
-
-
 export function screenTimeoutSettingToMs(value: ScreenTimeoutSetting): number | null {
   switch (value) {
     case "15s":
@@ -1131,29 +1107,9 @@ export function uiFontLabel(value: UiFontChoice): string {
   return value === "terminusv" ? "TerminusV" : "Terminus";
 }
 
-export function loadNightscoutSettings(): NightscoutSettings {
-  return {
-    siteUrl: nightscoutSiteUrlSetting.get(),
-    apiToken: nightscoutApiTokenSetting.get(),
-  };
-}
-
-export function isNightscoutSettingsConfigured(): boolean {
-  return nightscoutSiteUrlSetting.get().length > 0 && nightscoutApiTokenSetting.get().length > 0;
-}
-
-
 function normalizeSystemCardName(name: string | null | undefined): string {
   const normalized = (name ?? "").replace(/[\x00-\x1f]+/g, " ").replace(/\s+/g, " ").trim();
   return normalized;
-}
-
-function normalizeNightscoutSiteUrl(siteUrl: string | null | undefined): string {
-  return (siteUrl ?? "").replace(/[\x00-\x1f]+/g, "").trim().replace(/\/+$/, "");
-}
-
-function normalizeNightscoutApiToken(apiToken: string | null | undefined): string {
-  return (apiToken ?? "").replace(/[\x00-\x1f]+/g, "").trim();
 }
 
 function emptySettingDisplay(value: string): string {

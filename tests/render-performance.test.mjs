@@ -6,6 +6,7 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf
 
 const communicatorTs = read("app/native/faceclaw-communicator.ts");
 const dashboardTs = read("app/g2/dashboard-controller.ts");
+const displayFrameOutcomesTs = read("app/g2/display-frame-outcomes.ts");
 const imageTs = read("app/graphics/image.ts");
 const communicatorJava = read(
   "App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawBleCommunicator.java",
@@ -40,7 +41,10 @@ test("ordinary shell render bursts coalesce while strict deliveries keep separat
   assert.match(dashboardTs, /return \(this\.shellRenderPromise \?\? Promise\.resolve\(\)\)\.catch\(\(\) => undefined\)/);
   assert.match(dashboardTs, /if \(isAllowed\) \{[\s\S]*?await this\.renderShell\(isAllowed\);/);
   assert.match(dashboardTs, /if \(isAllowed && this\.shellRenderQueued\) \{[\s\S]*?void this\.requestShellRender\(\);/);
-  assert.match(dashboardTs, /return outcome !== null && outcome\.startsWith\("sent"\);/);
+  assert.match(
+    displayFrameOutcomesTs,
+    /return outcome !== null && outcome\.startsWith\("sent"\);/,
+  );
 });
 
 test("an already queued image blocks a redundant heartbeat", () => {

@@ -16,6 +16,18 @@ test("in-process apps defer their first render until the compositor surface is c
   assert.match(window, /markSurfaceReady/);
   assert.match(window, /surfaceReady/);
   assert.match(controller, /await this\.configureWindowSurface\(surfaceId, false, app\.window\.heightMode\);\s*app\.markSurfaceReady\(\)/);
+  assert.match(controller, /const focusClaim = shell\.reserveWindowFocusClaim\(windowId\);[\s\S]*shell\.focusWindow\(windowId, focusClaim\)/);
+});
+
+test("deferred worker focus is a revocable claim, so management/user selection wins", () => {
+  const shell = read("app/ui/shell/shell.ts");
+  const worker = read("app/ui/shell/worker-window.ts");
+  assert.match(shell, /reserveWindowFocusClaim\(windowId: string\): WindowFocusClaim/);
+  assert.match(shell, /claim\.epoch !== this\.focusClaimEpoch/);
+  assert.match(shell, /claim\.selectionRevision !== this\.selectionRevision/);
+  assert.match(shell, /if \(this\.closingActive\) return false/);
+  assert.match(worker, /const focusClaim = spec\.focus \? shell\.reserveWindowFocusClaim\(spec\.windowId\) : undefined/);
+  assert.match(worker, /if \(focusClaim\) shell\.focusWindow\(spec\.windowId, focusClaim\)/);
 });
 
 test("boot-registered windows get their surface-ready signal from the connect-time pass", () => {
@@ -92,7 +104,7 @@ test("worker host closes a same-ID replacement before it declares tools", async 
     .replace('"../../graphics/icons"', JSON.stringify(dataUrl("export {};")))
     .replace('"../../assistant/tool-registry"', JSON.stringify(registryUrl))
     .replace('"./geometry"', JSON.stringify(dataUrl("export const appViewportSize = () => ({ width: 1, height: 1 }); export const windowDefaultHeightMode = () => \"min\";")))
-    .replace('"./shell"', JSON.stringify(dataUrl("export const shell = { foregroundWindow: () => undefined, isScreenOn: () => true, focusWindow: () => {}, wake: () => {}, yieldFocusToSidebar: () => {}, setWindowAttention: () => {}, closeWindow: () => {}, beginReorderFromMenu: () => {}, startVoiceInput: () => {}, setTrayIcon: () => {}, isWindowFocused: () => false, registerWindow: () => {} };")));
+    .replace('"./shell"', JSON.stringify(dataUrl("export const shell = { foregroundWindow: () => undefined, isScreenOn: () => true, focusWindow: () => {}, reserveWindowFocusClaim: (windowId) => ({ windowId, epoch: 1, selectionRevision: 0 }), wake: () => {}, yieldFocusToSidebar: () => {}, setWindowAttention: () => {}, closeWindow: () => {}, beginWindowManagementFromMenu: () => {}, startVoiceInput: () => {}, setTrayIcon: () => {}, isWindowFocused: () => false, registerWindow: () => {} };")));
   const [{ WorkerAppHost }, { toolRegistry }] = await Promise.all([
     import(dataUrl(workerSource)),
     import(registryUrl),

@@ -45,6 +45,10 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
     private static final String NOTIFICATION_FILTER_ALL = "all";
     private static final String NOTIFICATION_FILTER_IMPORTANT = "important";
     private static final String NOTIFICATION_FILTER_SELECTED = "selected";
+    /** OpenAI's foreground Codex session is progress noise; only its final result may interrupt G2. */
+    private static final String OPENAI_PACKAGE = "com.openai.chatgpt";
+    private static final String CODEX_CHANNEL_PREFIX = "codex";
+    private static final String CODEX_FINAL_CHANNEL = "codex";
 
     private static volatile FaceclawMediaNotificationListenerService activeService;
     private static volatile boolean notificationAccessConnected;
@@ -184,31 +188,59 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
             return new byte[0];
         }
 
-        ByteArrayOutputStream out = new ByteArrayOutputStream(size * size * Math.min(limit, notifications.length));
-        Set<String> emittedGroupKeys = new HashSet<>();
-        int emitted = 0;
+        List<NotificationIconSourceGrouper.Candidate<StatusBarNotification>> candidates = new ArrayList<>();
         for (StatusBarNotification statusBarNotification : notifications) {
             if (!shouldShowNotificationIcon(service, statusBarNotification)) {
                 continue;
             }
-            String dedupeGroupKey = getNotificationDedupeGroupKey(statusBarNotification);
-            if (dedupeGroupKey != null && emittedGroupKeys.contains(dedupeGroupKey)) {
+            String packageName = statusBarNotification.getPackageName();
+            if (packageName == null || packageName.trim().isEmpty()) {
                 continue;
             }
-            Drawable drawable = loadNotificationIcon(service, statusBarNotification.getNotification());
-            if (drawable == null) {
-                continue;
-            }
-            appendIconGrayBytes(drawable, size, out, service, emitted, statusBarNotification.getPackageName());
-            if (dedupeGroupKey != null) {
-                emittedGroupKeys.add(dedupeGroupKey);
-            }
+            candidates.add(new NotificationIconSourceGrouper.Candidate<>(
+                packageName,
+                statusBarNotification.getPostTime(),
+                statusBarNotification.getKey(),
+                statusBarNotification
+            ));
+        }
+
+        List<ResolvedNotificationIcon> representatives =
+            NotificationIconSourceGrouper.selectNewestAvailablePerPackage(
+                candidates,
+                limit,
+                new NotificationIconSourceGrouper.Resolver<StatusBarNotification, ResolvedNotificationIcon>() {
+                    @Override
+                    public ResolvedNotificationIcon resolve(StatusBarNotification statusBarNotification) {
+                        Drawable drawable = loadNotificationIcon(service, statusBarNotification.getNotification());
+                        return drawable == null ? null : new ResolvedNotificationIcon(statusBarNotification, drawable);
+                    }
+                }
+            );
+        ByteArrayOutputStream out = new ByteArrayOutputStream(size * size * representatives.size());
+        int emitted = 0;
+        for (ResolvedNotificationIcon representative : representatives) {
+            appendIconGrayBytes(
+                representative.drawable,
+                size,
+                out,
+                service,
+                emitted,
+                representative.notification.getPackageName()
+            );
             emitted += 1;
-            if (emitted >= limit) {
-                break;
-            }
         }
         return out.toByteArray();
+    }
+
+    private static final class ResolvedNotificationIcon {
+        final StatusBarNotification notification;
+        final Drawable drawable;
+
+        ResolvedNotificationIcon(StatusBarNotification notification, Drawable drawable) {
+            this.notification = notification;
+            this.drawable = drawable;
+        }
     }
 
     /**
@@ -558,6 +590,13 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
             alreadyActive = activeNotificationWakeKeys.contains(key);
             activeNotificationWakeKeys.add(key);
         }
+        // A final Codex notification may be updated in place after posting.
+        // Its first post is authoritative; same-key updates must not wake the
+        // glasses repeatedly. Removal forgets the key and permits a future
+        // independently posted result.
+        if (isCodexFinalResult(statusBarNotification)) {
+            return !alreadyActive;
+        }
         return !alreadyActive || !isPersistentNotification(statusBarNotification);
     }
 
@@ -581,6 +620,51 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
         }
         int persistentFlags = Notification.FLAG_ONGOING_EVENT | Notification.FLAG_NO_CLEAR;
         return (notification.flags & persistentFlags) != 0;
+    }
+
+    private static boolean isCodexChannel(StatusBarNotification statusBarNotification) {
+        if (statusBarNotification == null || !OPENAI_PACKAGE.equals(statusBarNotification.getPackageName())) {
+            return false;
+        }
+        Notification notification = statusBarNotification.getNotification();
+        if (notification == null || android.os.Build.VERSION.SDK_INT < 26) {
+            return false;
+        }
+        String channelId = notification.getChannelId();
+        return channelId != null && channelId.startsWith(CODEX_CHANNEL_PREFIX);
+    }
+
+    /**
+     * Android 7 has no notification-channel identity. Since progress and final
+     * notifications share the ChatGPT package, no metadata-only classifier can
+     * distinguish them there. Fail closed instead of letting remote-session
+     * progress inherit an ordinary selected-app wake policy.
+     */
+    private static boolean isUnclassifiableOpenAiNotification(StatusBarNotification statusBarNotification) {
+        return android.os.Build.VERSION.SDK_INT < 26
+            && statusBarNotification != null
+            && OPENAI_PACKAGE.equals(statusBarNotification.getPackageName());
+    }
+
+    /**
+     * Metadata-only final-turn classifier. Never infer completion from title or
+     * body text: those are untrusted and can change independently of lifecycle.
+     */
+    private static boolean isCodexFinalResult(StatusBarNotification statusBarNotification) {
+        if (!isCodexChannel(statusBarNotification) || !statusBarNotification.isClearable()) {
+            return false;
+        }
+        Notification notification = statusBarNotification.getNotification();
+        String channelId = notification.getChannelId();
+        if (!CODEX_FINAL_CHANNEL.equals(channelId)) {
+            return false;
+        }
+        int forbidden = Notification.FLAG_ONGOING_EVENT
+            | Notification.FLAG_NO_CLEAR
+            | Notification.FLAG_FOREGROUND_SERVICE
+            | Notification.FLAG_GROUP_SUMMARY;
+        return (notification.flags & Notification.FLAG_AUTO_CANCEL) != 0
+            && (notification.flags & forbidden) == 0;
     }
 
     private static boolean shouldShowNotificationIcon(FaceclawMediaNotificationListenerService service, StatusBarNotification statusBarNotification) {
@@ -609,6 +693,19 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
     private static boolean isNotificationMirrorCandidate(FaceclawMediaNotificationListenerService service,
             StatusBarNotification statusBarNotification) {
         if (statusBarNotification == null || statusBarNotification.getNotification() == null) {
+            return false;
+        }
+        // Codex uses one ongoing foreground-service channel for thinking/tool
+        // progress and a separate clearable channel for the completed agent
+        // turn. Suppress every codex* channel except the exact final contract;
+        // ordinary non-Codex ChatGPT channels retain the user's normal policy.
+        if (isUnclassifiableOpenAiNotification(statusBarNotification)
+                || (isCodexChannel(statusBarNotification) && !isCodexFinalResult(statusBarNotification))) {
+            return false;
+        }
+        // Clock owns its glasses visual/audio path. Its phone notification is
+        // fallback/history only and must never loop back as a generic mirror.
+        if (FaceclawClockScheduler.isClockNotification(statusBarNotification)) {
             return false;
         }
         if (service.getPackageName().equals(statusBarNotification.getPackageName())
@@ -689,19 +786,6 @@ public class FaceclawMediaNotificationListenerService extends NotificationListen
             return Integer.MIN_VALUE;
         }
         return ranking.getImportance();
-    }
-
-    private static String getNotificationDedupeGroupKey(StatusBarNotification statusBarNotification) {
-        Notification notification = statusBarNotification.getNotification();
-        if (notification.getGroup() == null && statusBarNotification.getOverrideGroupKey() == null) {
-            return null;
-        }
-        String groupKey = statusBarNotification.getGroupKey();
-        if (groupKey == null || groupKey.isEmpty()) {
-            return null;
-        }
-        // Group children often share the same small icon. Emit only one icon for the group.
-        return groupKey;
     }
 
     private static Drawable loadNotificationIcon(FaceclawMediaNotificationListenerService service, Notification notification) {
