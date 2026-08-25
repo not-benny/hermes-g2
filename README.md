@@ -149,6 +149,36 @@ npm run typecheck
 npm run build
 ```
 
+### Build, sign, and update from GitHub
+
+The owner update helper fetches a fresh, detached GitHub snapshot, runs the
+repository's guarded unsigned-release build, zipaligns and signs the APK
+locally, checks its package/version/signature, and uses `adb install -r`. It
+never uninstalls the current app or clears its data:
+
+```bash
+./scripts/build-sign-install-from-github.sh \
+  --ref fix/mcp-glasses-reliability \
+  --serial YOUR_ADB_SERIAL
+```
+
+The branch above is the current default; pass a full commit SHA with `--ref`
+for a repeatable build. `--adb-port` supports a non-default ADB server. Use
+`--build-only` (or `--no-install`) to produce and verify the signed APK while no
+phone is connected. The helper requires the repository-pinned Android SDK
+build-tools 35.0.1 and NDK 27.2.12479018. It honors a JDK 21 `JAVA_HOME`, or
+discovers a standard local JDK 21 installation when `JAVA_HOME` is unset.
+
+If it exists, the calling owner's standard Android debug keystore is the
+default. For another keystore, pass `--keystore` and `--key-alias`, and export
+`HERMES_KEYSTORE_PASSWORD` plus `HERMES_KEY_PASSWORD` if its key password is
+different. Passwords are passed to `apksigner` through its environment password
+provider and are not printed. The script stops before installation if the
+installed signer differs or the fetched version is older. The explicit
+`--allow-signer-mismatch` and `--allow-downgrade` overrides only permit an ADB
+attempt; they never authorize uninstalling or clearing data, and Android may
+still reject an incompatible signature or downgrade.
+
 See [`DEVELOPMENT.md`](DEVELOPMENT.md) for repository layout, safety rules,
 focused tests, and authorised-device commands.
 
