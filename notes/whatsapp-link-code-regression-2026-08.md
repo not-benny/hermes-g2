@@ -1,5 +1,54 @@
 # WhatsApp link-code regression investigation (2026-08-21)
 
+## Re-audit on 25 August 2026
+
+The embedded linked-device design is still not ready to enable. The original
+failure is narrower than a general multi-device incompatibility, but none of its
+required fixes is available as a supported app dependency today:
+
+- Baileys PR [#2559](https://github.com/WhiskeySockets/Baileys/pull/2559)
+  remains open. Its canonical platform label, awaited `companion_hello` IQ, and
+  expected `515` reconnect were validated downstream through a registered,
+  open, send/receive session, but the patch is absent from the latest
+  `7.0.0-rc14` release.
+- Baileys issue [#2737](https://github.com/WhiskeySockets/Baileys/issues/2737)
+  remains open for WhatsApp's newer `companion_reg_refresh` notification. The
+  demonstrated failure is on QR linking. Its link-code attempt never passed the
+  separate stage-1 `400`, so a patched link-code flow is neither proven broken
+  nor proven unaffected. The earlier successful downstream validation predates
+  the late-July server change.
+- Baileys PR [#2765](https://github.com/WhiskeySockets/Baileys/pull/2765)
+  is an open, unmerged attempt to implement that refresh stage. It is not a
+  dependency Hermes can treat as released behavior.
+- The app embeds nodejs-mobile `18.20.4`, while current Baileys declares Node
+  `>=20`. The upstream 16 KiB Android build changes are merged, but an official
+  compatible nodejs-mobile release remains unavailable through release PR
+  [#155](https://github.com/nodejs-mobile/nodejs-mobile/pull/155). The owner Fold must not
+  ship an unverified 4 KiB `libnode.so` or an unsupported Node/Baileys pairing.
+
+The only responsible next experiment is an isolated, one-at-a-time proof with
+a disposable account and a frozen reviewed source commit. It must prove
+stage-1 acceptance, registration persistence, the expected `515` reconnect,
+post-July refresh behavior, reconnect after process death, and bounded
+send/receive before any app UI or production flag is enabled. It must never copy
+or share a live auth directory. The owner's personal number remains out of the
+experiment.
+
+WhatsApp Cloud API is not an equivalent fallback: it is a supported business
+API and does not link to or mirror the owner's personal chat account. The safe
+near-term glasses path is the existing Android notification listener and exact
+`RemoteInput` reply action. That covers notification-delivered messages and
+replies, not chat history, arbitrary sends, media sync, or a native WhatsApp
+replacement.
+
+The embedded engine is also only a pairing prototype today: it exposes health,
+status, pair, connect, and event endpoints, not a durable chat list, arbitrary
+send, media, or reaction API. A future full client needs a transactional local
+message store and Android Keystore-backed credential design before any glasses
+or Hermes workflow can depend on it. Baileys is unofficial, and WhatsApp's
+[Terms](https://www.whatsapp.com/legal/terms-of-service) make public release an
+explicit product/legal risk decision even if the technical proof succeeds.
+
 ## Conclusion
 
 The April failure is reproducible from the embedded client configuration and Baileys source contract, but it is not evidence of an unfixable cryptographic protocol break. Hermes embeds `@whiskeysockets/baileys@7.0.0-rc13` and configures `browser: ['Hermes G2', 'Chrome', '120.0']`. Baileys rc13 constructs the stage-1 `companion_platform_display` as `${browser[1]} (${browser[0]})`, therefore Hermes sends `Chrome (Hermes G2)`. WhatsApp's stricter April 2026 `companion_hello` validation rejects non-canonical platform labels with `<iq type="error"><error code="400" text="bad-request"/></iq>`.
@@ -32,6 +81,22 @@ No live-link batch was started. This source-level reproduction is sufficient to 
 - Confidence: **high** for the Hermes-specific stage-1 400 diagnosis; **high** that rc13 returns an optimistic code; **medium** for the later July protocol blocker and its eventual workaround because upstream issue #2737 remains open and explicitly unresolved.
 
 **Answer to the roadmap question:** upstream provides a viable path to restore pairing for Hermes's April 400 (`canonicalize platform + await/reject the companion IQ`), but no released upstream fix was confirmed at this investigation date. The separate `companion_reg_refresh` issue is confirmed for the QR path and remains an unresolved risk for link-code pairing, not a demonstrated link-code blocker; keep live-link batches gated pending safe validation and monitor #2559/#2737.
+
+## Three-stage proof gate
+
+1. On a no-network host harness, pin and review the exact #2559 commit. Test
+   canonical platform generation, awaited IQ rejection, pair-device readiness,
+   single-flight pairing, cooldown, credential rollback, and the expected `515`
+   reconnect transcript. Remove the twenty-attempt loop.
+2. Before account contact, resolve Node 20 and 16 KiB packaging. On Android,
+   exercise only a fake engine through cold start, background/foreground,
+   process death, corrupt state, restart, and logout cleanup. Production flags
+   and release-asset exclusion remain unchanged.
+3. Only after explicit approval, make one link-code request for a disposable
+   account. Require registered state, `515`, authenticated reconnect, one text
+   received, one text sent, process restart, unlink/revoke, and secure cleanup.
+   Stop without retry on refresh, `400`, `408`, or `1006`; retain only sanitised
+   structural diagnostics. Never use the owner's main account in this proof.
 
 ### Upstream links
 

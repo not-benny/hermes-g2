@@ -29,7 +29,7 @@ experimental feature in the repository.
 | Area | State |
 | --- | --- |
 | Development base | `main`, exclusively |
-| Application baseline | Current owner candidate: 873 host tests, TypeScript, JDK 21 / Android SDK 35 debug build, install, launch, and MCP cutover verification passed |
+| Application baseline | Current owner candidate: 889 host tests, TypeScript, and JDK 21 / Android SDK 35 debug build passed; installation and physical lens acceptance are pending ADB reconnection |
 | Android identity | `versionCode 1000003`, `versionName 1.0.0-preview.3`; this identifies the next internal candidate, not a published release |
 | Pull requests | One focused PR at a time, based on current `main` |
 | Active work | [Issue #59](https://github.com/not-benny/hermes-g2/issues/59) only: prove the real owner Hermes loop |
@@ -54,11 +54,14 @@ experimental feature in the repository.
 
 - The authenticated private gateway now uses the MCP-only interaction contract
   in [`docs/hermes-mcp-architecture.md`](docs/hermes-mcp-architecture.md). Host
-  Session MCP owns final-only voice turns and status; the private phone Device
+  Session MCP owns final-only voice turns, `hermes://cockpit/state`, and the
+  exact `hermes.cockpit.command`; the private phone Device
   MCP owns fixed device capabilities; the portable workflow MCP is the only
   model-facing G2 workflow surface. SOUL is persona-only, native skills and
-  registrations are absent, and custom chat/Cockpit/Companion channels are
-  inert. Runtime inventory and independent review found no raw G2 proxy,
+  registrations are absent, and the legacy custom chat/Cockpit/Companion WSS
+  channels are inert. The bounded MCP Cockpit supports listed answers,
+  deny/allow-once permissions, steering, and interruption for exact current or
+  recent authenticated G2 sessions. Runtime inventory and independent review found no raw G2 proxy,
   terminal, code-execution, delegation, or browser-exec route.
 - The final private deployment was healthy after restart with an authenticated
   phone WSS and the Hermes workflow child running under the reviewed isolated
@@ -86,6 +89,22 @@ experimental feature in the repository.
   prompt at fire time. Hardware proof remains pending. Acknowledged result cards
   remain until wearer Dismiss/Back or the global screen timeout; legacy transient
   alerts start their private timer only after frame acknowledgement.
+- The live gateway uses a profile-scoped `HERMES_G2_WORKFLOW_RELAY` endpoint and
+  the separately published Apache workflow package. Weather accepts redundant
+  UK country qualifiers; train requests distinguish exact CRS identities such
+  as Liverpool Central (`LVC`) and Liverpool Lime Street (`LIV`). Fixed
+  content-free relay, provider, and presentation stage codes improve diagnosis
+  without recording the request, place, station, session, claim, or exception.
+  The gateway and provider path are deployed, but the matching phone-source
+  display fixes below are not yet installed.
+- Source-tested display transactions now prevent an old assistant-only close
+  from blanking a replacement result, let only terminal Clock feedback yield to
+  a final deck, and use wire-distinct strict-delivery markers. A screen-off Now
+  Playing card is primed under isolated retained surfaces before unblank and
+  commits only after its exact frame acknowledgement. Active or pending Clock
+  alerts retain priority, and failure or supersession rolls back only the exact
+  provisional owner. ADB is currently disconnected, so these source changes
+  still require a fresh build, install, and physical lens acceptance run.
 - Conversate (the replacement for Transcribe) provides explicit foreground-only
   sessions, bundled on-device transcription by default, independently selected
   cloud transcription, volatile live text, and transparent local action/question/topic
@@ -155,10 +174,10 @@ after the owner-preview milestone. The permanent technical contract is in
 
 ## Immediate next action
 
-Do not add another feature. Reconnect the authorised G2, then execute the
-sleep-origin final-result, reminder, Clock, Work Tasks, weather, trains, and
-ring-stop acceptance rows in [`ROADMAP.md`](ROADMAP.md) against the exact
-installed candidate. Record the results on issue #59 and fix only blockers
-found by that run. Public work remains limited to the licensing, containment,
-artifact, and signing gates documented in `docs/hermes-mcp-architecture.md` and
-`docs/release-security.md`.
+When wireless ADB returns, build and install the exact reviewed source candidate
+before running hardware acceptance. Verify the sleep-origin final result,
+Now Playing song-change wake, reminder, Clock, Work Tasks, weather, trains, and
+ring-stop rows in [`ROADMAP.md`](ROADMAP.md) against that same artifact. Record
+the results on issue #59 and fix only blockers found by that run. Public work
+remains limited to the licensing, containment, artifact, and signing gates
+documented in `docs/hermes-mcp-architecture.md` and `docs/release-security.md`.

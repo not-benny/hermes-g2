@@ -28,8 +28,8 @@ release posture is in [`STATUS.md`](STATUS.md). The only active milestone is
 
 The implementation contains the phone companion, glasses shell, internal
 assistant-result projection path, notifications, the glasses-native Work Tasks
-board with encrypted phone-local storage, a durable Clock app for alarms and
-timers, Conversate for explicit-session live transcription and local
+board with encrypted phone-local storage, a durable Clock app for alarms,
+timers, and world clocks, Conversate for explicit-session live transcription and local
 conversation cues, an optional read-only R1 health path, and several
 experimental applications. Conversate replaces the former
 Transcribe launcher app, defaults to bundled on-device transcription, and keeps
@@ -68,9 +68,12 @@ Configure the Hermes Agent bridge under **Settings > Assistant** with a
 reachable certificate-validated `wss://` endpoint and shared token. The phone
 requires Host Session MCP for voice turns and status, while Hermes uses the
 phone's private Device MCP for fixed device capabilities. The launcher-visible
-Hermes Cockpit is status-only and exposes no transcript, prompt, tool activity,
-session controls, or terminal fallback. Thinking and tool progress remain
-private; only the final Host MCP result may drive a glasses card.
+Hermes Cockpit uses bounded Host MCP resources for current/recent authenticated
+G2 sessions and one exact command tool for listed answers, deny/allow-once
+permissions, steering, and interruption. It exposes no prompt, reasoning,
+partial text, tool activity, unrelated session history, or terminal fallback.
+Thinking and tool progress remain private; only the final voice Host MCP result
+may drive a glasses card.
 
 The model-facing G2 surface is a separate portable workflow MCP with twelve
 reviewed intent-level tools. Raw phone discovery, arbitrary phone calls, legacy
@@ -78,6 +81,9 @@ custom chat/Cockpit/Companion channels, terminal, code execution, and raw
 browser execution are not available to the glasses model. The complete channel,
 workflow, reminder, configuration, test, and release contract is in
 [`docs/hermes-mcp-architecture.md`](docs/hermes-mcp-architecture.md).
+The owner profile SOUL contains persona and response style only; every Hermes
+workflow, command, receipt, and authority boundary is packaged in the Host,
+Device, or portable workflow MCP contracts and enforced by code or configuration.
 The Apache-2.0 package is maintained separately as
 [`not-benny/hermes-g2-workflows`](https://github.com/not-benny/hermes-g2-workflows).
 
@@ -96,7 +102,9 @@ prompt runs when a reminder fires.
 Direct-provider mode remains available as a fallback and uses its own provider
 credentials. Those credentials are not used by the bridge. The private MCP-only
 cutover is operational, but combined public distribution remains blocked by the
-native bridge licence and release-containment gates; see
+redistribution-prohibited native bridge and release-containment gates. The
+separately published Apache workflow package does not include or relicense that
+bridge; see
 [`docs/release-security.md`](docs/release-security.md) and
 [`docs/hermes-agent-cockpit.md`](docs/hermes-agent-cockpit.md).
 

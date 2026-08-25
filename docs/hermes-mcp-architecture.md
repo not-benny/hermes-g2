@@ -70,12 +70,17 @@ The phone is the MCP client. Hermes exposes:
 
 - `hermes.voice.turn`, a long-running final-result-only voice turn;
 - standard request-ID cancellation;
-- `hermes://session/status`, a bounded status-only resource used by Hermes
-  Cockpit.
+- `hermes://session/status`, a bounded transport and turn-health resource;
+- `hermes://cockpit/state`, a subscribed bounded current/recent G2 session
+  projection;
+- `hermes.cockpit.command`, an exact reviewed answer, permission, steer, or
+  interrupt action with an authoritative receipt.
 
-No partial answer, chain of thought, tool activity, prompt, transcript, session
-history, or command authority crosses the status resource. The result shown on
-the glasses is the single terminal MCP tool result.
+No partial answer, chain of thought, tool activity, prompt, provider payload,
+credential, raw transcript, or unrelated Hermes session crosses these
+resources. Cockpit snapshots and commands never become an assistant lens
+result. The assistant result shown on the glasses is the single terminal voice
+MCP tool result.
 
 ### Private Device MCP
 
@@ -91,6 +96,10 @@ static tool inventory, exact input and output schemas, bounded results, and no
 generic proxy. Mutations derive stable content-free operation IDs from trusted
 turn metadata and retry only with the same identity and payload after an
 explicitly ambiguous outcome.
+
+The package receives only its reviewed profile-scoped relay endpoint through
+`HERMES_G2_WORKFLOW_RELAY`. It does not receive broad profile state through
+`HERMES_HOME`, infer a global socket, or scan for another profile's relay.
 
 ## Model-facing workflow inventory
 
@@ -112,7 +121,12 @@ explicitly ambiguous outcome.
 Weather and trains are intent-complete readers. They use isolated headless
 Playwright with the reviewed Brave binary and fixed provider contracts. They do
 not expose a page, DOM, JavaScript, Python, browser profile, or arbitrary URL to
-the model.
+the model. UK weather lookup treats `UK`, `GB`, `Great Britain`, and
+`United Kingdom` as country qualifiers rather than counties. Train requests use
+exact station CRS identities; in particular, Liverpool Central is `LVC` and
+Liverpool Lime Street is `LIV`. Public failures carry only fixed content-free
+relay, provider, and presentation stage codes, never locations, stations,
+session identifiers, claims, requests, or exception text.
 
 ## Private phone allowlist
 
@@ -166,11 +180,29 @@ a documented privacy limitation, not hidden encryption.
   commits the wake only after the exact strict frame acknowledgement.
 - Failure rolls back the provisional wake and retains data, not an invisible
   input-owning layer.
+- Closing an old assistant-only result revalidates the live continuation before
+  returning to sleep, so it cannot blank a replacement deck that is still in
+  its isolated wake barrier.
+- Strict Clock and Now Playing receipts use a visually imperceptible marker that
+  remains distinct after the glasses' 4-bit wire quantization. A deduplicated
+  retained frame can never be mistaken for the required exact frame.
+- Clock alarms and timers keep priority while a timeline or audio campaign is
+  active. Once feedback is terminal, a final weather/train deck can atomically
+  replace the Clock layer without flashing the HUD or letting stale Clock input
+  consume the first dashboard gesture.
+- A screen-off track change primes an opaque Now Playing frame and isolates
+  retained app surfaces while the compositor remains blank. Only after that
+  retained state is ready may the display unblank; the wake commits only after
+  the exact current card frame is acknowledged. Failure or supersession removes
+  only that card, restores the prior surface owner, and returns its own
+  unclaimed wake to sleep.
 - Assistant result cards use one tap for follow-up and two taps for dismiss.
 - Phone notification detail keeps Back, Reply, actions, and Dismiss; Back is the
   initial selection and a double tap dismisses.
-- Hermes Cockpit is status-only. It shows connection and voice-turn state with
-  the Hermes `H` identity and has no terminal or session-control fallback.
+- Hermes Cockpit shows bounded current/recent authenticated G2 sessions,
+  terminal timeline rows, listed questions, deny/allow-once permissions, and
+  reviewed steer/interrupt actions. It has no terminal fallback, raw history,
+  or access to unrelated TUI/Kanban sessions.
 
 ## SOUL and prompt boundary
 
@@ -232,16 +264,18 @@ until the host provides:
 The 25 August 2026 private cutover passed:
 
 - Hermes Agent capability and plugin suites: 335 tests;
-- native transport and relay suite: 282 passed, 1 optional live test skipped;
-- portable workflow MCP: 23 tests plus current MCP SDK and plugin doctor;
-- phone app: 873 tests and TypeScript typecheck;
+- native transport and relay suite: 308 passed, 1 optional live test skipped;
+- portable workflow MCP: 26 tests plus current MCP SDK and plugin doctor;
+- phone app: 889 tests and TypeScript typecheck;
 - public-web review candidate: 27 tests, lint, plugin doctor, current MCP SDK,
   and a real isolated read of `example.com`.
 
-The debug APK was built with JDK 21 and Android SDK 35, installed over the owner
-package, and launched. The phone reported Host MCP and Hermes Cockpit online.
-The glasses BLE session was offline during the final check, so a physical
-sleep-origin lens run remains an acceptance item rather than claimed evidence.
+The current source built successfully as a JDK 21 / Android SDK 35 debug APK and
+passed ZIP integrity and APK signature verification. It was not installed
+because wireless ADB was unavailable. An earlier APK launched and reported Host
+MCP and Hermes Cockpit online, but a physical sleep-origin, Now Playing,
+weather, train, and Clock lens run against the current artifact remains an
+acceptance item rather than claimed evidence.
 
 ## Publication and repository boundary
 
