@@ -58,7 +58,9 @@ type ActiveTurn = {
 };
 
 export class AssistantBridgeClient {
-  readonly cockpit = new AgentCockpitController(() => {});
+  readonly cockpit = new AgentCockpitController((command) => {
+    this.hostMcpClient?.sendCockpitCommand(command);
+  });
   readonly companion = new HermesCompanionController(() => {});
   private options: AssistantBridgeOptions | null = null;
   private ws: any = null;
@@ -327,6 +329,7 @@ export class AssistantBridgeClient {
           this.isCurrentSocket(generation, socket) && this.connectionGuard.canHandlePrivileged(generation),
         send: (msg) => this.sendHostMcpForSocket(generation, socket, msg),
         onStatus: (status) => this.cockpit.handleMcpStatus(status),
+        onCockpitFrame: (frame) => this.cockpit.handleFrame(frame),
       });
       this.clearAuthTimer();
       this.reconnectDelayMs = RECONNECT_MIN_MS;

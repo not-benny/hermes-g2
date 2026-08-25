@@ -79,20 +79,11 @@ export class AgentCockpitController {
     return true;
   }
 
-  /** Apply the status-only Host MCP resource without inventing command authority. */
+  /** Validate Host MCP health without replacing the separately validated projection. */
   handleMcpStatus(status: CockpitMcpStatus): boolean {
     if (!/^[A-Za-z0-9._-]{12,128}$/.test(status.connectionGeneration) ||
         !["idle", "running", "cancelling"].includes(status.voiceTurnState)) return false;
-    const applied = this.store.apply({
-      v: 1,
-      chan: "cockpit",
-      type: "snapshot",
-      connection_generation: status.connectionGeneration,
-      sequence: 0,
-      sessions: [],
-    });
-    if (applied) this.publish();
-    return applied;
+    return true;
   }
 
   disconnect(): void {
