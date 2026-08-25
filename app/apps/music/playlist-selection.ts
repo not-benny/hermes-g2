@@ -1,4 +1,5 @@
 export type PlaylistSelectionItem = {
+  id: string;
   title: string;
   subtitle?: string;
   active: boolean;
@@ -7,6 +8,15 @@ export type PlaylistSelectionItem = {
 export type PlayingTrackIdentity = {
   title: string;
   artist: string;
+};
+
+export type PlaylistSelection = {
+  index: number;
+  /**
+   * Android MediaSession queue IDs are signed 64-bit values. Keep the ID as
+   * text so JavaScript never rounds a value outside Number.MAX_SAFE_INTEGER.
+   */
+  itemId: string | null;
 };
 
 function canonicalMediaText(value: string | undefined): string {
@@ -53,4 +63,62 @@ export function resolvePlayingQueueIndex(
   }
 
   return Math.max(0, Math.min(queue.length - 1, Math.trunc(fallbackIndex)));
+}
+
+/**
+ * Capture an index and, when the player supplied a usable unique queue ID, a
+ * stable identity for that row. UNKNOWN_ID (-1) and duplicate IDs cannot
+ * safely identify an item across a reordered queue.
+ */
+export function selectPlaylistIndex(
+  queue: PlaylistSelectionItem[],
+  requestedIndex: number,
+): PlaylistSelection {
+  if (!queue.length) return { index: 0, itemId: null };
+  const index = Math.max(0, Math.min(queue.length - 1, Math.trunc(requestedIndex)));
+  return { index, itemId: uniqueQueueItemId(queue, index) };
+}
+
+/**
+ * Follow the selected item when an asynchronous media-session callback
+ * reorders the queue. If the selected ID is temporarily absent, retain it and
+ * keep a bounded visual index so the next callback can recover the same row.
+ */
+export function reconcilePlaylistSelection(
+  queue: PlaylistSelectionItem[],
+  selection: PlaylistSelection,
+): PlaylistSelection {
+  if (!queue.length) {
+    return { index: 0, itemId: selection.itemId };
+  }
+
+  if (selection.itemId !== null) {
+    const matchingIndexes: number[] = [];
+    for (let index = 0; index < queue.length; index++) {
+      if (queue[index]!.id === selection.itemId) matchingIndexes.push(index);
+    }
+    if (matchingIndexes.length === 1) {
+      return { index: matchingIndexes[0]!, itemId: selection.itemId };
+    }
+
+    // Do not replace a temporarily missing stable ID with whichever row now
+    // occupies its old index. A later queue callback may restore that item.
+    return {
+      index: Math.max(0, Math.min(queue.length - 1, Math.trunc(selection.index))),
+      itemId: selection.itemId,
+    };
+  }
+
+  return selectPlaylistIndex(queue, selection.index);
+}
+
+function uniqueQueueItemId(queue: PlaylistSelectionItem[], index: number): string | null {
+  const id = queue[index]?.id?.trim() ?? "";
+  if (!id || id === "-1") return null;
+  let matches = 0;
+  for (const item of queue) {
+    if (item.id === id) matches++;
+    if (matches > 1) return null;
+  }
+  return id;
 }

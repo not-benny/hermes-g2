@@ -29,7 +29,7 @@ experimental feature in the repository.
 | Area | State |
 | --- | --- |
 | Development base | `main`, exclusively |
-| Application baseline | Current owner candidate: 889 host tests, TypeScript, and JDK 21 / Android SDK 35 debug build passed; installation and physical lens acceptance are pending ADB reconnection |
+| Application baseline | Current owner candidate: 926 host tests, TypeScript, and JDK 21 / Android SDK 35 debug build passed; installation and physical lens acceptance are pending ADB reconnection |
 | Android identity | `versionCode 1000003`, `versionName 1.0.0-preview.3`; this identifies the next internal candidate, not a published release |
 | Pull requests | One focused PR at a time, based on current `main` |
 | Active work | [Issue #59](https://github.com/not-benny/hermes-g2/issues/59) only: prove the real owner Hermes loop |
@@ -115,9 +115,16 @@ experimental feature in the repository.
 - Conversate (the replacement for Transcribe) provides explicit foreground-only
   sessions, bundled on-device transcription by default, independently selected
   cloud transcription, volatile live text, and transparent local action/question/topic
-  cues. It never records raw audio or persists transcript text. The compact ring
-  UI, generation-bound pause/end flow, provider-final flush, and host tests are
-  implemented; live microphone and optical hardware acceptance remain pending.
+  cues. It never records raw audio or persists transcript text. While active
+  capture owns the microphone, it also owns a generation-bound screen-timeout
+  hold; pause, completion, failure, backgrounding, or removal releases that hold
+  within a fixed bound. An owner-enabled Host MCP fast-cue lane can send recent
+  transcript text to the configured auxiliary model for concise reply, question,
+  and topic suggestions. That lane is tool-free, latest-wins, silent on failure,
+  and never replaces immediate local cues or opens the global assistant UI. The
+  compact ring UI, pause/end flow, live partial coalescing, provider-final flush,
+  and host tests are implemented; live microphone and optical hardware acceptance
+  remain pending.
 - Universal search, notification digests, generic
   temporary contextual interfaces with intent-only pinning, motion calibration,
   and longer-running background assistant work. Contextual interfaces now

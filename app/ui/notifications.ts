@@ -135,7 +135,7 @@ export class NotificationDigestLayer implements Layer {
     this.selectedIndex = clamp(this.selectedIndex, 0, retained.length - 1);
     const layout = notificationDigestLayout(height, font.lineHeight, retained.length, this.selectedIndex);
     const range = layout.start > 0 || layout.end < retained.length ? ` · ${layout.start + 1}–${layout.end}` : "";
-    image.drawText(font, 18, 14, `Digest ${this.selectedIndex + 1}/${retained.length}${range}`, 230);
+    image.drawText(font, 18, 14, `Notifications ${this.selectedIndex + 1}/${retained.length}${range}`, 230);
     let y = layout.listTop;
     for (let index = layout.start; index < layout.end; index++) {
       const item = retained[index]!;

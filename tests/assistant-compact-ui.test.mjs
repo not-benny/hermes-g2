@@ -358,6 +358,10 @@ test("short and direct completed replies enter the existing reviewed assistant v
   assert.match(helper, /this\.isAssistantAvailable\(\)/);
   assert.match(helper,
     /dismissResult\(\)[\s\S]*this\.openVoiceDialog\(\{[\s\S]*finishOnClick: true,[\s\S]*defaultTarget: "assistant"/);
+  assert.match(helper, /returnToSleepOnClose/,
+    "a reply opened from a sleep-origin result inherits the prior sleep state");
+  assert.match(helper, /returnToSleepOnClose && !this\.assistantOnlyPresentation[\s\S]*this\.setAssistantOnlyPresentation\(true\)/,
+    "direct sleep-origin replies isolate retained app surfaces before replacing their card");
   assert.doesNotMatch(helper, /sendUtterance|onTextDelta|onToolActivity/,
     "the result gesture must reuse reviewed voice capture instead of bypassing it");
 
@@ -372,4 +376,6 @@ test("short and direct completed replies enter the existing reviewed assistant v
     shell.indexOf("async showAlert("),
   );
   assert.match(direct, /onReply:\s*\(\)\s*=>\s*this\.startAssistantResultReply/);
+  assert.match(direct, /directNotificationReturnToSleep/,
+    "direct Hermes cards retain exact prior-sleep ownership through dismissal");
 });

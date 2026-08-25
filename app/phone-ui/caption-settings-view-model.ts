@@ -10,6 +10,7 @@ import {
   captionSpeakerLabelsSetting,
   captionTargetLanguageSetting,
   captionVocabularySetting,
+  conversateHermesCuesSetting,
   conversateProviderSetting,
   deepgramApiKeySetting,
   elevenLabsApiKeySetting,
@@ -36,6 +37,12 @@ export class CaptionSettingsViewModel extends Observable {
     this.refresh();
   }
   get speakerLabelsAvailable(): boolean { return captionProviderCapabilities(this.effectiveProvider()).speakerLabels; }
+  get hermesCues(): boolean { return conversateHermesCuesSetting.get(); }
+  set hermesCues(value: boolean) {
+    if (value === conversateHermesCuesSetting.get()) return;
+    conversateHermesCuesSetting.set(value);
+    this.refresh();
+  }
   get vocabulary(): string { return this.vocabularyDraft; }
   get vocabularyStatus(): string {
     return captionProviderCapabilities(this.effectiveProvider()).customVocabulary
@@ -73,6 +80,7 @@ export class CaptionSettingsViewModel extends Observable {
     for (const property of [
       "provider", "sourceLanguage", "targetLanguage", "layout", "fontSize", "lineSpacing", "maxLines",
       "speakerLabels", "speakerLabelsAvailable", "vocabulary", "vocabularyStatus", "disclosure",
+      "hermesCues",
     ]) this.notifyPropertyChange(property, (this as any)[property]);
   }
 }

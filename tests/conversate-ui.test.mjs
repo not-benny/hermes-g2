@@ -18,6 +18,37 @@ async function loadConversateLayer() {
   const layer = read("app/apps/conversate/conversate.ts")
     .replace(/^import[\s\S]*?from "[^"]+";\s*/gm, "");
   const harness = `
+let timerNowMs = 0;
+let nextTimerId = 1;
+const timers = new Map();
+const scheduleTimer = (callback, delay, interval) => {
+  const id = nextTimerId++;
+  const boundedDelay = Math.max(1, Number(delay) || 0);
+  timers.set(id, { callback, dueAtMs: timerNowMs + boundedDelay, interval: interval ? boundedDelay : null });
+  return id;
+};
+const setTimeout = (callback, delay) => scheduleTimer(callback, delay, false);
+const clearTimeout = (id) => { timers.delete(id); };
+const setInterval = (callback, delay) => scheduleTimer(callback, delay, true);
+const clearInterval = (id) => { timers.delete(id); };
+const testClock = {
+  advance(durationMs) {
+    const target = timerNowMs + durationMs;
+    for (;;) {
+      const due = [...timers.entries()]
+        .filter(([, timer]) => timer.dueAtMs <= target)
+        .sort((left, right) => left[1].dueAtMs - right[1].dueAtMs || left[0] - right[0])[0];
+      if (!due) break;
+      const [id, timer] = due;
+      timerNowMs = timer.dueAtMs;
+      if (timer.interval === null) timers.delete(id);
+      else timer.dueAtMs += timer.interval;
+      timer.callback();
+    }
+    timerNowMs = target;
+  },
+  reset() { timerNowMs = 0; nextTimerId = 1; timers.clear(); },
+};
 const transcriptListeners = new Set();
 const statusListeners = new Set();
 const testBridge = {
@@ -30,6 +61,37 @@ const voiceControlBridge = testBridge;
 const GESTURE_CLICK = "CLICK";
 const GESTURE_DOUBLE_CLICK = "DOUBLE";
 const captionFontSizeSetting = { get: () => "small" };
+let hermesCuesEnabled = false;
+const conversateHermesCuesSetting = { get: () => hermesCuesEnabled };
+const settingListeners = new Set();
+const onAnySettingChanged = (listener) => { settingListeners.add(listener); return () => settingListeners.delete(listener); };
+const hermesCueCalls = [];
+const assistantBridge = {
+  requestConversateCues(request) {
+    let resolve;
+    let reject;
+    let settled = false;
+    const result = new Promise((yes, no) => { resolve = yes; reject = no; });
+    const call = {
+      request,
+      result,
+      cancelled: false,
+      resolve(value) { if (!settled) { settled = true; resolve(value); } },
+      reject(error = new Error("failed")) { if (!settled) { settled = true; reject(error); } },
+      cancel(reason) {
+        this.cancelled = true;
+        if (!settled) { settled = true; reject(new Error(reason)); }
+      },
+    };
+    hermesCueCalls.push(call);
+    return call;
+  },
+};
+const testHermes = {
+  calls: hermesCueCalls,
+  enable(value) { hermesCuesEnabled = value; for (const listener of settingListeners) listener(); },
+  reset() { hermesCuesEnabled = false; hermesCueCalls.splice(0); },
+};
 const captionLayoutSetting = { get: () => "source" };
 const captionSourceLanguageSetting = { get: () => "auto" };
 const captionTargetLanguageSetting = { get: () => "off" };
@@ -79,7 +141,7 @@ class GrayImage {
 }
 ${session}
 ${layer}
-export { ConversateLayer, testBridge };
+export { ConversateLayer, testBridge, testClock, testHermes };
 `;
   const js = ts.transpileModule(harness, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
@@ -87,12 +149,14 @@ export { ConversateLayer, testBridge };
   return import("data:text/javascript;base64," + Buffer.from(js).toString("base64"));
 }
 
-const { ConversateLayer, testBridge } = await loadConversateLayer();
+const { ConversateLayer, testBridge, testClock, testHermes } = await loadConversateLayer();
 const activeLayers = new Set();
 
 test.afterEach(() => {
   for (const layer of activeLayers) layer.onRemoved();
   activeLayers.clear();
+  testHermes.reset();
+  testClock.reset();
 });
 
 function makeLayer({ generations = [1], deferFinish = false } = {}) {
@@ -175,6 +239,157 @@ test("partial transcript creates a local cue, click opens detail, and the compac
 
   harness.layer.handleInput({ type: "click" });
   assert.ok(textOperations(render(harness.layer)).some((text) => text.includes("TRANSCRIPT")));
+});
+
+test("continuous on-device partial text reaches Hermes after the bounded debounce", () => {
+  testHermes.enable(true);
+  const harness = makeLayer({ generations: [13] });
+  harness.layer.handleInput({ type: "click" });
+  testBridge.emitTranscript({ generation: 13, text: "We are planning the launch", isFinal: false, receivedAtMs: 10 });
+  testClock.advance(499);
+  assert.equal(testHermes.calls.length, 0);
+  testClock.advance(1);
+  assert.equal(testHermes.calls.length, 1);
+  assert.equal(testHermes.calls[0].request.transcript, "We are planning the launch");
+});
+
+test("partial revisions coalesce, have a bounded max wait, and cancel stale active work", async () => {
+  testHermes.enable(true);
+  const harness = makeLayer({ generations: [14] });
+  harness.layer.handleInput({ type: "click" });
+  testBridge.emitTranscript({ generation: 14, text: "We should plan the launch", isFinal: false, receivedAtMs: 10 });
+  testClock.advance(400);
+  testBridge.emitTranscript({ generation: 14, text: "We should plan the Friday launch", isFinal: false, receivedAtMs: 11 });
+  testClock.advance(400);
+  testBridge.emitTranscript({ generation: 14, text: "We should plan the Friday launch carefully", isFinal: false, receivedAtMs: 12 });
+  testClock.advance(199);
+  assert.equal(testHermes.calls.length, 0, "rapid decoder revisions stay coalesced");
+  testClock.advance(1);
+  assert.equal(testHermes.calls.length, 1, "max wait prevents continuous partials from starving the lane");
+  assert.equal(testHermes.calls[0].request.transcript, "We should plan the Friday launch carefully");
+
+  const stale = testHermes.calls[0];
+  testBridge.emitTranscript({
+    generation: 14,
+    text: "We should plan the Friday launch carefully with Sam",
+    isFinal: false,
+    receivedAtMs: 13,
+  });
+  testClock.advance(499);
+  assert.equal(stale.cancelled, false, "debounce leaves the one active call time for cooperative cleanup");
+  assert.equal(testHermes.calls.length, 1, "partial requests cannot exceed the debounce rate");
+  testClock.advance(1);
+  assert.equal(stale.cancelled, true, "dispatching the newest revision retires stale active work");
+  assert.equal(testHermes.calls.length, 2);
+
+  const current = testHermes.calls[1];
+  current.resolve({
+    sessionId: current.request.sessionId,
+    revision: current.request.revision,
+    cues: [{ kind: "question", text: "What should Sam prepare for Friday?" }],
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.match(textOperations(render(harness.layer)).join(" "), /HERMES QUESTION/);
+  assert.doesNotMatch(textOperations(render(harness.layer)).join(" "), /Working/);
+});
+
+test("provider finals bypass a pending partial debounce and remain latest-wins", async () => {
+  testHermes.enable(true);
+  const harness = makeLayer({ generations: [15] });
+  harness.layer.handleInput({ type: "click" });
+  testBridge.emitTranscript({ generation: 15, text: "We are planning the launch", isFinal: false, receivedAtMs: 10 });
+  testClock.advance(100);
+
+  testBridge.emitTranscript({ generation: 15, text: "We are planning the Friday launch", isFinal: true, receivedAtMs: 11 });
+  assert.equal(testHermes.calls.length, 1);
+  assert.equal(testHermes.calls[0].request.transcript, "We are planning the Friday launch");
+  testClock.advance(1_000);
+  assert.equal(testHermes.calls.length, 1, "the retired partial timer cannot duplicate the final flush");
+
+  testBridge.emitTranscript({ generation: 15, text: "Sam will prepare the demo", isFinal: true, receivedAtMs: 12 });
+  assert.equal(testHermes.calls[0].cancelled, true);
+  assert.equal(testHermes.calls.length, 2);
+
+  const current = testHermes.calls[1];
+  current.resolve({
+    sessionId: current.request.sessionId,
+    revision: current.request.revision,
+    cues: [{ kind: "question", text: "What should Sam prepare before Friday?" }],
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.match(textOperations(render(harness.layer)).join(" "), /HERMES QUESTION/);
+  harness.layer.handleInput({ type: "click" });
+  const rendered = textOperations(render(harness.layer)).join(" ");
+  assert.match(rendered, /HERMES CUE/);
+  assert.match(rendered, /What should Sam prepare before Friday/);
+  assert.doesNotMatch(rendered, /Working/);
+});
+
+test("pause and end hold partial timers, then flush the exact finalized conversation", async () => {
+  testHermes.enable(true);
+  const harness = makeLayer({ generations: [17, 18], deferFinish: true });
+  harness.layer.handleInput({ type: "click" });
+  testBridge.emitTranscript({
+    generation: 17,
+    text: "First capture needs a follow up",
+    isFinal: false,
+    receivedAtMs: 10,
+  });
+  testClock.advance(250);
+  harness.layer.togglePaused();
+  testClock.advance(2_000);
+  assert.equal(testHermes.calls.length, 0, "pause waits for the provider-owned final boundary");
+
+  harness.resolveFinish();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(harness.layer.phase(), "paused");
+  assert.equal(testHermes.calls.length, 1);
+  assert.equal(testHermes.calls[0].request.transcript, "First capture needs a follow up");
+
+  harness.layer.togglePaused();
+  testBridge.emitTranscript({
+    generation: 18,
+    text: "Second capture will finish now",
+    isFinal: false,
+    receivedAtMs: 20,
+  });
+  assert.equal(testHermes.calls[0].cancelled, false, "resume text first coalesces behind the debounce");
+  testClock.advance(250);
+  assert.equal(harness.layer.handleDoubleClick(), true);
+  testClock.advance(2_000);
+  assert.equal(testHermes.calls.length, 1, "end also holds its pending partial timer");
+
+  harness.resolveFinish();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(harness.layer.phase(), "ended");
+  assert.equal(testHermes.calls.length, 2);
+  assert.equal(testHermes.calls[0].cancelled, true, "the end flush retires the stale paused revision");
+  assert.equal(
+    testHermes.calls[1].request.transcript,
+    "First capture needs a follow up Second capture will finish now",
+  );
+});
+
+test("turning Hermes cues off cancels in-flight text and immediately restores local cues", () => {
+  testHermes.enable(true);
+  const harness = makeLayer({ generations: [16] });
+  harness.layer.handleInput({ type: "click" });
+  testBridge.emitTranscript({
+    generation: 16,
+    text: "Need to send the summary",
+    isFinal: true,
+    receivedAtMs: 14,
+  });
+  const call = testHermes.calls[0];
+  testHermes.enable(false);
+  assert.equal(call.cancelled, true);
+  const live = textOperations(render(harness.layer)).join(" ");
+  assert.match(live, /LOCAL ACTION/);
+  assert.doesNotMatch(live, /TEXT→HERMES/);
 });
 
 test("double-click ends the exact capture and stale events cannot resurrect the session", async () => {

@@ -19,7 +19,11 @@ import {
 } from "../../native/media-controller";
 import { mediaBrowserBridge, type MediaBrowserApp } from "../../native/media-browser";
 import { MediaBrowseLayer } from "./media-browse";
-import { resolvePlayingQueueIndex } from "./playlist-selection";
+import {
+  reconcilePlaylistSelection,
+  resolvePlayingQueueIndex,
+  selectPlaylistIndex,
+} from "./playlist-selection";
 import { Layer, type DashboardInputEvent, type LayerContext, type PaintBelow } from "../../ui/layers";
 import {
   createInProcessWindow,
@@ -65,6 +69,8 @@ class MusicAppLayer implements Layer {
   private focusColumn: FocusColumn = "actions";
   private selectedActionIndex = 0;
   private selectedQueueIndex = 0;
+  private selectedQueueItemId: string | null = null;
+  private pendingQueueItemId: string | null = null;
   private queueScrollRow = 0;
   private art: GrayImage | null = null;
   private artKey = "";
@@ -248,6 +254,8 @@ class MusicAppLayer implements Layer {
             return;
           }
           this.selectedQueueIndex = step.index;
+          this.pendingQueueItemId = null;
+          this.captureQueueSelection(queue);
         } else {
           if (!actions.length) return;
           const step = this.actionScroller.step(this.selectedActionIndex, actions.length, dir, Date.now());
@@ -263,10 +271,17 @@ class MusicAppLayer implements Layer {
         if (this.focusColumn === "playlist") {
           const item = queue[this.selectedQueueIndex];
           if (item) {
+            const requested = selectPlaylistIndex(queue, this.selectedQueueIndex);
+            this.selectedQueueIndex = requested.index;
+            this.selectedQueueItemId = requested.itemId;
+            this.pendingQueueItemId = requested.itemId;
             await mediaControllerBridge.skipToQueueItem(item.id);
             // Keep the chosen row selected. Players differ on whether a queue
             // jump preserves order, rotates the queue, or updates the active
             // item asynchronously; re-entering Playlist resolves fresh state.
+            if (this.pendingQueueItemId === requested.itemId) {
+              this.pendingQueueItemId = null;
+            }
             this.queueScroller.reset();
           }
           return;
@@ -281,7 +296,15 @@ class MusicAppLayer implements Layer {
         else if (action.kind === "volume") {
           ctx.stack.push(new VolumeModalLayer(mediaControllerBridge.getMediaVolumePercent()));
         } else if (action.kind === "playlist") {
-          this.selectedQueueIndex = resolvePlayingQueueIndex(queue, media, 0);
+          const retained = reconcilePlaylistSelection(queue, {
+            index: this.selectedQueueIndex,
+            itemId: this.selectedQueueItemId,
+          });
+          this.captureQueueSelection(
+            queue,
+            resolvePlayingQueueIndex(queue, media, retained.index),
+          );
+          this.pendingQueueItemId = null;
           this.focusColumn = "playlist";
           this.queueScroller.reset();
         }
@@ -382,11 +405,24 @@ class MusicAppLayer implements Layer {
 
   private reconcileSelection(actions: MusicAction[], queue: MediaQueueItem[]): void {
     this.selectedActionIndex = clamp(this.selectedActionIndex, 0, actions.length - 1);
-    this.selectedQueueIndex = clamp(this.selectedQueueIndex, 0, Math.max(0, queue.length - 1));
+    const queueSelection = reconcilePlaylistSelection(queue, {
+      index: this.selectedQueueIndex,
+      itemId: this.pendingQueueItemId ?? this.selectedQueueItemId,
+    });
+    this.selectedQueueIndex = queueSelection.index;
+    if (this.pendingQueueItemId === null) {
+      this.selectedQueueItemId = queueSelection.itemId;
+    }
     if (!queue.length && this.focusColumn === "playlist") {
       this.focusColumn = "actions";
       this.selectedActionIndex = PLAYLIST_ACTION_INDEX;
     }
+  }
+
+  private captureQueueSelection(queue: MediaQueueItem[], index = this.selectedQueueIndex): void {
+    const selection = selectPlaylistIndex(queue, index);
+    this.selectedQueueIndex = selection.index;
+    this.selectedQueueItemId = selection.itemId;
   }
 
   private drawProgress(image: GrayImage, media: MediaControllerState, width: number): void {

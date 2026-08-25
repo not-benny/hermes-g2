@@ -36,11 +36,11 @@ test("sleep assistant presentation paints only its top dialogue over blank", () 
   const shell = read("app/ui/shell/shell.ts");
   assert.match(layers, /paintTopOverBlank\(\): GrayImage/);
   assert.match(layers, /new GrayImage\(this\.baseWidth, this\.baseHeight, 0\)/);
-  assert.match(shell, /if \(this\.assistantOnlyPresentation \|\| this\.musicCardPresentationPending\) \{[\s\S]*return this\.stack\.paintTopOverBlank\(\)/);
+  assert.match(shell, /this\.assistantOnlyPresentation \|\|[\s\S]*this\.musicCardPresentationPending \|\|[\s\S]*this\.notificationCardPresentationPending[\s\S]*return this\.stack\.paintTopOverBlank\(\)/);
   assert.match(shell, /setAssistantOnlyPresentation\?: \(active: boolean\) => void/);
   assert.match(shell, /endAssistantOnlyPresentationIfIdle\(\)/);
   const dismiss = shell.slice(shell.indexOf("const dismiss = () =>"), shell.indexOf("layer = new ShellAlertLayer", shell.indexOf("const dismiss = () =>")));
-  assert.match(dismiss, /this\.alertLayer === layer\) this\.alertLayer = null;[\s\S]*this\.endAssistantOnlyPresentationIfIdle\(\)/);
+  assert.match(dismiss, /this\.alertLayer === layer\) this\.alertLayer = null;[\s\S]*this\.finishAssistantOnlyResultDismissal\(\)[\s\S]*this\.endAssistantOnlyPresentationIfIdle\(\)/);
 });
 
 test("assistant-only wake hides opaque app surfaces and restores the foreground", () => {

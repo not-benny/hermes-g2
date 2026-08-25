@@ -98,7 +98,7 @@ test("voice capture integration carries the exact generation through permission,
   assert.match(dashboard, /voiceControlBridge\.finishContinuousCapture\(generation\)/);
   assert.match(voice, /finishContinuousCapture\(generation: number\): Promise<void>/);
   assert.match(voice, /if \(event\.isFinal && capture\.commitSent\) this\.releaseCompletedCapture/);
-  assert.match(voice, /PROVIDER_FINISH_TIMEOUT_MS/);
+  assert.match(voice, /CONTINUOUS_FINISH_ABSOLUTE_TIMEOUT_MS/);
   assert.match(voice, /onCaptureStopped: \(generation: number\)/);
   assert.match(voice, /this\.completeCapture\(generation\)/);
   assert.match(voice, /onTranscript: \(generation: number, text: string, isFinal: boolean\)/);
@@ -111,7 +111,7 @@ test("voice capture integration carries the exact generation through permission,
   assert.match(dialog, /stopVoiceCapture\(this\.captureGeneration, false\)/);
 });
 
-test("on-device final decode precedes capture completion and cloud finish stays bounded", () => {
+test("on-device final decode precedes capture completion and continuous finish stays absolutely bounded", () => {
   const native = read("App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawVoiceController.java");
   const voice = read("app/native/voice-control.ts");
   const finalIndex = native.indexOf("decodeTranscript(true)");
@@ -119,5 +119,13 @@ test("on-device final decode precedes capture completion and cloud finish stays 
   assert.ok(finalIndex >= 0 && stoppedIndex > finalIndex);
   assert.match(voice, /if \(!capture\.cloudClient\) \{[\s\S]*releaseCompletedCapture\(capture, false\)/);
   assert.match(voice, /capture\.cloudClient\.finish\(\)/);
-  assert.match(voice, /setTimeout\(\(\) => \{[\s\S]*releaseCompletedCapture\(capture, true\)/);
+  const finish = voice.slice(
+    voice.indexOf("finishContinuousCapture("),
+    voice.indexOf("stopContinuousCapture(", voice.indexOf("finishContinuousCapture(")),
+  );
+  assert.match(finish, /setTimeout\(\(\) => \{[\s\S]*turnGate\.cancel\(capture\.generation\)[\s\S]*releaseCompletedCapture\(capture, true\)/);
+  assert.ok(
+    finish.indexOf("setTimeout") < finish.indexOf("this.controller?.stop"),
+    "the absolute deadline is armed before native stop can omit its callback",
+  );
 });

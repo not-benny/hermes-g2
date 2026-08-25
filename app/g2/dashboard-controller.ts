@@ -375,6 +375,10 @@ class DashboardController {
       prepareMusicCardDisplay: (isAllowed) => this.prepareMusicCardDisplay(isAllowed),
       revealMusicCardDisplay: (isAllowed) => this.revealMusicCardDisplay(isAllowed),
       releaseMusicCardPresentationIsolation: () => this.releaseMusicCardPresentationIsolation(),
+      isNotificationPresentationAllowed: () => this.isAssistantResultPresentationAllowed(),
+      prepareNotificationCardDisplay: (isAllowed) => this.prepareMusicCardDisplay(isAllowed),
+      revealNotificationCardDisplay: (isAllowed) => this.revealMusicCardDisplay(isAllowed),
+      releaseNotificationCardPresentationIsolation: () => this.releaseMusicCardPresentationIsolation(),
       // The shell callback is emitted by layer removal too. Keep it distinct
       // from controller-owned lifecycle recovery so a failed strict card's
       // own teardown cannot immediately flash-loop itself.
@@ -691,7 +695,12 @@ class DashboardController {
     if (this.communicator !== communicator || !this.lockSurfaceConfigured) return;
     this.lockSurfaceVisible = visible;
     this.updateCompositePreview();
-    if (!visible) directNotificationInbox.retryPresentation();
+    if (!visible) {
+      directNotificationInbox.retryPresentation();
+      this.enqueueNotificationPresentation(() =>
+        this.handleNotificationTriageEffects(notificationTriageController.tick()),
+      );
+    }
   }
 
   private isAssistantResultPresentationAllowed(): boolean {
@@ -2870,6 +2879,12 @@ class DashboardController {
           continue;
         }
       }
+      if (!this.isAssistantResultPresentationAllowed()) {
+        if (effect.kind === "immediate") {
+          notificationTriageController.presentationFailed(effect.key);
+        }
+        continue;
+      }
       if (effect.kind === "digest-ready") {
         digestNotifications = digestItems.flatMap((item) => {
           const notification = readNotificationByKey(item.key);
@@ -2882,20 +2897,10 @@ class DashboardController {
         });
         if (!digestNotifications.length) continue;
       }
-      const wokeScreen = shell.isScreenOn() ? false : shell.wake("sidebar");
-      if (wokeScreen) {
-        const ready = await this.ensureEvenHubSessionActive();
-        if (!ready || !shell.isScreenOn()) {
-          if (effect.kind === "immediate") notificationTriageController.presentationFailed(effect.key);
-          if (shell.isScreenOn()) shell.sleep();
-          continue;
-        }
-      }
       if (effect.kind === "immediate") {
-        const delivered = await shell.openNotificationModal(
+        const delivered = await shell.openNotificationCard(
           effect.key,
           effect.revision,
-          wokeScreen,
           immediateNotification!,
           effect.reason,
         );
@@ -2904,9 +2909,45 @@ class DashboardController {
           continue;
         }
       } else if (effect.kind === "digest-ready") {
-        const delivered = await shell.openNotificationDigest(
+        if (digestNotifications.length === 1) {
+          const only = digestNotifications[0]!;
+          const delivered = await shell.openNotificationCard(
+            only.key,
+            only.revision,
+            only.notification,
+            only.reason,
+          );
+          if (!delivered) continue;
+          notificationTriageController.acknowledgeDigest([
+            { key: only.key, revision: only.revision },
+          ]);
+          if (Date.now() - this.lastNotificationBeepMs > 1500) {
+            this.lastNotificationBeepMs = Date.now();
+            void playEventBeep("notification", (payload) => this.playBuzzerSequence(payload));
+          }
+          this.requestShellRender();
+          continue;
+        }
+        const representative = digestNotifications[0]!.notification;
+        const apps = [...new Set(digestNotifications.map(({ notification }) =>
+          notification.appName || notification.packageName,
+        ))].filter(Boolean).join(" · ");
+        const delivered = await shell.openNotificationCard(
+          digestNotifications[0]!.key,
+          digestNotifications[0]!.revision,
+          {
+            ...representative,
+            appName: "Notifications",
+            title: `${digestNotifications.length} new notifications`,
+            text: apps,
+            bigText: apps,
+            lines: digestNotifications.map(({ notification }) =>
+              `${notification.appName || notification.packageName}: ${notification.title || notification.text}`,
+            ),
+            actions: [],
+          },
+          "Grouped notification delivery",
           digestNotifications,
-          wokeScreen,
         );
         if (!delivered) continue;
         notificationTriageController.acknowledgeDigest(

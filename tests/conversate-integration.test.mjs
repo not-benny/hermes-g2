@@ -62,3 +62,19 @@ test("ring UX exposes local cues, provider selection, pause, and exact end seman
   assert.match(app, /End conversation/);
   assert.match(app, /Provider: \$\{layer\.providerLabel\(\)\}/);
 });
+
+test("Hermes cue assistance is explicit, text-only, and never enters the global assistant UI", () => {
+  const settings = read("app/ui/dashboard-settings.ts");
+  const layer = read("app/apps/conversate/conversate.ts");
+  const host = read("app/assistant/host-session-mcp-client.ts");
+  const phone = read("app/phone-ui/caption-settings-page.xml");
+  assert.match(settings, /conversate\.hermesCues[\s\S]*defaultValue: false/);
+  assert.match(phone, /Off by default[\s\S]*live revisions but not audio/);
+  assert.match(layer, /HERMES_CUE_PARTIAL_DEBOUNCE_MS = 500/);
+  assert.match(layer, /requestHermesCues\(event\.isFinal \? "final" : "partial"\)/);
+  assert.match(layer, /this\.requestHermesCues\("final"\)/);
+  assert.match(layer, /Silent local fallback/);
+  assert.doesNotMatch(layer, /assistantBridge\.sendUtterance|notifyAssistantResult|new AssistantLayer/);
+  assert.match(host, /hermes\.conversate\.cues/);
+  assert.match(host, /CONVERSATE_CUE_DEADLINE_MS = 2_500/);
+});

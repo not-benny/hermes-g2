@@ -282,7 +282,11 @@ test("a visually hidden active turn no longer prevents idle display sleep", () =
     timeout,
     /const visibleAssistantTurn =[\s\S]*this\.assistantSession\?\.isTurnActive\(\)[\s\S]*!this\.assistantTurnBackgrounded/,
   );
-  assert.match(timeout, /this\.activeVoiceLayer \|\| visibleAssistantTurn \|\| this\.musicCard/);
+  assert.match(
+    timeout,
+    /this\.activeVoiceLayer[\s\S]*visibleAssistantTurn[\s\S]*this\.screenTimeoutHolds\.size > 0[\s\S]*this\.musicCard/,
+    "an explicit foreground hold suspends idle sleep without making hidden agent work visible",
+  );
   assert.doesNotMatch(timeout, /this\.activeVoiceLayer \|\| this\.assistantSession\?\.isTurnActive\(\)/);
   assert.doesNotMatch(timeout, /alertLayer/, "a persistent result must still yield to the global screen timeout");
   const sleep = shell.slice(shell.indexOf("sleep(): void"), shell.indexOf("acquireAssistantResultWake"));

@@ -437,6 +437,14 @@ export const conversateProviderSetting = new ConfigSettingEnum<VoiceProvider>({
   description: "Transcription used only by Conversate. On-device is the default and keeps microphone audio on the phone; selecting a configured cloud provider sends live audio to that provider.",
 });
 
+export const conversateHermesCuesSetting = new ConfigSettingBoolean({
+  id: "conversate-hermes-cues",
+  label: "Hermes conversation cues",
+  storageKey: "conversate.hermesCues",
+  defaultValue: false,
+  description: "Opt in to sending bounded recent transcript text, including live revisions (never audio), to the connected Hermes host and its configured auxiliary model for quick cues. The text is not added to agent chat or history; the model provider may process it under its own policy. Local cues remain available when Hermes is off, slow, or unavailable.",
+});
+
 export const captionSourceLanguageSetting = new ConfigSettingEnum<CaptionSourceLanguage>({
   id: "caption-source-language",
   label: "Caption source language",

@@ -1,5 +1,9 @@
 import { AssistantMcpServer } from "./mcp-server";
-import { HostSessionMcpClient } from "./host-session-mcp-client";
+import {
+  HostSessionMcpClient,
+  type HostConversateCuesCall,
+  type HostConversateCuesRequest,
+} from "./host-session-mcp-client";
 import { toolRegistry } from "./tool-registry";
 import { BridgeConnectionGuard } from "./bridge-connection-guard";
 import { AgentCockpitController } from "../agent-cockpit/controller";
@@ -33,6 +37,7 @@ const AUTH_TIMEOUT_MS = 15_000;
 const MAX_BRIDGE_FRAME_BYTES = 64 * 1024;
 /** Backstop on a turn the bridge never finishes (server-side cap is 2 min). */
 const TURN_TIMEOUT_MS = 3 * 60 * 1000;
+const CONVERSATE_CUES_CAPABILITY = "conversate-cues-v1";
 
 export type AssistantBridgePhase = "idle" | "connecting" | "connected" | "failed";
 
@@ -78,6 +83,7 @@ export class AssistantBridgeClient {
   private mcpServer: AssistantMcpServer | null = null;
   private hostMcpClient: HostSessionMcpClient | null = null;
   private hostMcpSupported = false;
+  private conversateCuesSupported = false;
   private authenticatedProfileId: string | null = null;
   private unsubscribeToolsChanged: (() => void) | null = null;
   private readonly connectionGuard = new BridgeConnectionGuard();
@@ -115,6 +121,7 @@ export class AssistantBridgeClient {
   stop(): void {
     this.stopped = true;
     this.hostMcpSupported = false;
+    this.conversateCuesSupported = false;
     this.authenticatedProfileId = null;
     this.connectionGuard.invalidateCurrent();
     this.clearReconnectTimer();
@@ -196,6 +203,12 @@ export class AssistantBridgeClient {
     };
   }
 
+  /** Optional, isolated low-latency lane used only by the Conversate app. */
+  requestConversateCues(request: HostConversateCuesRequest): HostConversateCuesCall | null {
+    if (this.phase !== "connected" || !this.conversateCuesSupported || !this.hostMcpClient) return null;
+    return this.hostMcpClient.callConversateCues(request);
+  }
+
   private connect(): void {
     if (this.stopped || this.ws || !this.options) return;
     this.authenticatedProfileId = null;
@@ -211,7 +224,7 @@ export class AssistantBridgeClient {
         this.startAuthTimer(generation, socket);
         this.send({ chan: "ctl", type: "hello", version: PROTOCOL_VERSION, token: this.options!.token,
           deviceName: this.options!.deviceName,
-          capabilities: ["mcp", "host-mcp-v1"] });
+          capabilities: ["mcp", "host-mcp-v1", CONVERSATE_CUES_CAPABILITY] });
       },
       onTextMessage: (message: string) => {
         if (!this.isCurrentSocket(generation, socket)) return;
@@ -314,6 +327,8 @@ export class AssistantBridgeClient {
       if (!this.connectionGuard.authenticate(generation)) { this.authenticatedProfileId = null; return; }
       this.hostMcpSupported = Array.isArray(frame.capabilities) &&
         frame.capabilities.includes("host-mcp-v1");
+      this.conversateCuesSupported = this.hostMcpSupported &&
+        frame.capabilities.includes(CONVERSATE_CUES_CAPABILITY);
       this.hostMcpClient?.close("Host MCP session replaced");
       this.hostMcpClient = null;
       const socket = this.ws;
@@ -330,6 +345,7 @@ export class AssistantBridgeClient {
         send: (msg) => this.sendHostMcpForSocket(generation, socket, msg),
         onStatus: (status) => this.cockpit.handleMcpStatus(status),
         onCockpitFrame: (frame) => this.cockpit.handleFrame(frame),
+        conversateCuesSupported: this.conversateCuesSupported,
       });
       this.clearAuthTimer();
       this.reconnectDelayMs = RECONNECT_MIN_MS;
@@ -354,6 +370,7 @@ export class AssistantBridgeClient {
   private handleConnectionLost(status: string, generation: number): void {
     if (!this.connectionGuard.invalidate(generation)) return;
     this.hostMcpSupported = false;
+    this.conversateCuesSupported = false;
     this.authenticatedProfileId = null;
     this.hostMcpClient?.close("Bridge connection lost");
     this.hostMcpClient = null;

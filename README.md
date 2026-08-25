@@ -29,9 +29,9 @@ release posture is in [`STATUS.md`](STATUS.md). The only active milestone is
 The implementation contains the phone companion, glasses shell, internal
 assistant-result projection path, notifications, the glasses-native Work Tasks
 board with encrypted phone-local storage, a durable Clock app for alarms,
-timers, and world clocks, Conversate for explicit-session live transcription and local
-conversation cues, an optional read-only R1 health path, and several
-experimental applications. Conversate replaces the former
+timers, and world clocks, Conversate for explicit-session live transcription,
+local cues, and optional low-latency Hermes auxiliary cues, an optional
+read-only R1 health path, and several experimental applications. Conversate replaces the former
 Transcribe launcher app, defaults to bundled on-device transcription, and keeps
 its provider choice independent from assistant dictation. Evidence and acceptance levels are
 intentionally not repeated here: [`STATUS.md`](STATUS.md) is the sole current

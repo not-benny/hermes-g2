@@ -437,6 +437,9 @@ test("shell and controller wire confirmed-current wear through transactional str
   assert.match(notify, /isDirectAssistantResultPresentationAllowed/);
   assert.match(notify, /this\.directNotificationLayer === null/);
   assert.match(notify, /this\.directNotificationLayer = directLayer/);
+  assert.match(notify, /const returnToSleepOnClose = !this\.screenOn/);
+  assert.match(notify, /ownsPriorSleep && wasTop && this\.screenOn\) this\.sleep\(\)/,
+    "dismissing a direct result that woke the lens restores sleep rather than the HUD");
   const secureAck = notify.indexOf("presentation.onStrictFrameAcknowledged()");
   const wakeCommit = notify.indexOf("preparation!.commit()");
   const cue = notify.indexOf('playEventBeep("assistantReply"');

@@ -202,6 +202,21 @@ public class FaceclawMediaController {
         }
     }
 
+    /**
+     * NativeScript cannot represent every signed 64-bit queue ID exactly as a
+     * JavaScript number. Receive the JSON string form and parse it in Java.
+     */
+    public void skipToQueueItemById(String queueId) {
+        if (queueId == null) {
+            return;
+        }
+        try {
+            skipToQueueItem(Long.parseLong(queueId));
+        } catch (NumberFormatException e) {
+            Log.w("FaceclawMedia", "invalid queue ID", e);
+        }
+    }
+
     /** Current phone media-stream volume normalized to the range 0..100. */
     public int getMediaVolumePercent() {
         if (audioManager == null) {
@@ -255,7 +270,7 @@ public class FaceclawMediaController {
 
     /**
      * The active session's queue (playlist) as JSON:
-     * [{"id": long, "title": string, "subtitle": string, "active": bool}, ...].
+     * [{"id": string, "title": string, "subtitle": string, "active": bool}, ...].
      * Empty string when the player exposes no queue.
      */
     public String getQueueJson() {
@@ -268,7 +283,9 @@ public class FaceclawMediaController {
                 return "";
             }
             PlaybackState state = activeController.getPlaybackState();
-            long activeId = state == null ? -1 : state.getActiveQueueItemId();
+            long activeId = state == null
+                    ? MediaSession.QueueItem.UNKNOWN_ID
+                    : state.getActiveQueueItemId();
             try {
                 JSONArray out = new JSONArray();
                 for (MediaSession.QueueItem item : queue) {
@@ -276,10 +293,17 @@ public class FaceclawMediaController {
                     CharSequence title = description == null ? null : description.getTitle();
                     CharSequence subtitle = description == null ? null : description.getSubtitle();
                     JSONObject entry = new JSONObject();
-                    entry.put("id", item.getQueueId());
+                    // JSON numbers are parsed as IEEE-754 doubles in JS. A
+                    // decimal string preserves the exact Android long value.
+                    entry.put("id", Long.toString(item.getQueueId()));
                     entry.put("title", title == null ? "" : title.toString());
                     entry.put("subtitle", subtitle == null ? "" : subtitle.toString());
-                    entry.put("active", item.getQueueId() == activeId);
+                    // UNKNOWN_ID means the session did not identify a row. It
+                    // must never make every unknown-ID item look active; the
+                    // TypeScript layer can then fall back to current metadata.
+                    entry.put("active",
+                            activeId != MediaSession.QueueItem.UNKNOWN_ID
+                                    && item.getQueueId() == activeId);
                     out.put(entry);
                 }
                 return out.toString();
