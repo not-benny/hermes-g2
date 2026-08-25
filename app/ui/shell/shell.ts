@@ -1010,7 +1010,14 @@ class Shell {
       notification: AndroidNotification;
     }[],
   ): Promise<boolean> {
+    // Fresh-notification cards are a sleep-origin presentation. Never replace
+    // an already-visible HUD, app, dialogue, or Now Playing card just because
+    // a phone notification arrived. A second notification may replace an
+    // existing card only when that card itself woke the sleeping display.
+    const replacingSleepOriginCard =
+      this.notificationCard !== null && this.notificationCardWokeScreen;
     if (
+      (this.screenOn && !replacingSleepOriginCard) ||
       this.clockAlertLayer !== null ||
       this.assistantOnlyPresentation ||
       this.activeVoiceLayer ||
@@ -1020,7 +1027,8 @@ class Shell {
       !this.config.requestShellDelivery
     ) return false;
 
-    let returnToSleep = !this.screenOn;
+    const beganScreenOff = !this.screenOn;
+    let returnToSleep = beganScreenOff;
     if (this.notificationCard) {
       const previous = this.notificationCard;
       returnToSleep ||= this.notificationCardWokeScreen;
@@ -1063,7 +1071,10 @@ class Shell {
       onDismissed: close,
     });
     this.notificationCard = card;
-    this.notificationCardWokeScreen = returnToSleep;
+    // A replacement inherits an existing sleep-origin card's ownership. A
+    // genuinely screen-off transaction claims wake ownership only after its
+    // own wake succeeds; a manual HUD wake during preparation must win.
+    this.notificationCardWokeScreen = returnToSleep && !beganScreenOff;
     this.stack.push(card);
     const isInstalledOwner = () =>
       this.notificationCard === card &&
@@ -1071,7 +1082,7 @@ class Shell {
         this.config.isNotificationPresentationAllowed()) &&
       this.stack.topMatches((top) => top === card);
 
-    if (returnToSleep && !this.screenOn) {
+    if (beganScreenOff) {
       if (
         !this.config.prepareNotificationCardDisplay ||
         !this.config.revealNotificationCardDisplay ||
@@ -1084,7 +1095,9 @@ class Shell {
       this.notificationCardPresentationPending = card;
       try {
         const ready = await this.config.prepareNotificationCardDisplay(isInstalledOwner);
-        if (!ready || !isInstalledOwner()) throw new Error("Notification display preparation failed.");
+        if (!ready || !isInstalledOwner() || this.screenOn) {
+          throw new Error("Notification display preparation was superseded.");
+        }
         card.startPresentation();
         const prime = await this.config.requestShellDelivery(isInstalledOwner, false);
         if (
@@ -1092,7 +1105,10 @@ class Shell {
           prime.frameId <= 0 ||
           !isReadinessFrameEvidenceOutcome(prime.outcome)
         ) throw new Error("Notification retained-frame prime was not acknowledged.");
-        this.wake("sidebar");
+        if (this.screenOn || !this.wake("sidebar")) {
+          throw new Error("A newer wake superseded the notification card.");
+        }
+        this.notificationCardWokeScreen = true;
         const isOwner = () => this.screenOn && isInstalledOwner();
         if (!isOwner() || !(await this.config.revealNotificationCardDisplay(isOwner))) {
           throw new Error("Notification reveal failed.");
@@ -1221,12 +1237,29 @@ class Shell {
         return;
       }
     }
-    if (this.notificationCardPresentationPending === card) {
-      this.notificationCardPresentationPending = null;
-      await this.config.releaseNotificationCardPresentationIsolation?.();
-    }
+    await this.retireNotificationCardPresentation(card);
     this.flushDeferredAssistantUi();
     this.config.requestShellRender();
+  }
+
+  /**
+   * Retire an uncommitted notification lease without ever exposing its retained
+   * card frame. Keeping the pending identity through this bounded render paints
+   * a compositor-safe blank after the card has left the stack. The controller's
+   * ordinary render promise already has a physical-frame backpressure timeout;
+   * do not add a second, potentially unbounded, render-idle drain here.
+   */
+  private async retireNotificationCardPresentation(card: NotificationCardLayer): Promise<void> {
+    if (this.notificationCardPresentationPending !== card) return;
+    try {
+      await this.config.requestShellRender();
+    } catch {
+      // Releasing the exact blanked lease remains mandatory after render failure.
+    } finally {
+      if (this.notificationCardPresentationPending === card) {
+        await this.releaseNotificationCardPresentationIsolation(card);
+      }
+    }
   }
 
   private async closeNotificationCard(card: NotificationCardLayer): Promise<void> {
@@ -1248,10 +1281,7 @@ class Shell {
       this.sleep();
       return;
     }
-    if (this.notificationCardPresentationPending === card) {
-      this.notificationCardPresentationPending = null;
-      await this.config.releaseNotificationCardPresentationIsolation?.();
-    }
+    await this.retireNotificationCardPresentation(card);
     this.flushDeferredAssistantUi();
     this.config.requestShellRender();
   }
