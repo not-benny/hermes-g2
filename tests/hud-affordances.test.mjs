@@ -36,7 +36,7 @@ test("sleep assistant presentation paints only its top dialogue over blank", () 
   const shell = read("app/ui/shell/shell.ts");
   assert.match(layers, /paintTopOverBlank\(\): GrayImage/);
   assert.match(layers, /new GrayImage\(this\.baseWidth, this\.baseHeight, 0\)/);
-  assert.match(shell, /if \(this\.assistantOnlyPresentation\) \{[\s\S]*return this\.stack\.paintTopOverBlank\(\)/);
+  assert.match(shell, /if \(this\.assistantOnlyPresentation \|\| this\.musicCardPresentationPending\) \{[\s\S]*return this\.stack\.paintTopOverBlank\(\)/);
   assert.match(shell, /setAssistantOnlyPresentation\?: \(active: boolean\) => void/);
   assert.match(shell, /endAssistantOnlyPresentationIfIdle\(\)/);
   const dismiss = shell.slice(shell.indexOf("const dismiss = () =>"), shell.indexOf("layer = new ShellAlertLayer", shell.indexOf("const dismiss = () =>")));
@@ -49,8 +49,15 @@ test("assistant-only wake hides opaque app surfaces and restores the foreground"
     controller.indexOf("setAssistantOnlyPresentation: (active) =>"),
     controller.indexOf("    });", controller.indexOf("setAssistantOnlyPresentation: (active) =>")),
   );
-  assert.match(callback, /window\.surfaceId/);
-  assert.match(callback, /!active && window\.windowId === foregroundId/);
+  assert.match(callback, /assistantOnlySurfaceIsolationActive = active/);
+  assert.match(callback, /applyRetainedWindowSurfaceIsolation\(\)/);
+  const isolation = controller.slice(
+    controller.indexOf("private applyRetainedWindowSurfaceIsolation"),
+    controller.indexOf("/** Poll the zero-wait Java barrier", controller.indexOf("private applyRetainedWindowSurfaceIsolation")),
+  );
+  assert.match(isolation, /assistantOnlySurfaceIsolationActive \|\|[\s\S]*musicCardPresentationLease !== null/);
+  assert.match(isolation, /window\.surfaceId/);
+  assert.match(isolation, /!isolated && window\.windowId === foregroundId/);
 });
 
 test("assistant-only lease blocks unrelated shell surfaces while allowing its result card", () => {

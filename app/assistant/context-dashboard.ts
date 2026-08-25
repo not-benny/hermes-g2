@@ -104,6 +104,33 @@ type ContextDashboardPage = {
   action?: RenderAction;
 };
 
+export type ContextDashboardPresentationBlockedCode =
+  | "clock_alert_active"
+  | "assistant_presentation_active";
+
+const PRESENTATION_BLOCKED_MESSAGES: Readonly<Record<ContextDashboardPresentationBlockedCode, string>> = Object.freeze({
+  clock_alert_active: "The glasses display is busy with an active Clock alert.",
+  assistant_presentation_active: "The glasses display is busy with another assistant presentation.",
+});
+
+const SHELL_PRESENTATION_BLOCKERS: Readonly<Record<string, ContextDashboardPresentationBlockedCode>> = Object.freeze({
+  "An active Clock alert owns the glasses display; no dynamic app was sent.": "clock_alert_active",
+  "The assistant voice presentation owns the display; no dynamic app was sent.": "assistant_presentation_active",
+});
+
+export class ContextDashboardPresentationBlockedError extends Error {
+  constructor(readonly code: ContextDashboardPresentationBlockedCode) {
+    super(PRESENTATION_BLOCKED_MESSAGES[code]);
+    this.name = "ContextDashboardPresentationBlockedError";
+  }
+}
+
+/** Reduce only exact, known pre-delivery shell refusals to a public code. */
+export function mapContextDashboardShellBlocker(error: unknown): Error {
+  const code = error instanceof Error ? SHELL_PRESENTATION_BLOCKERS[error.message] : undefined;
+  return code ? new ContextDashboardPresentationBlockedError(code) : error as Error;
+}
+
 type Dependencies = {
   isDisplayAvailable: () => boolean;
   deliver: (state: ContextDashboardRenderState, signal?: AbortSignal, isAllowed?: () => boolean) => Promise<Receipt>;
@@ -254,6 +281,11 @@ function turnKey(context?: ToolExecutionContext): string | null { const connecti
 function defaultId(): string { const uuid = (globalThis as any).crypto?.randomUUID?.(); if (!uuid) throw new Error("secure random identity is unavailable"); return uuid.replace(/-/g, ""); }
 function result(content: object): ToolResult { return { ok: true, content: JSON.stringify(content) }; }
 function fail(error: string): ToolResult { return { ok: false, error }; }
+function presentationBlocked(error: ContextDashboardPresentationBlockedError): ToolResult {
+  const expected = PRESENTATION_BLOCKED_MESSAGES[error.code];
+  if (!expected || error.message !== expected) return fail("glasses delivery was not acknowledged");
+  return fail(JSON.stringify({ status: "rejected", error_code: error.code, error: expected }));
+}
 function validRefreshPolicy(value: unknown): value is RefreshPolicy { return record(value) && exact(value, ["mode", "min_interval_seconds"]) && ["manual", "on_visible"].includes(String(value.mode)) && Number.isInteger(value.min_interval_seconds) && Number(value.min_interval_seconds) >= 30 && Number(value.min_interval_seconds) <= 86400; }
 
 /**
@@ -765,7 +797,12 @@ export class ContextDashboardManager {
     this.pending = pending;
     let receipt: Receipt;
     try { receipt = await this.deps.deliver(render, signal, () => !pending.cancelled && !signal?.aborted && (!isAllowed || isAllowed())); }
-    catch { if (this.pending === pending) this.pending = null; return fail("glasses delivery was not acknowledged"); }
+    catch (error) {
+      if (this.pending === pending) this.pending = null;
+      return error instanceof ContextDashboardPresentationBlockedError
+        ? presentationBlocked(error)
+        : fail("glasses delivery was not acknowledged");
+    }
     if (this.pending === pending) this.pending = null;
     if (receipt.status !== "acknowledged" || !Number.isSafeInteger(receipt.frameId) || receipt.frameId <= 0 || pending.cancelled || signal?.aborted ||
         (isAllowed && !isAllowed()) || !this.deps.isDisplayAvailable()) {

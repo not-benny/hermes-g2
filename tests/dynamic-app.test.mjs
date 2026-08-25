@@ -243,7 +243,7 @@ test("system tools expose the complete lifecycle and shell delivery rejects time
   assert.match(shell, /ShellDynamicAppLayer/);
   assert.match(tools, /dynamicApps\.handleInput\(input, foreground, \{ viewId: state\.viewId, revision: state\.revision \}\)/);
   assert.match(controller, /shell\.closeDynamicApp\(\)/);
-  assert.match(controller, /const requireSent = Boolean\(isAllowed\)/);
+  assert.match(controller, /requireSent = Boolean\(isAllowed\)/);
   assert.match(controller, /if \(requireSent && !isSuccessfulFrameOutcome\(outcome\)\)/);
   assert.match(controller, /return \{ frameId, outcome/);
 });

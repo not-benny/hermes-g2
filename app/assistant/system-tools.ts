@@ -11,7 +11,11 @@ import { createWorkBoardAddHandler } from "./work-board-handler";
 import { workTasksStore } from "../work-tasks/store";
 import { RenderViewManager } from "./render-view";
 import { DYNAMIC_APP_CAPABILITIES, DynamicAppManager } from "./dynamic-app";
-import { CONTEXT_DASHBOARD_CAPABILITIES, ContextDashboardManager } from "./context-dashboard";
+import {
+  CONTEXT_DASHBOARD_CAPABILITIES,
+  ContextDashboardManager,
+  mapContextDashboardShellBlocker,
+} from "./context-dashboard";
 import { loadContextDashboardPins, saveContextDashboardPins } from "./context-dashboard-persistence";
 import { toolRegistry, type ToolRegistry, type ToolResult } from "./tool-registry";
 
@@ -201,14 +205,20 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
     // the physical G2 transport, not the current screen power state.
     isDisplayAvailable: () => shell.isDisplayTransportAvailable(),
     createId: () => String(java.util.UUID.randomUUID()).replace(/-/g, ""),
-    deliver: (state, signal, isAllowed) => shell.showDynamicApp(
-      state,
-      signal,
-      isAllowed,
-      (input, foreground) => contextDashboards.handleInput(input, foreground, { viewId: state.viewId, revision: state.revision }),
-      () => contextDashboards.closeView(state.viewId, state.revision),
-      { assistantTurnResult: state.answerPresentation === "atomic-final-only" },
-    ),
+    deliver: async (state, signal, isAllowed) => {
+      try {
+        return await shell.showDynamicApp(
+          state,
+          signal,
+          isAllowed,
+          (input, foreground) => contextDashboards.handleInput(input, foreground, { viewId: state.viewId, revision: state.revision }),
+          () => contextDashboards.closeView(state.viewId, state.revision),
+          { assistantTurnResult: state.answerPresentation === "atomic-final-only" },
+        );
+      } catch (error) {
+        throw mapContextDashboardShellBlocker(error);
+      }
+    },
     clear: (identity) => shell.clearDynamicApp(identity),
     loadPins: loadContextDashboardPins,
     savePins: saveContextDashboardPins,

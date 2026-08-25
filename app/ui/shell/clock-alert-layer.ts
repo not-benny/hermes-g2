@@ -3,6 +3,7 @@ import { GrayImage } from "../../graphics/image";
 import { truncateText, wrapText } from "../../graphics/textwrap";
 import type { ClockAlertKind, ClockAlertPhase } from "../../clock/alert-state";
 import type { DashboardInputEvent, Layer, LayerContext } from "../layers";
+import { strictDeliveryMarkerGray } from "./strict-delivery-marker";
 
 export type ClockAlertVisualMode = "active" | "silent" | "acknowledged";
 
@@ -24,7 +25,7 @@ export class ClockAlertLayer implements Layer {
     this.state = state;
   }
 
-  /** Force an imperceptible fingerprint change for an exact strict receipt. */
+  /** Force an imperceptible wire-frame change for an exact strict receipt. */
   bumpDeliveryNonce(): void {
     this.deliveryNonce++;
   }
@@ -67,7 +68,7 @@ export class ClockAlertLayer implements Layer {
       ? "PUT ON  •  ACKNOWLEDGED"
       : "TAP RING TO STOP";
     image.drawText(small, centerX - Math.floor(small.measureText(footer) / 2), height - 52, footer, 165);
-    image.setPixel(width - 1, height - 1, 1 + (this.deliveryNonce & 1));
+    image.setPixel(width - 1, height - 1, strictDeliveryMarkerGray(this.deliveryNonce));
     return image;
   }
 

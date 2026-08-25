@@ -38,7 +38,10 @@ import { GESTURE_CLICK, GESTURE_DOUBLE_CLICK } from "../gestures";
 import { ShellModalLayer } from "./modal-layer";
 import { ToolDebugMenuLayer } from "./tool-debug-layer";
 import { playEventBeep } from "../event-beeps";
-import { isSuccessfulFrameOutcome } from "../../g2/display-frame-outcomes";
+import {
+  isReadinessFrameEvidenceOutcome,
+  isSuccessfulFrameOutcome,
+} from "../../g2/display-frame-outcomes";
 import {
   AssistantResultWakeOwnership,
   prepareAtomicAssistantResultLayer,
@@ -57,6 +60,7 @@ import type { DynamicAppState } from "../../assistant/dynamic-app";
 import { ShellRemoteViewLayer } from "./render-view-layer";
 import { ShellDynamicAppLayer } from "./dynamic-app-layer";
 import { shouldRestoreDisplacedAssistant } from "./dynamic-app-rollback";
+import { deferAssistantOnlyAnswerClose } from "./assistant-only-close";
 import { formatDirectNotificationHeaderParts } from "../../assistant/direct-notification-format";
 import {
   assistantCardRect,
@@ -136,13 +140,18 @@ export type ShellConfig = {
   getScreenTimeoutMs: () => number | null;
   requestShellRender: () => void | Promise<void>;
   /** Awaited delivery path for operations that must prove lens transport success. */
-  requestShellDelivery?: (isAllowed?: () => boolean) => Promise<{ frameId: number; outcome: string }>;
+  requestShellDelivery?: (
+    isAllowed?: () => boolean,
+    requireSent?: boolean,
+  ) => Promise<{ frameId: number; outcome: string }>;
   /** Drain ordinary/coalesced shell work before a strict layer becomes visible. */
   waitForShellRenderIdle?: () => Promise<void>;
   /** True only while a real glasses transport/session can accept frames. */
   isDisplayAvailable?: () => boolean;
   /** True only when no opaque device-owned surface hides assistant output. */
   isAssistantResultPresentationAllowed?: () => boolean;
+  /** Retire Clock feedback only after its timeline/audio campaign is terminal. */
+  releaseTerminalClockAlertVisual?: () => boolean;
   /** Direct Hermes notifications additionally require a confirmed current wear snapshot. */
   isDirectAssistantResultPresentationAllowed?: () => boolean;
   /** Wake and await the real display lifecycle before presenting a completed assistant turn. */
@@ -155,10 +164,16 @@ export type ShellConfig = {
   prepareDirectAssistantResultDisplay?: (
     isAllowed: () => boolean,
   ) => Promise<AssistantResultDisplayPreparation>;
+  /** Acquire a physically blank display and hide retained app surfaces before a music wake. */
+  prepareMusicCardDisplay?: (isAllowed: () => boolean) => Promise<boolean>;
+  /** Reveal only the already-primed retained Now Playing composite. */
+  revealMusicCardDisplay?: (isAllowed: () => boolean) => Promise<boolean>;
   /** Screen on/off changed: the controller blanks/unblanks the compositor. */
   onScreenStateChanged: (on: boolean) => void;
   /** Hide retained app surfaces while a sleeping long-press is assistant-only. */
   setAssistantOnlyPresentation?: (active: boolean) => void;
+  /** Release the dedicated Now Playing surface lease after commit or rollback. */
+  releaseMusicCardPresentationIsolation?: () => Promise<void>;
   /** A foreground shell blocker closed; retry the phone-owned direct inbox. */
   onDirectNotificationOpportunity?: () => void;
   /** Window registered/removed or foreground changed (persists the open-app list). */
@@ -416,6 +431,10 @@ class Shell {
   private assistantSession: AssistantSession | null = null;
   private musicCard: MusicCardLayer | null = null;
   private musicCardWokeScreen = false;
+  /** User-activity revision of this card's own provisional wake, or -1 if another owner woke it. */
+  private musicCardWakeActivityRevision = -1;
+  /** Exact unacknowledged card whose blank-first wake hides retained app surfaces. */
+  private musicCardPresentationPending: MusicCardLayer | null = null;
   /** Full-screen, opaque Clock alert; controller owns ring/wear dismissal. */
   private clockAlertLayer: ClockAlertLayer | null = null;
   private assistantLayer: AssistantLayer | null = null;
@@ -742,6 +761,7 @@ class Shell {
     return Boolean(
       this.config.requestShellDelivery &&
       !this.assistantOnlyPresentation &&
+      this.musicCardPresentationPending === null &&
       this.directNotificationLayer === null &&
       this.activeVoiceLayer === null &&
       this.stack.isAtBase(),
@@ -832,6 +852,9 @@ class Shell {
       this.alertRevision++;
       this.musicCard = null;
       this.musicCardWokeScreen = false;
+      this.musicCardWakeActivityRevision = -1;
+      const musicCardPresentationWasPending = this.musicCardPresentationPending !== null;
+      this.musicCardPresentationPending = null;
       for (const window of this.windows) {
         window.setScreenOn?.(false);
       }
@@ -840,6 +863,9 @@ class Shell {
       // communicator's serialized Java-call boundary, preventing a one-frame
       // HUD flash as sleep-origin voice capture closes.
       this.config.onScreenStateChanged(false);
+      if (musicCardPresentationWasPending) {
+        void this.config.releaseMusicCardPresentationIsolation?.();
+      }
       this.setAssistantOnlyPresentation(false);
     } finally {
       this.suppressDirectNotificationOpportunity = false;
@@ -938,6 +964,7 @@ class Shell {
       !this.screenOn ||
       this.clockAlertLayer !== null ||
       this.assistantOnlyPresentation ||
+      this.musicCardPresentationPending !== null ||
       this.activeVoiceLayer ||
       !this.config.requestShellDelivery
     ) return false;
@@ -951,6 +978,7 @@ class Shell {
       !this.screenOn ||
       this.clockAlertLayer !== null ||
       this.assistantOnlyPresentation ||
+      this.musicCardPresentationPending !== null ||
       this.activeVoiceLayer ||
       !this.config.requestShellDelivery
     ) return false;
@@ -970,6 +998,7 @@ class Shell {
       ) ownsWake = true;
       this.musicCard = null;
       this.musicCardWokeScreen = false;
+      void this.releaseMusicCardPresentationIsolation(card);
     }
     const modal: ShellModalLayer = new ShellModalLayer(
       new SingleNotificationLayer(notificationKey, {
@@ -1009,6 +1038,7 @@ class Shell {
       !this.screenOn ||
       this.clockAlertLayer !== null ||
       this.assistantOnlyPresentation ||
+      this.musicCardPresentationPending !== null ||
       this.activeVoiceLayer ||
       !entries.length ||
       !this.config.requestShellDelivery
@@ -1018,6 +1048,7 @@ class Shell {
       !this.screenOn ||
       this.clockAlertLayer !== null ||
       this.assistantOnlyPresentation ||
+      this.musicCardPresentationPending !== null ||
       this.activeVoiceLayer ||
       !entries.length ||
       !this.config.requestShellDelivery
@@ -1034,6 +1065,7 @@ class Shell {
       ) ownsWake = true;
       this.musicCard = null;
       this.musicCardWokeScreen = false;
+      void this.releaseMusicCardPresentationIsolation(card);
     }
     const modal: ShellModalLayer = new ShellModalLayer(
       new NotificationDigestLayer(entries, () => this.closeNotificationModal(modal)),
@@ -1056,6 +1088,10 @@ class Shell {
 
   /** Install/update Clock visual before waking, so retained HUD never flashes. */
   async showClockAlert(state: ClockAlertVisualState): Promise<boolean> {
+    // Clock's coordinator retries failed visual projections. Never let it
+    // supersede an in-flight blanked music transaction: its independent wake
+    // barrier could otherwise unblank before either exact opaque layer lands.
+    if (this.musicCardPresentationPending) return false;
     if (this.clockAlertLayer) {
       this.clockAlertLayer.update(state);
       if (!this.stack.topMatches((top) => top === this.clockAlertLayer)) {
@@ -1077,8 +1113,8 @@ class Shell {
       this.stack.topMatches((top) => top === layer);
     try {
       // Wake/session callbacks may already have queued an ordinary repaint.
-      // Drain it, then alter one visually-black nonce pixel so this Clock
-      // layer receives its own non-deduped transport receipt.
+      // Drain it, then alter one wire-distinct, visually imperceptible corner
+      // pixel so this Clock layer receives its own non-deduped receipt.
       if (this.config.waitForShellRenderIdle) await this.config.waitForShellRenderIdle();
       if (!isOwner()) return false;
       layer.bumpDeliveryNonce();
@@ -1105,6 +1141,20 @@ class Shell {
     this.config.requestShellRender();
   }
 
+  /** Replace terminal Clock feedback without briefly repainting retained HUD. */
+  private releaseTerminalClockAlertLayer(): boolean {
+    const layer = this.clockAlertLayer;
+    if (!layer) return true;
+    if (this.config.releaseTerminalClockAlertVisual?.() !== true) return false;
+    // The coordinator has synchronously retired summary/silent ownership and
+    // any retry. Remove only this exact layer; showDynamicApp installs its
+    // replacement in the same turn and owns the subsequent strict repaint.
+    if (this.clockAlertLayer !== layer) return this.clockAlertLayer === null;
+    this.clockAlertLayer = null;
+    this.stack.remove(layer);
+    return true;
+  }
+
   isClockAlertVisible(): boolean {
     return this.clockAlertLayer !== null && this.screenOn;
   }
@@ -1114,37 +1164,154 @@ class Shell {
     return this.musicCard !== null;
   }
 
+  /** True only during the blanked, pre-ACK Now Playing transaction. */
+  isMusicCardPresentationPending(): boolean {
+    return this.musicCardPresentationPending !== null;
+  }
+
   /**
-   * Present, or (if one is already up) refresh, the song-change card. The caller
-   * wakes the screen first. Returns false if another overlay owns the screen.
+   * Present, or (if one is already up) refresh, the song-change card. A fresh
+   * screen-off card is installed under an exact isolated-surface lease before
+   * wake; only its strictly acknowledged frame releases retained app surfaces.
    */
-  openMusicCard(wokeScreen: boolean): boolean {
-    if (!this.screenOn || this.clockAlertLayer || this.assistantOnlyPresentation) return false;
+  async openMusicCard(): Promise<boolean> {
     if (this.musicCard) {
+      if (!this.screenOn) return false;
       this.musicCard.onTrackChanged();
       return true;
     }
-    if (!this.stack.isAtBase()) return false; // notification / voice / menu owns the screen
+    if (
+      this.screenOn ||
+      this.clockAlertLayer ||
+      this.assistantOnlyPresentation ||
+      this.activeVoiceLayer ||
+      !this.stack.isAtBase() ||
+      !this.config.requestShellDelivery ||
+      !this.config.prepareMusicCardDisplay ||
+      !this.config.revealMusicCardDisplay ||
+      !this.config.releaseMusicCardPresentationIsolation ||
+      (this.config.isDisplayAvailable && !this.config.isDisplayAvailable())
+    ) return false;
     this.assistantResultWakeOwnership.invalidate();
     const card = new MusicCardLayer({
       actions: this.config.actions,
       onDismissed: () => this.closeMusicCard(card),
     });
     this.musicCard = card;
-    this.musicCardWokeScreen = wokeScreen;
+    this.musicCardWokeScreen = false;
+    this.musicCardWakeActivityRevision = -1;
+    this.musicCardPresentationPending = card;
     this.stack.push(card);
-    this.config.requestShellRender();
+    const isInstalledOwner = () =>
+      this.musicCard === card &&
+      this.musicCardPresentationPending === card &&
+      this.stack.topMatches((top) => top === card);
+    try {
+      // The controller first asserts compositor blanking, resumes the page and
+      // ACKs every retained app-surface hide. Construction is intentionally
+      // inert, so no pre-isolation HUD render can get ahead of this barrier.
+      const ready = await this.config.prepareMusicCardDisplay(isInstalledOwner);
+      if (!ready || !isInstalledOwner()) throw new Error("Now Playing display preparation failed.");
+      card.startPresentation();
+      // While the physical compositor remains blank, submit and drain the
+      // exact opaque card into retained shell state. Unblanking after this
+      // point can therefore reveal only black/card pixels, never stale HUD.
+      const primeReceipt = await this.config.requestShellDelivery(isInstalledOwner, false);
+      if (
+        !isInstalledOwner() ||
+        primeReceipt.frameId <= 0 ||
+        !isReadinessFrameEvidenceOutcome(primeReceipt.outcome)
+      ) throw new Error("Now Playing retained-frame prime was not acknowledged.");
+      if (!this.screenOn) {
+        const wokeScreen = this.wake("sidebar");
+        if (wokeScreen) {
+          this.musicCardWokeScreen = true;
+          this.musicCardWakeActivityRevision = this.activityRevision;
+        }
+      }
+      const isOwner = () => this.screenOn && isInstalledOwner();
+      if (!isOwner()) throw new Error("Now Playing wake was superseded.");
+      const revealed = await this.config.revealMusicCardDisplay(isOwner);
+      if (!revealed || !isOwner()) throw new Error("Now Playing reveal failed.");
+      // Force one wire-distinct frame after the retained-card unblank. The
+      // dedicated surface lease remains held through its physical receipt.
+      card.bumpDeliveryNonce();
+      const receipt = await this.config.requestShellDelivery(isOwner);
+      if (
+        !isOwner() ||
+        receipt.frameId <= 0 ||
+        !isSuccessfulFrameOutcome(receipt.outcome)
+      ) throw new Error("Now Playing did not receive an exact frame acknowledgement.");
+      if (!(await this.releaseMusicCardPresentationIsolation(card))) {
+        throw new Error("Now Playing isolation ownership changed before acknowledgement.");
+      }
+      this.restartScreenTimeout();
+      this.config.requestShellRender();
+      return true;
+    } catch {
+      await this.rollbackMusicCardPresentation(card);
+      return false;
+    }
+  }
+
+  private async releaseMusicCardPresentationIsolation(card: MusicCardLayer): Promise<boolean> {
+    if (this.musicCardPresentationPending !== card) return false;
+    await this.config.releaseMusicCardPresentationIsolation?.();
+    if (this.musicCardPresentationPending !== card) return false;
+    this.musicCardPresentationPending = null;
     return true;
   }
 
-  private closeMusicCard(card: MusicCardLayer): void {
+  private async rollbackMusicCardPresentation(card: MusicCardLayer): Promise<void> {
+    const exactCard = this.musicCard === card;
+    const exactTop = exactCard && this.stack.topMatches((top) => top === card);
+    // Only the exact still-top card may return its own provisional wake to
+    // sleep, and only if no later user input claimed that wake. A newer
+    // Clock/notification/user owner must never be blanked by stale cleanup.
+    if (
+      exactTop &&
+      this.musicCardWokeScreen &&
+      this.musicCardWakeActivityRevision === this.activityRevision &&
+      this.screenOn
+    ) {
+      this.sleep();
+      return;
+    }
+    if (exactCard) {
+      this.stack.remove(card);
+      this.musicCard = null;
+      this.musicCardWokeScreen = false;
+      this.musicCardWakeActivityRevision = -1;
+    }
+    if (this.musicCardPresentationPending === card) {
+      // A user/newer layer owns the on-state. Prime that exact replacement
+      // while still compositor-blank, then surface restoration may unblank it.
+      await this.config.requestShellRender();
+      if (this.config.waitForShellRenderIdle) await this.config.waitForShellRenderIdle();
+      await this.releaseMusicCardPresentationIsolation(card);
+    }
+    if (exactCard) this.config.requestShellRender();
+  }
+
+  private async closeMusicCard(card: MusicCardLayer): Promise<void> {
     if (this.musicCard !== card) return; // stale (already replaced/torn down)
-    this.stack.popIfTop((l) => l === card);
+    const wasTop = this.stack.topMatches((top) => top === card);
+    this.stack.remove(card);
     const woke = this.musicCardWokeScreen;
+    const ownsWake = woke && this.musicCardWakeActivityRevision === this.activityRevision;
     this.musicCard = null;
     this.musicCardWokeScreen = false;
-    if (woke) this.sleep();
-    else this.config.requestShellRender();
+    this.musicCardWakeActivityRevision = -1;
+    if (ownsWake && wasTop && this.screenOn) {
+      this.sleep();
+      return;
+    }
+    if (this.musicCardPresentationPending === card) {
+      await this.config.requestShellRender();
+      if (this.config.waitForShellRenderIdle) await this.config.waitForShellRenderIdle();
+      await this.releaseMusicCardPresentationIsolation(card);
+    }
+    this.config.requestShellRender();
   }
 
   private closeNotificationModal(modal: ShellModalLayer): void {
@@ -1170,14 +1337,14 @@ class Shell {
 
   /** Paint the shell surface: transparent chrome, or all-transparent when asleep. */
   paintSurface(): GrayImage {
-    if (!this.screenOn) {
+    if (!this.screenOn && !this.musicCardPresentationPending) {
       return new GrayImage(G2_LENS_WIDTH, G2_LENS_HEIGHT, 0);
     }
-    if (this.assistantOnlyPresentation) {
+    if (this.assistantOnlyPresentation || this.musicCardPresentationPending) {
       // The app surfaces are separately composited and are hidden by the
-      // controller for this lease. Paint only the active assistant dialog over
-      // a blank shell surface; otherwise the wake transition would flash the
-      // retained HUD/sidebar before VoiceInputLayer is installed.
+      // controller for this lease. Paint only its exact top layer over blank;
+      // otherwise a wake transition could flash retained HUD/sidebar pixels
+      // before the assistant or Now Playing frame is acknowledged.
       return this.stack.paintTopOverBlank();
     }
     return this.stack.paint();
@@ -2420,6 +2587,9 @@ class Shell {
   ): Promise<void> {
     if (!this.screenOn) throw new Error("The glasses display is off; no alert was sent.");
     if (this.clockAlertLayer) throw new Error("A Clock alert owns the glasses display.");
+    if (this.musicCardPresentationPending) {
+      throw new Error("Now Playing owns the waking display; no unrelated alert was sent.");
+    }
     // Assistant result cards explicitly use the persistent lifetime; every
     // ordinary alert is unrelated shell chrome and must not preempt isolated
     // voice capture/result presentation.
@@ -2516,6 +2686,9 @@ class Shell {
     if (this.clockAlertLayer) {
       throw new Error("A Clock alert owns the glasses display; no remote view was sent.");
     }
+    if (this.musicCardPresentationPending) {
+      throw new Error("Now Playing owns the waking display; no remote view was sent.");
+    }
     if (this.assistantOnlyPresentation) {
       throw new Error("The assistant voice presentation owns the display; no remote view was sent.");
     }
@@ -2602,8 +2775,8 @@ class Shell {
         ? (!this.assistantOnlyPresentation || this.isolatedAssistantTurn === answerAssistant)
         : this.isolatedAssistantTurn === answerAssistant
     );
-    if (this.clockAlertLayer) {
-      throw new Error("A Clock alert owns the glasses display; no dynamic app was sent.");
+    if (this.musicCardPresentationPending) {
+      throw new Error("Now Playing owns the waking display; no dynamic app was sent.");
     }
     if (this.assistantOnlyPresentation && !mayPresentAssistantAnswer) {
       throw new Error("The assistant voice presentation owns the display; no dynamic app was sent.");
@@ -2616,6 +2789,9 @@ class Shell {
     }
     if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
       throw new Error("The dynamic app operation is stale.");
+    }
+    if (this.clockAlertLayer && !this.releaseTerminalClockAlertLayer()) {
+      throw new Error("An active Clock alert owns the glasses display; no dynamic app was sent.");
     }
     const isolatedAnswer = mayPresentAssistantAnswer && !this.screenOn;
     let prior = this.dynamicAppLayer;
@@ -2773,10 +2949,25 @@ class Shell {
     if (closedAssistantOnlyAnswer) {
       // clearDynamicApp can run from inside sleep(). Defer the return-to-sleep
       // decision until that outer transition has either completed or yielded.
-      queueMicrotask(() => {
-        if (this.dynamicAppLayer || !this.assistantOnlyPresentation) return;
-        if (this.screenOn) this.sleep();
-        else this.setAssistantOnlyPresentation(false);
+      // A contextual follow-up may already own the same isolated lease while
+      // its replacement final is waiting for the wake barrier; that live turn
+      // must win over this stale close.
+      deferAssistantOnlyAnswerClose({
+        isIsolated: () => this.assistantOnlyPresentation,
+        hasReplacement: () => this.dynamicAppLayer !== null,
+        hasAssistantContinuation: () => Boolean(
+          this.activeVoiceLayer ||
+          this.assistantOnlyReplyStarting ||
+          this.assistantTurnBackgrounded ||
+          this.assistantLayer ||
+          this.alertLayer ||
+          this.directNotificationLayer ||
+          this.pendingAssistantResult ||
+          this.assistantSession?.isTurnActive()
+        ),
+        isScreenOn: () => this.screenOn,
+        sleep: () => this.sleep(),
+        releaseIsolation: () => this.setAssistantOnlyPresentation(false),
       });
     }
   }
