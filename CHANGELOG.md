@@ -15,6 +15,8 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
 - Reworked sleeping assistant turns so thinking and tool progress never occupy
   or block the glasses. Only the single Host MCP final result may enter an exact
   strict-acknowledged presentation; Cockpit remains a passive phone projection.
+  A reply from sleep returns to sleep after dismissal or expiry, while a reply
+  that began with an active HUD preserves that HUD.
 
 ### Hermes and workflows
 
@@ -62,7 +64,9 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
   final, required a positive exact frame receipt, and detached any
   unacknowledged card from input while retaining its exact retry data. Sleep
   teardown now clears exact overlay identity so an old strict completion cannot
-  corrupt a later assistant turn.
+  corrupt a later assistant turn. Transaction-scoped isolation also prevents
+  stale cleanup from restoring or clearing surfaces owned by a newer voice
+  turn.
 - Added a double-height pixel time/date HUD with two rows, a separator between
   phone notification sources and persistent telemetry, explicit Hermes Gateway
   state, and optical-safe sidebar/window geometry.
@@ -74,9 +78,9 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
 - Unified the wearer UI around one 4-bit-safe tone, spacing, radius, focus,
   card, progress, and motion system across the HUD, launcher, menus, Assistant,
   notifications, media, Clock, and Conversate. Fresh notification cards now
-  show the exact cached Android app icon with a deterministic initial fallback,
-  while retaining the full 576-pixel wearer-visible message width and the
-  configured notification text size.
+  show the exact cached Android app icon with a deterministic initial fallback
+  inside optical-safe bounds, while retaining the full 576-pixel wearer-visible
+  message width and the configured notification text size.
 - Added paged notification digest/action menus and double-tap dismiss while
   preserving Back, Reply, Android actions, and Dismiss.
 - Present fresh phone notifications as opaque, blank-first cards. A tap opens
@@ -114,31 +118,43 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
 
 ### Verification and limits
 
-- Phone suite: 952/952 tests passed; TypeScript typecheck passed.
-- Native gateway suite: 354 passed with one optional live test skipped.
-- Portable workflow MCP: 30 tests plus current MCP SDK and plugin-doctor checks.
-- Hermes capability/plugin suite: 335 tests.
 - Exact GitHub source commit
-  `b04f1c83718faf5f995aa4f0e8284a21c67d768e` built successfully, was signed
-  with the existing owner identity, and was installed upgrade-in-place on the
-  Fold7. Android retained the current app data. Physical worn-glasses acceptance
-  remains separate and pending.
-- Validated source tree
-  `db6098d545ba8cd20d3cc02d3db0d975afc0fdd6` additionally passed the full
-  952-test suite, dependency probes, TypeScript typecheck, and debug plus
-  unsigned-production build verification. It is tree-identical to rebased
-  `main` commit `8941a72f6926102f1ce8c1e4df3f7bd044519973`; final documentation
-  merged at `753bfa42ccff573d9fc469011e2f4f45b2081fc0` after every required check
-  passed. The two open dependency alerts are closed. Permanent provenance tags
-  retain the exact validated and installed source inputs after branch cleanup.
+  `67989dada122ab6ce04594b11e57e742441dd2dd` passed 971/971 full tests,
+  155/155 focused lifecycle and cross-component tests, 22/22 focused
+  performance and privacy tests, TypeScript typecheck, diff checks, CI, and
+  unsigned-production verification. Its unsigned verifier SHA-256 is
+  `8412ab0440a2513bf2020fd020b8bb62a2525758f0a11fcb7b1c80b2cc066cc3`.
+- Native gateway suite: 363 passed with one optional live test skipped.
+- Portable workflow MCP: 32 tests plus current MCP SDK and plugin-doctor checks.
+- Hermes capability/plugin suite: 335 tests.
+- The exact GitHub source was built, signed with the existing owner signer, and
+  installed upgrade-in-place. Android preserved the package, UID,
+  `firstInstallTime`, and app data; a warm launch succeeded with no crash
+  markers. The signed APK SHA-256 is
+  `1a90cd8998e2d2bd166d8580cbfcc456d498fd9fe7a3c5d1f19423bf3789651b`.
+  Physical worn-glasses behavior remains separate and unverified.
+- The current implementation merged to public `main` at
+  `74e7224f55930a3964c79e118f1c5b6b1b0cc8b1`. The permanent tag
+  `distribution-v0.1.1-android-source` retains the exact installed build input.
+  The prior Preview 3 source tags remain historical provenance rather than
+  current install claims.
 - The Hermes G2 bridge is now separately public under Apache-2.0 at
   [`not-benny/hermes-g2-bridge`](https://github.com/not-benny/hermes-g2-bridge).
   The workflow MCP remains a separate Apache-2.0 publication. The reviewed
   source installer and exact source locks are public at
   [`not-benny/hermes-g2-distribution`](https://github.com/not-benny/hermes-g2-distribution).
-  The independently verified source setup is published as distribution
-  prerelease [`v0.1.0`](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.0).
-  Production APK signing and broad support remain separate gates.
+  The independently reviewed source setup is published as distribution
+  prerelease [`v0.1.1`](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.1)
+  from distribution `main` commit
+  `7c7f9d685c53b3ef374d9ee2716ee434c860dc74`. Review covered an exact tagged
+  checkout, a fresh install, and an update install. The earlier `v0.1.0`
+  release remains historical provenance only. Production APK signing and broad
+  support remain separate gates.
+- The live private profile runs bridge 2.1.1 at
+  `8c4f979020a21ae01fd6bc5351996e342d068136` and workflows 0.4.1 at
+  `8ecda2d984733328e4524c070386d3c1721f5c90`, with exact digest
+  `sha256:beab3a2170289a0f64ebeb957fd7a5c63fcaa43960c3ab293968c829eb6f9d4c`.
+  Live discovery found all 13 workflow tools and 42 MCP tools.
 
 ## [1.0.0-preview.1] - 2026-08-21
 
