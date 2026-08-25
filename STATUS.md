@@ -26,20 +26,24 @@ experimental feature in the repository.
 
 ## Canonical repository state
 
-| Area | State |
-| --- | --- |
-| Development base | `main`, exclusively |
-| Application baseline | Current owner candidate: 926 host tests, TypeScript, and JDK 21 / Android SDK 35 debug build passed; installation and physical lens acceptance are pending ADB reconnection |
-| Android identity | `versionCode 1000003`, `versionName 1.0.0-preview.3`; this identifies the next internal candidate, not a published release |
-| Pull requests | One focused PR at a time, based on current `main` |
-| Active work | [Issue #59](https://github.com/not-benny/hermes-g2/issues/59) only: prove the real owner Hermes loop |
-| Publication | Disabled; repository variable `PROTECTED_RELEASE_ENABLED` remains `false` |
-| Installed identity | The owner installation still uses the legacy Android development certificate; same-certificate APKs are internal upgrade evidence only |
+| Area                 | State                                                                                                                                                                                                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Development base     | `main`, exclusively                                                                                                                                                                                                                                                           |
+| Application baseline | Exact owner candidate `b04f1c83718faf5f995aa4f0e8284a21c67d768e`: 950/950 tests and TypeScript typecheck passed; the GitHub source was built, signed, and installed upgrade-in-place on the Fold7 with current app data preserved. Physical lens acceptance remains pending   |
+| Android identity     | `versionCode 1000003`, `versionName 1.0.0-preview.3`; this identifies the next internal candidate, not a published release                                                                                                                                                    |
+| Pull requests        | One focused PR at a time, based on current `main`                                                                                                                                                                                                                             |
+| Active work          | [Issue #59](https://github.com/not-benny/hermes-g2/issues/59) only: prove the real owner Hermes loop                                                                                                                                                                          |
+| Publication          | Disabled; repository variable `PROTECTED_RELEASE_ENABLED` remains `false`                                                                                                                                                                                                     |
+| Installed identity   | The owner Fold7 has the exact `b04f1c83718faf5f995aa4f0e8284a21c67d768e` source upgrade installed, signed with the existing legacy Android development certificate. The package was updated without uninstalling or clearing app data; this is internal upgrade evidence only |
 
 ## Supported owner envelope
 
 - Fold7 on Android 16, arm64, using upgrade-in-place with the existing owner
   certificate.
+- On the tested owner installation, Android 16 sensitive-notification redaction
+  is exempted through an owner-approved `CompanionDeviceManager` association.
+  That association is owner/device configuration, not an automated Hermes
+  action or a general public-install guarantee.
 - An already-provisioned two-arm G2 session. The existing reviewed owner custom
   firmware is required for the full 640×480 glasses runtime; stock firmware is
   limited to phone preview. No flash or recovery is in scope.
@@ -75,18 +79,25 @@ experimental feature in the repository.
   interpreter. The rebuilt Fold package launched and Hermes Cockpit reported
   Host MCP online. This is private owner evidence, not a public deployment or a
   physical lens acceptance claim.
+- Exact GitHub source commit
+  `b04f1c83718faf5f995aa4f0e8284a21c67d768e` passed 950/950 tests and
+  TypeScript typecheck, then built, signed, and installed over the existing
+  Fold7 package. Android retained the current app data. This proves the
+  same-identity owner upgrade path, not production signing or public release.
 
 ## Implemented but not yet accepted
 
 - The final physical worn-glasses result path on the exact installed candidate.
-  The phone and gateway connection is proven, but the glasses BLE session was
-  offline during the final MCP cutover check, so the sleeping long-press to one
-  strict-acknowledged lens result still needs a fresh run.
+  Build, signing, and upgrade-in-place are proven for
+  `b04f1c83718faf5f995aa4f0e8284a21c67d768e`, but the sleeping long-press to one
+  strict-acknowledged lens result still needs a fresh worn-glasses run.
 - The complete provider-backed voice loop, background tool work, and
   media/navigation/tool workflows on the exact Preview 3 artifact. Intermediate
   thinking, drafts, and tool activity are now suppressed at the glasses
-  boundary; fresh completed voice/cockpit/Codex results use a retained wake +
-  strict frame-ACK path and compact viewport-aware cards. The private `even-g2`
+  boundary; fresh completed voice and direct results use a retained wake +
+  strict frame-ACK path and compact viewport-aware cards. Hermes Cockpit is a
+  passive synchronized phone projection and cannot emit a second wearer-facing
+  completion. The private `even-g2`
   deployment also has an exact-profile, final-only `glasses.notify_result`
   route backed by a bounded encrypted Fold-local FIFO. Unknown/off-head wear
   queues without wake or beep; a fresh current-session worn state presents the
@@ -102,16 +113,29 @@ experimental feature in the repository.
   as Liverpool Central (`LVC`) and Liverpool Lime Street (`LIV`). Fixed
   content-free relay, provider, and presentation stage codes improve diagnosis
   without recording the request, place, station, session, claim, or exception.
-  The gateway and provider path are deployed, but the matching phone-source
-  display fixes below are not yet installed.
-- Source-tested display transactions now prevent an old assistant-only close
-  from blanking a replacement result, let only terminal Clock feedback yield to
-  a final deck, and use wire-distinct strict-delivery markers. A screen-off Now
-  Playing card is primed under isolated retained surfaces before unblank and
-  commits only after its exact frame acknowledgement. Active or pending Clock
-  alerts retain priority, and failure or supersession rolls back only the exact
-  provisional owner. ADB is currently disconnected, so these source changes
-  still require a fresh build, install, and physical lens acceptance run.
+  The gateway, provider path, and matching phone source are deployed to the
+  owner setup; provider-backed physical lens acceptance remains pending.
+- The installed display transactions now enforce exact strict ownership. An
+  assistant result is not installed until ordinary rendering is drained, and
+  an unacknowledged result owns no invisible input layer while its exact data
+  remains retryable. Sleep teardown cannot let an old strict completion poison
+  a new assistant turn, and Cockpit completion cannot duplicate the Host MCP
+  result.
+- A screen-off Now Playing card is primed under isolated retained surfaces
+  before unblank and commits only after its exact frame acknowledgement. Its
+  play, pause, skip, dismissal, and companion release input no longer claim the
+  dashboard wake. Expiry returns a sleep-origin card to sleep. Clock coverage
+  retains the exact card and wake. When the covering Clock becomes terminal, it
+  retires before dynamic presentation is considered, which re-exposes the music
+  card without stacking another result above it. Removed-card timers cannot
+  rearm off-stack.
+- Fresh phone notification cards and their full detail/digest modals preserve
+  exact presentation and prior-sleep ownership. A modal awaiting strict
+  acknowledgement excludes Clock, remote, and dynamic presenters; Clock
+  coverage of an acknowledged modal retains its wake; and strict remote or
+  dynamic delivery cannot accept a covering Clock frame as its own
+  acknowledgement. These source fixes are installed, but the complete
+  worn-glasses acceptance matrix still needs a run on the exact artifact.
 - Conversate (the replacement for Transcribe) provides explicit foreground-only
   sessions, bundled on-device transcription by default, independently selected
   cloud transcription, volatile live text, and transparent local action/question/topic
@@ -155,11 +179,15 @@ the active owner loop or exposes a security, privacy, data-loss, or hardware ris
 - R1 sleep decoding, DFU/OTA, reset, wipe, host rebinding, NVM mutation, or
   power-control commands.
 - G2 firmware flashing or recovery from a release build.
-- Public distribution of the current native bridge, untrusted remote rendering,
-  HTML/CSS/script or raw-layout generated interfaces, arbitrary remote
-  actions/control, raw Browser Harness execution, or production Home Assistant
-  mutation. The Apache portable workflow MCP is a separate publication unit;
-  it does not cure the native bridge's redistribution block.
+- Public all-in-one distribution of the current app, bridge, workflow package,
+  and signing path. The bridge is now a separate Apache-2.0 publication at
+  [`not-benny/hermes-g2-bridge`](https://github.com/not-benny/hermes-g2-bridge),
+  and the portable workflow MCP remains separately published under Apache-2.0.
+  Both components are licensed for separate distribution, but app packaging,
+  production signing, containment, privacy, and support acceptance remain open.
+  Untrusted remote rendering, HTML/CSS/script or raw-layout
+  generated interfaces, arbitrary remote actions/control, raw Browser Harness
+  execution, and production Home Assistant mutation remain unsupported.
 - Live WhatsApp pairing, Play Store/public distribution, or support claims for
   phones and firmware outside the evidenced owner setup.
 - Installing an APK signed by a different identity over the owner installation
@@ -188,10 +216,11 @@ after the owner-preview milestone. The permanent technical contract is in
 
 ## Immediate next action
 
-When wireless ADB returns, build and install the exact reviewed source candidate
-before running hardware acceptance. Verify the sleep-origin final result,
-Now Playing song-change wake, reminder, Clock, Work Tasks, weather, trains, and
-ring-stop rows in [`ROADMAP.md`](ROADMAP.md) against that same artifact. Record
-the results on issue #59 and fix only blockers found by that run. Public work
-remains limited to the licensing, containment, artifact, and signing gates
-documented in `docs/hermes-mcp-architecture.md` and `docs/release-security.md`.
+Run the worn-glasses acceptance rows in [`ROADMAP.md`](ROADMAP.md) against the
+installed `b04f1c83718faf5f995aa4f0e8284a21c67d768e` artifact. Verify the
+sleep-origin final result, Now Playing song-change wake and controls,
+notification card/detail return state, reminder, Clock, Work Tasks, weather,
+trains, and ring stop. Record the results on issue #59 and fix only blockers
+found by that run. Public all-in-one work remains limited to the containment,
+artifact, privacy, production-signing, and support gates documented in
+`docs/hermes-mcp-architecture.md` and `docs/release-security.md`.

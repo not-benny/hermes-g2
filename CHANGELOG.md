@@ -13,7 +13,8 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
   Conversate, a two-line optical HUD, grouped notification-source icons, emoji
   fallback rendering, and consolidated Window Management.
 - Reworked sleeping assistant turns so thinking and tool progress never occupy
-  or block the glasses. Only the final strict-acknowledged result is presented.
+  or block the glasses. Only the single Host MCP final result may enter an exact
+  strict-acknowledged presentation; Cockpit remains a passive phone projection.
 
 ### Hermes and workflows
 
@@ -54,6 +55,11 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
 - Added encrypted direct-result persistence, reconnect/wear-state recovery,
   retained retry authority, strict frame acknowledgement, and transactional
   wake rollback for assistant results and reminders.
+- Drained ordinary shell rendering before installing an interactive assistant
+  final, required a positive exact frame receipt, and detached any
+  unacknowledged card from input while retaining its exact retry data. Sleep
+  teardown now clears exact overlay identity so an old strict completion cannot
+  corrupt a later assistant turn.
 - Added a double-height pixel time/date HUD with two rows, a separator between
   phone notification sources and persistent telemetry, explicit Hermes Gateway
   state, and optical-safe sidebar/window geometry.
@@ -64,6 +70,11 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
 - Present fresh phone notifications as opaque, blank-first cards. A tap opens
   the existing notification dialogue, while dismissal restores the exact prior
   display state, including returning a sleep-origin presentation to sleep.
+- Preserve sleep-origin ownership when Clock covers a notification card or its
+  acknowledged detail/digest modal. A modal awaiting strict acknowledgement
+  excludes Clock, remote, and dynamic presentation, while remote and dynamic
+  strict owners reject a covering Clock frame instead of reporting a false
+  acknowledgement.
 - Keep the Music playlist selector on the actual playing queue item, preserve
   manual browsing, and track stable queue identity through delayed callbacks or
   queue reordering instead of jumping to the first row.
@@ -79,25 +90,32 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
   isolated retained surfaces are prepared before unblank, then committed only
   after the exact current card frame is acknowledged. Failure and supersession
   roll back only the provisional music owner.
+- Route Now Playing play, pause, skip, dismiss, and companion release input
+  before global dashboard activity. A card that woke sleeping glasses now
+  returns to sleep on expiry and retains that state while covered by Clock. When
+  the covering Clock becomes terminal, it retires before dynamic presentation
+  is considered, which re-exposes the music card without stacking another
+  result above it. An exactly removed card cannot rearm its timers.
 - Suspend the global screen timeout only while Conversate is actively capturing
   or completing its bounded final transcript flush, then restore a full timeout
   interval without letting an older capture release a newer capture's hold.
 
 ### Verification and limits
 
-- Phone suite: 926 tests passed; TypeScript typecheck passed.
+- Phone suite: 950/950 tests passed; TypeScript typecheck passed.
 - Native gateway suite: 314 passed with one optional live test skipped.
 - Portable workflow MCP: 26 tests plus current MCP SDK and plugin-doctor checks.
 - Hermes capability/plugin suite: 335 tests.
-- The current source built successfully as a JDK 21 / Android SDK 35 debug APK,
-  passed ZIP integrity and APK signature verification, and was not installed.
-  An earlier APK launched and reported Hermes Cockpit online, but the current
-  display, relay, weather, train, and Cockpit fixes still await ADB installation
-  and physical lens acceptance.
-- The private owner cutover passed review. Combined public distribution remains
-  blocked because the native bridge is redistribution-prohibited. The separate
-  public-web MCP is an undeployed review candidate and still requires host-level
-  resource containment and prompt-injection isolation.
+- Exact GitHub source commit
+  `b04f1c83718faf5f995aa4f0e8284a21c67d768e` built successfully, was signed
+  with the existing owner identity, and was installed upgrade-in-place on the
+  Fold7. Android retained the current app data. Physical worn-glasses acceptance
+  remains separate and pending.
+- The Hermes G2 bridge is now separately public under Apache-2.0 at
+  [`not-benny/hermes-g2-bridge`](https://github.com/not-benny/hermes-g2-bridge).
+  The workflow MCP remains a separate Apache-2.0 publication. Public all-in-one
+  distribution is still pending app packaging, containment, privacy,
+  production-signing, and support acceptance.
 
 ## [1.0.0-preview.1] - 2026-08-21
 

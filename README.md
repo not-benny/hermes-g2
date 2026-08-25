@@ -16,8 +16,8 @@ The current target is deliberately narrow: one authorised Fold7, one
 already-provisioned G2 already running the reviewed owner custom firmware, an
 optional paired R1, and one authenticated private Hermes gateway. Preview 3
 authorises no firmware flash or recovery action. The project is proving a
-dependable owner loop on that setup; it is not pursuing public distribution or
-a broad feature backlog.
+dependable owner loop on that setup; public all-in-one distribution and broad
+support remain pending rather than current claims.
 
 `main` is the only canonical development branch. The exact current support and
 release posture is in [`STATUS.md`](STATUS.md). The only active milestone is
@@ -40,8 +40,8 @@ research under [`notes/`](notes).
 
 Hermes does not perform first-time pairing, provisioning, ownership transfer,
 firmware/recovery, reset, wipe, or destructive R1 operations. Public
-distribution and production signing are also blocked. See `STATUS.md` for the
-complete current boundary.
+all-in-one distribution and production signing are not yet accepted. See
+`STATUS.md` for the complete current boundary.
 
 ## Before you start
 
@@ -58,6 +58,11 @@ Complete first-time setup in Even before handing the devices over to Hermes:
    release Bluetooth before Hermes can receive ring data.
 4. Start Hermes and complete onboarding for Bluetooth, notification access,
    battery optimisation, and custom-firmware or phone-preview mode.
+
+On the tested Android 16 owner setup, sensitive-notification redaction is
+exempted through an owner-approved `CompanionDeviceManager` association. That
+association is owner/device configuration, not an automatic Hermes action or a
+general public-install guarantee.
 
 Do not uninstall Even yet. Hermes does not perform first-time provisioning or
 standalone R1 firmware maintenance.
@@ -90,6 +95,8 @@ workflow, command, receipt, and authority boundary is packaged in the Host,
 Device, or portable workflow MCP contracts and enforced by code or configuration.
 The Apache-2.0 package is maintained separately as
 [`not-benny/hermes-g2-workflows`](https://github.com/not-benny/hermes-g2-workflows).
+The phone-to-Hermes bridge is also separately public under Apache-2.0 at
+[`not-benny/hermes-g2-bridge`](https://github.com/not-benny/hermes-g2-bridge).
 
 These boundaries do not make the assistant data plane content-free: fulfilling
 an authorised request necessarily transmits the current utterance, requested
@@ -105,10 +112,10 @@ prompt runs when a reminder fires.
 
 Direct-provider mode remains available as a fallback and uses its own provider
 credentials. Those credentials are not used by the bridge. The private MCP-only
-cutover is operational, but combined public distribution remains blocked by the
-redistribution-prohibited native bridge and release-containment gates. The
-separately published Apache workflow package does not include or relicense that
-bridge; see
+cutover is operational. The separately published Apache-2.0 bridge and workflow
+packages are licensed for separate distribution, but public all-in-one
+distribution still awaits app packaging, containment, privacy,
+production-signing, and support acceptance. See
 [`docs/release-security.md`](docs/release-security.md) and
 [`docs/hermes-agent-cockpit.md`](docs/hermes-agent-cockpit.md).
 
@@ -178,6 +185,13 @@ installed signer differs or the fetched version is older. The explicit
 `--allow-signer-mismatch` and `--allow-downgrade` overrides only permit an ADB
 attempt; they never authorize uninstalling or clearing data, and Android may
 still reject an incompatible signature or downgrade.
+
+The owner upgrade path is proven for exact GitHub source commit
+`b04f1c83718faf5f995aa4f0e8284a21c67d768e`: 950/950 tests and TypeScript
+typecheck passed, then the source was built, signed with the existing owner
+identity, and installed upgrade-in-place on the Fold7 with current app data
+preserved. This is owner-install evidence, not physical lens acceptance,
+production signing, or a public all-in-one release claim.
 
 See [`DEVELOPMENT.md`](DEVELOPMENT.md) for repository layout, safety rules,
 focused tests, and authorised-device commands.
