@@ -8,7 +8,9 @@ import type { AssistantContext } from "./types";
 
 const MCP_PROTOCOL_VERSION = "2025-06-18";
 const HOST_VOICE_TOOL = "hermes.voice.turn";
+const HOST_COCKPIT_COMMAND_TOOL = "hermes.cockpit.command";
 const HOST_STATUS_RESOURCE_URI = "hermes://session/status";
+const COCKPIT_STATE_RESOURCE_URI = "hermes://cockpit/state";
 const DEFAULT_INITIALIZE_TIMEOUT_MS = 15_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 3 * 60 * 1000;
 const MAX_OUTBOUND_MCP_BYTES = 60 * 1024;
@@ -47,6 +49,7 @@ export type HostSessionMcpClientOptions = {
   initializeTimeoutMs?: number;
   requestTimeoutMs?: number;
   onStatus?: (status: HostSessionStatus) => void;
+  onCockpitFrame?: (frame: unknown) => void;
 };
 
 type VoiceRequest = {
@@ -84,6 +87,10 @@ export class HostSessionMcpClient {
   private initializationFailure: Error | null = null;
   private activeVoiceRequest: VoiceRequest | null = null;
   private statusRequestId: string | null = null;
+  private cockpitRequestId: string | null = null;
+  private cockpitRefreshPending = false;
+  private cockpitSubscriptionRequestId: string | null = null;
+  private readonly cockpitCommandRequests = new Map<string, string>();
 
   constructor(private readonly options: HostSessionMcpClientOptions) {
     this.initializeRequestId = this.nextRequestId("initialize");
@@ -169,6 +176,21 @@ export class HostSessionMcpClient {
     };
   }
 
+  /** Send one store-issued exact Cockpit command through the authenticated Host MCP. */
+  sendCockpitCommand(command: object): boolean {
+    if (this.lifecycle !== "initialized" || !isRecord(command) || typeof command.command_id !== "string") return false;
+    const requestId = this.nextRequestId("cockpit-command");
+    const message = {
+      jsonrpc: "2.0",
+      id: requestId,
+      method: "tools/call",
+      params: { name: HOST_COCKPIT_COMMAND_TOOL, arguments: command },
+    };
+    if (!this.sendIfActive(message)) return false;
+    this.cockpitCommandRequests.set(requestId, command.command_id);
+    return true;
+  }
+
   /** Handle one decoded JSON-RPC message from the negotiated host-mcp channel. */
   handleMessage(msg: unknown): void {
     if (this.lifecycle === "closed" || !isRecord(msg)) return;
@@ -193,9 +215,31 @@ export class HostSessionMcpClient {
       return;
     }
 
+
+    if (this.cockpitRequestId !== null && msg.id === this.cockpitRequestId) {
+      this.handleCockpitResponse(msg);
+      return;
+    }
+
+    if (this.cockpitSubscriptionRequestId !== null && msg.id === this.cockpitSubscriptionRequestId) {
+      this.cockpitSubscriptionRequestId = null;
+      return;
+    }
+
+    if (typeof msg.id === "string" && this.cockpitCommandRequests.has(msg.id)) {
+      this.handleCockpitCommandResponse(msg, this.cockpitCommandRequests.get(msg.id)!);
+      this.cockpitCommandRequests.delete(msg.id);
+      return;
+    }
+
     // Progress, logging, tools/list_changed, and cancellation acknowledgements
     // are deliberately transport-private. The glasses receive only the final
     // CallToolResult through the bridge callbacks.
+    if (msg.jsonrpc === "2.0" && msg.method === "notifications/resources/updated" && msg.id === undefined) {
+      const params = msg.params;
+      if (isRecord(params) && params.uri === COCKPIT_STATE_RESOURCE_URI) this.requestCockpitState();
+      return;
+    }
     if (msg.jsonrpc === "2.0" && typeof msg.method === "string" && msg.id === undefined) return;
 
     // No client capabilities are advertised, so server-to-client requests are
@@ -218,6 +262,7 @@ export class HostSessionMcpClient {
     this.rejectInitialized(error);
     const voiceRequest = this.activeVoiceRequest;
     if (voiceRequest) this.settleVoiceError(voiceRequest, error);
+    this.cockpitCommandRequests.clear();
   }
 
   private startInitialization(): void {
@@ -270,9 +315,60 @@ export class HostSessionMcpClient {
     this.lifecycle = "initialized";
     this.resolveInitialized();
     this.requestStatus();
+    this.subscribeCockpitState();
+    this.requestCockpitState();
   }
 
-  /** Refresh the bounded status-only Cockpit projection through MCP. */
+  private subscribeCockpitState(): void {
+    if (this.lifecycle !== "initialized" || this.cockpitSubscriptionRequestId !== null) return;
+    const requestId = this.nextRequestId("cockpit-subscribe");
+    if (!this.sendIfActive({
+      jsonrpc: "2.0", id: requestId, method: "resources/subscribe",
+      params: { uri: COCKPIT_STATE_RESOURCE_URI },
+    })) return;
+    this.cockpitSubscriptionRequestId = requestId;
+  }
+
+  requestCockpitState(): void {
+    if (this.lifecycle !== "initialized") return;
+    if (this.cockpitRequestId !== null) {
+      this.cockpitRefreshPending = true;
+      return;
+    }
+    const requestId = this.nextRequestId("cockpit-state");
+    if (!this.sendIfActive({
+      jsonrpc: "2.0", id: requestId, method: "resources/read",
+      params: { uri: COCKPIT_STATE_RESOURCE_URI },
+    })) return;
+    this.cockpitRequestId = requestId;
+  }
+
+  private handleCockpitResponse(msg: Record<string, unknown>): void {
+    this.cockpitRequestId = null;
+    if (isJsonRpcResponse(msg) && !jsonRpcError(msg)) {
+      const frame = parseCockpitResource(msg.result);
+      if (frame !== null) this.options.onCockpitFrame?.(frame);
+    }
+    if (this.cockpitRefreshPending) {
+      this.cockpitRefreshPending = false;
+      this.requestCockpitState();
+    }
+  }
+
+  private handleCockpitCommandResponse(msg: Record<string, unknown>, commandId: string): void {
+    if (!isJsonRpcResponse(msg) || jsonRpcError(msg)) return;
+    const result = msg.result;
+    if (!isRecord(result) || !Array.isArray(result.content) || result.content.length !== 1) return;
+    const block = result.content[0];
+    if (!isRecord(block) || block.type !== "text" || typeof block.text !== "string" ||
+        utf8ByteLength(block.text) > MAX_ERROR_TEXT_CHARS) return;
+    let receipt: unknown;
+    try { receipt = JSON.parse(block.text); } catch { return; }
+    if (!isRecord(receipt) || receipt.command_id !== commandId || receipt.type !== "command_receipt") return;
+    this.options.onCockpitFrame?.(receipt);
+  }
+
+  /** Refresh bounded Host MCP health; Cockpit state is a separate resource. */
   requestStatus(): void {
     if (this.lifecycle !== "initialized" || this.statusRequestId !== null) return;
     const requestId = this.nextRequestId("status");
@@ -444,8 +540,9 @@ function parseHostStatusResource(value: unknown): HostSessionStatus | null {
       sessionMcp.state !== "ready" || !["idle", "running", "cancelling"].includes(String(sessionMcp.voiceTurnState)) ||
       sessionMcp.legacyChatFallback !== false ||
       !isRecord(cockpit) || !hasExactKeys(cockpit, ["state", "transport", "projection", "sharedSessions", "commandsAvailable"]) ||
-      cockpit.state !== "online" || cockpit.transport !== "mcp-resource" || cockpit.projection !== "status-only" ||
-      cockpit.sharedSessions !== 0 || cockpit.commandsAvailable !== false ||
+      cockpit.state !== "online" || cockpit.transport !== "mcp-resource" || cockpit.projection !== "session-snapshot" ||
+      !Number.isSafeInteger(cockpit.sharedSessions) || Number(cockpit.sharedSessions) < 0 || Number(cockpit.sharedSessions) > 8 ||
+      typeof cockpit.commandsAvailable !== "boolean" ||
       !isRecord(companion) || !hasExactKeys(companion, ["state", "reason", "commandsAvailable"]) ||
       companion.state !== "unavailable" || companion.reason !== "backend-authority-absent" ||
       companion.commandsAvailable !== false) return null;
@@ -453,6 +550,21 @@ function parseHostStatusResource(value: unknown): HostSessionStatus | null {
     connectionGeneration: document.connectionGeneration,
     voiceTurnState: sessionMcp.voiceTurnState as HostSessionStatus["voiceTurnState"],
   };
+}
+
+function parseCockpitResource(value: unknown): unknown | null {
+  if (!isRecord(value) || !hasExactKeys(value, ["contents"]) ||
+      !Array.isArray(value.contents) || value.contents.length !== 1) return null;
+  const block = value.contents[0];
+  if (!isRecord(block) || !hasExactKeys(block, ["uri", "mimeType", "text"]) ||
+      block.uri !== COCKPIT_STATE_RESOURCE_URI || block.mimeType !== "application/json" ||
+      typeof block.text !== "string" || utf8ByteLength(block.text) > 48 * 1024) return null;
+  try {
+    const frame = JSON.parse(block.text);
+    return isRecord(frame) && frame.type === "snapshot" ? frame : null;
+  } catch {
+    return null;
+  }
 }
 
 function jsonRpcError(msg: Record<string, unknown>): Error | null {

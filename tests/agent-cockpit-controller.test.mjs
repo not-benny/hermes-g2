@@ -115,17 +115,23 @@ test("Cockpit status is Host MCP-only and the legacy channel is inert", () => {
   assert.match(bridge, /this\.cockpit\.disconnect\(\)/);
 });
 
-test("status-only Host MCP projection marks Cockpit online without command authority", () => {
+test("Host MCP health cannot erase or invent the separately fetched Cockpit projection", () => {
   const sent = [];
   const controller = new AgentCockpitController((command) => sent.push(command));
   assert.equal(controller.handleMcpStatus({
     connectionGeneration: "host_connection_0123456789abcdef0123456789abcdef",
     voiceTurnState: "idle",
   }), true);
-  const state = controller.snapshot();
-  assert.equal(state.synchronized, true);
+  let state = controller.snapshot();
+  assert.equal(state.synchronized, false);
   assert.deepEqual(state.sessions, []);
-  assert.equal(state.connectionGeneration, "host_connection_0123456789abcdef0123456789abcdef");
+  assert.equal(controller.handleFrame({
+    ...snapshot,
+    connection_generation: "host_connection_0123456789abcdef0123456789abcdef",
+  }), true);
+  state = controller.snapshot();
+  assert.equal(state.synchronized, true);
+  assert.equal(state.sessions.length, 1);
   assert.equal(controller.interrupt("missing-session", 1), null);
   assert.deepEqual(sent, []);
 });

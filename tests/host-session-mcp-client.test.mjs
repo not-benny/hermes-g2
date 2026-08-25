@@ -186,7 +186,7 @@ test("bridge requires host-mcp-v1 and has no legacy custom turn channel", () => 
   assert.doesNotMatch(bridge, /chan: "chat"/);
 });
 
-test("host MCP reads and validates the status-only Cockpit resource", () => {
+test("host MCP reads health without replacing the Cockpit snapshot resource", () => {
   const sent = [];
   const statuses = [];
   const client = new HostSessionMcpClient({
@@ -219,7 +219,7 @@ test("host MCP reads and validates the status-only Cockpit resource", () => {
         profile: "even-g2",
         transport: { state: "online", authenticated: true },
         sessionMcp: { state: "ready", voiceTurnState: "idle", legacyChatFallback: false },
-        cockpit: { state: "online", transport: "mcp-resource", projection: "status-only", sharedSessions: 0, commandsAvailable: false },
+        cockpit: { state: "online", transport: "mcp-resource", projection: "session-snapshot", sharedSessions: 0, commandsAvailable: false },
         companion: { state: "unavailable", reason: "backend-authority-absent", commandsAvailable: false },
       }),
     }] },
@@ -237,5 +237,79 @@ test("host MCP reads and validates the status-only Cockpit resource", () => {
     result: { contents: [{ uri: "hermes://session/status", mimeType: "application/json", text: "{}" }] },
   });
   assert.equal(statuses.length, 1, "malformed status must not replace the synchronized projection");
+  client.close();
+});
+
+test("Cockpit subscribes, applies a non-empty resource, and returns exact command receipts", () => {
+  const sent = [];
+  const frames = [];
+  const client = new HostSessionMcpClient({
+    connectionGeneration: 11,
+    isConnectionGenerationActive: () => true,
+    send: (message) => sent.push(structuredClone(message)),
+    onCockpitFrame: (frame) => frames.push(frame),
+  });
+  const initialize = sent.find((message) => message.method === "initialize");
+  client.handleMessage({
+    jsonrpc: "2.0",
+    id: initialize.id,
+    result: {
+      protocolVersion: "2025-06-18",
+      capabilities: { tools: {}, resources: { subscribe: true } },
+      serverInfo: { name: "hermes-g2-host", version: "1.0.0" },
+    },
+  });
+  assert.ok(sent.some((message) => message.method === "resources/subscribe" &&
+    message.params?.uri === "hermes://cockpit/state"));
+  const read = sent.find((message) => message.method === "resources/read" &&
+    message.params?.uri === "hermes://cockpit/state");
+  const session = {
+    session_id: "session_1234567890", generation: 4, revision: 1,
+    title: "Prepare release", state: "running", updated_at_ms: 1000,
+    timeline: [{ id: "timeline_user_12345", kind: "user", text: "Prepare release", status: "done" }],
+    pending: [],
+  };
+  const snapshot = {
+    v: 1, chan: "cockpit", type: "snapshot",
+    connection_generation: "host_connection_0123456789abcdef0123456789abcdef",
+    sequence: 1, sessions: [session],
+  };
+  client.handleMessage({
+    jsonrpc: "2.0", id: read.id, result: { contents: [{
+      uri: "hermes://cockpit/state", mimeType: "application/json", text: JSON.stringify(snapshot),
+    }] },
+  });
+  assert.deepEqual(frames, [snapshot]);
+
+  const command = {
+    v: 1, chan: "cockpit",
+    connection_generation: snapshot.connection_generation,
+    type: "steer", command_id: "command_steer_12345",
+    session_id: session.session_id, generation: 4, text: "Run focused tests",
+  };
+  assert.equal(client.sendCockpitCommand(command), true);
+  const call = sent.find((message) => message.method === "tools/call" &&
+    message.params?.name === "hermes.cockpit.command");
+  assert.deepEqual(call.params.arguments, command);
+  const receipt = {
+    v: 1, chan: "cockpit", type: "command_receipt", sequence: 2,
+    command_id: command.command_id, session_id: session.session_id,
+    generation: 4, outcome: "accepted",
+  };
+  client.handleMessage({
+    jsonrpc: "2.0", id: call.id, result: {
+      content: [{ type: "text", text: JSON.stringify(receipt) }],
+      structuredContent: receipt, isError: false,
+    },
+  });
+  assert.deepEqual(frames, [snapshot, receipt]);
+
+  client.handleMessage({
+    jsonrpc: "2.0", method: "notifications/resources/updated",
+    params: { uri: "hermes://cockpit/state" },
+  });
+  const refreshed = sent.filter((message) => message.method === "resources/read" &&
+    message.params?.uri === "hermes://cockpit/state").at(-1);
+  assert.notEqual(refreshed.id, read.id);
   client.close();
 });
