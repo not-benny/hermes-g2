@@ -11,6 +11,9 @@ import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.PowerManager;
 
 import androidx.core.content.ContextCompat;
 
@@ -24,12 +27,30 @@ public class FaceclawForegroundService extends Service {
     public static final String EXTRA_CONNECTED_DEVICE_ACTIVE = "connectedDeviceActive";
     public static final String EXTRA_PHONE_MIC_ACTIVE = "phoneMicActive";
     public static final String EXTRA_LOCATION_ACTIVE = "locationActive";
+    public static final String EXTRA_CLOCK_ALERT_ACTIVE = "clockAlertActive";
 
     private static final String CHANNEL_ID = "faceclaw-dashboard";
     private static final int NOTIFICATION_ID = 4201;
     private boolean connectedDeviceActive;
     private boolean phoneMicActive;
     private boolean locationActive;
+    private boolean clockAlertActive;
+    private PowerManager.WakeLock clockRecoveryWakeLock;
+    private static final long CLOCK_RECOVERY_WAKE_MS = 65_000L;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable clockRecoveryTimeout = () -> {
+        if (!clockAlertActive) return;
+        clockAlertActive = false;
+        setClockRecoveryWakeLock(false);
+        if (!connectedDeviceActive && !phoneMicActive && !locationActive) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopSelf();
+        } else {
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) manager.notify(NOTIFICATION_ID,
+                    buildNotification("Keeping the dashboard connected"));
+        }
+    };
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -47,8 +68,7 @@ public class FaceclawForegroundService extends Service {
         String text = intent.getStringExtra(EXTRA_TEXT);
 
         if (ACTION_STOP.equals(action)) {
-            stopForeground(STOP_FOREGROUND_REMOVE);
-            stopSelf();
+            stopIfLatest(startId);
             return START_NOT_STICKY;
         }
 
@@ -61,20 +81,31 @@ public class FaceclawForegroundService extends Service {
         if (intent.hasExtra(EXTRA_LOCATION_ACTIVE)) {
             locationActive = intent.getBooleanExtra(EXTRA_LOCATION_ACTIVE, false);
         }
-        if (!connectedDeviceActive && !phoneMicActive && !locationActive) {
-            stopForeground(STOP_FOREGROUND_REMOVE);
-            stopSelf();
+        if (intent.hasExtra(EXTRA_CLOCK_ALERT_ACTIVE)) {
+            clockAlertActive = intent.getBooleanExtra(EXTRA_CLOCK_ALERT_ACTIVE, false);
+            setClockRecoveryWakeLock(clockAlertActive);
+        }
+        if (!connectedDeviceActive && !phoneMicActive && !locationActive && !clockAlertActive) {
+            // Inactive/release intents are dispatched with Context.startService,
+            // never startForegroundService: there is no valid active operation
+            // (and therefore no truthful foreground-service type) to promote.
+            // startId-aware teardown also prevents an older queued release from
+            // stopping a newer positive foreground request.
+            stopIfLatest(startId);
             return START_NOT_STICKY;
         }
 
         ensureNotificationChannel();
-        Notification notification = buildNotification(
-                text != null && !text.trim().isEmpty() ? text : "Keeping the dashboard connected"
-        );
+        Notification notification = buildNotification(text != null && !text.trim().isEmpty()
+                ? text
+                : clockAlertActive ? "Recovering a Clock alert" : "Keeping the dashboard connected");
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification,
-                    foregroundServiceType(connectedDeviceActive, phoneMicActive, locationActive));
+                    foregroundServiceType(
+                            connectedDeviceActive || clockAlertActive,
+                            phoneMicActive,
+                            locationActive));
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }
@@ -87,6 +118,42 @@ public class FaceclawForegroundService extends Service {
         }
 
         return START_NOT_STICKY;
+    }
+
+    private void stopIfLatest(int startId) {
+        if (stopSelfResult(startId)) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        setClockRecoveryWakeLock(false);
+        super.onDestroy();
+    }
+
+    private void setClockRecoveryWakeLock(boolean active) {
+        mainHandler.removeCallbacks(clockRecoveryTimeout);
+        if (!active) {
+            if (clockRecoveryWakeLock != null && clockRecoveryWakeLock.isHeld()) {
+                clockRecoveryWakeLock.release();
+            }
+            clockRecoveryWakeLock = null;
+            return;
+        }
+        if (clockRecoveryWakeLock == null) {
+            PowerManager manager = (PowerManager) getSystemService(POWER_SERVICE);
+            if (manager == null) return;
+            clockRecoveryWakeLock = manager.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK, "Faceclaw:ClockRecovery");
+            clockRecoveryWakeLock.setReferenceCounted(false);
+        }
+        if (!clockRecoveryWakeLock.isHeld()) {
+            clockRecoveryWakeLock.acquire(CLOCK_RECOVERY_WAKE_MS);
+        }
+        // The exact-alarm recovery lease is deliberately bounded even if the
+        // JS runtime never boots or BLE recovery never reports completion.
+        mainHandler.postDelayed(clockRecoveryTimeout, CLOCK_RECOVERY_WAKE_MS);
     }
 
     private void ensureNotificationChannel() {

@@ -59,20 +59,27 @@ test("bridgeStatusIcon renders a distinct glyph per phase", () => {
   assert.equal(fps.size, 3, "connecting, connected and failed differ pixel-for-pixel");
 });
 
-test("the top bar draws the bridge glyph only when configured, gated by state.bridge.show", () => {
+test("the top bar identifies the Hermes gateway and spells out every external-link state", () => {
   const chrome = read("app/ui/shell/chrome-layer.ts");
   const shell = read("app/ui/shell/shell.ts");
 
-  // chrome-layer draws the glyph left of the brightness badge, gated on show.
-  assert.match(chrome, /if \(state\.bridge\.show\) \{\s*const bridge = bridgeStatusIcon\(state\.bridge\.phase\)/);
+  // External mode gets a redundant icon + explicit textual state. A blank host
+  // is SETUP, rather than being silently indistinguishable from a local backend.
+  assert.match(chrome, /if \(state\.bridge\.show\) \{\s*topRow\.push\(\{ image: makeBridgeHudItem/);
+  for (const label of ["HERMES GATEWAY SETUP", "HERMES GATEWAY ONLINE", "HERMES GATEWAY CONNECTING", "HERMES GATEWAY ERROR", "HERMES GATEWAY OFFLINE"]) {
+    assert.ok(chrome.includes(label), label);
+  }
+  assert.match(chrome, /bridgeStatusIcon\(bridge\.configured \? bridge\.phase : "idle"\)/);
 
-  // The show predicate: external backend AND a non-empty bridge host.
-  assert.match(
-    shell,
-    /assistantBackendSetting\.get\(\) === "external" &&\s*assistantBridgeHostSetting\.get\(\)\.trim\(\)\.length > 0/,
-  );
+  // The gateway is shown for external mode; configured is a separate state.
+  assert.match(shell, /show: assistantBackendSetting\.get\(\) === "external"/);
+  assert.match(shell,
+    /configured:\s*assistantBridgeHostSetting\.get\(\)\.trim\(\)\.length > 0 &&\s*assistantBridgeTokenSetting\.get\(\)\.length > 0/);
+  assert.match(shell, /lastBridgeTokenPresent: boolean \| null/);
+  assert.match(shell, /bridgeTokenPresent === this\.lastBridgeTokenPresent/,
+    "adding or clearing the secret must repaint SETUP without retaining its value");
 
-  // The glyph tracks live phase changes and repaints the bar.
+  // The badge tracks live phase changes and repaints the bar.
   assert.match(shell, /assistantBridge\.onStateChange\(\(state\) => \{/);
   assert.match(shell, /this\.bridgePhase = state\.phase;\s*this\.config\.requestShellRender\(\);/);
 });

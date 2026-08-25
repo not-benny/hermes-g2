@@ -34,6 +34,8 @@ export type AppDefinition = {
 export type AppLaunchParams = {
   /** Settings-app section deep-link (window menu -> Settings). */
   section?: string;
+  /** Settings-app developer submenu deep-link used by the debug harness. */
+  subsection?: string;
 };
 
 /**

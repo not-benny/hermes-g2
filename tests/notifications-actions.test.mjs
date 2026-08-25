@@ -21,4 +21,13 @@ test("Notifications long-press menu clears visible notifications and detail acti
   assert.match(ui, /\(this\.selectedMenuIndex \+ 1\) % menu\.length/);
   assert.match(ui, /\{ kind: "back", label: "Back" \}/);
   assert.match(ui, /\{ kind: "dismiss", label: "Dismiss" \}/);
+  const detail = ui.slice(ui.indexOf("export class SingleNotificationLayer"), ui.indexOf("function buildNotificationCardLayout"));
+  assert.match(detail, /if \(event\.type === "double-click"\) \{\s*this\.dismissAndClose\(ctx\)/,
+    "double-tap dismisses directly regardless of the selected menu row");
+  assert.match(detail, /item\.kind === "back"[\s\S]*this\.close\(ctx\)/,
+    "the initially selected Back row retains one-tap Back");
+  assert.match(detail, /item\.kind === "dismiss"[\s\S]*this\.dismissAndClose\(ctx\)/,
+    "the explicit Dismiss row shares the same native dismissal path");
+  assert.match(ui, /Notification · \$\{GESTURE_DOUBLE_CLICK\} dismiss/,
+    "the direct gesture is visible without removing Back\/Reply\/Dismiss");
 });

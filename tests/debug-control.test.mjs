@@ -13,8 +13,20 @@ function setup({ online = true } = {}) {
   const calls = [];
   let state = {
     online,
+    cockpitOnline: online,
     screenOn: true,
     windowId: "launcher:main",
+    directNotifications: {
+      available: true,
+      pendingCount: 2,
+      wearState: "worn",
+      presentationSlotAvailable: true,
+      active: false,
+      scheduled: true,
+      paused: false,
+      presentationEnabled: true,
+      retryRetained: false,
+    },
     processGeneration: "p-test",
     sessionGeneration: 7,
     windowGeneration: 3,
@@ -46,36 +58,44 @@ test("state query is redacted, bounded, and bootstraps generation bindings", asy
   const receipt = await harness.dispatch(JSON.stringify({ v: 1, id: "q-1", command: "state", args: {} }));
   assert.equal(receipt.ok, true);
   assert.deepEqual(receipt.state, {
-    online: true, screenOn: true, windowId: "launcher:main", processGeneration: "p-test",
+    online: true, cockpitOnline: true, screenOn: true, windowId: "launcher:main", processGeneration: "p-test",
+    directNotifications: {
+      available: true, pendingCount: 2, wearState: "worn", presentationSlotAvailable: true,
+      active: false, scheduled: true, paused: false, presentationEnabled: true, retryRetained: false,
+    },
     sessionGeneration: 7, windowGeneration: 3, captureGeneration: 0, voiceTest: false,
   });
   assert.equal(JSON.stringify(receipt).length < 1024, true);
-  assert.doesNotMatch(JSON.stringify(receipt), /transcript|audio|token|credential|address/i);
+  assert.doesNotMatch(JSON.stringify(receipt), /transcript|audio|token|credential|address|operation|digest|text/i);
 });
 
 test("only exact versioned commands and arguments execute", async () => {
   const { harness, calls } = setup();
   assert.equal((await harness.dispatch(request("a-1", "display.wake"))).ok, true);
   assert.equal((await harness.dispatch(request("a-2", "display.blank"))).ok, true);
-  assert.equal((await harness.dispatch(request("a-3", "window.open", { appId: "transcribe" }))).ok, true);
+  assert.equal((await harness.dispatch(request("a-3", "window.open", { appId: "conversate" }))).ok, true);
   const next = { ...binding, windowGeneration: 4 };
   assert.equal((await harness.dispatch(request("a-4", "window.open", { appId: "universal-search" }, next))).ok, true);
-  const cockpit = { ...next, windowGeneration: 5 };
-  assert.equal((await harness.dispatch(request("a-5", "window.open", { appId: "agent-cockpit" }, cockpit))).ok, true);
+  const tasks = { ...next, windowGeneration: 5 };
+  assert.equal((await harness.dispatch(request("a-5", "window.open", { appId: "work-tasks" }, tasks))).ok, true);
+  const cockpit = { ...tasks, windowGeneration: 6 };
+  assert.equal((await harness.dispatch(request("a-6", "window.open", { appId: "agent-cockpit" }, cockpit))).ok, true);
   assert.deepEqual(calls, [
-    ["wake"], ["blank"], ["open", "transcribe"],
-    ["open", "universal-search"], ["open", "agent-cockpit"],
+    ["wake"], ["blank"], ["open", "conversate"],
+    ["open", "universal-search"], ["open", "work-tasks"], ["open", "agent-cockpit"],
   ]);
+  const afterTasks = { ...cockpit, windowGeneration: 7 };
   for (const raw of [
     "not-json",
     JSON.stringify({ v: 2, id: "bad-v", command: "state", args: {} }),
     JSON.stringify({ v: 1, id: "bad-extra", command: "state", args: {}, extra: true }),
     request("bad-command", "intent.send", { url: "https://example.invalid" }),
     request("bad-app", "window.open", { appId: "../../settings" }),
+    request("unknown-app", "window.open", { appId: "retired-surface" }, afterTasks),
     request("bad-event", "input.inject", { event: "raw-keycode" }),
     request("bad-arg", "display.wake", { shell: "id" }),
   ]) assert.equal((await harness.dispatch(raw)).ok, false);
-  assert.equal(calls.length, 5);
+  assert.equal(calls.length, 6);
 });
 
 test("stale, offline, and replayed requests fail closed", async () => {

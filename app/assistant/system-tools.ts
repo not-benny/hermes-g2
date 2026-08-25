@@ -3,7 +3,12 @@ import { mediaControllerBridge } from "../native/media-controller";
 import { dismissNotification, readActiveNotifications } from "../native/notification-icons";
 import { shell } from "../ui/shell/shell";
 import { MAX_ALERT_TEXT_LENGTH } from "./display-policy";
+import { BRIDGE_PINNED_PHONE_INPUT_SCHEMAS } from "./bridge-phone-contract-schemas";
 import { createShowAlertHandler } from "./display-alert-handler";
+import { createNotifyResultHandler } from "./notify-result-handler";
+import { directNotificationInbox } from "./direct-notification-inbox";
+import { createWorkBoardAddHandler } from "./work-board-handler";
+import { workTasksStore } from "../work-tasks/store";
 import { RenderViewManager } from "./render-view";
 import { DYNAMIC_APP_CAPABILITIES, DynamicAppManager } from "./dynamic-app";
 import { CONTEXT_DASHBOARD_CAPABILITIES, ContextDashboardManager } from "./context-dashboard";
@@ -60,6 +65,37 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
       // shell. Dropping the signal here would let a timed-out MCP call send a
       // queued frame after its tool result had already failed.
       showAlert: (text, signal, isSideEffectAllowed) => shell.showAlert(text, signal, isSideEffectAllowed),
+    }),
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.notify_result",
+      description:
+        "Durably queue one completed Hermes result for the authenticated even-g2 glasses UI. The phone displays it only after current wear is confirmed, with a phone-owned timestamp. Final results only; never send thinking, tool activity, or drafts.",
+      inputSchema: BRIDGE_PINNED_PHONE_INPUT_SCHEMAS["glasses.notify_result"],
+      proactive: true,
+      timeoutMs: 10_000,
+    },
+    createNotifyResultHandler({
+      enqueueResult: (operationId, text, isSideEffectAllowed) =>
+        directNotificationInbox.acceptResult(operationId, text, isSideEffectAllowed),
+    }),
+  );
+
+  registry.registerSystemTool(
+    {
+      name: "glasses.work_board.add_task",
+      description:
+        "Add one item to the wearer's local day-job Work Tasks app. This never creates or dispatches Hermes agent work and must never fall back to Hermes Kanban or todo.",
+      // The handler/store still enforce 120 Unicode scalars and 480 UTF-8
+      // bytes; the shared registry schema uses 240 UTF-16 units so astral
+      // titles remain representable while the bridge pins the wire contract.
+      inputSchema: BRIDGE_PINNED_PHONE_INPUT_SCHEMAS["glasses.work_board.add_task"],
+      timeoutMs: 10_000,
+    },
+    createWorkBoardAddHandler({
+      addTask: (input, isAllowed) => workTasksStore.addTask(input, isAllowed),
     }),
   );
 
@@ -152,7 +188,7 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
       state,
       signal,
       isAllowed,
-      (input, foreground) => dynamicApps.handleInput(input, foreground),
+      (input, foreground) => dynamicApps.handleInput(input, foreground, { viewId: state.viewId, revision: state.revision }),
       () => dynamicApps.closeView(state.viewId, state.revision),
     ),
     clear: (identity) => shell.clearDynamicApp(identity),
@@ -161,14 +197,17 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
 
   let contextDashboards: ContextDashboardManager;
   contextDashboards = new ContextDashboardManager({
-    isDisplayAvailable: () => shell.isScreenOn(),
+    // Atomic final answers may wake a sleeping display; availability here is
+    // the physical G2 transport, not the current screen power state.
+    isDisplayAvailable: () => shell.isDisplayTransportAvailable(),
     createId: () => String(java.util.UUID.randomUUID()).replace(/-/g, ""),
     deliver: (state, signal, isAllowed) => shell.showDynamicApp(
       state,
       signal,
       isAllowed,
-      (input, foreground) => contextDashboards.handleInput(input, foreground),
+      (input, foreground) => contextDashboards.handleInput(input, foreground, { viewId: state.viewId, revision: state.revision }),
       () => contextDashboards.closeView(state.viewId, state.revision),
+      { assistantTurnResult: state.answerPresentation === "atomic-final-only" },
     ),
     clear: (identity) => shell.clearDynamicApp(identity),
     loadPins: loadContextDashboardPins,
@@ -179,7 +218,7 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
   registry.registerSystemTool(
     {
       name: "glasses.context_dashboard.capabilities",
-      description: "Query the dedicated even-g2 read-only contextual-dashboard protocol, limits, and local actions.",
+      description: "Query the generic even-g2 visual-first contextual-interface protocol, bounded deck limits, and phone-owned local actions. Interfaces require no pre-registered app or domain adapter.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       proactive: true,
     },
@@ -193,20 +232,129 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
     refresh_generation: { type: "integer", minimum: 1 },
     expected_revision: { type: "integer", minimum: 1 },
   };
+  const inertText = "Plain inert text only: no URL, markup, command, credential, tool name, or executable content.";
+  const contextSummarySchema = {
+    type: "object",
+    description: "Answer-first summary. Use estimated/unknown for model synthesis; exact only for directly supported facts.",
+    properties: {
+      primary: { type: "string", minLength: 1, maxLength: 64, description: inertText },
+      secondary: { type: "string", minLength: 1, maxLength: 96, description: inertText },
+      tone: { type: "string", enum: ["neutral", "good", "warning", "critical"] },
+      uncertainty: { type: "string", enum: ["exact", "estimated", "unknown"] },
+    },
+    required: ["primary", "uncertainty"],
+    additionalProperties: false,
+  };
+  const contextRowSchema = {
+    type: "object",
+    description: "Type-specific row. status_grid uses id/label/value/tone; departures uses id/destination/times/status/platform. Execution enforces the exact variant.",
+    properties: {
+      id: { type: "string", minLength: 1, maxLength: 64 },
+      label: { type: "string", minLength: 1, maxLength: 40, description: inertText },
+      value: { type: "string", minLength: 1, maxLength: 64, description: inertText },
+      tone: { type: "string", enum: ["neutral", "good", "warning", "critical"] },
+      destination: { type: "string", minLength: 1, maxLength: 40, description: inertText },
+      scheduled_departure_ms: { type: "integer", minimum: 0 },
+      expected_departure_ms: { type: "integer", minimum: 0 },
+      status: { type: "string", enum: ["on_time", "delayed", "cancelled", "unknown", "departed"] },
+      platform: { type: "string", minLength: 1, maxLength: 8, description: inertText },
+    },
+    required: ["id"],
+    additionalProperties: false,
+  };
+  const contextBarSchema = {
+    type: "object",
+    description: "Phone-normalized visual bar. Use finite non-negative value/max with max > 0, value <= max, and at most three decimal places. The phone derives width and printed value; callers cannot supply coordinates or styling.",
+    properties: {
+      id: { type: "string", minLength: 1, maxLength: 64 },
+      label: { type: "string", minLength: 1, maxLength: 24, description: inertText },
+      value: { type: "number", minimum: 0, maximum: 1_000_000_000 },
+      max: { type: "number", minimum: 0, maximum: 1_000_000_000 },
+      unit: { type: "string", minLength: 1, maxLength: 8, description: inertText },
+    },
+    required: ["id", "label", "value", "max"],
+    additionalProperties: false,
+  };
+  const contextSectionSchema = {
+    type: "object",
+    description: "Generic inert section. In deck mode each semantic section becomes one lens page (long departure sections are phone-chunked); bar_chart uses 1-5 numeric bars, list uses items, status_grid/departures use rows, and message uses body.",
+    properties: {
+      id: { type: "string", minLength: 1, maxLength: 64 },
+      order: { type: "integer", minimum: 0, maximum: 3 },
+      type: { type: "string", enum: ["departures", "status_grid", "bar_chart", "list", "message"] },
+      title: { type: "string", minLength: 1, maxLength: 40, description: inertText },
+      load_state: { type: "string", enum: ["pending", "ready", "empty", "error"] },
+      source_ids: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", minLength: 1, maxLength: 64 } },
+      uncertainty: { type: "string", enum: ["exact", "estimated", "unknown"] },
+      note: { type: "string", minLength: 1, maxLength: 64, description: inertText },
+      error_code: { type: "string", enum: ["timeout", "offline", "permission", "unavailable", "invalid_data", "unknown"] },
+      rows: { type: "array", maxItems: 12, items: contextRowSchema },
+      bars: { type: "array", minItems: 1, maxItems: 5, items: contextBarSchema },
+      items: { type: "array", maxItems: 8, items: { type: "string", minLength: 1, maxLength: 96, description: inertText } },
+      body: { type: "string", minLength: 1, maxLength: 160, description: inertText },
+    },
+    required: ["id", "order", "type", "load_state", "source_ids", "uncertainty"],
+    additionalProperties: false,
+  };
+  const contextSourceSchema = {
+    type: "object",
+    description: "Truthful provenance. A model-known answer uses label 'Hermes reasoning', status unknown, no observed_at_ms, and estimated/unknown uncertainty in its section. attribution_id may select only a listed phone-owned attribution literal; callers never provide URLs.",
+    properties: {
+      id: { type: "string", minLength: 1, maxLength: 64 },
+      label: { type: "string", minLength: 1, maxLength: 40, description: inertText },
+      attribution_id: {
+        type: "string",
+        enum: ["open_meteo_ukmo"],
+        description: "Adds the fixed phone-owned credit 'Weather data by Open-Meteo.com · CC BY-SA 4.0 · UK Met Office' to every displayed provenance line. No caller-supplied URL is accepted.",
+      },
+      observed_at_ms: { type: "integer", minimum: 0 },
+      stale_after_seconds: { type: "integer", minimum: 30, maximum: 86400 },
+      status: { type: "string", enum: ["current", "stale", "unavailable", "unknown"] },
+    },
+    required: ["id", "label", "stale_after_seconds", "status"],
+    additionalProperties: false,
+  };
+  const contextLocalActionSchema = {
+    type: "object",
+    description: "Optional fixed phone-local intent. Omit for ordinary generated answers. Pin/Unpin is injected by the phone and must not be supplied.",
+    properties: {
+      id: { type: "string", minLength: 1, maxLength: 64 },
+      kind: { type: "string", enum: ["refresh", "section", "follow_up"] },
+      label: { type: "string", minLength: 1, maxLength: 24, description: inertText },
+      enabled: { type: "boolean" },
+    },
+    required: ["id", "kind", "label", "enabled"],
+    additionalProperties: false,
+  };
+  const contextAnnouncementSchema = {
+    type: "object",
+    properties: {
+      id: { type: "string", minLength: 1, maxLength: 64 },
+      text: { type: "string", minLength: 1, maxLength: 160, description: inertText },
+      policy: { type: "string", enum: ["once_when_useful"] },
+    },
+    required: ["id", "text", "policy"],
+    additionalProperties: false,
+  };
   const contextSpecSchema = {
     type: "object",
-    description: "Versioned read-only dashboard; execution applies independent exact-field, byte, source, section, and record validation.",
+    description: "Generic agent-generated read-only interface; no pre-registered app, domain adapter, or external API is required. Optional deck mode derives a bounded ring-scroll page deck from these same semantic sections; raw layouts and arbitrary pages are never accepted.",
     properties: {
       version: { type: "integer", minimum: 2, maximum: 2 },
+      presentation_mode: {
+        type: "string",
+        enum: ["single", "deck"],
+        description: "Omit or use single for legacy flat focus scrolling. Use deck for a cover plus deterministic semantic-section pages (maximum 7); ring scroll changes page and local_actions must be [].",
+      },
       dashboard_key: { type: "string", minLength: 1, maxLength: 64 },
       title: { type: "string", minLength: 1, maxLength: 48 },
       state: { type: "string", enum: ["loading", "partial", "ready", "empty", "error", "offline"] },
       privacy: { type: "string", enum: ["public", "private", "sensitive"] },
-      summary: { type: "object" },
-      sections: { type: "array", minItems: 1, maxItems: 4, items: { type: "object" } },
-      sources: { type: "array", minItems: 1, maxItems: 3, items: { type: "object" } },
-      local_actions: { type: "array", maxItems: 3, items: { type: "object" } },
-      announcement: { type: "object" },
+      summary: contextSummarySchema,
+      sections: { type: "array", minItems: 1, maxItems: 4, items: contextSectionSchema },
+      sources: { type: "array", minItems: 1, maxItems: 3, items: contextSourceSchema },
+      local_actions: { type: "array", maxItems: 3, description: "Optional fixed local intents. Must be [] in deck mode. The phone independently injects Pin/Unpin on the deck cover.", items: contextLocalActionSchema },
+      announcement: contextAnnouncementSchema,
       ttl_seconds: { type: "integer", minimum: 30, maximum: 3600 },
     },
     required: ["version", "dashboard_key", "title", "state", "privacy", "summary", "sections", "sources", "local_actions", "ttl_seconds"],
@@ -215,8 +363,18 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
 
   registry.registerSystemTool(
     {
+      name: "glasses.context_dashboard.present",
+      description: "Atomically present one fully gathered final contextual answer and require a strict G2 frame acknowledgement. Gather data before this single call; it never emits a working, loading, partial, or tool-progress layer.",
+      inputSchema: BRIDGE_PINNED_PHONE_INPUT_SCHEMAS["glasses.context_dashboard.present"],
+      timeoutMs: 15_000,
+    },
+    (args, signal, isAllowed, context) => contextDashboards.present(args, signal, isAllowed, context),
+  );
+
+  registry.registerSystemTool(
+    {
       name: "glasses.context_dashboard.begin",
-      description: "Atomically replace the ephemeral contextual dashboard and acknowledge a loading frame before read-only gathering.",
+      description: "Reserve a generic temporary contextual interface offscreen for a legacy begin/publish caller. This call never installs loading pixels; a later terminal publish is the first visible frame. No pre-registered app or domain adapter is required. Mark whether the bounded intent alone can regenerate the answer; current-turn-only views are deliberately not pinnable.",
       inputSchema: { type: "object", properties: {
         operation_id: contextIdentitySchema.operation_id,
         dashboard_key: { type: "string", minLength: 1, maxLength: 64 },
@@ -227,8 +385,13 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
           mode: { type: "string", enum: ["manual", "on_visible"] },
           min_interval_seconds: { type: "integer", minimum: 30, maximum: 86400 },
         }, required: ["mode", "min_interval_seconds"], additionalProperties: false },
+        regeneration: {
+          type: "string",
+          enum: ["self_contained_intent", "current_turn_only"],
+          description: "Use self_contained_intent only when the saved intent contains everything needed to answer again. Use current_turn_only for requests such as 'summarize this' or 'compare those'; the phone suppresses Pin.",
+        },
         ttl_seconds: { type: "integer", minimum: 30, maximum: 3600 },
-      }, required: ["operation_id", "dashboard_key", "title", "privacy", "intent", "refresh_policy", "ttl_seconds"], additionalProperties: false },
+      }, required: ["operation_id", "dashboard_key", "title", "privacy", "intent", "refresh_policy", "regeneration", "ttl_seconds"], additionalProperties: false },
       timeoutMs: 15_000,
     },
     (args, signal, isAllowed, context) => contextDashboards.begin(args, signal, isAllowed, context),
@@ -237,7 +400,7 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
   registry.registerSystemTool(
     {
       name: "glasses.context_dashboard.publish",
-      description: "CAS-publish one independently validated read-only dashboard revision for the exact presentation and refresh generation.",
+      description: "CAS-publish a fully described, independently validated single view or bounded multi-page deck generated from the current answer or currently authorised read-only results.",
       inputSchema: { type: "object", properties: { ...contextIdentitySchema, spec: contextSpecSchema },
         required: ["operation_id", "dashboard_id", "presentation_generation", "refresh_generation", "expected_revision", "spec"], additionalProperties: false },
       timeoutMs: 15_000,
@@ -277,7 +440,7 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
   registry.registerSystemTool(
     {
       name: "glasses.context_dashboard.pins",
-      description: "List up to five encrypted phone-local dashboard intents and refresh policies; never returns raw tool responses.",
+      description: "List up to five metadata-only encrypted phone-local pins (key, title, privacy, and refresh policy); never returns saved intents or raw responses.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
     },
     (_args, _signal, _isAllowed, context) => contextDashboards.listPins(context),
@@ -286,7 +449,7 @@ export function registerSystemTools(registry: ToolRegistry = toolRegistry): void
   registry.registerSystemTool(
     {
       name: "glasses.context_dashboard.open_pin",
-      description: "Reopen one encrypted phone-local pin as a fresh loading presentation for current authorised gathering.",
+      description: "Select one encrypted phone-local pin and reserve its fresh identity offscreen; its successful exact-current receipt returns the bounded saved intent for authorised regathering, and a later terminal publish is the first visible frame.",
       inputSchema: { type: "object", properties: {
         operation_id: contextIdentitySchema.operation_id,
         dashboard_key: { type: "string", minLength: 1, maxLength: 64 },

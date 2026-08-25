@@ -18,11 +18,12 @@ export type AssistantContext = {
 };
 
 export type AssistantTurnCallbacks = {
-  /** Streamed reply text (delta plus the full text so far). */
+  /** Streamed reply text (delta plus the full text so far). Presentation may defer it until completion. */
   onTextDelta: (delta: string, textSoFar: string) => void;
-  /** A tool is being invoked; label is display-ready, e.g. "calendar.list_events". */
+  /** A tool is being invoked; never treat this as a completed user-facing result. */
   onToolActivity: (label: string) => void;
-  onTurnDone: (result: { stopReason: string | null }) => void;
+  /** Consolidated, authoritative user-facing text for the completed turn. */
+  onTurnDone: (result: { stopReason: string | null; text: string }) => void;
   onError: (message: string) => void;
 };
 

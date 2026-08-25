@@ -1,4 +1,4 @@
-import { Frame, Observable, ObservableArray } from "@nativescript/core";
+import { EventData, Frame, Observable, ObservableArray, View } from "@nativescript/core";
 
 import {
   notificationAllowedPackagesSetting,
@@ -10,10 +10,14 @@ import {
   type NotificationAppTier,
 } from "../ui/dashboard-settings";
 import { readInstalledNotificationApps, type AndroidNotificationApp } from "../native/notification-icons";
+import { toggleAllowedNotificationPackage } from "../notifications/app-selection";
 
 type NotificationAppRow = AndroidNotificationApp & {
   enabledGlyph: string;
   detail: string;
+  toggleLabel: string;
+  toggleAccessibilityLabel: string;
+  onToggleTap: () => void;
   tierLabel: string;
   onTierTap: () => void;
 };
@@ -28,12 +32,23 @@ export class NotificationAppsViewModel extends Observable {
   constructor() {
     super();
     this.refresh();
+    this.activate();
+  }
+
+  /** Re-arm cross-isolate refresh after this page returns from a hidden tab. */
+  activate(): void {
+    if (this.unsubscribeSettings) return;
     this.unsubscribeSettings = onAnySettingChanged(() => this.refreshRows());
+    this.refreshRows();
+  }
+
+  deactivate(): void {
+    this.unsubscribeSettings?.();
+    this.unsubscribeSettings = null;
   }
 
   dispose(): void {
-    this.unsubscribeSettings?.();
-    this.unsubscribeSettings = null;
+    this.deactivate();
   }
 
   get apps(): ObservableArray<NotificationAppRow> {
@@ -53,16 +68,7 @@ export class NotificationAppsViewModel extends Observable {
     if (!Number.isInteger(index) || index < 0 || index >= this._apps.length) return;
     const app = this._apps.getItem(index);
     if (!app) return;
-    const selected = new Set(parseNotificationAllowedPackages());
-    if (selected.has(app.packageName)) {
-      selected.delete(app.packageName);
-    } else {
-      selected.add(app.packageName);
-    }
-    notificationAllowedPackagesSetting.set(Array.from(selected).sort().join(","));
-    this._status = `${app.appName} ${selected.has(app.packageName) ? "allowed" : "blocked"}.`;
-    this.notifyPropertyChange("status", this._status);
-    this.refreshRows();
+    this.togglePackage(app);
   }
 
   onResetPrioritiesTap(): void {
@@ -80,7 +86,7 @@ export class NotificationAppsViewModel extends Observable {
     const apps = readInstalledNotificationApps();
     this.replaceRows(apps);
     this._status = apps.length
-      ? `${apps.length} installed apps. Tap an app to allow or block its notifications.`
+      ? `${apps.length} installed apps. Use Allow or Block for each notification source.`
       : "No installed apps could be read. Grant notification access, then refresh.";
     this.notifyPropertyChange("status", this._status);
   }
@@ -95,10 +101,14 @@ export class NotificationAppsViewModel extends Observable {
     const rows = apps
       .map((app): NotificationAppRow => {
         const tier = tiers[app.packageName] ?? "default";
+        const enabled = selected.has(app.packageName);
         return {
           ...app,
-          enabledGlyph: selected.has(app.packageName) ? "✓" : "○",
+          enabledGlyph: enabled ? "✓" : "○",
           detail: `${app.appName || app.packageName} · ${app.packageName}`,
+          toggleLabel: enabled ? "Block" : "Allow",
+          toggleAccessibilityLabel: `${enabled ? "Block" : "Allow"} ${app.appName || app.packageName} notifications`,
+          onToggleTap: () => this.togglePackage(app),
           tierLabel: `Priority: ${tier[0]!.toUpperCase()}${tier.slice(1)}`,
           onTierTap: () => {
             const current = parseNotificationAppTiers()[app.packageName] ?? "default";
@@ -113,5 +123,17 @@ export class NotificationAppsViewModel extends Observable {
       .sort((a, b) => a.appName.localeCompare(b.appName));
     this._apps.splice(0, this._apps.length, ...rows);
     this.notifyPropertyChange("apps", this.apps);
+  }
+
+  private togglePackage(app: AndroidNotificationApp): void {
+    const next = toggleAllowedNotificationPackage(
+      parseNotificationAllowedPackages(),
+      app.packageName,
+    );
+    notificationAllowedPackagesSetting.set(next.join(","));
+    const allowed = next.includes(app.packageName);
+    this._status = `${app.appName || app.packageName} ${allowed ? "allowed" : "blocked"}.`;
+    this.notifyPropertyChange("status", this._status);
+    this.refreshRows();
   }
 }

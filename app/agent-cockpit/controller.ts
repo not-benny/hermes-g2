@@ -1,12 +1,25 @@
 import {
   AgentCockpitStore,
   type CockpitClientCommand,
+  type CockpitServerFrame,
   type CockpitSnapshot,
 } from "./protocol";
 
 export type AgentCockpitControllerOptions = {
   now?: () => number;
   createCommandId?: () => string;
+};
+
+export type CockpitAssistantResult = {
+  sessionId: string;
+  generation: number;
+  revision: number;
+  text: string;
+};
+
+export type CockpitMcpStatus = {
+  connectionGeneration: string;
+  voiceTurnState: "idle" | "running" | "cancelling";
 };
 
 /**
@@ -17,6 +30,7 @@ export type AgentCockpitControllerOptions = {
 export class AgentCockpitController {
   private readonly store: AgentCockpitStore;
   private readonly listeners = new Set<(snapshot: CockpitSnapshot) => void>();
+  private readonly resultListeners = new Set<(result: CockpitAssistantResult) => void>();
 
   constructor(
     private readonly sendCommand: (command: CockpitClientCommand) => void,
@@ -34,10 +48,51 @@ export class AgentCockpitController {
     return () => this.listeners.delete(listener);
   }
 
+  /** Fresh final assistant rows only; snapshots, tools and reconnects never fire this. */
+  onAssistantResult(listener: (result: CockpitAssistantResult) => void): () => void {
+    this.resultListeners.add(listener);
+    return () => this.resultListeners.delete(listener);
+  }
+
   handleFrame(frame: unknown): boolean {
+    const before = this.store.snapshot();
     if (!this.store.apply(frame)) return false;
+    const accepted = frame as CockpitServerFrame;
     this.publish();
+    if (
+      accepted.type === "timeline_append" &&
+      accepted.row.kind === "assistant" &&
+      accepted.row.status === "done" &&
+      !before.sessions.some((session) =>
+        session.session_id === accepted.session_id &&
+        session.generation === accepted.generation &&
+        session.timeline.some((row) => row.id === accepted.row.id))
+    ) {
+      const result: CockpitAssistantResult = {
+        sessionId: accepted.session_id,
+        generation: accepted.generation,
+        revision: accepted.revision,
+        text: accepted.row.text,
+      };
+      for (const listener of this.resultListeners) listener(result);
+    }
     return true;
+  }
+
+  /** Apply the status-only Host MCP resource without inventing command authority. */
+  handleMcpStatus(status: CockpitMcpStatus): boolean {
+    if (!/^[A-Za-z0-9._-]{12,128}$/.test(status.connectionGeneration) ||
+        !["idle", "running", "cancelling"].includes(status.voiceTurnState)) return false;
+    const applied = this.store.apply({
+      v: 1,
+      chan: "cockpit",
+      type: "snapshot",
+      connection_generation: status.connectionGeneration,
+      sequence: 0,
+      sessions: [],
+    });
+    if (applied) this.publish();
+    return applied;
   }
 
   disconnect(): void {

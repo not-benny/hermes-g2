@@ -1,25 +1,23 @@
 import { type AppDefinition } from "./app-definition";
 import launcherApp from "./launcher";
 import healthApp from "./health";
-import timerApp from "./timer";
+import clockApp from "./clock";
 import terminalApp from "./terminal";
 import agentCockpitApp from "./agent-cockpit";
+import workTasksApp from "./work-tasks";
 import universalSearchApp from "./universal-search";
 import filesApp from "./files";
 import musicApp from "./music";
-import nightscoutApp from "./nightscout";
-import transcribeApp from "./transcribe";
+import conversateApp from "./conversate";
 import notificationsApp from "./notifications";
 import calendarApp from "./calendar";
 import weatherApp from "./weather";
 import navigateApp from "./navigate";
 import compassApp from "./compass";
-import roamApp from "./roam";
 import blocksApp from "./blocks";
 import minesweeperApp from "./minesweeper";
 import freecellApp from "./freecell";
 import pinballApp from "./pinball";
-import debugTestsApp from "./debug-tests";
 import settingsApp from "./settings";
 import evenHubSampleApp from "./evenhub-sample";
 
@@ -31,25 +29,23 @@ import evenHubSampleApp from "./evenhub-sample";
 export const ALL_APPS: readonly AppDefinition[] = [
   launcherApp,
   healthApp,
-  timerApp,
+  clockApp,
   terminalApp,
   agentCockpitApp,
+  workTasksApp,
   universalSearchApp,
   filesApp,
   musicApp,
-  nightscoutApp,
-  transcribeApp,
+  conversateApp,
   notificationsApp,
   calendarApp,
   weatherApp,
   navigateApp,
   compassApp,
-  roamApp,
   blocksApp,
   minesweeperApp,
   freecellApp,
   pinballApp,
-  debugTestsApp,
   evenHubSampleApp,
   settingsApp,
 ];

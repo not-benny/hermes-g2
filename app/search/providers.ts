@@ -21,11 +21,6 @@ type NotificationLike = {
 type FileEntryLike = {
   name: string; path: string; isDirectory: boolean; isSymbolicLink?: boolean; sizeBytes: number; modifiedMs: number;
 };
-type CockpitSessionLike = {
-  session_id: string; generation: number; revision: number; title: string;
-  summary?: string; updated_at_ms: number;
-};
-type CockpitSnapshotLike = { synchronized: boolean; sessions: readonly CockpitSessionLike[] };
 
 export type SearchProviderDependencies = {
   apps: () => readonly SearchApp[];
@@ -40,8 +35,6 @@ export type SearchProviderDependencies = {
   statPath: (path: string) => FileEntryLike | null;
   listDirectory: (path: string) => readonly FileEntryLike[] | null;
   openFile: (path: string, rootPath: string, modifiedMs: number, signal: AbortSignal) => Promise<boolean>;
-  cockpitSnapshot: () => CockpitSnapshotLike;
-  openHermesSession: (sessionId: string, generation: number, signal: AbortSignal) => Promise<boolean>;
 };
 
 const MAX_PROVIDER_RESULTS = 40;
@@ -163,37 +156,10 @@ function filesProvider(deps: SearchProviderDependencies): SearchProvider {
   };
 }
 
-function hermesSessionsProvider(deps: SearchProviderDependencies): SearchProvider {
-  return {
-    sourceId: "hermes_sessions",
-    label: "Hermes",
-    privacyClass: "private_content",
-    search: async () => {
-      const snapshot = deps.cockpitSnapshot();
-      if (!snapshot.synchronized) throw new SearchProviderFailure("offline");
-      return snapshot.sessions.slice(0, MAX_PROVIDER_RESULTS).map((session): SearchResult => ({
-        sourceId: "hermes_sessions",
-        resultId: `${clean(session.session_id, 120)}:${session.generation}`,
-        title: clean(session.title, 120),
-        snippet: clean(session.summary, 240),
-        freshnessMs: session.updated_at_ms,
-        action: {
-          kind: "open_hermes_session",
-          sessionId: clean(session.session_id, 160),
-          generation: session.generation,
-        },
-      }));
-    },
-    execute: async (action, signal) => action.kind === "open_hermes_session"
-      ? outcome(await deps.openHermesSession(action.sessionId, action.generation, signal))
-      : "denied",
-  };
-}
-
 function unavailableProvider(
-  sourceId: "roam" | "terminal" | "media" | "health",
+  sourceId: "media" | "health",
   label: string,
-  privacyClass: "private_content" | "restricted_health" | "terminal_content",
+  privacyClass: "private_content" | "restricted_health",
 ): SearchProvider {
   return {
     sourceId,
@@ -209,9 +175,6 @@ export function createSearchProviders(deps: SearchProviderDependencies): readonl
     calendarProvider(deps),
     notificationsProvider(deps),
     filesProvider(deps),
-    hermesSessionsProvider(deps),
-    unavailableProvider("roam", "Roam", "private_content"),
-    unavailableProvider("terminal", "Terminal", "terminal_content"),
     unavailableProvider("media", "Media", "private_content"),
     unavailableProvider("health", "Health", "restricted_health"),
   ];

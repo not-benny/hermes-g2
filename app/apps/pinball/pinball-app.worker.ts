@@ -33,6 +33,7 @@ import {
   GESTURE_SCROLL,
 } from "../../ui/gestures";
 import { clamp } from "../../util/numeric-util";
+import { fitPinballPixels, pinballPaintHeight } from "./pinball-layout";
 
 declare const global: any;
 declare const com: any;
@@ -862,12 +863,14 @@ function ballDrained(window: PinballWindow): void {
 
 // --- Painting ---------------------------------------------------------------
 
-let staticBackground: GrayImage | null = null;
+let staticBackground: { width: number; height: number; image: GrayImage } | null = null;
 
 /** Everything that never changes: walls, guides, slings, outlines, labels. */
-function getStaticBackground(window: PinballWindow): GrayImage {
-  if (staticBackground) return staticBackground;
-  const image = new GrayImage(window.viewportWidth, window.viewportHeight, 0);
+function getStaticBackground(width: number, height: number): GrayImage {
+  if (staticBackground?.width === width && staticBackground.height === height) {
+    return staticBackground.image;
+  }
+  const image = new GrayImage(width, height, 0);
   for (const segment of SEGMENTS) {
     image.drawLine(segment.x0, segment.y0, segment.x1, segment.y1, segment.shade);
   }
@@ -877,7 +880,7 @@ function getStaticBackground(window: PinballWindow): GrayImage {
   image.drawText(smallFont, PANEL_X, 12, "Score", 140);
   image.drawText(smallFont, PANEL_X, 84, "Ball", 140);
   image.drawText(smallFont, PANEL_X, 148, "High", 140);
-  staticBackground = image;
+  staticBackground = { width, height, image };
   return image;
 }
 
@@ -915,7 +918,18 @@ function paint(window: PinballWindow): GrayImage {
 }
 
 function paintContent(window: PinballWindow): GrayImage {
-  const image = getStaticBackground(window).clone();
+  const paintHeight = pinballPaintHeight(window.viewportHeight);
+  const designFrame = paintDesignContent(window, paintHeight);
+  if (paintHeight === window.viewportHeight) return designFrame;
+
+  const image = new GrayImage(window.viewportWidth, window.viewportHeight, 0);
+  image.pixels.set(fitPinballPixels(designFrame, window.viewportHeight));
+  return image;
+}
+
+/** Paint in the physics-tuned coordinate space before any compact fit. */
+function paintDesignContent(window: PinballWindow, paintHeight: number): GrayImage {
+  const image = getStaticBackground(window.viewportWidth, paintHeight).clone();
   const now = Date.now();
 
   // Bumper caps: bright while flashing from a hit.

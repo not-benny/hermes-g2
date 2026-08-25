@@ -20,6 +20,7 @@ import { type DashboardInputEvent, type Layer, type LayerContext, type PaintBelo
 import { VoiceInputLayer } from "./shell/voice-input";
 import { notificationFontSizeSetting } from "./dashboard-settings";
 import { notificationTriageController, notificationTriageReason } from "../notifications/triage-controller";
+import { notificationDetailMenuLayout, notificationDigestLayout } from "./notification-pagination";
 
 const PAGE_X = 12;
 const PAGE_Y = 12;
@@ -79,62 +80,94 @@ type DetailMenuItem =
 
 export type SingleNotificationLayerOrigin = "notifications-list" | "new-notification-modal";
 
+/**
+ * Keep the user-visible notification card independent from Android's live
+ * StatusBarNotification object. Many apps replace or remove that object while
+ * G2 is still waking; retaining this bounded, in-memory projection prevents a
+ * successfully selected notification from erasing itself before it can be
+ * read. Nothing here is persisted.
+ */
+export function retainAndroidNotification(notification: AndroidNotification): AndroidNotification {
+  return {
+    ...notification,
+    lines: [...notification.lines],
+    actions: notification.actions.map((action) => ({ ...action })),
+  };
+}
+
 export class NotificationDigestLayer implements Layer {
   private selectedIndex = 0;
+  private readonly retainedEntries: Array<{
+    entry: { key: string; revision: string; reason: string };
+    notification: AndroidNotification;
+  }>;
 
   constructor(
-    private readonly entries: readonly { key: string; revision: string; reason: string }[],
+    entries: readonly {
+      key: string;
+      revision: string;
+      reason: string;
+      notification?: AndroidNotification;
+    }[],
     private readonly closeModal: (ctx: LayerContext) => void,
-  ) {}
+  ) {
+    const active = readActiveNotifications(MAX_NOTIFICATIONS);
+    this.retainedEntries = entries.flatMap((entry) => {
+      const notification = entry.notification ?? active.find((item) => item.key === entry.key);
+      return notification
+        ? [{
+          entry: { key: entry.key, revision: entry.revision, reason: entry.reason },
+          notification: retainAndroidNotification(notification),
+        }]
+        : [];
+    });
+  }
 
   paint(ctx: LayerContext): GrayImage {
     const font = notificationFont();
     const { width, height } = ctx.stack.getBaseSize();
     const image = new GrayImage(width, height, 0);
-    const active = readActiveNotifications(MAX_NOTIFICATIONS);
-    const live = this.entries
-      .map((entry) => ({ entry, notification: active.find((item) => item.key === entry.key) }))
-      .filter((item): item is { entry: { key: string; revision: string; reason: string }; notification: AndroidNotification } =>
-        Boolean(item.notification) && notificationTriageController.isCurrent(item.entry.key, item.entry.revision));
-    if (!live.length) {
+    const retained = this.retainedEntries;
+    if (!retained.length) {
       this.closeModal(ctx);
       return image;
     }
-    this.selectedIndex = clamp(this.selectedIndex, 0, live.length - 1);
-    image.drawText(font, 18, 14, `Digest ${this.selectedIndex + 1}/${live.length}`, 230);
-    let y = 42;
-    for (let index = 0; index < live.length && y < height - 24; index++) {
-      const item = live[index]!;
+    this.selectedIndex = clamp(this.selectedIndex, 0, retained.length - 1);
+    const layout = notificationDigestLayout(height, font.lineHeight, retained.length, this.selectedIndex);
+    const range = layout.start > 0 || layout.end < retained.length ? ` · ${layout.start + 1}–${layout.end}` : "";
+    image.drawText(font, 18, 14, `Digest ${this.selectedIndex + 1}/${retained.length}${range}`, 230);
+    let y = layout.listTop;
+    for (let index = layout.start; index < layout.end; index++) {
+      const item = retained[index]!;
       const selected = index === this.selectedIndex;
       image.drawText(font, 18, y, `${selected ? ">" : " "} ${item.notification.appName}: ${notificationTitle(item.notification)}`, selected ? 240 : 150);
-      y += lineHeightFor(font);
+      y += layout.lineAdvance;
       if (selected) {
         image.drawText(font, 34, y, `Why: ${item.entry.reason}`, 170);
-        y += lineHeightFor(font);
+        y += layout.lineAdvance;
       }
     }
-    image.drawText(font, 18, height - 22, "Click review · Double-click dismiss", 120);
+    image.drawText(font, 18, height - font.lineHeight - 4, `Click review · ${GESTURE_DOUBLE_CLICK} close`, 120);
     return image;
   }
 
   handleInput(event: DashboardInputEvent, ctx: LayerContext): void {
-    const active = readActiveNotifications(MAX_NOTIFICATIONS);
-    const live = this.entries.filter((entry) =>
-      active.some((item) => item.key === entry.key) && notificationTriageController.isCurrent(entry.key, entry.revision));
+    const retained = this.retainedEntries;
     if (event.type === "double-click") {
       this.closeModal(ctx);
       return;
     }
-    if (!live.length) return;
-    this.selectedIndex = clamp(this.selectedIndex, 0, live.length - 1);
+    if (!retained.length) return;
+    this.selectedIndex = clamp(this.selectedIndex, 0, retained.length - 1);
     if (event.type === "scroll-up" || event.type === "scroll-down") {
       const direction = event.type === "scroll-down" ? 1 : -1;
-      this.selectedIndex = (this.selectedIndex + direction + live.length) % live.length;
+      this.selectedIndex = (this.selectedIndex + direction + retained.length) % retained.length;
     } else if (event.type === "click") {
-      const selected = live[this.selectedIndex]!;
-      ctx.stack.push(new SingleNotificationLayer(selected.key, {
+      const selected = retained[this.selectedIndex]!;
+      ctx.stack.push(new SingleNotificationLayer(selected.entry.key, {
         origin: "notifications-list",
-        expectedRevision: selected.revision,
+        retainedNotification: selected.notification,
+        retainedReason: selected.entry.reason,
       }));
     }
   }
@@ -143,6 +176,9 @@ export class NotificationDigestLayer implements Layer {
 type SingleNotificationLayerOptions = {
   origin: SingleNotificationLayerOrigin;
   expectedRevision?: string;
+  /** Frozen presentation data used only by a shell modal/digest. */
+  retainedNotification?: AndroidNotification;
+  retainedReason?: string;
   /** Close hook for the modal origin (the layer is the modal stack's base, so pop() cannot close it). */
   closeModal?: (ctx: LayerContext) => void;
 };
@@ -253,6 +289,7 @@ export class NotificationsListLayer implements Layer {
  */
 export class SingleNotificationLayer implements Layer {
   private selectedMenuIndex = 0;
+  private readonly retainedNotification: AndroidNotification | null;
   // Deliberately NO edge-detent here: this tiny action menu (Back / Reply /
   // Dismiss) wraps instantly so a swipe-up jumps straight to Dismiss to dismiss
   // fast. The detent stays on the scrollable notifications LIST above.
@@ -260,29 +297,46 @@ export class SingleNotificationLayer implements Layer {
   constructor(
     private readonly notificationKey: string,
     private readonly options: SingleNotificationLayerOptions,
-  ) {}
+  ) {
+    const captured = options.retainedNotification ?? (
+      options.origin === "new-notification-modal"
+        ? readActiveNotifications(MAX_NOTIFICATIONS).find((item) => item.key === notificationKey)
+        : undefined
+    );
+    this.retainedNotification = captured ? retainAndroidNotification(captured) : null;
+  }
 
   paint(ctx: LayerContext, paintBelow: PaintBelow): GrayImage {
     const font = notificationFont();
     const { width, height } = ctx.stack.getBaseSize();
     const image = new GrayImage(width, height, 0);
-    const notification = readActiveNotifications(MAX_NOTIFICATIONS).find((item) => item.key === this.notificationKey);
+    const notification = this.retainedNotification ??
+      readActiveNotifications(MAX_NOTIFICATIONS).find((item) => item.key === this.notificationKey);
 
-    if (!notification || (this.options.expectedRevision
+    if (!notification || (!this.retainedNotification && this.options.expectedRevision
       && !notificationTriageController.isCurrent(this.notificationKey, this.options.expectedRevision))) {
       return this.closeUnavailableNotification(ctx, paintBelow);
     }
 
     const menu = buildDetailMenu(notification);
     this.selectedMenuIndex = clamp(this.selectedMenuIndex, 0, Math.max(0, menu.length - 1));
-    drawDetailContent(image, font, notification, iconForNotification(notification.key), width, height);
-    drawDetailMenu(image, font, menu, this.selectedMenuIndex, width);
+    drawDetailContent(
+      image,
+      font,
+      notification,
+      iconForNotification(notification.key),
+      width,
+      height,
+      this.options.retainedReason,
+    );
+    drawDetailMenu(image, font, menu, this.selectedMenuIndex, width, height);
     return image;
   }
 
   handleInput(event: DashboardInputEvent, ctx: LayerContext): void {
-    const notification = readActiveNotifications(MAX_NOTIFICATIONS).find((item) => item.key === this.notificationKey);
-    if (!notification || (this.options.expectedRevision
+    const notification = this.retainedNotification ??
+      readActiveNotifications(MAX_NOTIFICATIONS).find((item) => item.key === this.notificationKey);
+    if (!notification || (!this.retainedNotification && this.options.expectedRevision
       && !notificationTriageController.isCurrent(this.notificationKey, this.options.expectedRevision))) {
       this.closeUnavailableNotification(ctx);
       return;
@@ -290,7 +344,7 @@ export class SingleNotificationLayer implements Layer {
     const menu = buildDetailMenu(notification);
 
     if (event.type === "double-click") {
-      this.close(ctx);
+      this.dismissAndClose(ctx);
       return;
     }
     if (event.type === "scroll-up") {
@@ -318,10 +372,15 @@ export class SingleNotificationLayer implements Layer {
         }
       }
     } else if (item.kind === "dismiss") {
-      notificationTriageController.dismiss(this.notificationKey);
-      dismissNotification(this.notificationKey);
-      this.closeUnavailableNotification(ctx);
+      this.dismissAndClose(ctx);
     }
+  }
+
+  /** Dismiss the Android notification from any detail-menu selection. */
+  private dismissAndClose(ctx: LayerContext): void {
+    notificationTriageController.dismiss(this.notificationKey);
+    dismissNotification(this.notificationKey);
+    this.closeUnavailableNotification(ctx);
   }
 
   /**
@@ -455,11 +514,18 @@ function drawDetailContent(
   icon: GrayImage | null,
   width: number,
   height: number,
+  retainedReason?: string,
 ): void {
   const contentX = DETAIL_CONTENT_X;
   const menuX = width - DETAIL_MENU_WIDTH - 24;
   const contentWidth = menuX - contentX - 20;
-  image.drawText(font, PAGE_X + 12, PAGE_Y + 9, "Notification", 220);
+  image.drawText(
+    font,
+    PAGE_X + 12,
+    PAGE_Y + 9,
+    truncateText(font, `Notification · ${GESTURE_DOUBLE_CLICK} dismiss`, contentWidth),
+    220,
+  );
   let appLineX = contentX;
   if (icon) {
     image.bitBlt(icon, contentX, 36, { transparentZero: true });
@@ -480,7 +546,11 @@ function drawDetailContent(
     lines.push(...wrapText(font, meta, contentWidth));
   }
   lines.push("");
-  lines.push(...wrapText(font, `Why: ${notificationTriageReason(notification.key)}`, contentWidth));
+  lines.push(...wrapText(
+    font,
+    `Why: ${retainedReason ?? notificationTriageReason(notification.key)}`,
+    contentWidth,
+  ));
 
   const lineHeight = lineHeightFor(font);
   const maxLines = Math.max(1, ((height - 64 - lineHeight) / lineHeight) | 0);
@@ -493,20 +563,19 @@ function drawDetailContent(
   }
 }
 
-function drawDetailMenu(image: GrayImage, font: BdfFont, menu: DetailMenuItem[], selectedIndex: number, width: number, bounceY = 0): void {
+function drawDetailMenu(image: GrayImage, font: BdfFont, menu: DetailMenuItem[], selectedIndex: number, width: number, height: number, bounceY = 0): void {
   const menuX = width - DETAIL_MENU_WIDTH - 24;
-  const menuY = 24 + bounceY;
-  // Row pitch and highlight grow only for the large font; small/medium keep 22/19.
-  const rowPitch = Math.max(22, font.lineHeight + 6);
-  const highlightH = Math.max(19, font.lineHeight + 3);
-  for (let index = 0; index < menu.length; index++) {
-    const y = menuY + index * rowPitch;
+  const layout = notificationDetailMenuLayout(height, font.lineHeight, menu.length, selectedIndex);
+  for (let index = layout.start; index < layout.end; index++) {
+    const y = layout.menuY + bounceY + (index - layout.start) * layout.rowPitch;
     const selected = index === selectedIndex;
     if (selected) {
-      image.fillRoundedRect(menuX - 8, y - 2, DETAIL_MENU_WIDTH, highlightH, 18, 6);
-      image.drawRoundedRect(menuX - 8, y - 2, DETAIL_MENU_WIDTH, highlightH, 60, 6);
+      image.fillRoundedRect(menuX - 8, y - 2, DETAIL_MENU_WIDTH, layout.highlightHeight, 18, 6);
+      image.drawRoundedRect(menuX - 8, y - 2, DETAIL_MENU_WIDTH, layout.highlightHeight, 60, 6);
     }
-    const label = truncateText(font, menu[index]!.label, DETAIL_MENU_WIDTH - 12);
+    const leading = index === layout.start && layout.start > 0 ? "↑ " : "";
+    const trailing = index === layout.end - 1 && layout.end < menu.length ? " ↓" : "";
+    const label = truncateText(font, `${leading}${menu[index]!.label}${trailing}`, DETAIL_MENU_WIDTH - 12);
     image.drawText(font, menuX, y + 2, label, selected ? 255 : 185);
   }
 }

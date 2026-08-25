@@ -5,7 +5,7 @@ import type { RenderViewState } from "../../assistant/render-view";
 import { drawSelectionHighlight } from "../menu";
 import type { DashboardInputEvent, Layer, LayerContext } from "../layers";
 import { GESTURE_DOUBLE_CLICK } from "../gestures";
-import { visibleAppViewportRect } from "./geometry";
+import { shellContentOverlayViewport } from "./geometry";
 
 const MARGIN = 8;
 const PAD = 14;
@@ -23,16 +23,16 @@ export class ShellRemoteViewLayer implements Layer {
     this.onClose();
   }
 
-  paint(_ctx: LayerContext, paintBelow: () => GrayImage): GrayImage {
+  paint(ctx: LayerContext, paintBelow: () => GrayImage): GrayImage {
     const image = paintBelow();
     const font = getDefaultSmallFont();
-    // In-process window images are already cropped and composited at the shell
-    // surface origin. Draw in that local coordinate space; applying the global
-    // optical/shell offset here would offset the content a second time.
-    const x = MARGIN;
-    const top = MARGIN;
-    const width = Math.min(image.width, visibleAppViewportRect("min").width) - MARGIN * 2;
-    const height = image.height - MARGIN * 2;
+    // Shell-owned views skip sidebar + HUD. In-process/nested hosts retain
+    // their own origin and are only clipped to their locally visible bounds.
+    const host = shellContentOverlayViewport(ctx.stack.getBaseSize());
+    const x = host.x + MARGIN;
+    const top = host.y + MARGIN;
+    const width = Math.max(1, host.width - MARGIN * 2);
+    const height = Math.max(1, host.height - MARGIN * 2);
     image.fillRoundedRect(x, top, width, height, 1, 10);
     image.drawRoundedRect(x, top, width, height, 90, 10);
     image.drawText(font, x + PAD, top + 10, truncateText(font, this.state.title, width - PAD * 2), 235);

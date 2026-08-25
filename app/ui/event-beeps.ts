@@ -21,7 +21,6 @@ export type BeepEvent =
   | "notification"
   | "assistantReply"
   | "assistantError"
-  | "assistantTool"
   | "timer"
   | "connect"
   | "disconnect";
@@ -57,13 +56,6 @@ export const BEEP_EVENTS: Record<BeepEvent, BeepDef> = {
     defaultOn: true,
     label: "Assistant error",
     description: "Low descending two-tone when a Hermes turn fails.",
-  },
-  assistantTool: {
-    effect: "tick",
-    storageKey: "beeps.event.assistantTool",
-    defaultOn: false,
-    label: "Assistant tool use",
-    description: "Tiny click each time Hermes runs a tool.",
   },
   timer: {
     effect: "alarm",

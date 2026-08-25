@@ -22,24 +22,34 @@ test("adapter snapshots only explicitly shared sessions and never exports Hermes
   assert.equal(JSON.stringify(frame).includes("unshared-private"), false);
 });
 
-test("tool and text events project bounded summaries without arguments, results, reasoning, prompts, or secrets", () => {
+test("only redacted completed assistant messages reach the timeline", () => {
   const adapter = setup();
-  const tool = adapter.ingest({ type: "tool.start", session_id: "hermes-private-session", data: {
+  const privateData = {
     tool_id: "provider-call-secret", name: "read_file", args: { path: "/private/sentinel" }, result: "sentinel-result",
-  } }, 3);
-  assert.equal(tool.type, "timeline_append");
-  assert.match(tool.row.text, /^read_file/);
-  const encoded = JSON.stringify(tool);
-  assert.equal(encoded.includes("/private/sentinel"), false);
-  assert.equal(encoded.includes("sentinel-result"), false);
-  assert.equal(encoded.includes("provider-call-secret"), false);
+  };
+  for (const type of ["reasoning.delta", "thinking.delta", "message.delta", "tool.start", "tool.progress", "tool.complete", "tool.result", "tool.future_event"]) {
+    const data = type === "message.delta" ? { redacted: true, cockpit_text: "Partial answer" } : privateData;
+    assert.equal(adapter.ingest({ type, session_id: "hermes-private-session", data }, 3), null, type);
+  }
+  assert.equal(adapter.snapshot().sessions[0].timeline.length, 0);
+  assert.equal(adapter.ingest({ type: "message.complete", session_id: "hermes-private-session", data: {
+    text: "raw assistant privacy-sentinel",
+  } }, 3), null, "raw final text fails closed");
 
-  const delta = adapter.ingest({ type: "message.delta", session_id: "hermes-private-session", data: {
-    redacted: true, cockpit_text: "Working safely",
+  const complete = adapter.ingest({ type: "message.complete", session_id: "hermes-private-session", data: {
+    redacted: true, cockpit_text: "The focused tests pass", text: "raw assistant privacy-sentinel",
   } }, 3);
-  assert.equal(delta.row.text, "Working safely");
-  assert.equal(adapter.ingest({ type: "reasoning.delta", session_id: "hermes-private-session", data: { text: "hidden" } }, 3), null);
-  assert.equal(adapter.ingest({ type: "message.delta", session_id: "unshared", data: { text: "hidden" } }, 3), null);
+  assert.equal(complete.type, "timeline_append");
+  assert.equal(complete.row.kind, "assistant");
+  assert.equal(complete.row.status, "done");
+  assert.equal(complete.row.text, "The focused tests pass");
+  const encoded = JSON.stringify(adapter.snapshot());
+  for (const secret of ["/private/sentinel", "sentinel-result", "provider-call-secret", "raw assistant privacy-sentinel", "Partial answer"]) {
+    assert.equal(encoded.includes(secret), false, secret);
+  }
+  assert.equal(adapter.ingest({ type: "message.complete", session_id: "unshared", data: {
+    redacted: true, cockpit_text: "Hidden final",
+  } }, 3), null);
 });
 
 test("clarify requests use opaque handles and stale answer races cannot reach Hermes RPC", () => {
@@ -210,6 +220,8 @@ test("local fake adapter exercises snapshot, event projection, and exact action 
     { op: "share", publicSessionId: "session_public_1234", hermesSessionId: "private-session", generation: 1, title: "Fake run" },
     { op: "snapshot" },
     { op: "event", generation: 1, event: { type: "tool.start", session_id: "private-session", data: { name: "read_file", args: { secret: "privacy-sentinel" } } } },
+    { op: "event", generation: 1, event: { type: "message.delta", session_id: "private-session", data: { redacted: true, cockpit_text: "Partial privacy-sentinel" } } },
+    { op: "event", generation: 1, event: { type: "message.complete", session_id: "private-session", data: { redacted: true, cockpit_text: "Final answer", text: "raw privacy-sentinel" } } },
   ].map((item) => JSON.stringify(item)).join("\n") + "\n";
   const run = spawnSync(process.execPath, [new URL("../tools/hermes-cockpit-fake-adapter.mjs", import.meta.url).pathname], {
     input, encoding: "utf8",
@@ -217,6 +229,10 @@ test("local fake adapter exercises snapshot, event projection, and exact action 
   assert.equal(run.status, 0, run.stderr);
   const output = run.stdout.trim().split("\n").map(JSON.parse);
   assert.equal(output[1].type, "snapshot");
-  assert.equal(output[2].type, "timeline_append");
+  assert.equal(output[2], null);
+  assert.equal(output[3], null);
+  assert.equal(output[4].type, "timeline_append");
+  assert.equal(output[4].row.kind, "assistant");
+  assert.equal(output[4].row.text, "Final answer");
   assert.equal(run.stdout.includes("privacy-sentinel"), false);
 });

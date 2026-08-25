@@ -118,3 +118,281 @@ test("MCP rejects missing authorization and close aborts connection-owned calls"
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(aborted, true);
 });
+
+test("standard MCP cancellation aborts only the exact active phone call and suppresses its late result", async () => {
+  const sent = []; const registry = new ToolRegistry(); let aborted = 0; let finish;
+  registry.registerSystemTool({
+    name: "test.cancel", description: "cancel",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  }, (_args, signal) => new Promise((resolve) => {
+    finish = resolve;
+    signal.addEventListener("abort", () => { aborted++; resolve({ ok: false, error: "aborted" }); }, { once: true });
+  }));
+  const server = new AssistantMcpServer({
+    send: (msg) => sent.push(msg), isTurnActive: () => true,
+    getTurnGeneration: () => "turn-cancel", connectionGeneration: "connection-cancel",
+    isConnectionGenerationActive: () => true, allowProactive: () => false, registry,
+  });
+  initialize(server);
+  server.handleMessage({ jsonrpc: "2.0", id: "call-1", method: "tools/call",
+    params: { name: "test.cancel", arguments: {} } }, { turnGeneration: "turn-cancel" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  server.handleMessage({ jsonrpc: "2.0", method: "notifications/cancelled",
+    params: { requestId: "call-1", reason: "user dismissed" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(aborted, 1);
+  assert.equal(sent.some((message) => message.id === "call-1"), false);
+
+  server.handleMessage({ jsonrpc: "2.0", method: "notifications/cancelled",
+    params: { requestId: "stale-call" } });
+  finish?.({ ok: true, content: "late" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(aborted, 1, "stale cancellation is inert");
+});
+
+test("direct result notifications are visible and callable only for the exact even-g2 profile", async () => {
+  const run = async (profileId) => {
+    const sent = []; const registry = new ToolRegistry(); let calls = 0;
+    registry.registerSystemTool({
+      name: "glasses.notify_result", description: "notify", proactive: true,
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    }, () => { calls++; return { ok: true, content: "acknowledged" }; });
+    const server = new AssistantMcpServer({
+      send: (msg) => sent.push(msg), isTurnActive: () => false,
+      getTurnGeneration: () => null, profileId, connectionGeneration: "connection-profile",
+      isConnectionGenerationActive: () => true, allowProactive: () => true, registry,
+    });
+    initialize(server);
+    server.handleMessage({ jsonrpc: "2.0", id: 30, method: "tools/list", params: {} });
+    const listed = sent.at(-1).result.tools.some((tool) => tool.name === "glasses.notify_result");
+    server.handleMessage({ jsonrpc: "2.0", id: 31, method: "tools/call",
+      params: { name: "glasses.notify_result", arguments: {} } }, { proactive: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { listed, calls, response: sent.find((message) => message.id === 31) };
+  };
+
+  const exact = await run("even-g2");
+  assert.equal(exact.listed, true);
+  assert.equal(exact.calls, 1);
+  assert.equal(exact.response.result.isError, false);
+
+  for (const profile of [undefined, "Even-G2", "custom"]) {
+    const denied = await run(profile);
+    assert.equal(denied.listed, false, String(profile));
+    assert.equal(denied.calls, 0, String(profile));
+    assert.equal(denied.response.result.isError, true, String(profile));
+    assert.match(denied.response.result.content[0].text, /authenticated even-g2 profile/);
+  }
+});
+
+test("Work Tasks is visible only to even-g2 and callable only from its exact active turn", async () => {
+  const run = async ({ profileId, active = true, authorization }) => {
+    const sent = []; const registry = new ToolRegistry(); let calls = 0; let contextSeen;
+    registry.registerSystemTool({
+      name: "glasses.work_board.add_task", description: "add work task",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    }, (_args, _signal, _isAllowed, context) => {
+      calls++; contextSeen = context;
+      return { ok: true, content: "saved" };
+    });
+    const server = new AssistantMcpServer({
+      send: (msg) => sent.push(msg), isTurnActive: () => active,
+      getTurnGeneration: () => active ? "turn-work-1" : null,
+      profileId, connectionGeneration: "connection-work",
+      isConnectionGenerationActive: () => true, allowProactive: () => true, registry,
+    });
+    initialize(server);
+    server.handleMessage({ jsonrpc: "2.0", id: 140, method: "tools/list", params: {} });
+    const listed = sent.at(-1).result.tools.some((tool) => tool.name === "glasses.work_board.add_task");
+    server.handleMessage({ jsonrpc: "2.0", id: 141, method: "tools/call",
+      params: { name: "glasses.work_board.add_task", arguments: {} } }, authorization);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { listed, calls, contextSeen, response: sent.find((message) => message.id === 141) };
+  };
+
+  const accepted = await run({ profileId: "even-g2", authorization: { turnGeneration: "turn-work-1" } });
+  assert.equal(accepted.listed, true);
+  assert.equal(accepted.calls, 1);
+  assert.deepEqual(accepted.contextSeen, {
+    caller: "mcp", proactive: false, profileId: "even-g2",
+    connectionGeneration: "connection-work", turnGeneration: "turn-work-1",
+  });
+  assert.equal(accepted.response.result.isError, false);
+
+  const proactive = await run({ profileId: "even-g2", active: false, authorization: { proactive: true } });
+  assert.equal(proactive.listed, true);
+  assert.equal(proactive.calls, 0);
+  assert.equal(proactive.response.result.isError, true);
+  assert.match(proactive.response.result.content[0].text, /cannot be called outside a conversation/);
+
+  for (const profileId of [undefined, "Even-G2", "custom"]) {
+    const denied = await run({ profileId, authorization: { turnGeneration: "turn-work-1" } });
+    assert.equal(denied.listed, false, String(profileId));
+    assert.equal(denied.calls, 0, String(profileId));
+    assert.equal(denied.response.result.isError, true, String(profileId));
+    assert.match(denied.response.result.content[0].text, /authenticated even-g2 profile/);
+  }
+});
+
+test("Clock tools are visible only to even-g2 and callable only from its exact active turn", async () => {
+  const run = async ({ profileId, active = true, authorization }) => {
+    const sent = []; const registry = new ToolRegistry(); const calls = [];
+    let contextSeen;
+    for (const name of ["glasses.clock.set_timer", "glasses.clock.set_alarm"]) {
+      registry.registerSystemTool({
+        name, description: "Clock fixed route",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      }, (_args, _signal, _isAllowed, context) => {
+        calls.push(name); contextSeen = context;
+        return { ok: true, content: "acknowledged" };
+      });
+    }
+    const server = new AssistantMcpServer({
+      send: (msg) => sent.push(msg), isTurnActive: () => active,
+      getTurnGeneration: () => active ? "turn-clock-1" : null,
+      profileId, connectionGeneration: "connection-clock",
+      isConnectionGenerationActive: () => true, allowProactive: () => true, registry,
+    });
+    initialize(server);
+    server.handleMessage({ jsonrpc: "2.0", id: 150, method: "tools/list", params: {} });
+    const listed = sent.at(-1).result.tools
+      .filter((tool) => tool.name.startsWith("glasses.clock."))
+      .map((tool) => tool.name);
+    server.handleMessage({ jsonrpc: "2.0", id: 151, method: "tools/call",
+      params: { name: "glasses.clock.set_timer", arguments: {} } }, authorization);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { listed, calls, contextSeen, response: sent.find((message) => message.id === 151) };
+  };
+
+  const accepted = await run({ profileId: "even-g2", authorization: { turnGeneration: "turn-clock-1" } });
+  assert.deepEqual(accepted.listed, ["glasses.clock.set_timer", "glasses.clock.set_alarm"]);
+  assert.deepEqual(accepted.calls, ["glasses.clock.set_timer"]);
+  assert.deepEqual(accepted.contextSeen, {
+    caller: "mcp", proactive: false, profileId: "even-g2",
+    connectionGeneration: "connection-clock", turnGeneration: "turn-clock-1",
+  });
+  assert.equal(accepted.response.result.isError, false);
+
+  const proactive = await run({ profileId: "even-g2", active: false, authorization: { proactive: true } });
+  assert.equal(proactive.listed.length, 2);
+  assert.equal(proactive.calls.length, 0);
+  assert.equal(proactive.response.result.isError, true);
+  assert.match(proactive.response.result.content[0].text, /cannot be called outside a conversation/);
+
+  for (const profileId of [undefined, "Even-G2", "custom"]) {
+    const denied = await run({ profileId, authorization: { turnGeneration: "turn-clock-1" } });
+    assert.deepEqual(denied.listed, [], String(profileId));
+    assert.equal(denied.calls.length, 0, String(profileId));
+    assert.equal(denied.response.result.isError, true, String(profileId));
+    assert.match(denied.response.result.content[0].text, /authenticated even-g2 profile/);
+  }
+});
+
+test("proactive opt-in is revalidated through completion and revocation reports no success", async () => {
+  const sent = []; const registry = new ToolRegistry();
+  let allowProactive = true;
+  let release;
+  let sideEffects = 0;
+  let contextSeen;
+  registry.registerSystemTool({
+    name: "glasses.notify_result", description: "notify", proactive: true,
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  }, async (_args, _signal, isAllowed, context) => {
+    contextSeen = context;
+    await new Promise((resolve) => { release = resolve; });
+    if (!isAllowed()) return { ok: false, error: "revoked before side effect" };
+    sideEffects++;
+    return { ok: true, content: "acknowledged" };
+  });
+  const server = new AssistantMcpServer({
+    send: (msg) => sent.push(msg), isTurnActive: () => false,
+    getTurnGeneration: () => null, profileId: "even-g2", connectionGeneration: "connection-live-opt-in",
+    isConnectionGenerationActive: () => true, allowProactive: () => allowProactive, registry,
+  });
+  initialize(server);
+  server.handleMessage({ jsonrpc: "2.0", id: 40, method: "tools/call",
+    params: { name: "glasses.notify_result", arguments: {} } }, { proactive: true });
+  while (!release) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(contextSeen, {
+    caller: "mcp", proactive: true, profileId: "even-g2",
+    connectionGeneration: "connection-live-opt-in", turnGeneration: null,
+  });
+  allowProactive = false;
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(sideEffects, 0);
+  const response = sent.find((message) => message.id === 40);
+  assert.equal(response.result.isError, true);
+  assert.match(response.result.content[0].text, /disabled|revoked/);
+});
+
+test("a direct notification durably queued before opt-out keeps its truthful queued receipt", async () => {
+  const sent = [];
+  const registry = new ToolRegistry();
+  let allowProactive = true;
+  let durablePending = 0;
+  registry.registerSystemTool({
+    name: "glasses.notify_result", description: "notify", proactive: true,
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  }, (_args, _signal, isAllowed) => {
+    assert.equal(isAllowed(), true, "authorization is checked adjacent to the durable write");
+    durablePending++;
+    // Models the Settings callback racing immediately after the synchronous
+    // encrypted save, before the MCP continuation sends its reply.
+    allowProactive = false;
+    return { ok: true, content: JSON.stringify({ status: "queued", operation_id: "race-1" }) };
+  });
+  const server = new AssistantMcpServer({
+    send: (message) => sent.push(message), isTurnActive: () => false,
+    getTurnGeneration: () => null, profileId: "even-g2", connectionGeneration: "connection-commit-race",
+    isConnectionGenerationActive: () => true, allowProactive: () => allowProactive, registry,
+  });
+  initialize(server);
+  server.handleMessage({ jsonrpc: "2.0", id: 45, method: "tools/call",
+    params: { name: "glasses.notify_result", arguments: {} } }, { proactive: true });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(durablePending, 1);
+  const response = sent.find((message) => message.id === 45);
+  assert.equal(response.result.isError, false,
+    "a completed durable commit must not be rewritten as definite not-committed");
+  assert.deepEqual(JSON.parse(response.result.content[0].text), {
+    status: "queued", operation_id: "race-1",
+  });
+});
+
+test("proactive opt-in preflight and six-per-minute rate gate remain enforced", async () => {
+  const makeServer = (allowed) => {
+    const sent = []; const registry = new ToolRegistry(); let calls = 0;
+    registry.registerSystemTool({
+      name: "test.proactive", description: "proactive", proactive: true,
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    }, () => { calls++; return { ok: true, content: "done" }; });
+    const server = new AssistantMcpServer({
+      send: (msg) => sent.push(msg), isTurnActive: () => false,
+      getTurnGeneration: () => null, profileId: "even-g2", connectionGeneration: "connection-rate",
+      isConnectionGenerationActive: () => true, allowProactive: () => allowed, registry,
+    });
+    initialize(server);
+    return { server, sent, calls: () => calls };
+  };
+
+  const off = makeServer(false);
+  off.server.handleMessage({ jsonrpc: "2.0", id: 50, method: "tools/call",
+    params: { name: "test.proactive", arguments: {} } }, { proactive: true });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(off.calls(), 0);
+  assert.match(off.sent.find((message) => message.id === 50).result.content[0].text, /disabled in Settings/);
+
+  const limited = makeServer(true);
+  for (let index = 0; index < 7; index++) {
+    const id = 60 + index;
+    limited.server.handleMessage({ jsonrpc: "2.0", id, method: "tools/call",
+      params: { name: "test.proactive", arguments: {} } }, { proactive: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  assert.equal(limited.calls(), 6);
+  const seventh = limited.sent.find((message) => message.id === 66);
+  assert.equal(seventh.result.isError, true);
+  assert.match(seventh.result.content[0].text, /rate limit/);
+});

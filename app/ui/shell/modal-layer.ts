@@ -33,6 +33,7 @@ export function modalRect(): { x: number; y: number; width: number; height: numb
  */
 export class ShellModalLayer implements Layer {
   private readonly stack: LayerStack;
+  private disposed = false;
 
   constructor(baseLayer: Layer, actions: LayerActions) {
     this.stack = new LayerStack(baseLayer, actions, {
@@ -53,5 +54,13 @@ export class ShellModalLayer implements Layer {
 
   async handleInput(event: DashboardInputEvent, ctx: LayerContext): Promise<void> {
     await this.stack.handleInput(event);
+  }
+
+  /** Tear down nested overlays and their base exactly once with the outer modal. */
+  onRemoved(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.stack.clearToBase();
+    this.stack.notifyBaseRemoved();
   }
 }

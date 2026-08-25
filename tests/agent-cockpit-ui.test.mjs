@@ -111,6 +111,23 @@ test("offline state makes every mutation inert", () => {
   assert.deepEqual(calls, []);
 });
 
+test("detail view never renders tool rows even when supplied outside the store", () => {
+  const { model } = setup();
+  model.update({ ...state, sessions: [{
+    ...sessions[0],
+    timeline: [
+      { id: "timeline_assistant_1", kind: "assistant", text: "Earlier final", status: "done" },
+      { id: "timeline_tool_hidden", kind: "tool", text: "private_tool · running", status: "running" },
+      { id: "timeline_assistant_2", kind: "assistant", text: "Latest final", status: "done" },
+    ],
+  }] });
+  model.click();
+  const screen = model.screen();
+  assert.equal(screen.mode, "detail");
+  assert.deepEqual(screen.body, ["ASSISTANT ✓ Earlier final", "ASSISTANT ✓ Latest final"]);
+  assert.equal(screen.body.join(" ").includes("private_tool"), false);
+});
+
 test("long active lists keep the selected row inside a bounded viewport", () => {
   const { model } = setup();
   const many = Array.from({ length: 24 }, (_, index) => ({
@@ -163,20 +180,37 @@ test("question choices and detail actions keep bounded visible viewports", () =>
   model.click();
   screen = model.screen();
   assert.ok(screen.body.length <= 3);
+  assert.equal(screen.body.some((line) => line.includes("Tool row")), false);
   assert.ok(screen.visibleRows <= 3);
 });
 
-test("native app is launcher-registered, subscribes to the main-isolate controller, and keeps voice steering reviewed", () => {
+test("cockpit is launcher registered with a dedicated Hermes icon and reviewed controller bindings", () => {
   const apps = readFileSync(new URL("../app/apps/all-apps.ts", import.meta.url), "utf8");
   const index = readFileSync(new URL("../app/apps/agent-cockpit/index.ts", import.meta.url), "utf8");
   const cockpit = readFileSync(new URL("../app/apps/agent-cockpit/agent-cockpit-app.ts", import.meta.url), "utf8");
   const windows = readFileSync(new URL("../app/ui/shell/in-process-window.ts", import.meta.url), "utf8");
+  const icons = readFileSync(new URL("../app/graphics/icons.ts", import.meta.url), "utf8");
   assert.match(apps, /import agentCockpitApp from "\.\/agent-cockpit"/);
-  assert.match(apps, /terminalApp,\s*\n\s*agentCockpitApp,/);
+  assert.match(apps, /terminalApp,\s*\n\s*agentCockpitApp,\s*\n\s*workTasksApp,/);
   assert.match(index, /appId: "agent-cockpit"/);
+  assert.match(index, /title: "Hermes Cockpit"/);
+  assert.match(index, /icon: "hermes-h"/);
+  assert.match(cockpit, /icon: "hermes-h"/);
+  assert.doesNotMatch(index, /icon: "terminal"/);
+  assert.match(icons, /"hermes-h":\s*'[^']*M6 4v16[^']*M18 4v16[^']*M6 12h12/);
   assert.match(cockpit, /assistantBridge\.cockpit\.onChange/);
   assert.match(cockpit, /reviewSteer\(text\)/);
   assert.match(cockpit, /event\.type === "double-click"[\s\S]*this\.model\.back\(\)/);
   assert.match(windows, /receiveTextInput\?: \(text: string\) => void/);
   assert.match(windows, /receiveTextInput: options\.receiveTextInput/);
+});
+
+test("an authenticated empty snapshot is online without inventing Hermes sessions", () => {
+  const { model } = setup();
+  model.update({ ...state, sessions: [] });
+  const screen = model.screen();
+  assert.equal(screen.mode, "active");
+  assert.match(screen.body.join(" "), /Connected/);
+  assert.match(screen.body.join(" "), /No Hermes sessions are currently shared/);
+  assert.equal(screen.rows.length, 0);
 });

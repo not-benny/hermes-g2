@@ -17,7 +17,7 @@ const RECONCILE_INTERVAL_MS = 400;
 
 /**
  * Accelerometer demo: turns the IMU stream on while this page is visible (the
- * Debug tests window is foregrounded and the screen is on), off otherwise, and
+ * Settings window is foregrounded and the screen is on), off otherwise, and
  * shows the latest x/y/z reading with a simple per-axis bar.
  *
  * The IMU stream is experimental — the firmware may never populate it — so the

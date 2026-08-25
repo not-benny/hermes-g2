@@ -20,6 +20,11 @@ test("phone UI exposes safe live glasses controls", () => {
   assert.match(controlsPage, /Blank screen/);
   assert.match(controlsPage, /Refresh wear status/);
   assert.match(controlsPage, /Test voice input/);
+  assert.match(controlsPage, /checked="\{\{ assistantSkipConfirmationChecked \}\}"/);
+  assert.match(controlsPage, /Send to assistant without confirming/);
+  assert.match(controlsModel, /assistantSkipConfirmationSetting/);
+  assert.match(controlsModel, /get assistantSkipConfirmationChecked\(\): boolean/);
+  assert.match(controlsModel, /set assistantSkipConfirmationChecked\(value: boolean\)/);
   for (const method of [
     "wakeGlassesScreen",
     "sleepGlassesScreen",
@@ -68,10 +73,12 @@ test("notification filtering applies to the mirrored list, tray, and alerts", ()
   assert.match(controlsModel, /onNotificationFilterModeTap/);
   assert.match(controlsModel, /onOpenNotificationAppsTap/);
   assert.match(controlsPage, /Manage notification apps/);
-  assert.match(appsModel, /onNotificationAppTap/);
+  assert.match(appsModel, /onToggleTap/);
+  assert.match(appsModel, /toggleAllowedNotificationPackage/);
   assert.match(appsModel, /ObservableArray/);
   assert.match(appsPage, /<ListView/);
-  assert.match(appsPage, /itemTap="\{\{ onNotificationAppTap \}\}"/);
+  assert.match(appsPage, /tap="\{\{ onToggleTap \}\}"/);
+  assert.doesNotMatch(appsPage, /itemTap=/);
   assert.match(notificationBridge, /readInstalledNotificationApps/);
   assert.match(notificationService, /NOTIFICATION_FILTER_MODE_KEY/);
   assert.match(notificationService, /NOTIFICATION_ALLOWED_PACKAGES_KEY/);

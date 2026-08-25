@@ -8,16 +8,21 @@ import { readPhoneBatteryState } from "../../native/phone-battery";
 import { readPhoneSignalLevel } from "../../native/phone-signal";
 import { noteStaleDataUsed, renderPassAllowsStaleData } from "../../util/render-freshness";
 import { renderIcon, renderIconWithGlyph, type IconName } from "../../graphics/icons";
+import { truncateText } from "../../graphics/textwrap";
 import { batteryDisplayModeSetting, brightnessSetting, timeFormatSetting } from "../dashboard-settings";
 import { Layer } from "../layers";
 import { scrollToKeepSelectionVisible } from "../menu";
+import { fitHudRowItemWidths, hudNotificationIconPosition, layoutHudNotifications } from "./hud-layout";
+import { paintHudPixelClock } from "./hud-pixel-clock";
 import {
   MIN_WINDOW_HEIGHT,
   minWindowTop,
   SHELL_OPAQUE_BLACK,
   SIDEBAR_COLUMN_WIDTH,
   SIDEBAR_COLUMNS,
+  SIDEBAR_VISIBLE_COLUMNS,
   SIDEBAR_WIDTH,
+  G2_VISIBLE_WIDTH,
   TOP_BAR_HEIGHT,
   windowTop,
   type WindowHeightMode,
@@ -25,7 +30,7 @@ import {
 
 const ICON_SIZE = 32;
 const ICON_MARGIN_X = ((SIDEBAR_COLUMN_WIDTH - ICON_SIZE) / 2) | 0;
-/** Column index of the rightmost sidebar column (the one that fills first). */
+/** The only rendered tab column, anchored against app content at x=36..71. */
 const FIRST_COLUMN = SIDEBAR_COLUMNS - 1;
 const ICON_SPACING = 8;
 const ICON_STRIDE = ICON_SIZE + ICON_SPACING;
@@ -37,16 +42,22 @@ const ROWS_PER_COLUMN = Math.max(
   ((MIN_WINDOW_HEIGHT - TOP_BAR_HEIGHT - 2 * LIST_MARGIN + ICON_SPACING) / ICON_STRIDE) | 0,
 );
 
-/**
- * Whether the sidebar's left (overflow) column holds any icons. Icons fill
- * the right column first; scrolling never shows fewer than a full right
- * column, so the left column is populated exactly when there are more
- * windows than one column holds.
- */
-export function sidebarLeftColumnUsed(windowCount: number): boolean {
-  return windowCount > ROWS_PER_COLUMN;
+/** The optically hidden x=0..35 column is never populated; tabs scroll instead. */
+export function sidebarLeftColumnUsed(_windowCount: number): boolean {
+  return false;
 }
 const NOTIFICATION_ICON_SIZE = 24;
+const NOTIFICATION_ICON_GAP = 4;
+const HUD_VISIBLE_GUTTER = Math.round((G2_LENS_WIDTH - G2_VISIBLE_WIDTH) / 2);
+/** Right edge (exclusive) of pixels that actually reach the wearer. */
+export const HUD_VISIBLE_RIGHT = G2_LENS_WIDTH - HUD_VISIBLE_GUTTER;
+const HUD_CONTENT_RIGHT = HUD_VISIBLE_RIGHT - 8;
+const HUD_ROW_HEIGHT = TOP_BAR_HEIGHT / 2;
+const HUD_ITEM_GAP = 10;
+const CLOCK_BLOCK_LEFT = SIDEBAR_WIDTH + 10;
+const CLOCK_BLOCK_WIDTH = 150;
+/** First x available to mirrored phone-notification icons. */
+export const HUD_NOTIFICATION_LEFT = CLOCK_BLOCK_LEFT + CLOCK_BLOCK_WIDTH + 10;
 const BORDER_VALUE = 40;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -63,12 +74,14 @@ export type ShellChromeState = {
   windows: ShellChromeWindow[];
   selectedIndex: number;
   focus: "sidebar" | "window";
-  /** The selected tab is picked up for reordering (scroll moves it, tap drops). */
+  /** The selected tab is picked up for moving (scroll moves it, tap drops). */
   reordering: boolean;
-  /** Quick-close mode: the selected card shows a close marker; a tap closes it. */
+  /** Unified Window Management mode: select/close or pick/move the tab. */
   closing: boolean;
-  /** Action a close-mode tap performs for the selected sidebar item. */
+  /** Action a Window Management tap performs for the selected sidebar item. */
   closingAction: "close" | "hide" | "pinned";
+  /** Whether a second hold can pick the selected card up for moving. */
+  managementCanMove: boolean;
   /** A configured R1 remains represented even before a battery reply arrives. */
   ringConfigured: boolean;
   /** While reordering, whether the picked-up tab can still move up / down. */
@@ -86,17 +99,30 @@ export type ShellChromeState = {
     ring: number | null;
     ringCharging: boolean | null;
   };
-  /** App-provided tray images, drawn between notification icons and batteries. */
+  /** App-provided persistent tray state, packed after essential top-row data. */
   trayIcons: GrayImage[];
   /**
-   * Hermes Agent bridge status glyph, just left of the brightness badge. Only
-   * meaningful (and only drawn) when the external backend is selected and a
-   * bridge host is configured; `show` gates the glyph and its spacing.
+   * Explicit Hermes gateway identity/state badge. External mode shows it even
+   * before a host is configured, so a missing setup is visible rather than
+   * silently indistinguishable from the on-phone backend.
    */
   bridge: {
     show: boolean;
+    /** An external backend was selected but may still need a host configured. */
+    configured: boolean;
     phase: AssistantBridgePhase;
   };
+};
+
+type HudItem = {
+  image: GrayImage;
+};
+
+type BatteryKind = "phone" | "glasses" | "ring";
+type BatteryHudState = {
+  kind: BatteryKind;
+  percent: number | null;
+  charging: boolean;
 };
 
 /** Placeholder window icon: rounded outline with a single letter. */
@@ -174,23 +200,21 @@ export class ShellChromeLayer implements Layer {
     const bandBottom = bandTop + MIN_WINDOW_HEIGHT;
     image.fillRect(0, bandTop, SIDEBAR_WIDTH, MIN_WINDOW_HEIGHT, SHELL_OPAQUE_BLACK);
 
-    // Scroll the icon list to keep the selection visible; chevrons mark
-    // windows off-screen above/below. Icons fill the right column top to
-    // bottom, then overflow into the left one, so a visible slot's column is
-    // decided by its position within the scrolled window.
+    // Scroll a single optically visible icon column. The logical left column
+    // is almost entirely outside x=32..607, so it must never receive tabs.
+    // Chevrons mark windows off-screen above/below.
     const listTop = bandTop + TOP_BAR_HEIGHT + LIST_MARGIN + state.sidebarBounceY;
     const itemStride = ICON_STRIDE;
     const rowsPerColumn = ROWS_PER_COLUMN;
-    const visibleCount = rowsPerColumn * SIDEBAR_COLUMNS;
+    const visibleCount = rowsPerColumn * SIDEBAR_VISIBLE_COLUMNS;
     const count = state.windows.length;
     this.scrollRow = scrollToKeepSelectionVisible(this.scrollRow, state.selectedIndex, visibleCount, count);
     const lastVisible = Math.min(count, this.scrollRow + visibleCount);
     const slotOf = (index: number) => {
       const position = index - this.scrollRow;
-      const columnsFromRight = (position / rowsPerColumn) | 0;
       return {
-        column: FIRST_COLUMN - columnsFromRight,
-        y: listTop + (position % rowsPerColumn) * itemStride,
+        column: FIRST_COLUMN,
+        y: listTop + position * itemStride,
       };
     };
 
@@ -198,12 +222,11 @@ export class ShellChromeLayer implements Layer {
     // line bulges right around the selected icon (rounded on the left, open
     // to the main area on the right), so the separator is drawn with a gap
     // there. When the sidebar has focus, the diversion is filled white and
-    // the icon drawn inverted. Only the right column touches the separator;
-    // a selected overflow icon gets a self-contained box instead.
+    // the icon drawn inverted.
     const sep = SIDEBAR_WIDTH - 1;
     const selVisible = state.selectedIndex >= this.scrollRow && state.selectedIndex < lastVisible;
     const selSlot = selVisible ? slotOf(state.selectedIndex) : null;
-    const selTabTop = selSlot && selSlot.column === FIRST_COLUMN ? selSlot.y - 2 : null;
+    const selTabTop = selSlot ? selSlot.y - 2 : null;
     if (selTabTop !== null) {
       image.drawLine(sep, bandTop, sep, selTabTop, BORDER_VALUE);
       image.drawLine(sep, selTabTop + ICON_SIZE + 4, sep, bandBottom - 1, BORDER_VALUE);
@@ -218,12 +241,8 @@ export class ShellChromeLayer implements Layer {
       const x = columnLeft + ICON_MARGIN_X;
       const selected = index === state.selectedIndex;
       const focused = selected && state.focus === "sidebar";
-      if (selected && column === FIRST_COLUMN) {
+      if (selected) {
         drawSelectionTab(image, columnLeft, y - 2, y + ICON_SIZE + 2, focused);
-      } else if (selected) {
-        // Spans the full column: only 2px of margin flanks a 32px icon in a
-        // 36px column, so anything wider would clip at the screen edge.
-        drawSelectionBox(image, columnLeft, y - 2, SIDEBAR_COLUMN_WIDTH, ICON_SIZE + 4, focused);
       }
       window.drawIcon(image, x, y, ICON_SIZE, focused);
       if (window.attention) {
@@ -233,10 +252,10 @@ export class ShellChromeLayer implements Layer {
     }
 
     if (this.scrollRow > 0) {
-      drawChevron(image, SIDEBAR_WIDTH / 2, bandTop + TOP_BAR_HEIGHT + 6, -1);
+      drawChevron(image, SIDEBAR_WIDTH - SIDEBAR_COLUMN_WIDTH / 2, bandTop + TOP_BAR_HEIGHT + 6, -1);
     }
     if (lastVisible < count) {
-      drawChevron(image, SIDEBAR_WIDTH / 2, bandBottom - 6, 1);
+      drawChevron(image, SIDEBAR_WIDTH - SIDEBAR_COLUMN_WIDTH / 2, bandBottom - 6, 1);
     }
 
     // Reorder affordance: the picked-up tab (always the selected one) shows
@@ -252,20 +271,43 @@ export class ShellChromeLayer implements Layer {
       }
     }
 
-    // Quick-close mode: a bold X over the selected card signals a tap closes it.
+    // Window Management marker: high-contrast action graphics make the mode
+    // legible even when the 56px top-bar copy is outside the optical sweet
+    // spot. X=close, a down-chevron=hide, a lock=protected/pinned, and the
+    // existing paired chevrons=move.
     if (state.closing && selSlot) {
       const cx = selSlot.column * SIDEBAR_COLUMN_WIDTH + ICON_MARGIN_X + (ICON_SIZE >> 1);
       const cy = selSlot.y + (ICON_SIZE >> 1);
-      const r = (ICON_SIZE >> 1) - 1;
-      for (const dx of [0, 1]) {
-        image.drawLine(cx - r + dx, cy - r, cx + r + dx, cy + r, 255);
-        image.drawLine(cx - r + dx, cy + r, cx + r + dx, cy - r, 255);
+      const glyphRadius = 8;
+      // Focused management tabs are white, so reserve a black badge before
+      // drawing the white glyph; otherwise the close marker disappears into
+      // the selected card fill.
+      image.fillRoundedRect(cx - 12, cy - 12, 24, 24, SHELL_OPAQUE_BLACK, 4);
+      if (state.reordering) {
+        // Keep a redundant move glyph inside the badge. The outer chevrons
+        // communicate available direction; this double arrow identifies the
+        // selected card as picked up even when it cannot move farther.
+        drawChevron(image, cx, cy - 4, -1, 255);
+        drawChevron(image, cx, cy + 4, 1, 255);
+        drawChevron(image, cx, selSlot.y - 2, -1, 255);
+        drawChevron(image, cx, selSlot.y + ICON_SIZE + 3, 1, 255);
+      } else if (state.closingAction === "close") {
+        for (const dx of [0, 1, 2]) {
+          image.drawLine(cx - glyphRadius + dx, cy - glyphRadius, cx + glyphRadius + dx, cy + glyphRadius, 255);
+          image.drawLine(cx - glyphRadius + dx, cy + glyphRadius, cx + glyphRadius + dx, cy - glyphRadius, 255);
+        }
+      } else if (state.closingAction === "hide") {
+        image.drawLine(cx - glyphRadius + 2, cy, cx + glyphRadius - 2, cy, 255);
+        drawChevron(image, cx, cy + 3, 1, 255);
+      } else {
+        image.drawRect(cx - 6, cy - 4, 12, 10, 255);
+        image.drawLine(cx - 3, cy - 4, cx - 3, cy - 8, 255);
+        image.drawLine(cx + 3, cy - 4, cx + 3, cy - 8, 255);
       }
     }
   }
 
   private drawTopBar(image: GrayImage, state: ShellChromeState): void {
-    const font = getDefaultMediumFont();
     // The bar sits at the top edge of the foreground window: the screen top
     // for a max-height window, the min-height band otherwise. It moves when
     // the foreground switches to a window of a different height.
@@ -274,37 +316,69 @@ export class ShellChromeLayer implements Layer {
     image.drawLine(SIDEBAR_WIDTH, barTop + TOP_BAR_HEIGHT - 1, G2_LENS_WIDTH - 1, barTop + TOP_BAR_HEIGHT - 1, BORDER_VALUE);
 
     if (state.closing) {
+      const titleFont = getDefaultMediumFont();
       const hintFont = getDefaultSmallFont();
-      const hint = state.closingAction === "hide"
-        ? "HIDE HEALTH   swipe choose   tap hide   dbl exit"
-        : state.closingAction === "pinned"
-          ? "PINNED APP   swipe choose   cannot close   dbl exit"
-          : "CLOSE MODE   swipe choose   tap close   dbl exit";
-      const hintY = barTop + Math.max(0, ((TOP_BAR_HEIGHT - hintFont.lineHeight) / 2) | 0);
-      image.drawText(hintFont, SIDEBAR_WIDTH + 10, hintY, hint, 235);
+      const selectedTitle = state.windows[state.selectedIndex]?.title ?? "window";
+      const action = state.reordering
+        ? "UP/DN move   TAP drop"
+        : state.closingAction === "hide"
+          ? "HIDE   UP/DN choose   TAP hide"
+          : state.closingAction === "pinned"
+            ? "PINNED   UP/DN choose"
+            : state.managementCanMove
+              ? "UP/DN choose   TAP close   HOLD move"
+              : "UP/DN choose   TAP close";
+      // Two-line high-contrast banner: the mode is always explicit, while the
+      // selected title/action explains what the next ring gesture will do.
+      image.drawText(titleFont, SIDEBAR_WIDTH + 10, barTop + 5, "WINDOW MANAGEMENT", 255);
+      image.drawText(
+        hintFont,
+        SIDEBAR_WIDTH + 10,
+        barTop + 5 + titleFont.lineHeight + 2,
+        truncateText(
+          hintFont,
+          `${selectedTitle} · ${action} · DBL exit`,
+          HUD_CONTENT_RIGHT - (SIDEBAR_WIDTH + 10),
+        ),
+        235,
+      );
       return;
     }
 
     const now = new Date();
-    const clock = `${WEEKDAYS[now.getDay()]} ${now.getDate()} ${MONTHS[now.getMonth()]} ` +
-      formatClockTime(now);
-    const clockX = SIDEBAR_WIDTH + 10;
-    const textY = barTop + Math.max(0, ((TOP_BAR_HEIGHT - font.lineHeight) / 2) | 0);
-    image.drawText(font, clockX, textY, clock, 210);
+    const clockRight = drawPixelClock(image, now, barTop);
+    const persistentLeft = this.drawPersistentHud(image, state, barTop);
 
-    const batteryLeft = this.drawTopBarBatteries(image, state, barTop);
-    const trayLeft = drawTrayIcons(image, state.trayIcons, batteryLeft, barTop);
+    // A full-height rule gives phone notifications their own bounded region;
+    // they can no longer drift under heart-rate, radio, brightness, Hermes, or
+    // battery indicators when either side grows.
+    const notificationLayout = layoutHudNotifications({
+      clockRight,
+      preferredNotificationLeft: HUD_NOTIFICATION_LEFT,
+      persistentLeft,
+      visibleRight: HUD_VISIBLE_RIGHT,
+      iconSize: NOTIFICATION_ICON_SIZE,
+      iconGap: NOTIFICATION_ICON_GAP,
+    });
+    const { separatorX } = notificationLayout;
+    image.drawLine(separatorX, barTop + 5, separatorX, barTop + TOP_BAR_HEIGHT - 7, 95);
+    image.drawLine(separatorX + 1, barTop + 9, separatorX + 1, barTop + TOP_BAR_HEIGHT - 11, 35);
 
-    const iconsX = clockX + font.measureText(clock) + 16;
-    const maxIcons = Math.max(0, ((trayLeft - 8 - iconsX) / (NOTIFICATION_ICON_SIZE + 4)) | 0);
+    const maxIcons = notificationLayout.maxIcons;
     if (maxIcons > 0) {
       const { icons, stale } = readActiveNotificationIcons(maxIcons, renderPassAllowsStaleData());
       if (stale) {
         noteStaleDataUsed();
       }
-      const iconY = barTop + (((TOP_BAR_HEIGHT - NOTIFICATION_ICON_SIZE) / 2) | 0);
       for (let index = 0; index < icons.length; index++) {
-        image.bitBlt(icons[index]!, iconsX + index * (NOTIFICATION_ICON_SIZE + 4), iconY, {
+        const position = hudNotificationIconPosition(notificationLayout, index, {
+          barTop,
+          rowHeight: HUD_ROW_HEIGHT,
+          iconSize: NOTIFICATION_ICON_SIZE,
+          iconGap: NOTIFICATION_ICON_GAP,
+        });
+        if (!position) break;
+        image.bitBlt(icons[index]!, position.x, position.y, {
           transparentZero: true,
         });
       }
@@ -312,19 +386,15 @@ export class ShellChromeLayer implements Layer {
   }
 
   /**
-   * Battery indicators for the phone, the G2 and the ring, right-aligned in
-   * the top bar, following the dashboard card's icon/percentage setting. Each
-   * gauge is labelled with a small device glyph (phone / glasses / ring). A
-   * brightness sun sits just left of the block: it holds the level percentage
-   * when a fixed brightness is set, or "A" when the ambient sensor drives it.
-   * Returns the left edge of the block.
+   * Persistent HUD data, packed into two independent right-aligned rows. The
+   * top row carries environment/link state; the bottom row carries live body
+   * and battery state. Returns the leftmost painted x so the caller can place
+   * the hard phone-notification divider without either region overlapping.
    */
-  private drawTopBarBatteries(image: GrayImage, state: ShellChromeState, barTop: number): number {
+  private drawPersistentHud(image: GrayImage, state: ShellChromeState, barTop: number): number {
     const font = getDefaultSmallFont();
     const percentageMode = batteryDisplayModeSetting.get() === "percentage";
-    type BatteryKind = "phone" | "glasses" | "ring";
-    type BatteryItem = { kind: BatteryKind; percent: number | null; charging: boolean };
-    const items: BatteryItem[] = [];
+    const items: BatteryHudState[] = [];
     const phone = readPhoneBatteryState();
     if (phone.battery !== null && Number.isFinite(phone.battery)) {
       items.push({ kind: "phone", percent: phone.battery, charging: Boolean(phone.charging) });
@@ -339,67 +409,42 @@ export class ShellChromeLayer implements Layer {
       items.push({ kind: "ring", percent: ringPercent, charging: Boolean(state.battery.ringCharging) });
     }
 
-    const centerY = (height: number) => barTop + Math.max(0, ((TOP_BAR_HEIGHT - height) / 2) | 0);
-    const labelGap = 5;
-    const itemGap = 12;
-    const textY = barTop + Math.max(0, ((TOP_BAR_HEIGHT - font.lineHeight) / 2) | 0);
-    let x = G2_LENS_WIDTH - 8;
-    for (let index = items.length - 1; index >= 0; index--) {
-      const item = items[index]!;
-      const percentText = item.percent === null ? "--" : `${Math.max(0, Math.min(100, Math.round(item.percent)))}%`;
-      const valueWidth = percentageMode || item.percent === null ? font.measureText(percentText) : BATTERY_ICON_WIDTH;
-      const labelIcon = batteryLabelIcon(item.kind);
-      x -= labelIcon.width + labelGap + valueWidth;
-      image.bitBlt(labelIcon, x, centerY(labelIcon.height), { transparentZero: true });
-      const valueX = x + labelIcon.width + labelGap;
-      if (percentageMode || item.percent === null) {
-        if (item.charging) {
-          // Inverted text marks charging, matching the dashboard card.
-          image.fillRect(valueX - 2, textY - 1, valueWidth + 4, font.lineHeight + 2, 255);
-          image.drawText(font, valueX, textY, percentText, 1);
-        } else {
-          image.drawText(font, valueX, textY, percentText, 200);
-        }
-      } else {
-        const icon = drawBattery(item.percent, item.charging);
-        image.bitBlt(icon, valueX, centerY(icon.height), { transparentZero: true });
-      }
-      x -= itemGap;
-    }
-    let leftEdge = items.length ? x + itemGap : G2_LENS_WIDTH;
-
-    // Brightness sun, just left of the battery block: the level percentage for
-    // a fixed brightness, or "A" when the ambient sensor is driving it.
-    const brightness = brightnessSetting.get();
-    const badge = drawBrightnessBadge(font, brightness === "auto" ? "A" : brightness);
-    const badgeGap = items.length ? 10 : 8;
-    leftEdge -= badgeGap + badge.width;
-    image.bitBlt(badge, leftEdge, centerY(badge.height), { transparentZero: true });
-
-    // Hermes Agent bridge status, just left of the brightness sun, matching its
-    // spacing. Drawn only when the external backend is configured; otherwise no
-    // glyph and no reserved gap.
+    const topRow: HudItem[] = [];
     if (state.bridge.show) {
-      const bridge = bridgeStatusIcon(state.bridge.phase);
-      leftEdge -= 10 + bridge.width;
-      image.bitBlt(bridge, leftEdge, centerY(bridge.height), { transparentZero: true });
+      topRow.push({ image: makeBridgeHudItem(font, state.bridge) });
     }
-
     const signalLevel = readPhoneSignalLevel();
     if (signalLevel !== null) {
-      const signalWidth = 22;
-      leftEdge -= 10 + signalWidth;
-      drawPhoneSignalBars(image, signalLevel, leftEdge, centerY(14));
+      const signal = new GrayImage(22, 14, 0);
+      drawPhoneSignalBars(signal, signalLevel, 0, 0);
+      topRow.push({ image: signal });
+    }
+    const brightness = brightnessSetting.get();
+    const badge = drawBrightnessBadge(font, brightness === "auto" ? "A" : brightness);
+    topRow.push({ image: badge });
+    // App-owned tray state belongs with persistent data, never in the mirrored
+    // phone-notification region. It is lowest priority if the row is saturated.
+    for (let index = state.trayIcons.length - 1; index >= 0; index--) {
+      topRow.push({ image: state.trayIcons[index]! });
     }
 
-    // Ring heart rate, leftmost in the block: a small heart plus the live bpm,
-    // or "--" when there is no live reading (the heart stays put either way).
     const hr = state.ringHeartRate;
     const bpmText = hr !== null && Number.isFinite(hr) ? String(Math.max(0, Math.min(255, Math.round(hr)))) : "--";
-    leftEdge -= 10 + HEART_ICON.width + labelGap + font.measureText(bpmText);
-    image.bitBlt(HEART_ICON, leftEdge, centerY(HEART_ICON.height), { transparentZero: true });
-    image.drawText(font, leftEdge + HEART_ICON.width + labelGap, textY, bpmText, 200);
-    return leftEdge;
+    const bottomRow: HudItem[] = [{ image: makeHeartRateHudItem(font, bpmText) }];
+    // Glasses state is the most relevant battery datum on the glasses, then
+    // ring and phone. Heart rate remains first so overflow never drops it.
+    for (const kind of ["glasses", "ring", "phone"] as const) {
+      const item = items.find((candidate) => candidate.kind === kind);
+      if (item) bottomRow.push({ image: makeBatteryHudItem(font, item, percentageMode) });
+    }
+
+    // Leave at least one phone-icon column between the clock and persistent
+    // data. Essential items are ordered first; only surplus tray icons can be
+    // omitted if an app attempts to overfill the optical raster.
+    const rowMinLeft = HUD_NOTIFICATION_LEFT + NOTIFICATION_ICON_SIZE + 16;
+    const topLeft = drawHudRow(image, topRow, HUD_CONTENT_RIGHT, barTop, rowMinLeft);
+    const bottomLeft = drawHudRow(image, bottomRow, HUD_CONTENT_RIGHT, barTop + HUD_ROW_HEIGHT, rowMinLeft);
+    return Math.min(topLeft, bottomLeft);
   }
 }
 
@@ -413,20 +458,79 @@ function drawPhoneSignalBars(image: GrayImage, level: number, x: number, y: numb
   }
 }
 
-/**
- * Draw app tray icons right-to-left, ending just left of the battery block;
- * returns the left edge of the tray region.
- */
-function drawTrayIcons(image: GrayImage, trayIcons: GrayImage[], rightEdge: number, barTop: number): number {
-  let x = rightEdge;
-  for (let index = trayIcons.length - 1; index >= 0; index--) {
-    const icon = trayIcons[index]!;
-    x -= icon.width + 10;
-    image.bitBlt(icon, x, barTop + Math.max(0, ((TOP_BAR_HEIGHT - icon.height) / 2) | 0), {
-      transparentZero: true,
-    });
+/** Make one self-contained battery datum so row packing is overlap-proof. */
+function makeBatteryHudItem(font: ReturnType<typeof getDefaultSmallFont>, item: BatteryHudState,
+  percentageMode: boolean): GrayImage {
+  const percentText = item.percent === null ? "--" : `${Math.max(0, Math.min(100, Math.round(item.percent)))}%`;
+  const valueWidth = percentageMode || item.percent === null ? font.measureText(percentText) : BATTERY_ICON_WIDTH;
+  const labelIcon = batteryLabelIcon(item.kind);
+  const labelGap = 5;
+  const height = Math.max(font.lineHeight + 2, labelIcon.height, 16);
+  const image = new GrayImage(labelIcon.width + labelGap + valueWidth, height, 0);
+  image.bitBlt(labelIcon, 0, Math.max(0, ((height - labelIcon.height) / 2) | 0), { transparentZero: true });
+  const valueX = labelIcon.width + labelGap;
+  if (percentageMode || item.percent === null) {
+    const textY = Math.max(0, ((height - font.lineHeight) / 2) | 0);
+    if (item.charging) {
+      image.fillRect(valueX - 2, textY - 1, valueWidth + 4, font.lineHeight + 2, 255);
+      image.drawText(font, valueX, textY, percentText, SHELL_OPAQUE_BLACK);
+    } else {
+      image.drawText(font, valueX, textY, percentText, 200);
+    }
+  } else {
+    const gauge = drawBattery(item.percent, item.charging);
+    image.bitBlt(gauge, valueX, Math.max(0, ((height - gauge.height) / 2) | 0), { transparentZero: true });
   }
-  return x;
+  return image;
+}
+
+function makeHeartRateHudItem(font: ReturnType<typeof getDefaultSmallFont>, bpmText: string): GrayImage {
+  const gap = 5;
+  const height = Math.max(font.lineHeight, HEART_ICON.height);
+  const image = new GrayImage(HEART_ICON.width + gap + font.measureText(bpmText), height, 0);
+  image.bitBlt(HEART_ICON, 0, Math.max(0, ((height - HEART_ICON.height) / 2) | 0), { transparentZero: true });
+  image.drawText(font, HEART_ICON.width + gap, Math.max(0, ((height - font.lineHeight) / 2) | 0), bpmText, 200);
+  return image;
+}
+
+/** Explicit copy makes both identity and link state readable without decoding a glyph. */
+function bridgeHudLabel(bridge: ShellChromeState["bridge"]): string {
+  if (!bridge.configured) return "HERMES GATEWAY SETUP";
+  switch (bridge.phase) {
+    case "connected": return "HERMES GATEWAY ONLINE";
+    case "connecting": return "HERMES GATEWAY CONNECTING";
+    case "failed": return "HERMES GATEWAY ERROR";
+    case "idle": return "HERMES GATEWAY OFFLINE";
+  }
+}
+
+function makeBridgeHudItem(font: ReturnType<typeof getDefaultSmallFont>, bridge: ShellChromeState["bridge"]): GrayImage {
+  const label = bridgeHudLabel(bridge);
+  const glyph = bridgeStatusIcon(bridge.configured ? bridge.phase : "idle");
+  const padX = 4;
+  const gap = 4;
+  const height = Math.max(18, font.lineHeight + 4, glyph.height + 4);
+  const width = padX * 2 + glyph.width + gap + font.measureText(label);
+  const image = new GrayImage(width, height, 0);
+  const stroke = !bridge.configured ? 90 : bridge.phase === "connected" ? 210 : bridge.phase === "failed" ? 170 : 90;
+  image.drawRoundedRect(0, 0, width, height, stroke, 4);
+  image.bitBlt(glyph, padX, Math.max(0, ((height - glyph.height) / 2) | 0), { transparentZero: true });
+  image.drawText(font, padX + glyph.width + gap, Math.max(0, ((height - font.lineHeight) / 2) | 0), label, 205);
+  return image;
+}
+
+/** Draw priority-ordered items from right to left inside one optical HUD row. */
+function drawHudRow(image: GrayImage, items: readonly HudItem[], rightEdge: number, rowTop: number,
+  minLeft: number): number {
+  const fitted = fitHudRowItemWidths(items.map((item) => item.image.width), rightEdge, minLeft, HUD_ITEM_GAP);
+  let leftmost = rightEdge;
+  for (const { index, x } of fitted) {
+    const item = items[index]!;
+    const y = rowTop + Math.max(0, ((HUD_ROW_HEIGHT - item.image.height) / 2) | 0);
+    image.bitBlt(item.image, x, y, { transparentZero: true });
+    leftmost = x;
+  }
+  return leftmost;
 }
 
 const TAB_RADIUS = 6;
@@ -458,19 +562,6 @@ function drawSelectionTab(image: GrayImage, left: number, top: number, bottom: n
   image.drawLine(left + tabLeftInset(bottom-1, top, bottom-1, TAB_RADIUS), bottom-1, right, bottom-1, TAB_STROKE);
 }
 
-/**
- * Selection marker for an overflow-column icon, which has no separator to
- * divert: a self-contained rounded box, filled white when the sidebar has
- * focus and outlined otherwise (matching the tab's two states).
- */
-function drawSelectionBox(image: GrayImage, x: number, y: number, width: number, height: number, focused: boolean): void {
-  if (focused) {
-    image.fillRoundedRect(x, y, width, height, 255, TAB_RADIUS);
-  } else {
-    image.drawRoundedRect(x, y, width, height, TAB_STROKE, TAB_RADIUS);
-  }
-}
-
 /** Left boundary x of the tab at row yy: 0 in the middle, curving to the rounded left corners. */
 function tabLeftInset(yy: number, top: number, bottom: number, radius: number): number {
   const cy = yy + 0.5;
@@ -485,6 +576,19 @@ function tabLeftInset(yy: number, top: number, bottom: number, radius: number): 
   return Math.max(0, Math.round(radius - Math.sqrt(Math.max(0, radius * radius - dy * dy))));
 }
 
+/** Large time over a small date: one visual block spanning both HUD rows. */
+function drawPixelClock(image: GrayImage, now: Date, barTop: number): number {
+  const time = formatClockTime(now).toUpperCase();
+  const date = `${WEEKDAYS[now.getDay()]} ${now.getDate()} ${MONTHS[now.getMonth()]}`.toUpperCase();
+  return paintHudPixelClock(image, {
+    left: CLOCK_BLOCK_LEFT,
+    width: CLOCK_BLOCK_WIDTH,
+    barTop,
+    time,
+    date,
+  });
+}
+
 /** Format the top-bar clock time, honoring the 12/24-hour setting. */
 function formatClockTime(now: Date): string {
   const minutes = String(now.getMinutes()).padStart(2, "0");
@@ -497,9 +601,15 @@ function formatClockTime(now: Date): string {
 }
 
 /** Small triangle marker for sidebar overflow; direction -1 = up, 1 = down. */
-function drawChevron(image: GrayImage, centerX: number, y: number, direction: -1 | 1): void {
+function drawChevron(
+  image: GrayImage,
+  centerX: number,
+  y: number,
+  direction: -1 | 1,
+  value = 140,
+): void {
   const half = 5;
   const tipY = direction < 0 ? y - 3 : y + 3;
-  image.drawLine(centerX - half, y, centerX, tipY, 140);
-  image.drawLine(centerX, tipY, centerX + half, y, 140);
+  image.drawLine(centerX - half, y, centerX, tipY, value);
+  image.drawLine(centerX, tipY, centerX + half, y, value);
 }

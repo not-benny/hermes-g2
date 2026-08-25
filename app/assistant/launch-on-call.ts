@@ -4,8 +4,8 @@
  * window-scoped ("open" tier), but commands like "start a 5 minute timer"
  * must work with no window open. Wrappers call this to launch the app if its
  * tool isn't registered yet, wait for the window's set-tools declaration to
- * land in the registry, and forward the call. Used by the nav.*, roam.*, and
- * timer.* wrappers; callers should set timeoutMs on their own spec high
+ * land in the registry, and forward the call. Used by the nav.* and timer.*
+ * wrappers; callers should set timeoutMs on their own spec high
  * enough to cover the appear-wait plus the forwarded call's budget.
  */
 import { type ToolRegistry, type ToolResult } from "./tool-registry";

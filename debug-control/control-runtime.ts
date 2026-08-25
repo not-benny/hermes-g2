@@ -1,5 +1,8 @@
 import { Application, Utils } from "@nativescript/core";
 import type { DashboardSnapshot } from "../app/g2/dashboard-controller";
+import { directNotificationInbox } from "../app/assistant/direct-notification-inbox";
+import { directNotificationStore } from "../app/assistant/direct-notification-store";
+import { assistantBridge } from "../app/assistant/bridge-client";
 import { shell } from "../app/ui/shell/shell";
 import { DebugControlHarness, type DebugFixtureResult } from "./control-protocol";
 
@@ -56,16 +59,28 @@ export function registerDebugControl(controller: Controller): void {
   };
 
   harness = new DebugControlHarness({
-    state: () => ({
-      online: controller.snapshot().phase === "connected",
-      screenOn: shell.isScreenOn(),
-      windowId: refreshWindowGeneration(),
-      processGeneration,
-      sessionGeneration,
-      windowGeneration,
-      captureGeneration,
-      voiceTest,
-    }),
+    state: () => {
+      const notificationSnapshot = directNotificationStore.snapshot();
+      const inboxDiagnostics = directNotificationInbox.getDiagnostics();
+      return {
+        online: controller.snapshot().phase === "connected",
+        cockpitOnline: assistantBridge.cockpit.snapshot().synchronized,
+        screenOn: shell.isScreenOn(),
+        windowId: refreshWindowGeneration(),
+        directNotifications: {
+          available: notificationSnapshot.available,
+          pendingCount: notificationSnapshot.pending.length,
+          wearState: directNotificationInbox.getWearState(),
+          presentationSlotAvailable: shell.canStartDirectAssistantResultPresentation(),
+          ...inboxDiagnostics,
+        },
+        processGeneration,
+        sessionGeneration,
+        windowGeneration,
+        captureGeneration,
+        voiceTest,
+      };
+    },
     wake: async () => { shell.wake("sidebar"); },
     blank: async () => { shell.sleep(); },
     open: async (appId) => { await controller.launchDebugAllowlistedApp(appId); refreshWindowGeneration(); },

@@ -1,0 +1,59 @@
+# Public-safe fragment only. Merge into an owner profile; do not commit the
+# live profile, secrets, certificate paths, addresses, or personal MCP config.
+
+agent:
+  disabled_toolsets:
+    - g2
+    - g2-notify
+    - g2-reminders
+    - g2-work-board
+    - g2-clock
+    - hermes-g2
+
+plugins:
+  enabled:
+    - hermes-g2-bridge
+    - hermes-g2-workflows
+  trusted_session_context:
+    - binding: hermes-g2-workflows:workflows
+      digest: <sha256-package-digest>
+
+platform_toolsets:
+  g2:
+    - <runtime-toolset-name-from-plugin-doctor>
+    # Add personal MCPs only after separate review. Do not include them in a
+    # public base profile.
+
+gateway:
+  platforms:
+    g2:
+      enabled: true
+      extra:
+        hello_profile: even-g2
+        allow_proactive_tools: true
+        proactive_tool_allowlist:
+          - glasses.notify_result
+        tool_call_allowlist:
+          - glasses.notify_result
+          - glasses.work_board.add_task
+          - glasses.clock.set_timer
+          - glasses.clock.set_alarm
+          - glasses.context_dashboard.present
+          - apps.launch
+          - apps.list_windows
+          - apps.focus_window
+          - apps.close_window
+          - apps.list_folders
+          - apps.move_to_folder
+          - apps.remove_from_folder
+          - apps.disband_folder
+          - media.now_playing
+          - media.play_pause
+          - media.next
+          - nav.start_navigation
+          - nav.stop_navigation
+          - nav.route_status
+          - notifications.list
+          - notifications.dismiss
+          - health.get_ring_data
+          - calendar.list_events

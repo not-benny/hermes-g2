@@ -10,11 +10,11 @@ import {
   captionSpeakerLabelsSetting,
   captionTargetLanguageSetting,
   captionVocabularySetting,
+  conversateProviderSetting,
   deepgramApiKeySetting,
   elevenLabsApiKeySetting,
   openAiApiKeySetting,
   sonioxApiKeySetting,
-  voiceProviderSetting,
 } from "../ui/dashboard-settings";
 
 type TextChangeArgs = { value?: string; object?: { text?: string } };
@@ -23,6 +23,7 @@ export class CaptionSettingsViewModel extends Observable {
   private vocabularyDraft = captionVocabularySetting.get();
 
   get sourceLanguage(): string { return captionSourceLanguageSetting.get(); }
+  get provider(): string { return conversateProviderSetting.displayValue(); }
   get targetLanguage(): string { return captionTargetLanguageSetting.get(); }
   get layout(): string { return captionLayoutSetting.get(); }
   get fontSize(): string { return captionFontSizeSetting.get(); }
@@ -45,6 +46,7 @@ export class CaptionSettingsViewModel extends Observable {
     return captionProcessingDisclosure(this.effectiveProvider(), captionTargetLanguageSetting.get());
   }
 
+  onProviderTap(): void { conversateProviderSetting.set(conversateProviderSetting.next()); this.refresh(); }
   onSourceTap(): void { captionSourceLanguageSetting.set(captionSourceLanguageSetting.next()); this.refresh(); }
   onTargetTap(): void { captionTargetLanguageSetting.set(captionTargetLanguageSetting.next()); this.refresh(); }
   onLayoutTap(): void { captionLayoutSetting.set(captionLayoutSetting.next()); this.refresh(); }
@@ -59,7 +61,7 @@ export class CaptionSettingsViewModel extends Observable {
   onBackTap(): void { Frame.topmost()?.goBack(); }
 
   private effectiveProvider() {
-    return effectiveCaptionProvider(voiceProviderSetting.get(), {
+    return effectiveCaptionProvider(conversateProviderSetting.get(), {
       deepgram: deepgramApiKeySetting.get().trim().length > 0,
       elevenlabs: elevenLabsApiKeySetting.get().trim().length > 0,
       whisper: openAiApiKeySetting.get().trim().length > 0,
@@ -69,7 +71,7 @@ export class CaptionSettingsViewModel extends Observable {
 
   private refresh(): void {
     for (const property of [
-      "sourceLanguage", "targetLanguage", "layout", "fontSize", "lineSpacing", "maxLines",
+      "provider", "sourceLanguage", "targetLanguage", "layout", "fontSize", "lineSpacing", "maxLines",
       "speakerLabels", "speakerLabelsAvailable", "vocabulary", "vocabularyStatus", "disclosure",
     ]) this.notifyPropertyChange(property, (this as any)[property]);
   }

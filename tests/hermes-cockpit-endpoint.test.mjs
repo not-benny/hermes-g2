@@ -48,16 +48,26 @@ test("endpoint projects generation-bound events and dispatches exact commands wi
   });
   endpoint.start(); socket.open();
   socket.message({ jsonrpc: "2.0", method: "event", params: {
-    type: "tool.start", session_id: "private-session", cockpit_generation: 8,
-    data: { name: "read_file", args: { secret: "privacy-sentinel" } },
+    type: "message.complete", session_id: "private-session", cockpit_generation: 8,
+    data: { redacted: true, cockpit_text: "Focused tests pass", text: "raw privacy-sentinel" },
   } });
   assert.equal(frames.at(-1).type, "timeline_append");
+  assert.equal(frames.at(-1).row.kind, "assistant");
+  assert.equal(frames.at(-1).row.text, "Focused tests pass");
   assert.equal(JSON.stringify(frames.at(-1)).includes("privacy-sentinel"), false);
   const frameCount = frames.length;
   socket.message({ jsonrpc: "2.0", method: "event", params: {
+    type: "message.delta", session_id: "private-session", cockpit_generation: 8,
+    data: { redacted: true, cockpit_text: "Partial privacy-sentinel" },
+  } });
+  socket.message({ jsonrpc: "2.0", method: "event", params: {
+    type: "tool.start", session_id: "private-session", cockpit_generation: 8,
+    data: { name: "read_file", args: { secret: "privacy-sentinel" } },
+  } });
+  socket.message({ jsonrpc: "2.0", method: "event", params: {
     type: "tool.complete", session_id: "private-session", cockpit_generation: 7, data: { name: "late" },
   } });
-  assert.equal(frames.length, frameCount, "delayed old-generation event is inert");
+  assert.equal(frames.length, frameCount, "partial, tool, and delayed old-generation events are inert");
 
   const command = { v: 1, chan: "cockpit", type: "steer", command_id: "command_endpoint_1",
     connection_generation: "connection_endpoint_1", session_id: "session_public_1234", generation: 8, text: "Run focused tests" };

@@ -1,4 +1,4 @@
-# Hermes G2 — Hermes Agent for Even Realities G2 glasses
+# Hermes G2 - Hermes Agent for Even Realities G2 glasses
 
 Hermes G2 is an unofficial, owner-only Android companion for an
 already-provisioned Even Realities G2. It provides a bounded phone surface and,
@@ -21,14 +21,19 @@ a broad feature backlog.
 
 `main` is the only canonical development branch. The exact current support and
 release posture is in [`STATUS.md`](STATUS.md). The only active milestone is
-[`v1.0.0-preview.3 — Owner Hermes Loop`](ROADMAP.md);
+[`v1.0.0-preview.3 - Owner Hermes Loop`](ROADMAP.md);
 [issue #59](https://github.com/not-benny/hermes-g2/issues/59) is its sole tracker.
 
 ## Product surfaces
 
-The implementation contains the phone companion, glasses shell and cockpit,
-assistant/voice path, notifications, optional read-only R1 health path, and
-several experimental applications. Their evidence and acceptance levels are
+The implementation contains the phone companion, glasses shell, internal
+assistant-result projection path, notifications, the glasses-native Work Tasks
+board with encrypted phone-local storage, a durable Clock app for alarms and
+timers, Conversate for explicit-session live transcription and local
+conversation cues, an optional read-only R1 health path, and several
+experimental applications. Conversate replaces the former
+Transcribe launcher app, defaults to bundled on-device transcription, and keeps
+its provider choice independent from assistant dictation. Evidence and acceptance levels are
 intentionally not repeated here: [`STATUS.md`](STATUS.md) is the sole current
 authority, while component contracts live under [`docs/`](docs) and dated
 research under [`notes/`](notes).
@@ -59,18 +64,39 @@ standalone R1 firmware maintenance.
 
 ## Hermes gateway
 
-Configure the Hermes Agent bridge under **Settings > Assistant** with a reachable
-certificate-validated `wss://` endpoint and shared token. The phone companion
-and glasses cockpit receive bounded, provider-neutral session projections; those
-projection channels do not expose credentials, provider prompts/reasoning, raw
-tool arguments/results, or unshared work. This is not a claim about the
-assistant data plane: fulfilling an authorised request necessarily transmits the
-current utterance, requested context, and authorised MCP call arguments/results
-between the app and the private gateway.
+Configure the Hermes Agent bridge under **Settings > Assistant** with a
+reachable certificate-validated `wss://` endpoint and shared token. The phone
+requires Host Session MCP for voice turns and status, while Hermes uses the
+phone's private Device MCP for fixed device capabilities. The launcher-visible
+Hermes Cockpit is status-only and exposes no transcript, prompt, tool activity,
+session controls, or terminal fallback. Thinking and tool progress remain
+private; only the final Host MCP result may drive a glasses card.
+
+The model-facing G2 surface is a separate portable workflow MCP with twelve
+reviewed intent-level tools. Raw phone discovery, arbitrary phone calls, legacy
+custom chat/Cockpit/Companion channels, terminal, code execution, and raw
+browser execution are not available to the glasses model. The complete channel,
+workflow, reminder, configuration, test, and release contract is in
+[`docs/hermes-mcp-architecture.md`](docs/hermes-mcp-architecture.md).
+The Apache-2.0 package is maintained separately as
+[`not-benny/hermes-g2-workflows`](https://github.com/not-benny/hermes-g2-workflows).
+
+These boundaries do not make the assistant data plane content-free: fulfilling
+an authorised request necessarily transmits the current utterance, requested
+context, and authorised MCP call arguments and results between the app and the
+private gateway.
+
+Outside an active voice turn, the dedicated direct-result route first commits
+the bounded final text and Fold receipt time to an encrypted phone-local FIFO.
+It presents only after the current G2 session confirms the glasses are worn;
+off-head or unknown wear produces no wake or beep. One-shot Hermes reminders use
+a deterministic gateway outbox and that fixed delivery route. No future agent
+prompt runs when a reminder fires.
 
 Direct-provider mode remains available as a fallback and uses its own provider
-credentials. Those credentials are not used by the bridge. Public deployment
-and generic-client publication remain blocked; see
+credentials. Those credentials are not used by the bridge. The private MCP-only
+cutover is operational, but combined public distribution remains blocked by the
+native bridge licence and release-containment gates; see
 [`docs/release-security.md`](docs/release-security.md) and
 [`docs/hermes-agent-cockpit.md`](docs/hermes-agent-cockpit.md).
 

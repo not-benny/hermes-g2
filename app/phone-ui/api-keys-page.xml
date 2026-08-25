@@ -45,8 +45,6 @@
             <StackLayout class="surface-card m-t-12">
                 <Label text="Other integrations" class="section-heading" />
                 <Label text="These actions immediately clear their saved credentials." class="supporting-text m-t-4" textWrap="true" />
-                <Button text="Clear Nightscout token" tap="{{ onClearNightscoutTap }}" class="-danger m-t-8" />
-                <Button text="Clear Roam token" tap="{{ onClearRoamTap }}" class="-danger m-t-8" />
                 <Button text="Clear Even account &amp; API credentials" tap="{{ onClearEvenTap }}" class="-danger m-t-8" />
                 <Button text="Clear terminal connection credentials" tap="{{ onClearTerminalTap }}" class="-danger m-t-8" />
             </StackLayout>

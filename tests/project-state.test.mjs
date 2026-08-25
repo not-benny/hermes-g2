@@ -18,7 +18,7 @@ test("the repository has one current-state authority and one active milestone", 
   assert.match(status, /PROTECTED_RELEASE_ENABLED.*false/s);
 
   assert.equal((roadmap.match(/^### /gm) ?? []).length, 1);
-  assert.match(roadmap, /^### v1\.0\.0-preview\.3 — Owner Hermes Loop$/m);
+  assert.match(roadmap, /^### v1\.0\.0-preview\.3 - Owner Hermes Loop$/m);
   assert.match(roadmap, /Issue #59.*sole tracker/s);
   assert.match(roadmap, /two-stage\s+authorization gate/i);
   assert.match(roadmap, /explicit owner approval for microphone, optional R1\s+health, and evidence capture/i);

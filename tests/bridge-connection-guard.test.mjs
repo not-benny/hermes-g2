@@ -30,8 +30,11 @@ test("bridge callbacks and privileged channels use the guard", () => {
   assert.match(client, /const generation = this\.connectionGuard\.beginConnection\(\)/);
   assert.match(client, /isCurrentSocket\(generation, socket\)/);
   assert.match(client, /handleMessage\(String\(message\), generation\)/);
-  assert.match(client, /case "chat":\s*\n\s*if \(!this\.requireAuthenticated\(generation\)\) return/);
+  assert.match(client, /case "chat":\s*\n\s*return; \/\/ Legacy custom turns are never an authority path\./);
   assert.match(client, /case "mcp":\s*\n\s*if \(!this\.requireAuthenticated\(generation\)\) return/);
+  assert.match(client, /case "host-mcp":\s*\n\s*if \(!this\.requireAuthenticated\(generation\)\) return/);
+  assert.match(client, /case "cockpit":\s*\n\s*return; \/\/ Cockpit state is read only through Host MCP resources\./);
+  assert.match(client, /case "companion":\s*\n\s*return; \/\/ No legacy Companion command channel in the MCP-only bridge\./);
   assert.match(client, /send: \(msg\) => this\.sendMcpForSocket\(generation, socket, msg\)/);
   assert.match(client, /this\.mcpServer\?\.close\(\)/);
   assert.match(client, /AUTH_TIMEOUT_MS = 15_000/);

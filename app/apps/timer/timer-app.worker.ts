@@ -32,6 +32,19 @@ const RENDER_INTERVAL_MS = 100;
 const TIMER_ROW_HEIGHT = 34;
 const TIMER_LIST_TOP = 52;
 const FOOTER_HEIGHT = 34;
+const EDITOR_FIELDS_TOP = 57;
+const EDITOR_MESSAGE_PREFERRED_Y = 38;
+const EDITOR_MESSAGE_GAP = 4;
+
+/** Keep timer-editor feedback above both the fields and the compact footer. */
+export function timerEditorMessageY(viewportHeight: number, lineHeight: number): number {
+  const footerTop = Math.floor(viewportHeight) - FOOTER_HEIGHT;
+  return Math.max(0, Math.min(
+    EDITOR_MESSAGE_PREFERRED_Y,
+    EDITOR_FIELDS_TOP - Math.max(1, lineHeight) - EDITOR_MESSAGE_GAP,
+    footerTop - Math.max(1, lineHeight) - EDITOR_MESSAGE_GAP,
+  ));
+}
 
 const largeFont = getFont("terminus32");
 const mediumFont = getFont("terminus24");
@@ -591,8 +604,8 @@ function paintEditor(image: GrayImage, window: TimerWindow): void {
   for (let index = 0; index < 3; index++) {
     const x = startX + index * (fieldWidth + gap);
     if (window.editorField === index) {
-      image.fillRoundedRect(x, 57, fieldWidth, 68, 35, 6);
-      image.drawRect(x, 57, fieldWidth, 68, 120);
+      image.fillRoundedRect(x, EDITOR_FIELDS_TOP, fieldWidth, 68, 35, 6);
+      image.drawRect(x, EDITOR_FIELDS_TOP, fieldWidth, 68, 120);
     }
     drawCenteredIn(image, largeFont, x, fieldWidth, 65, fields[index]!, window.editorField === index ? 250 : 180);
     drawCenteredIn(image, smallFont, x, fieldWidth, 105, labels[index]!, 125);
@@ -607,7 +620,15 @@ function paintEditor(image: GrayImage, window: TimerWindow): void {
     image.drawRect(buttonX, 151, buttonWidth, 38, 120);
   }
   drawCenteredIn(image, smallFont, buttonX, buttonWidth, 162, "Start timer", startSelected ? 250 : 175);
-  if (window.editorMessage) drawCenteredText(image, smallFont, 202, window.editorMessage, 190);
+  if (window.editorMessage) {
+    drawCenteredText(
+      image,
+      smallFont,
+      timerEditorMessageY(image.height, smallFont.lineHeight),
+      window.editorMessage,
+      190,
+    );
+  }
   drawFooter(image, `${GESTURE_SCROLL} adjust   ${GESTURE_CLICK} next   ${GESTURE_DOUBLE_CLICK} cancel`);
 }
 
@@ -751,4 +772,3 @@ function formatDuration(durationMs: number): string {
   if (minutes > 0) return `${minutes}m ${seconds}s`;
   return `${seconds}s`;
 }
-

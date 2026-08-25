@@ -54,6 +54,10 @@ test("dynamic app validator accepts bounded inert rich primitives and rejects ex
     { ...spec, components: [{ id: "x", type: "text", text: "https://example.com" }] },
     { ...spec, components: Array.from({ length: 65 }, (_, i) => ({ id: `x${i}`, type: "divider" })) },
     { ...spec, components: [{ id: "x", type: "button", label: "Run", action_handle: "shell:rm -rf" }] },
+    { ...spec, components: [
+      { id: "x", type: "button", label: "One", action_handle: "duplicate_handle_0001" },
+      { id: "y", type: "button", label: "Two", action_handle: "duplicate_handle_0001" },
+    ] },
     { ...spec, components: [{ id: "x", type: "list", items: Array.from({ length: 33 }, () => "x") }] },
     { ...spec, components: [{ id: "x", type: "progress", label: "x", value: Number.NaN }] },
   ]) assert.ok(validateDynamicAppSpec(bad), JSON.stringify(bad));
@@ -168,6 +172,7 @@ test("close racing an acknowledged update delivery cannot resurrect the view", a
   const update = manager.update({ operation_id: "update", view_id: "opaque_dynamic_view_0001", expected_revision: 1, spec },
     undefined, () => true, owner);
   await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(manager.handleInput("click", true, { viewId: "opaque_dynamic_view_0001", revision: 2 }), false);
   manager.close({ operation_id: "close", view_id: "opaque_dynamic_view_0001", expected_revision: 1 }, owner);
   release();
   assert.equal((await update).ok, false);
@@ -205,6 +210,22 @@ test("operation IDs are payload-bound tombstones and historical results never cl
   assert.equal(JSON.parse(historical.content).status, "historical_acknowledgement");
 });
 
+test("owner teardown and disconnect purge operation tombstones before a fresh delivery", async () => {
+  const { manager, deliveries } = setup();
+  const args = { operation_id: "create", spec };
+
+  await manager.create(args, undefined, () => true, owner);
+  manager.closeOwner(owner);
+  const afterExactOwnerClose = await manager.create(args, undefined, () => true, owner);
+  assert.equal(JSON.parse(afterExactOwnerClose.content).status, "acknowledged");
+  assert.equal(deliveries.length, 2);
+
+  manager.closeOwner({ ...owner, turnGeneration: null });
+  const afterDisconnect = await manager.create(args, undefined, () => true, owner);
+  assert.equal(JSON.parse(afterDisconnect.content).status, "acknowledged");
+  assert.equal(deliveries.length, 3);
+});
+
 test("system tools expose the complete lifecycle and shell delivery rejects timeout or discarded frames", () => {
   const tools = readFileSync(new URL("../app/assistant/system-tools.ts", import.meta.url), "utf8");
   const shell = readFileSync(new URL("../app/ui/shell/shell.ts", import.meta.url), "utf8");
@@ -220,6 +241,7 @@ test("system tools expose the complete lifecycle and shell delivery rejects time
   ]) assert.ok(tools.includes(`name: "${name}"`), name);
   assert.match(shell, /showDynamicApp\(/);
   assert.match(shell, /ShellDynamicAppLayer/);
+  assert.match(tools, /dynamicApps\.handleInput\(input, foreground, \{ viewId: state\.viewId, revision: state\.revision \}\)/);
   assert.match(controller, /shell\.closeDynamicApp\(\)/);
   assert.match(controller, /const requireSent = Boolean\(isAllowed\)/);
   assert.match(controller, /if \(requireSent && !isSuccessfulFrameOutcome\(outcome\)\)/);

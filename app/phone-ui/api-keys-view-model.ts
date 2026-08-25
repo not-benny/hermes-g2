@@ -16,9 +16,7 @@ import {
   evenApiAppIdSetting,
   evenAuthTokenSetting,
   mapboxApiKeySetting,
-  nightscoutApiTokenSetting,
   openAiApiKeySetting,
-  roamApiTokenSetting,
   sonioxApiKeySetting,
 } from "../ui/dashboard-settings";
 import { removeSecretSetting } from "../native/settings-store";
@@ -67,8 +65,6 @@ export class ApiKeysViewModel extends Observable {
   onClearElevenLabsTap(): void { this.clearSecret(elevenLabsApiKeySetting, "ElevenLabs key"); }
   onClearSonioxTap(): void { this.clearSecret(sonioxApiKeySetting, "Soniox key"); }
   onClearMapboxTap(): void { this.clearSecret(mapboxApiKeySetting, "Mapbox token"); }
-  onClearNightscoutTap(): void { this.clearSecret(nightscoutApiTokenSetting, "Nightscout token"); }
-  onClearRoamTap(): void { this.clearSecret(roamApiTokenSetting, "Roam token"); }
   onClearEvenTap(): void {
     this.clearSecrets([
       evenAccountEmailSetting,

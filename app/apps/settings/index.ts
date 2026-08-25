@@ -18,6 +18,7 @@ const settingsApp: AppDefinition = {
   launch: async (ctx, params) => {
     if (activeSettingsApp) {
       if (params?.section) activeSettingsApp.focusSection(params.section);
+      if (params?.subsection === "debug-tests") activeSettingsApp.openDebugTests();
       shell.focusWindow(SETTINGS_WINDOW_ID);
       ctx.requestShellRender();
       return;
@@ -39,6 +40,7 @@ const settingsApp: AppDefinition = {
       return app.inProcess;
     });
     if (params?.section) activeSettingsApp?.focusSection(params.section);
+    if (params?.subsection === "debug-tests") activeSettingsApp?.openDebugTests();
   },
 };
 

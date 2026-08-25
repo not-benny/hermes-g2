@@ -2,8 +2,20 @@
 // package the ADB-only protocol module.
 export type DebugControlState = {
   online: boolean;
+  cockpitOnline: boolean;
   screenOn: boolean;
   windowId: string;
+  directNotifications: {
+    available: boolean;
+    pendingCount: number;
+    wearState: "unknown" | "not-worn" | "worn";
+    presentationSlotAvailable: boolean;
+    active: boolean;
+    scheduled: boolean;
+    paused: boolean;
+    presentationEnabled: boolean;
+    retryRetained: boolean;
+  };
   processGeneration: string;
   sessionGeneration: number;
   windowGeneration: number;
@@ -30,10 +42,10 @@ const COMMANDS = new Set([
   "voice.start", "voice.stop", "voice.fixture",
 ]);
 const APPS = new Set([
-  "launcher", "health", "timer", "terminal", "files", "music", "nightscout",
-  "transcribe", "notifications", "calendar", "weather", "navigate", "compass",
-  "roam", "blocks", "minesweeper", "freecell", "pinball", "debug-tests", "settings",
-  "universal-search", "agent-cockpit",
+  "launcher", "health", "clock", "files", "music",
+  "conversate", "notifications", "calendar", "weather", "navigate", "compass",
+  "blocks", "minesweeper", "freecell", "pinball", "debug-tests", "settings",
+  "universal-search", "work-tasks", "agent-cockpit",
 ]);
 const FIXTURES = new Set(["silence-1s", "speech-envelope-then-silence"]);
 const BASE_KEYS = ["v", "id", "command", "processGeneration", "sessionGeneration", "windowGeneration", "captureGeneration", "args"];

@@ -43,6 +43,19 @@ public final class FaceclawSettings {
     private static final String KEYSTORE = "AndroidKeyStore";
     private static final String KEY_ALIAS = "hermes_g2_settings_aes_v1";
     private static final String CIPHER = "AES/GCM/NoPadding";
+    // Tombstones for integrations removed from the product. Keep these keys
+    // here so an upgrade deletes both current encrypted values and every
+    // legacy/pending copy instead of orphaning credentials indefinitely.
+    private static final String[] RETIRED_SETTING_KEYS = {
+            "integrations.roam.graphName",
+            "integrations.roam.apiToken",
+            "integrations.nightscout.siteUrl",
+            "integrations.nightscout.apiToken"
+    };
+    private static final String[] RETIRED_SECRET_SETTING_KEYS = {
+            "integrations.roam.apiToken",
+            "integrations.nightscout.apiToken"
+    };
     private static volatile FaceclawSettings instance;
 
     private final SharedPreferences prefs;
@@ -65,6 +78,39 @@ public final class FaceclawSettings {
                 .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         this.securePrefs = context.getApplicationContext()
                 .getSharedPreferences(SECURE_PREFS_NAME, Context.MODE_PRIVATE);
+        purgeRetiredIntegrationSettings();
+    }
+
+    /**
+     * Idempotent upgrade cleanup. A failed commit is retried on the next
+     * process start; no retired value is read, decrypted, or copied.
+     */
+    private void purgeRetiredIntegrationSettings() {
+        boolean cleanupRequired = false;
+        for (String key : RETIRED_SETTING_KEYS) {
+            if (prefs.contains(key)) cleanupRequired = true;
+        }
+        for (String key : RETIRED_SECRET_SETTING_KEYS) {
+            if (securePrefs.contains(key) || securePrefs.contains(key + ".__pending")) {
+                cleanupRequired = true;
+            }
+        }
+        if (!cleanupRequired) return;
+
+        SharedPreferences.Editor plaintext = prefs.edit();
+        for (String key : RETIRED_SETTING_KEYS) plaintext.remove(key);
+
+        SharedPreferences.Editor encrypted = securePrefs.edit();
+        for (String key : RETIRED_SECRET_SETTING_KEYS) {
+            encrypted.remove(key);
+            encrypted.remove(key + ".__pending");
+        }
+
+        boolean plaintextRemoved = plaintext.commit();
+        boolean encryptedRemoved = encrypted.commit();
+        if (!plaintextRemoved || !encryptedRemoved) {
+            Log.w(TAG, "retired integration cleanup will retry");
+        }
     }
 
     /** Initialize (idempotent) and return the singleton. */
@@ -114,9 +160,19 @@ public final class FaceclawSettings {
             pendingCleanupRequired.add(key);
             if (!securePrefs.edit().remove(pendingKey).commit()) {
                 Log.w(TAG, "pending encrypted-setting cleanup will retry");
-                return defaultValue;
+                // A failed cleanup must not hide a primary value that is
+                // already the exact same verified ciphertext. A different
+                // pending payload may represent a crash before primary commit,
+                // so that ambiguous case still fails closed.
+                String primaryCiphertext = securePrefs.getString(key, null);
+                String pendingCiphertext = securePrefs.getString(pendingKey, null);
+                if (primaryCiphertext == null ||
+                        (pendingCiphertext != null && !primaryCiphertext.equals(pendingCiphertext))) {
+                    return defaultValue;
+                }
+            } else {
+                pendingCleanupRequired.remove(key);
             }
-            pendingCleanupRequired.remove(key);
         }
         if (securePrefs.contains(key)) {
             try {
@@ -139,10 +195,27 @@ public final class FaceclawSettings {
         return legacy;
     }
 
+    /**
+     * Whether any durable representation of a secret exists. This does not
+     * decrypt, log, or return the value; callers use it to distinguish a truly
+     * absent key from getSecret's fail-closed default after a read failure.
+     */
+    public synchronized boolean hasStoredSecret(String key) {
+        return securePrefs.contains(key) ||
+                securePrefs.contains(key + ".__pending") ||
+                prefs.contains(key);
+    }
+
     public synchronized boolean setSecret(String key, String value) {
         boolean stored = setSecretInternal(key, value == null ? "" : value);
         if (stored) {
-            if (!prefs.edit().remove(key).commit()) return false;
+            // The encrypted primary commit is the write transaction. A stale
+            // legacy plaintext copy is cleanup work: getSecret retries its
+            // removal, so it must not make callers report that the already
+            // durable new value failed to save.
+            if (!prefs.edit().remove(key).commit()) {
+                Log.w(TAG, "legacy encrypted-setting cleanup will retry");
+            }
             notifyChanged(key);
         }
         return stored;
@@ -173,9 +246,20 @@ public final class FaceclawSettings {
                 if (securePrefs.edit().remove(pendingKey).commit()) pendingCleanupRequired.remove(key);
                 return false;
             }
-            boolean cleaned = securePrefs.edit().remove(pendingKey).commit();
-            if (cleaned) pendingCleanupRequired.remove(key);
-            return cleaned;
+            // The verified primary ciphertext is now durable and defines the
+            // transaction's success. The pending copy is only a recovery
+            // marker: failure to remove it must not report a failed write after
+            // callers and restart will observe the committed primary value.
+            try {
+                if (securePrefs.edit().remove(pendingKey).commit()) {
+                    pendingCleanupRequired.remove(key);
+                } else {
+                    Log.w(TAG, "pending encrypted-setting cleanup will retry");
+                }
+            } catch (Exception cleanupError) {
+                Log.w(TAG, "pending encrypted-setting cleanup will retry");
+            }
+            return true;
         } catch (Exception e) {
             Log.w(TAG, "encrypted setting could not be written");
             if (securePrefs.edit().remove(pendingKey).commit()) pendingCleanupRequired.remove(key);

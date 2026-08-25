@@ -7,8 +7,8 @@ import {
 
 const agentCockpitApp: AppDefinition = {
   appId: "agent-cockpit",
-  title: "Hermes",
-  icon: "terminal",
+  title: "Hermes Cockpit",
+  icon: "hermes-h",
   launch: (ctx) => ctx.launchInProcessApp(
     AGENT_COCKPIT_WINDOW_ID,
     AGENT_COCKPIT_SURFACE_ID,

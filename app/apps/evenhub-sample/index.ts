@@ -4,7 +4,7 @@ import { createEvenHubSampleAppWindow, EVENHUB_SAMPLE_SURFACE_ID, EVENHUB_SAMPLE
 const evenHubSampleApp: AppDefinition = {
   appId: "evenhub-local-counter",
   title: "Local Counter",
-  icon: "layout-grid",
+  icon: "plus-one",
   launch: (ctx) => ctx.launchInProcessApp(
     EVENHUB_SAMPLE_WINDOW_ID,
     EVENHUB_SAMPLE_SURFACE_ID,

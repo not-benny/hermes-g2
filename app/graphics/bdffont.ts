@@ -1,5 +1,6 @@
 import { knownFolders } from "@nativescript/core";
 import { getStringSetting, onSettingsStoreChanged } from "~/native/settings-store";
+import { normalizeEmojiForDisplay } from "./emoji-fallback";
 
 export type Glyph = {
   encoding: number;
@@ -141,9 +142,13 @@ export class BdfFont {
     return this.glyphs.has(codePoint) || (this.fallback?.hasGlyph(codePoint) ?? false);
   }
 
+  textForDisplay(text: string): string {
+    return normalizeEmojiForDisplay(text, (codePoint) => this.hasGlyph(codePoint));
+  }
+
   measureText(text: string): number {
     let width = 0;
-    for (const char of text) {
+    for (const char of this.textForDisplay(text)) {
       width += this.getGlyph(char.codePointAt(0) ?? 32)?.dwidthX ?? 0;
     }
     return width;

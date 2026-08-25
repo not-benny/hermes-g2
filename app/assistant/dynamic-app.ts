@@ -159,6 +159,7 @@ export function validateDynamicAppSpec(value: unknown): string | null {
   if (!Number.isInteger(value.ttl_seconds) || Number(value.ttl_seconds) < 30 || Number(value.ttl_seconds) > 3600) return "ttl is invalid";
   if (!Array.isArray(value.components) || value.components.length > DYNAMIC_APP_CAPABILITIES.maxComponents) return "components exceed 64";
   const ids = new Set<string>();
+  const handles = new Set<string>();
   let textBytes = utf8Bytes(value.title as string);
   for (const component of value.components) {
     const error = validateComponent(component);
@@ -166,6 +167,10 @@ export function validateDynamicAppSpec(value: unknown): string | null {
     const id = (component as { id: string }).id;
     if (ids.has(id)) return "component IDs must be unique";
     ids.add(id);
+    for (const handle of actionHandles(component as DynamicAppComponent)) {
+      if (handles.has(handle)) return "action handles must be unique";
+      handles.add(handle);
+    }
     textBytes += utf8Bytes(JSON.stringify(component));
   }
   return textBytes <= DYNAMIC_APP_CAPABILITIES.maxTextBytes ? null : "component text exceeds 12 KiB";
@@ -421,8 +426,11 @@ export class DynamicAppManager {
     return { ok: true, content: JSON.stringify({ status: "acknowledged", through_event_id: throughEventId }) };
   }
 
-  handleInput(type: "scroll-up" | "scroll-down" | "click" | "double-click" | "long-press", foreground: boolean): boolean {
-    if (!foreground || !this.current || type === "double-click" || type === "long-press") return false;
+  handleInput(type: "scroll-up" | "scroll-down" | "click" | "double-click" | "long-press", foreground: boolean,
+      identity?: Identity): boolean {
+    if (!foreground || !this.current || (identity &&
+        (this.current.viewId !== identity.viewId || this.current.revision !== identity.revision)) ||
+        type === "double-click" || type === "long-press") return false;
     const targets = this.current.components.flatMap((component, componentIndex) =>
       actionHandles(component).map((handle) => ({ handle, componentIndex })),
     );
@@ -454,6 +462,11 @@ export class DynamicAppManager {
     const matches = (owner: string) => exact === owner || (Boolean(connectionPrefix) && owner.startsWith(connectionPrefix!));
     if (this.pending && matches(this.pending.ownerKey)) this.cancelPending(this.pending);
     if (this.current && matches(this.current.ownerKey)) this.closeExact(this.current.viewId, this.current.revision);
+    for (const key of [...this.operations.keys()]) {
+      if ((exact && key.startsWith(`${exact}:`)) || (connectionPrefix && key.startsWith(connectionPrefix))) {
+        this.operations.delete(key);
+      }
+    }
   }
 
   closeView(viewId: string, revision: number): void {

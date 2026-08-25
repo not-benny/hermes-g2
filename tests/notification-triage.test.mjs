@@ -74,6 +74,28 @@ test("specific rules win and quiet hours digest non-urgent notifications", () =>
   assert.deepEqual(urgent.effects, [{ kind: "immediate", key: "key-1", revision: "rev-1", reason: "channel rule: urgent" }]);
 });
 
+test("a selected Codex final wakes during quiet hours while authored policy remains authoritative", () => {
+  const final = item({
+    packageName: "com.openai.chatgpt",
+    appName: "ChatGPT",
+    channelId: "codex",
+    clearable: true,
+    category: "",
+  });
+  const delivered = post(createNotificationTriageState(), final, clock(1_000, 1_000, 23 * 60));
+  assert.deepEqual(delivered.effects, [{ kind: "immediate", key: "key-1", revision: "rev-1", reason: "Codex final result: urgent" }]);
+
+  const muted = post(createNotificationTriageState(), final, clock(2_000, 2_000, 12 * 60), {
+    ...DEFAULT_NOTIFICATION_POLICY,
+    rules: [{ scope: "channel", packageName: "com.openai.chatgpt", value: "codex", tier: "mute" }],
+  });
+  assert.deepEqual(muted.effects, []);
+  assert.equal(muted.state.active["key-1"].reason, "channel rule: mute");
+
+  const progress = post(createNotificationTriageState(), { ...final, channelId: "codex_remote_session", clearable: false }, clock(3_000));
+  assert.equal(progress.effects[0]?.reason, "default immediate", "pure reducer does not infer lifecycle from text");
+});
+
 test("updates replace queued revisions and removal or dismissal prevents stale resurfacing", () => {
   const policy = { ...DEFAULT_NOTIFICATION_POLICY, rules: [{ scope: "default", tier: "digest" }] };
   const first = post(createNotificationTriageState(), item(), clock(1_000), policy);

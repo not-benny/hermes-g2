@@ -31,7 +31,7 @@ function toJavaStringArray(values: string[]): string[] {
   return result;
 }
 
-function getRequiredPermissions(): string[] {
+function getRequiredBlePermissions(): string[] {
   const sdk = android.os.Build.VERSION.SDK_INT;
   const permissions: string[] = [];
 
@@ -42,10 +42,6 @@ function getRequiredPermissions(): string[] {
     );
   } else {
     permissions.push(android.Manifest.permission.ACCESS_FINE_LOCATION);
-  }
-
-  if (sdk >= 33) {
-    permissions.push(POST_NOTIFICATIONS_PERMISSION);
   }
 
   return permissions;
@@ -64,10 +60,10 @@ async function ensurePermissions(
 ): Promise<void> {
   if (!global.isAndroid) return;
 
-  const activity = getActivity();
   const missing = permissions.filter((permission) => !isPermissionGranted(permission));
 
   if (missing.length === 0) return;
+  const activity = getActivity();
 
   await new Promise<void>((resolve, reject) => {
     const callback = (args: {
@@ -100,13 +96,19 @@ async function ensurePermissions(
 }
 
 export async function ensureBlePermissions(): Promise<void> {
-  await ensurePermissions(getRequiredPermissions(), PERMISSION_REQUEST_CODE, "Bluetooth");
+  await ensurePermissions(getRequiredBlePermissions(), PERMISSION_REQUEST_CODE, "Bluetooth");
 }
 
 /** Whether every required Bluetooth/scan permission is granted (false off-Android). */
 export function hasBlePermissions(): boolean {
   if (!global.isAndroid) return false;
-  return getRequiredPermissions().every(isPermissionGranted);
+  return getRequiredBlePermissions().every(isPermissionGranted);
+}
+
+/** Notification consent is independent from BLE and never blocks headless recovery. */
+export async function ensureNotificationPermission(): Promise<void> {
+  if (!global.isAndroid || android.os.Build.VERSION.SDK_INT < 33) return;
+  await ensurePermissions([POST_NOTIFICATIONS_PERMISSION], PERMISSION_REQUEST_CODE + 10, "Notification");
 }
 
 export async function ensureVoicePermissions(): Promise<void> {

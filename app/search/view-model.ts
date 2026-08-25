@@ -18,7 +18,7 @@ export type SearchScreen = {
 };
 
 const SOURCE_ORDER: readonly SearchSourceId[] = [
-  "apps", "calendar", "notifications", "files", "hermes_sessions", "media", "health", "roam", "terminal",
+  "apps", "calendar", "notifications", "files", "media", "health",
 ];
 
 export class SearchViewModel {

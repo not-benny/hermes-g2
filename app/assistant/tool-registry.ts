@@ -48,6 +48,8 @@ export type ToolResult = {
 
 export type ToolExecutionContext = {
   caller: "direct" | "mcp";
+  /** True only for an MCP call explicitly authorized outside an active turn. */
+  proactive: boolean;
   /** Authenticated deployment profile; never accepted from tool arguments. */
   profileId?: string | null;
   connectionGeneration?: string | number | null;

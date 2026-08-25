@@ -45,6 +45,42 @@ test("cockpit protocol accepts bounded provider-neutral snapshots and rejects pr
   ]) assert.ok(validateCockpitFrame(bad), JSON.stringify(bad));
 });
 
+test("store discards tool rows while preserving snapshot and incremental sequencing", () => {
+  const store = new AgentCockpitStore();
+  assert.equal(store.apply(snapshot(10, {
+    revision: 4,
+    timeline: [
+      { id: "row_tool_snapshot_1", kind: "tool", text: "search_files · running", status: "running" },
+      { id: "row_assistant_1234", kind: "assistant", text: "First final result", status: "done" },
+    ],
+  })), true);
+  let current = store.snapshot();
+  assert.equal(current.sequence, 10);
+  assert.equal(current.sessions[0].revision, 4);
+  assert.deepEqual(current.sessions[0].timeline.map((row) => row.kind), ["assistant"]);
+
+  assert.equal(store.apply({
+    v: 1, chan: "cockpit", type: "timeline_append", sequence: 11,
+    session_id: session.session_id, generation: 7, revision: 5,
+    row: { id: "row_tool_increment_1", kind: "tool", text: "read_file · done", status: "done" },
+  }), true);
+  current = store.snapshot();
+  assert.equal(current.synchronized, true);
+  assert.equal(current.sequence, 11);
+  assert.equal(current.sessions[0].revision, 5);
+  assert.deepEqual(current.sessions[0].timeline.map((row) => row.text), ["First final result"]);
+
+  assert.equal(store.apply({
+    v: 1, chan: "cockpit", type: "timeline_append", sequence: 12,
+    session_id: session.session_id, generation: 7, revision: 6,
+    row: { id: "row_assistant_5678", kind: "assistant", text: "Second final result", status: "done" },
+  }), true);
+  current = store.snapshot();
+  assert.equal(current.sequence, 12);
+  assert.equal(current.sessions[0].revision, 6);
+  assert.deepEqual(current.sessions[0].timeline.map((row) => row.text), ["First final result", "Second final result"]);
+});
+
 test("snapshot and contiguous events build active work without hidden session discovery", () => {
   const store = new AgentCockpitStore();
   assert.equal(store.apply(snapshot()), true);

@@ -8,16 +8,19 @@ the user configures.
 ## Audio and transcription
 
 Hermes G2 captures audio for user-invoked voice features such as the assistant,
-Transcribe, notification replies, and voice typing. On-device transcription is
-the default. Audio stays on the phone and is discarded after processing unless
-the developer setting to save voice recordings is explicitly enabled.
+Conversate, notification replies, and voice typing. On-device transcription is
+the default. Audio stays on the phone and is discarded after processing.
+Conversate never retains raw audio; the separate developer recording switch
+applies only to assistant and dictation diagnostics.
 
 Users may instead provide their own credentials for Deepgram, OpenAI Whisper,
 ElevenLabs, or Soniox. Audio is then sent only to the selected provider and is
 handled under that provider's terms and retention policy.
 
-The Captions window records only while it is foreground and the glasses screen
-is on. Pausing, backgrounding, screen-off, closing, cancellation, or provider
+The Conversate window starts only after an explicit wearer action and records
+only while it is foreground and the glasses screen is on. It reminds the wearer
+to inform conversation participants. Pausing, backgrounding, screen-off,
+closing, cancellation, or provider
 replacement invalidates the active capture generation and stops its audio and
 network work. Source captions and optional Soniox translations stay in memory
 only and clear when the window closes; Hermes does not persist or export them.
@@ -137,13 +140,35 @@ available and authorised.
 
 ## Local secrets and storage
 
-API keys, bridge tokens, Even/Mapbox/Nightscout/Roam credentials, and terminal
-token-bearing connection records are encrypted with an app-scoped Android
+API keys, bridge tokens, Even/Mapbox credentials, and any dormant legacy
+terminal token-bearing connection records are encrypted with an app-scoped Android
 Keystore AES-GCM key. Migration deletes a legacy plaintext value only after an
 encrypted write and read-back succeeds. Explicit Clear actions remove both
 encrypted and legacy copies. Uninstall or app-data clear destroys the Keystore
 key, so credentials cannot be recovered; upgrade-in-place depends on preserving
-the existing app identity and signing certificate.
+the existing app identity and signing certificate. On upgrade, settings-store
+initialization purges plaintext, encrypted, and pending credential copies for
+retired integrations.
+
+The phone-owned Work Tasks board is also stored as one bounded, versioned
+Android Keystore-encrypted document. It contains task titles, lanes, blocked
+state, timestamps, and a bounded replay ledger of operation identifiers and
+SHA-256 payload digests; rendered frames and Hermes agent jobs are not stored in
+that document. A spoken add request sends its title only through the currently
+authenticated `even-g2` turn and fixed Work Tasks tool. The board has no task
+service account, cloud sync, or Home Assistant/Hermes Kanban fallback.
+
+Completed direct Hermes notifications use a separate bounded, versioned
+Android Keystore-encrypted inbox. A pending record contains the inert final
+text, the Fold's first-receipt timestamp, FIFO metadata, and SHA-256 operation
+and payload digests; the plaintext operation identifier is never persisted.
+Off-head, unknown-wear, disconnected, locked, voice-owned, and proactive-off
+states leave the record queued without waking or beeping. After a confirmed
+current-session wear state and strict frame acknowledgement, the encrypted
+pending text is replaced by a bounded content-free replay tombstone. The
+visible card then remains only in memory until Dismiss/Back or the global
+screen timeout. One-shot Hermes reminders use this direct route and do not fall
+back to Home Assistant notification mirroring.
 
 Device addresses, conversation state, health history, and non-secret preferences
 remain app-private but are not all Keystore-encrypted. Android backup is disabled.
@@ -159,7 +184,7 @@ EHPK installation, remote code, and background sensor use are not implemented.
 
 Never commit or publish:
 
-- bridge, provider, Mapbox, Nightscout, or Even credentials
+- bridge, provider, Mapbox, or Even credentials
 - `secrets.local.md`, `.env.local`, or pulled Android settings
 - Bluetooth MAC addresses, serials, private IP addresses, or ADB identifiers
 - raw health exports, official-app databases, or Bluetooth captures

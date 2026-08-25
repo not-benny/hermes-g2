@@ -26,6 +26,7 @@ import {
   GESTURE_SCROLL,
 } from "../../ui/gestures";
 import { clamp } from "../../util/numeric-util";
+import { minesweeperLayout, type MinesweeperLayout } from "./minesweeper-layout";
 
 declare const global: any;
 declare const com: any;
@@ -36,10 +37,6 @@ const smallFont = getDefaultSmallFont();
 
 const COLS = 12;
 const ROWS = 9;
-const CELL = 26;
-const BOARD_X = 14;
-const BOARD_Y = 14;
-const PANEL_X = BOARD_X + COLS * CELL + 28;
 
 const DIFFICULTIES = [
   { name: "Easy", mines: 14 },
@@ -561,44 +558,57 @@ function paint(window: MinesweeperWindow): GrayImage {
 
 function paintContent(window: MinesweeperWindow): GrayImage {
   const image = new GrayImage(window.viewportWidth, window.viewportHeight, 0);
-  image.drawRect(BOARD_X - 2, BOARD_Y - 2, COLS * CELL + 4, ROWS * CELL + 4, 120);
+  const layout = minesweeperLayout(window.viewportHeight);
+  image.drawRect(
+    layout.boardX - 2,
+    layout.boardY - 2,
+    layout.boardWidth + 4,
+    layout.boardHeight + 4,
+    120,
+  );
   if (window.phase === "paused") {
     // Hide the board so pausing can't be used to study it off the clock.
-    drawCenteredIn(image, mediumFont, BOARD_X, COLS * CELL, BOARD_Y + 80, "PAUSED", 230);
-    drawCenteredIn(image, smallFont, BOARD_X, COLS * CELL, BOARD_Y + 120, `${GESTURE_CLICK} resume`, 150);
-    drawCenteredIn(image, smallFont, BOARD_X, COLS * CELL, BOARD_Y + 140, `${GESTURE_DOUBLE_CLICK} leave`, 150);
+    drawCenteredIn(image, mediumFont, layout.boardX, layout.boardWidth, layout.boardY + 70, "PAUSED", 230);
+    drawCenteredIn(image, smallFont, layout.boardX, layout.boardWidth, layout.boardY + 112, `${GESTURE_CLICK} resume`, 150);
+    drawCenteredIn(image, smallFont, layout.boardX, layout.boardWidth, layout.boardY + 132, `${GESTURE_DOUBLE_CLICK} leave`, 150);
   } else {
-    paintBoard(image, window);
+    paintBoard(image, window, layout);
   }
-  paintPanel(image, window);
+  paintPanel(image, window, layout);
   return image;
 }
 
-function paintBoard(image: GrayImage, window: MinesweeperWindow): void {
+function paintBoard(image: GrayImage, window: MinesweeperWindow, layout: MinesweeperLayout): void {
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
-      paintCell(image, window, x, y);
+      paintCell(image, window, layout, x, y);
     }
   }
   // Cursor: a double bright outline so it stays visible over any cell. In
   // row-select it spans the whole selected row; in column-select it marks the
   // cell (games over show neither).
   if (window.phase !== "playing") return;
-  const cx = BOARD_X + window.cursorX * CELL;
-  const cy = BOARD_Y + window.cursorY * CELL;
+  const cx = layout.boardX + window.cursorX * layout.cell;
+  const cy = layout.boardY + window.cursorY * layout.cell;
   if (window.selectMode === "row") {
-    image.drawRect(BOARD_X - 1, cy - 1, COLS * CELL + 1, CELL + 1, 255);
-    image.drawRect(BOARD_X, cy, COLS * CELL - 1, CELL - 1, 255);
+    image.drawRect(layout.boardX - 1, cy - 1, layout.boardWidth + 1, layout.cell + 1, 255);
+    image.drawRect(layout.boardX, cy, layout.boardWidth - 1, layout.cell - 1, 255);
   } else {
-    image.drawRect(cx - 1, cy - 1, CELL + 1, CELL + 1, 255);
-    image.drawRect(cx, cy, CELL - 1, CELL - 1, 255);
+    image.drawRect(cx - 1, cy - 1, layout.cell + 1, layout.cell + 1, 255);
+    image.drawRect(cx, cy, layout.cell - 1, layout.cell - 1, 255);
   }
 }
 
-function paintCell(image: GrayImage, window: MinesweeperWindow, x: number, y: number): void {
+function paintCell(
+  image: GrayImage,
+  window: MinesweeperWindow,
+  layout: MinesweeperLayout,
+  x: number,
+  y: number,
+): void {
   const index = y * COLS + x;
-  const cx = BOARD_X + x * CELL;
-  const cy = BOARD_Y + y * CELL;
+  const cx = layout.boardX + x * layout.cell;
+  const cy = layout.boardY + y * layout.cell;
   const state = window.cellState[index]!;
   const isMine = window.mines[index] === 1;
   const gameOver = window.phase === "lost";
@@ -606,65 +616,70 @@ function paintCell(image: GrayImage, window: MinesweeperWindow, x: number, y: nu
   if (state === CELL_REVEALED || (gameOver && isMine)) {
     if (isMine) {
       // The fatal mine gets an inverted cell so it stands out.
-      if (index === window.explodedIndex) image.fillRect(cx, cy, CELL - 1, CELL - 1, 200);
-      drawMine(image, cx, cy, index === window.explodedIndex ? 1 : 220);
+      if (index === window.explodedIndex) image.fillRect(cx, cy, layout.cell - 1, layout.cell - 1, 200);
+      drawMine(image, cx, cy, layout.cell, index === window.explodedIndex ? 1 : 220);
       return;
     }
-    image.drawRect(cx, cy, CELL - 1, CELL - 1, 22);
+    image.drawRect(cx, cy, layout.cell - 1, layout.cell - 1, 22);
     const count = window.counts[index]!;
     if (count > 0) {
       const digit = String(count);
-      const dx = cx + Math.round((CELL - 1 - mediumFont.measureText(digit)) / 2);
+      const dx = cx + Math.round((layout.cell - 1 - mediumFont.measureText(digit)) / 2);
       image.drawText(mediumFont, dx, cy + 1, digit, COUNT_SHADES[count]!);
     }
     return;
   }
 
   // Hidden (or flagged) cell face.
-  image.fillRect(cx, cy, CELL - 1, CELL - 1, 55);
+  image.fillRect(cx, cy, layout.cell - 1, layout.cell - 1, 55);
   if (state === CELL_FLAGGED) {
-    drawFlag(image, cx, cy, 245);
+    drawFlag(image, cx, cy, layout.cell, 245);
     // A flag that turned out wrong gets crossed out at game over.
     if (gameOver && !isMine) {
-      image.drawLine(cx + 3, cy + 3, cx + CELL - 5, cy + CELL - 5, 255);
-      image.drawLine(cx + CELL - 5, cy + 3, cx + 3, cy + CELL - 5, 255);
+      image.drawLine(cx + 3, cy + 3, cx + layout.cell - 5, cy + layout.cell - 5, 255);
+      image.drawLine(cx + layout.cell - 5, cy + 3, cx + 3, cy + layout.cell - 5, 255);
     }
   }
 }
 
-function drawFlag(image: GrayImage, cx: number, cy: number, shade: number): void {
-  image.drawLine(cx + 10, cy + 5, cx + 10, cy + 20, shade);
-  image.fillRect(cx + 11, cy + 5, 7, 4, shade);
-  image.fillRect(cx + 11, cy + 9, 4, 3, shade);
-  image.drawLine(cx + 7, cy + 20, cx + 13, cy + 20, shade);
+function drawFlag(image: GrayImage, cx: number, cy: number, cell: number, shade: number): void {
+  const poleX = cx + Math.round(cell * 0.38);
+  const top = cy + Math.round(cell * 0.2);
+  const bottom = cy + cell - Math.max(5, Math.round(cell * 0.23));
+  image.drawLine(poleX, top, poleX, bottom, shade);
+  image.fillRect(poleX + 1, top, Math.max(5, Math.round(cell * 0.27)), Math.max(3, Math.round(cell * 0.15)), shade);
+  image.fillRect(poleX + 1, top + Math.max(3, Math.round(cell * 0.15)), Math.max(3, Math.round(cell * 0.15)), 3, shade);
+  image.drawLine(poleX - 3, bottom, poleX + 3, bottom, shade);
 }
 
-function drawMine(image: GrayImage, cx: number, cy: number, shade: number): void {
-  const centerX = cx + Math.floor((CELL - 1) / 2);
-  const centerY = cy + Math.floor((CELL - 1) / 2);
+function drawMine(image: GrayImage, cx: number, cy: number, cell: number, shade: number): void {
+  const centerX = cx + Math.floor((cell - 1) / 2);
+  const centerY = cy + Math.floor((cell - 1) / 2);
+  const radius = Math.max(4, Math.floor(cell * 0.23));
+  const spike = Math.max(radius + 2, Math.floor(cell * 0.36));
   // A rounded blob plus four spikes reads as a mine at this size.
-  image.fillRoundedRect(centerX - 6, centerY - 6, 13, 13, shade, 6);
-  image.drawLine(centerX - 9, centerY, centerX + 9, centerY, shade);
-  image.drawLine(centerX, centerY - 9, centerX, centerY + 9, shade);
-  image.drawLine(centerX - 7, centerY - 7, centerX + 7, centerY + 7, shade);
-  image.drawLine(centerX - 7, centerY + 7, centerX + 7, centerY - 7, shade);
+  image.fillRoundedRect(centerX - radius, centerY - radius, radius * 2 + 1, radius * 2 + 1, shade, radius);
+  image.drawLine(centerX - spike, centerY, centerX + spike, centerY, shade);
+  image.drawLine(centerX, centerY - spike, centerX, centerY + spike, shade);
+  image.drawLine(centerX - spike + 2, centerY - spike + 2, centerX + spike - 2, centerY + spike - 2, shade);
+  image.drawLine(centerX - spike + 2, centerY + spike - 2, centerX + spike - 2, centerY - spike + 2, shade);
 }
 
-function paintPanel(image: GrayImage, window: MinesweeperWindow): void {
-  drawStat(image, PANEL_X, BOARD_Y, "Mines", String(mineCount(window) - window.flagCount));
-  drawStat(image, PANEL_X, BOARD_Y + 62, "Time", formatElapsed(elapsedMs(window)));
-  image.drawText(smallFont, PANEL_X, BOARD_Y + 126, DIFFICULTIES[window.difficultyIndex]!.name, 140);
+function paintPanel(image: GrayImage, window: MinesweeperWindow, layout: MinesweeperLayout): void {
+  drawStat(image, layout.panelX, layout.boardY, "Mines", String(mineCount(window) - window.flagCount));
+  drawStat(image, layout.panelX, layout.boardY + 62, "Time", formatElapsed(elapsedMs(window)));
+  image.drawText(smallFont, layout.panelX, layout.boardY + 126, DIFFICULTIES[window.difficultyIndex]!.name, 140);
 
   if (window.phase === "won" || window.phase === "lost") {
-    image.drawText(mediumFont, PANEL_X, BOARD_Y + 152, window.phase === "won" ? "CLEARED!" : "BOOM!", 250);
-    image.drawText(smallFont, PANEL_X, BOARD_Y + 178, `${GESTURE_CLICK} new game`, 150);
-    image.drawText(smallFont, PANEL_X, BOARD_Y + 198, `${GESTURE_LONG_PRESS} menu`, 150);
+    image.drawText(mediumFont, layout.panelX, layout.boardY + 152, window.phase === "won" ? "CLEARED!" : "BOOM!", 250);
+    image.drawText(smallFont, layout.panelX, layout.firstHintY, `${GESTURE_CLICK} new game`, 150);
+    image.drawText(smallFont, layout.panelX, layout.secondHintY, `${GESTURE_LONG_PRESS} menu`, 150);
   } else if (window.selectMode === "row") {
-    image.drawText(smallFont, PANEL_X, 200, `${GESTURE_SCROLL} row   ${GESTURE_CLICK} pick`, 115);
-    image.drawText(smallFont, PANEL_X, 222, `${GESTURE_DOUBLE_CLICK} pause`, 115);
+    image.drawText(smallFont, layout.panelX, layout.firstHintY, `${GESTURE_SCROLL} row   ${GESTURE_CLICK} pick`, 115);
+    image.drawText(smallFont, layout.panelX, layout.secondHintY, `${GESTURE_DOUBLE_CLICK} pause`, 115);
   } else {
-    image.drawText(smallFont, PANEL_X, 200, `${GESTURE_SCROLL} cell   ${GESTURE_CLICK} dig`, 115);
-    image.drawText(smallFont, PANEL_X, 222, `${GESTURE_LONG_PRESS} flag   ${GESTURE_DOUBLE_CLICK} rows`, 115);
+    image.drawText(smallFont, layout.panelX, layout.firstHintY, `${GESTURE_SCROLL} cell   ${GESTURE_CLICK} dig`, 115);
+    image.drawText(smallFont, layout.panelX, layout.secondHintY, `${GESTURE_LONG_PRESS} flag   ${GESTURE_DOUBLE_CLICK} rows`, 115);
   }
 }
 

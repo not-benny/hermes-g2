@@ -10,6 +10,19 @@ declare const com: any;
 const SAMPLE_INTERVAL_MS = 1_000;
 const HISTORY_MS = 60_000;
 const MAX_SAMPLES = Math.ceil(HISTORY_MS / SAMPLE_INTERVAL_MS) + 2;
+const CPU_CHART_TOP = 160;
+const CPU_CHART_MAX_HEIGHT = 60;
+const FOOTER_TEXT_OFFSET = 16;
+const CPU_CHART_FOOTER_GAP = 8;
+
+/** Fit the CPU chart above the footer in the shell's compact app viewport. */
+export function resourceUsageCpuChartHeight(viewportHeight: number): number {
+  const footerTextY = Math.floor(viewportHeight) - FOOTER_TEXT_OFFSET;
+  return Math.max(1, Math.min(
+    CPU_CHART_MAX_HEIGHT,
+    footerTextY - CPU_CHART_FOOTER_GAP - CPU_CHART_TOP,
+  ));
+}
 
 type ResourceSample = {
   atMs: number;
@@ -100,7 +113,12 @@ export class ResourceUsageLayer implements Layer {
     const cpuPeak = Math.max(...this.samples.map((sample) => sample.cpuPercent), 100);
     const cpuScale = roundUp(cpuPeak * 1.08, 25);
     image.drawText(font, 16, 144, `CPU 0–${Math.round(cpuScale)}% (one core)`, 140);
-    drawChart(image, this.samples, latest.atMs, { x: 16, y: 160, width: width - 32, height: 60 }, cpuScale, [
+    drawChart(image, this.samples, latest.atMs, {
+      x: 16,
+      y: CPU_CHART_TOP,
+      width: width - 32,
+      height: resourceUsageCpuChartHeight(height),
+    }, cpuScale, [
       { value: (sample) => sample.cpuPercent, shade: 220 },
     ]);
 

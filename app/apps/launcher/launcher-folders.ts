@@ -31,7 +31,10 @@ export function getFolderAssignments(): Record<string, string> {
     for (const appId of Object.keys(parsed)) {
       const folder = parsed[appId];
       if (typeof folder === "string" && folder.trim()) {
-        assignments[appId] = folder.trim();
+        // Timer was folded into Clock. Preserve an existing user folder
+        // assignment while leaving the legacy app source dormant.
+        const currentAppId = appId === "timer" ? "clock" : appId;
+        if (!(currentAppId in assignments)) assignments[currentAppId] = folder.trim();
       }
     }
     return assignments;

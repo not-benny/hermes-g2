@@ -4,7 +4,7 @@ import { GrayImage, imageFromAsciiArt } from "./image";
 
 // Small monochrome glyphs for the top-bar status area: device labels for the
 // battery indicators (phone / glasses / ring) and the auto-brightness sun.
-// Drawn at roughly the battery icon's scale so they line up in the 28px bar.
+// Drawn at roughly the battery icon's scale so they line up in either 28px HUD row.
 // In imageFromAsciiArt, '#' is filled and ' '/'.' is transparent.
 
 // Match the muted brightness the text labels used, so the icons read as labels

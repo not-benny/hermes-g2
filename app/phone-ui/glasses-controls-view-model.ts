@@ -1,8 +1,9 @@
-import { Frame, Observable, SegmentedBarItem } from "@nativescript/core";
+import { EventData, Frame, Observable, SegmentedBarItem, View } from "@nativescript/core";
 import type { ConfigSettingEnum } from "../ui/dashboard-settings";
 
 import { dashboardController, type DashboardSnapshot } from "../g2/dashboard-controller";
 import {
+  assistantSkipConfirmationSetting,
   batteryDisplayModeSetting,
   brightnessSetting,
   lockScreenEnabledSetting,
@@ -173,12 +174,24 @@ export class GlassesControlsViewModel extends Observable {
     this.setStatus(`Voice control ${value ? "enabled" : "disabled"}.`);
   }
 
+  get assistantSkipConfirmationChecked(): boolean {
+    return assistantSkipConfirmationSetting.get();
+  }
+  set assistantSkipConfirmationChecked(value: boolean) {
+    if (value === assistantSkipConfirmationSetting.get()) return;
+    assistantSkipConfirmationSetting.set(value);
+    this.notifyPropertyChange("assistantSkipConfirmationChecked", value);
+    this.setStatus(value
+      ? "Assistant voice requests will send when transcription finishes."
+      : "Assistant voice requests will stop for review before sending.");
+  }
+
   get uiFontItems(): SegmentedBarItem[] { return this.enumItems(uiFontSetting); }
   get uiFontIndex(): number { return this.enumIndex(uiFontSetting); }
   set uiFontIndex(index: number) { this.setEnumIndex(uiFontSetting, index, "uiFontIndex"); }
 
   get voiceProviderLabel(): string {
-    return `Transcription: ${voiceProviderSetting.displayValue()}`;
+    return `Assistant STT: ${voiceProviderSetting.displayValue()}`;
   }
 
   // Kept as a button: its labels ("Screen on") are too long for a 3-segment bar.
@@ -257,7 +270,7 @@ export class GlassesControlsViewModel extends Observable {
 
   onVoiceProviderTap(): void {
     voiceProviderSetting.set(voiceProviderSetting.next());
-    this.setStatus(`Voice provider set to ${voiceProviderSetting.displayValue()}.`);
+    this.setStatus(`Assistant voice provider set to ${voiceProviderSetting.displayValue()}.`);
   }
 
   async onTestVoiceInputTap(): Promise<void> {
@@ -265,16 +278,21 @@ export class GlassesControlsViewModel extends Observable {
     this.setStatus(started ? "Voice test opened on the glasses." : "Connect to the glasses first.");
   }
 
-  onOpenNotificationAppsTap(): void {
-    Frame.topmost()?.navigate("phone-ui/notification-apps-page");
+  onOpenNotificationAppsTap(args?: EventData): void {
+    this.navigateFromTap(args, "phone-ui/notification-apps-page");
   }
 
-  onOpenMediaAppsTap(): void {
-    Frame.topmost()?.navigate("phone-ui/media-apps-page");
+  onOpenMediaAppsTap(args?: EventData): void {
+    this.navigateFromTap(args, "phone-ui/media-apps-page");
   }
 
   onBackTap(): void {
     Frame.topmost()?.navigate({ moduleName: "phone-ui/main-page", clearHistory: true });
+  }
+
+  private navigateFromTap(args: EventData | undefined, moduleName: string): void {
+    const source = args?.object as View | undefined;
+    (source?.page?.frame ?? Frame.topmost())?.navigate(moduleName);
   }
 
   private applySnapshot(snapshot: DashboardSnapshot): void {
@@ -306,6 +324,7 @@ export class GlassesControlsViewModel extends Observable {
       "dashboardSizeIndex",
       "ringSensitivityValueLabel",
       "voiceControlChecked",
+      "assistantSkipConfirmationChecked",
       "uiFontIndex",
       "voiceProviderLabel",
       "wakeWordActionLabel",

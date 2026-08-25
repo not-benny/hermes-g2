@@ -2,6 +2,65 @@
 
 This changelog records user-visible work in the Hermes G2 1.0.0 development-preview line. Experimental, hardware-limited, and deliberately unavailable capabilities are called out explicitly.
 
+## [1.0.0-preview.3] - 2026-08-25
+
+### Highlights
+
+- Replaced the prompt-driven Hermes integration with an MCP-only private
+  architecture: Host Session MCP for voice/status, private Device MCP for phone
+  capabilities, and a portable static workflow MCP for the model.
+- Added the phone-owned Work Tasks board, durable Clock alarms and timers,
+  Conversate, a two-line optical HUD, grouped notification-source icons, emoji
+  fallback rendering, and consolidated Window Management.
+- Reworked sleeping assistant turns so thinking and tool progress never occupy
+  or block the glasses. Only the final strict-acknowledged result is presented.
+
+### Hermes and workflows
+
+- Reduced the owner SOUL to identity and response style only. Removed native G2
+  skills, tool registration, generic phone discovery/call proxies, and legacy
+  custom chat, Cockpit, and Companion command channels.
+- Added twelve exact high-level workflows for Work Tasks, Clock timers, Clock
+  alarms, reminders, weather, National Rail departures, app/window management,
+  media, navigation, notifications, ring-health summary, and calendar agenda.
+- Added digest-bound, expiring exact-turn capabilities, schema-pinned private
+  phone routes, deterministic operation IDs, replay protection, standard MCP
+  cancellation, and typed receipt validation.
+- Replaced model-driven reminder firing with a deterministic durable outbox that
+  calls only the fixed proactive notification route.
+- Added a status-only Hermes Cockpit using the `H` identity and Host MCP status
+  resource. It exposes no transcript, tool activity, or command authority.
+
+### Glasses reliability and UI
+
+- Added encrypted direct-result persistence, reconnect/wear-state recovery,
+  retained retry authority, strict frame acknowledgement, and transactional
+  wake rollback for assistant results and reminders.
+- Added a double-height pixel time/date HUD with two rows, a separator between
+  phone notification sources and persistent telemetry, explicit Hermes Gateway
+  state, and optical-safe sidebar/window geometry.
+- Grouped HUD notification icons per source app, added drawable fallback, and
+  added shared bounded emoji-to-text fallback for unsupported glyphs.
+- Added paged notification digest/action menus and double-tap dismiss while
+  preserving Back, Reply, Android actions, and Dismiss.
+- Added a full Clock app with timers, alarms, world clocks, voice creation,
+  durable Android scheduling, worn/off-head alert campaigns, visual feedback,
+  and ring dismissal.
+
+### Verification and limits
+
+- Phone suite: 873 tests passed; TypeScript typecheck passed.
+- Native gateway suite: 282 passed with one optional live test skipped.
+- Portable workflow MCP: 23 tests plus current MCP SDK and plugin-doctor checks.
+- Hermes capability/plugin suite: 335 tests.
+- The debug APK built with JDK 21 and Android SDK 35, installed, launched, and
+  reported Hermes Cockpit online. The glasses BLE session was offline during
+  the final check, so a fresh physical lens acceptance run remains required.
+- The private owner cutover passed review. Combined public distribution remains
+  blocked because the native bridge is redistribution-prohibited. The separate
+  public-web MCP is an undeployed review candidate and still requires host-level
+  resource containment and prompt-injection isolation.
+
 ## [1.0.0-preview.1] - 2026-08-21
 
 ### Highlights

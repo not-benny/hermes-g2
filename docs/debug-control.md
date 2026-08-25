@@ -12,8 +12,10 @@ in Android's `debug` source set, requires the signature-level
 `FaceclawDebugControlReceiver`, `com.faceclaw.app.DEBUG_CONTROL_V1`,
 `android.permission.DUMP`, nor the JavaScript control implementation.
 
-The allowlist is limited to display wake/blank, fixed launcher app IDs, and two
-procedural voice fixtures. It deliberately exposes no clicks, scrolls, long
+The allowlist is limited to display wake/blank, fixed app IDs, and two
+procedural voice fixtures. `debug-tests` remains an allowlisted compatibility
+ID, but opens Settings → Developer → Debug tests because diagnostics are no
+longer a launcher-grid app. It deliberately exposes no clicks, scrolls, long
 presses, wakewords, arbitrary intents, shell, paths, URLs, keycodes, PCM, files,
 transcripts, tokens, or credentials.
 

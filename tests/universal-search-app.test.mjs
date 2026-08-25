@@ -9,7 +9,8 @@ const fileAccess = readFileSync(new URL("../app/native/file-access.ts", import.m
 
 test("universal search is launcher registered and accepts only reviewed shell text", () => {
   assert.match(apps, /import universalSearchApp from "\.\/universal-search"/);
-  assert.match(apps, /agentCockpitApp,\s*\n\s*universalSearchApp,/);
+  assert.match(apps, /terminalApp,\s*\n\s*agentCockpitApp,\s*\n\s*workTasksApp,\s*\n\s*universalSearchApp,/);
+  assert.match(apps, /import agentCockpitApp from "\.\/agent-cockpit"/);
   assert.match(index, /appId: "universal-search"/);
   assert.match(index, /launchInProcessApp/);
   assert.match(windowSource, /receiveTextInput: \(text\) => layer\.receiveReviewedQuery\(text\)/);
@@ -22,7 +23,7 @@ test("search filters and clear are local window actions and query content is nev
   assert.doesNotMatch(windowSource, /setStringSetting|ApplicationSettings|appendLog|console\.(?:log|warn|error)/);
 });
 
-test("safe opens use exact notification, file, calendar-event, and Hermes-session revalidation", () => {
+test("safe opens use exact notification, file, and calendar-event revalidation", () => {
   assert.match(windowSource, /readNotificationByKey\(key\)/);
   assert.match(windowSource, /notification\.postTime !== postTime/);
   assert.doesNotMatch(windowSource, /SingleNotificationLayer/);
@@ -31,7 +32,7 @@ test("safe opens use exact notification, file, calendar-event, and Hermes-sessio
   assert.match(windowSource, /rootEntry\.isSymbolicLink/);
   assert.match(windowSource, /entry\.isSymbolicLink/);
   assert.match(windowSource, /event\.id === eventId && event\.startMs === startMs/);
-  assert.match(windowSource, /session\.session_id === sessionId && session\.generation === generation/);
+  assert.doesNotMatch(windowSource, /assistantBridge|cockpitSnapshot|openHermesSession|hermes_sessions/);
   assert.doesNotMatch(windowSource, /invokeNotificationAction|dismissNotification|steer\(|interrupt\(|updateBlock|sendCommand/);
 });
 

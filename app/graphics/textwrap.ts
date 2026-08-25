@@ -35,6 +35,7 @@ export function findWrapOpportunities(text: string): number[] {
 }
 
 export function wrapText(font: BdfFont, text: string, targetWidth: number, opts: WrapTextOptions = {}): string[] {
+  text = font.textForDisplay(text);
   if (targetWidth <= 0) {
     return text.length ? text.split("\n") : [""];
   }
@@ -48,6 +49,7 @@ export function wrapText(font: BdfFont, text: string, targetWidth: number, opts:
 }
 
 export function truncateText(font: BdfFont, text: string, maxWidth: number): string {
+  text = font.textForDisplay(text);
   if (font.measureText(text) <= maxWidth) return text;
   let out = text;
   while (out.length > 1 && font.measureText(`${out}...`) > maxWidth) {
@@ -57,6 +59,7 @@ export function truncateText(font: BdfFont, text: string, maxWidth: number): str
 }
 
 export function truncateLeft(font: BdfFont, text: string, maxWidth: number): string {
+  text = font.textForDisplay(text);
   if (font.measureText(text) <= maxWidth) return text;
   let out = text;
   while (out.length > 1 && font.measureText(`...${out}`) > maxWidth) {

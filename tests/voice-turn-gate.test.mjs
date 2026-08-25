@@ -94,6 +94,11 @@ test("voice capture integration carries the exact generation through permission,
   );
   assert.ok(disconnectBody.indexOf("failActiveCapture") >= 0 && disconnectBody.indexOf("failActiveCapture") < disconnectBody.indexOf("\n    await "));
   assert.match(voice, /reserveContinuousCapture\(\): number/);
+  assert.match(layers, /finishContinuousVoiceCapture: \(generation: number\) => Promise<void>/);
+  assert.match(dashboard, /voiceControlBridge\.finishContinuousCapture\(generation\)/);
+  assert.match(voice, /finishContinuousCapture\(generation: number\): Promise<void>/);
+  assert.match(voice, /if \(event\.isFinal && capture\.commitSent\) this\.releaseCompletedCapture/);
+  assert.match(voice, /PROVIDER_FINISH_TIMEOUT_MS/);
   assert.match(voice, /onCaptureStopped: \(generation: number\)/);
   assert.match(voice, /this\.completeCapture\(generation\)/);
   assert.match(voice, /onTranscript: \(generation: number, text: string, isFinal: boolean\)/);
@@ -104,4 +109,15 @@ test("voice capture integration carries the exact generation through permission,
   assert.match(dialog, /event\.generation !== this\.captureGeneration/);
   assert.match(dialog, /voiceControlBridge\.claimSubmit\(this\.captureGeneration\)/);
   assert.match(dialog, /stopVoiceCapture\(this\.captureGeneration, false\)/);
+});
+
+test("on-device final decode precedes capture completion and cloud finish stays bounded", () => {
+  const native = read("App_Resources/Android/src/main/java/com/faceclaw/app/FaceclawVoiceController.java");
+  const voice = read("app/native/voice-control.ts");
+  const finalIndex = native.indexOf("decodeTranscript(true)");
+  const stoppedIndex = native.indexOf("emitCaptureStopped(generation)", finalIndex);
+  assert.ok(finalIndex >= 0 && stoppedIndex > finalIndex);
+  assert.match(voice, /if \(!capture\.cloudClient\) \{[\s\S]*releaseCompletedCapture\(capture, false\)/);
+  assert.match(voice, /capture\.cloudClient\.finish\(\)/);
+  assert.match(voice, /setTimeout\(\(\) => \{[\s\S]*releaseCompletedCapture\(capture, true\)/);
 });

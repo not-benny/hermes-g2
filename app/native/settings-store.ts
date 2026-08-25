@@ -30,12 +30,13 @@ const SECRET_SETTING_KEYS = new Set([
   "voice.sonioxApiKey",
   "llm.anthropicApiKey",
   "maps.mapboxApiKey",
-  "integrations.roam.apiToken",
-  "integrations.nightscout.apiToken",
   "terminal.newConnectionDraft",
   "terminal.connections",
   "motion.deviceBindingSalt",
   "assistant.contextDashboardPins",
+  "assistant.directNotifications.v1",
+  "clock.store.v1",
+  "work.tasks.store.v1",
 ]);
 
 function getJava(): any {
@@ -52,6 +53,12 @@ export function getStringSetting(key: string, defaultValue: string): string {
   return String(SECRET_SETTING_KEYS.has(key)
     ? getJava().getSecret(key, defaultValue)
     : getJava().getString(key, defaultValue));
+}
+
+/** Value-free presence probe used to fail closed when encrypted reads fail. */
+export function hasStoredSecretSetting(key: string): boolean {
+  if (!SECRET_SETTING_KEYS.has(key)) throw new Error("setting is not classified as secret");
+  return Boolean(getJava().hasStoredSecret(key));
 }
 
 export function setStringSetting(key: string, value: string): void {

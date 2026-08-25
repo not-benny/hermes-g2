@@ -1,6 +1,6 @@
 import { EvenHubCounterController } from "../../compat/evenhub/sample-controller";
 import { getStringSetting, removeStringSetting, setStringSetting } from "../../native/settings-store";
-import { ShellRemoteViewLayer } from "../../ui/shell/render-view-layer";
+import { ShellDynamicAppLayer } from "../../ui/shell/dynamic-app-layer";
 import type { DashboardInputEvent, Layer, LayerContext, PaintBelow } from "../../ui/layers";
 import { createInProcessWindow, YieldAtRootLayer, type InProcessAppOptions, type InProcessWindow } from "../../ui/shell/in-process-window";
 import { shell } from "../../ui/shell/shell";
@@ -12,7 +12,7 @@ class EvenHubSampleLayer implements Layer {
   constructor(private readonly controller: EvenHubCounterController) {}
 
   paint(ctx: LayerContext, paintBelow: PaintBelow) {
-    return new ShellRemoteViewLayer(this.controller.state(), () => false, () => undefined).paint(ctx, paintBelow);
+    return new ShellDynamicAppLayer(this.controller.dashboardState(), () => false, () => undefined).paint(ctx, paintBelow);
   }
 
   handleInput(event: DashboardInputEvent, ctx: LayerContext): void {
@@ -34,7 +34,7 @@ export function createEvenHubSampleAppWindow(options: InProcessAppOptions): InPr
     windowId: EVENHUB_SAMPLE_WINDOW_ID,
     title: "Local Counter",
     iconLetter: "EH",
-    icon: "layout-grid",
+    icon: "plus-one",
     closeable: true,
     actions: options.actions,
     baseLayer: new YieldAtRootLayer(new EvenHubSampleLayer(controller)),
