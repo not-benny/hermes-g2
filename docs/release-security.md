@@ -61,6 +61,13 @@ Android backup is disabled. Keystore keys are device/app-install scoped: uninsta
   distribution remains NO-GO because the current native bridge is
   redistribution-prohibited and the remaining artifact, containment, privacy,
   and physical-device gates are open.
+- The checked-in G2 configuration remains an MCP-only, least-privilege release
+  baseline. A separately administered private owner profile may explicitly add
+  general host capabilities, including Browser Harness access to a signed-in
+  native Brave profile. This overlay is local configuration, never SOUL text or
+  release input. Chromium's visible per-connection `Allow` confirmation remains
+  mandatory, consequential actions retain approval, and browser state, secrets,
+  profile locations, and connection details remain outside Git and logs.
 - Terminal/G2Mirror is retired from launcher, search, debug control, persisted-window restore, and Settings navigation. Dormant source and any legacy encrypted records are retained only for rollback and explicit credential cleanup; no connection is started.
 - WhatsApp startup and pairing UI are disabled. The bundled Node runtime is not proven compatible with 16 KiB page-size Android devices, live pairing has not passed the disposable-number gate, and Baileys production custody/licensing remain unresolved.
 

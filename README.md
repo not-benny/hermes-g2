@@ -76,10 +76,14 @@ Thinking and tool progress remain private; only the final voice Host MCP result
 may drive a glasses card.
 
 The model-facing G2 surface is a separate portable workflow MCP with twelve
-reviewed intent-level tools. Raw phone discovery, arbitrary phone calls, legacy
-custom chat/Cockpit/Companion channels, terminal, code execution, and raw
-browser execution are not available to the glasses model. The complete channel,
-workflow, reminder, configuration, test, and release contract is in
+reviewed intent-level tools. The checked-in distributable profile excludes raw
+phone discovery, arbitrary phone calls, legacy custom chat, Cockpit, and
+Companion channels, and general host toolsets. An explicitly administered
+private owner profile may separately grant `browser`, `terminal`,
+`file`, `skills`, `web`, `memory`, `session_search`, `cronjob`, and
+`computer_use`. That local overlay does not widen the phone MCP allowlist or
+become part of a distributable profile. The complete channel, workflow,
+reminder, configuration, test, and release contract is in
 [`docs/hermes-mcp-architecture.md`](docs/hermes-mcp-architecture.md).
 The owner profile SOUL contains persona and response style only; every Hermes
 workflow, command, receipt, and authority boundary is packaged in the Host,

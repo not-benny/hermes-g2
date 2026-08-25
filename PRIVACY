@@ -69,6 +69,16 @@ but they can still display information or perform consequences allowed by their
 tool. Users are responsible for the host, tools, models, and instructions they
 grant access to.
 
+The distributable G2 profile is a least-privilege MCP baseline. A separately
+administered private owner profile may grant broader host tools, including a
+Browser Harness connection to a signed-in native browser. Such a connection can
+expose pages and account data available to that browser session to the selected
+model and tools. Chromium requires the owner to accept a visible `Allow` prompt
+for each new connection. Browser state, credentials, profile locations, and
+connection details remain outside this repository and diagnostic output.
+Consequential actions such as sending, publishing, purchasing, account changes,
+or deletion retain explicit approval.
+
 ## Direct-provider fallback
 
 When direct-provider mode is selected, Hermes G2 sends prompts, responses, tool

@@ -9,7 +9,9 @@ required before any public distribution claim.
 
 ## Current outcome
 
-The private `even-g2` deployment is MCP-only and operational:
+The fixed G2 interaction boundary is MCP-only and operational. The checked-in
+distributable profile remains least privilege, while a separately administered
+private owner profile may opt into general Hermes host capabilities:
 
 - `SOUL.md` contains only identity and response style. It contains no tool
   names, workflow recipes, routing rules, retry policy, or device commands.
@@ -19,8 +21,10 @@ The private `even-g2` deployment is MCP-only and operational:
   MCP. A separate portable workflow MCP exposes the reviewed intent-level
   model surface.
 - The legacy custom `chat`, `cockpit`, and `companion` WSS channels are inert.
-- Raw phone discovery, arbitrary phone tool calls, terminal, code execution,
-  delegation, and raw browser execution are not available to the G2 model.
+- The distributable profile excludes raw phone discovery, arbitrary phone tool
+  calls, delegation, and general host toolsets. A private owner capability
+  overlay may grant the exact host toolsets described below without widening
+  the phone allowlist.
 - A completed reminder is delivered by a deterministic outbox directly to the
   fixed phone notification route. No agent prompt runs when the reminder fires.
 
@@ -221,12 +225,12 @@ intent, but they do not replace code-enforced authority.
 ## Configuration contract
 
 [`gateway/even-g2/mcp-cutover.example.yaml`](../gateway/even-g2/mcp-cutover.example.yaml)
-records the public-safe configuration fragment. The live profile must:
+records the public-safe, distributable configuration fragment. That base must:
 
 - enable the transport plugin and portable workflow MCP;
 - bind the trusted session-context grant to the exact package digest;
-- expose only the portable workflow toolset plus separately reviewed personal
-  MCPs;
+- expose only the portable workflow toolset; add personal MCPs and owner host
+  toolsets only in a private overlay outside the distributable base;
 - globally disable legacy `g2`, `g2-notify`, `g2-reminders`, `g2-work-board`,
   `g2-clock`, and `hermes-g2` toolsets;
 - keep raw phone routes in the transport allowlist, never in model toolsets;
@@ -237,11 +241,63 @@ The exact profile identifier is currently `even-g2` across phone, transport,
 and workflow package. Treat that as an installer requirement until all three
 artifacts accept one separately reviewed configurable identifier.
 
+### Private owner capability overlay
+
+The distributable fragment is a least-privilege baseline, not a ceiling on an
+owner's local Hermes instance. On a host controlled by one owner, an explicit
+private profile overlay may add any deliberate subset of these general Hermes
+toolsets:
+
+- `browser`
+- `terminal`
+- `file`
+- `skills`
+- `web`
+- `memory`
+- `session_search`
+- `cronjob`
+- `computer_use`
+
+Each grant belongs in private profile configuration. An absent grant remains
+disabled. The overlay must not be copied into the distributable example,
+release artifacts, another user's profile, or logs. These general tools do not
+change Host Session MCP, private Device MCP, portable workflow schemas, phone
+route allowlists, transport authentication, or the final-only glasses display
+boundary.
+
+The `browser` toolset may use Browser Harness to attach to a running, signed-in
+native Brave profile. Native Linux Brave discovery and preference is tracked in
+[Browser Harness upstream PR #650](https://github.com/browser-use/browser-harness/pull/650).
+Until that change is released, use only a reviewed Browser Harness build that
+contains it. Chromium displays a visible `Allow` confirmation for each new
+automation connection. The owner must approve that prompt; automation must not
+accept, suppress, or bypass it. Browser profile locations, cookies, tokens,
+history, account data, and connection details remain private runtime state and
+must never be committed or copied into diagnostic output.
+
+Granting a tool does not grant unattended consequential action. Sending mail or
+messages, publishing content, purchasing, changing account or security state,
+deleting data, and comparable external mutations retain their normal explicit
+approval boundary. Browser-derived instructions are untrusted data and do not
+override those approvals.
+
+Account-specific automation such as private email monitoring belongs in a
+separately maintained private MCP package. No mailbox identity, watch rule,
+credential, endpoint, repository name, or package location is recorded here or
+included in the distributable profile.
+
+This overlay is configuration and tool authority, never prompt authority.
+`SOUL.md` stays persona-only. General skills may describe their own bounded use,
+but no skill or SOUL text may redefine a G2 workflow, route, receipt, retry, or
+permission rule.
+
 ## General public web candidate
 
-General Browser Harness execution is not enabled. Raw `browser_exec`, DOM
-control, caller JavaScript, Python, terminal fallback, personal browser state,
-login, upload, and download remain forbidden.
+General Browser Harness execution is not enabled in the checked-in
+distributable profile or public-web candidate. The private owner overlay above
+is outside that release surface. Raw `browser_exec`, DOM control, caller
+JavaScript, Python, terminal fallback, personal browser state, login, upload,
+and download remain forbidden in distributable or public-web configurations.
 
 An undeployed `hermes-public-web` candidate has one read-only tool that accepts
 an explicitly supplied public HTTPS URL and returns one bounded attributed
@@ -307,8 +363,9 @@ or workspace wholesale.
 Before changing or publishing this boundary:
 
 1. run the full phone, transport, workflow, and Hermes capability suites;
-2. inspect the effective G2 tool inventory, not only the front-door search
-   tools, and fail if any raw or legacy name appears;
+2. inspect the effective distributable G2 tool inventory, not only the
+   front-door search tools, and fail if any raw or legacy name appears; inspect
+   a private owner overlay separately and prove it is not release input;
 3. verify source, deployed package, and trusted grant digests match;
 4. verify both portable packages are cache-free and symlink-free;
 5. verify the workflow child uses the reviewed absolute interpreter with
