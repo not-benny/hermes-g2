@@ -7,6 +7,7 @@ declare const com: any;
 export type MediaQueueItem = {
   id: number;
   title: string;
+  subtitle: string;
   active: boolean;
 };
 
@@ -162,10 +163,11 @@ export class FaceclawMediaControllerBridge {
     const json = String(this.controller.getQueueJson() ?? "");
     if (!json) return [];
     try {
-      const raw = JSON.parse(json) as Array<{ id?: number; title?: string; active?: boolean }>;
+      const raw = JSON.parse(json) as Array<{ id?: number; title?: string; subtitle?: string; active?: boolean }>;
       return raw.map((item) => ({
         id: Number(item.id ?? -1),
         title: String(item.title ?? ""),
+        subtitle: String(item.subtitle ?? ""),
         active: Boolean(item.active),
       }));
     } catch (error) {
