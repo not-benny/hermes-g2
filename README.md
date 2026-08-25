@@ -170,7 +170,7 @@ never uninstalls the current app or clears its data:
 
 ```bash
 ./scripts/build-sign-install-from-github.sh \
-  --ref db6098d545ba8cd20d3cc02d3db0d975afc0fdd6 \
+  --ref 67989dada122ab6ce04594b11e57e742441dd2dd \
   --serial YOUR_ADB_SERIAL
 ```
 
@@ -192,24 +192,32 @@ attempt; they never authorize uninstalling or clearing data, and Android may
 still reject an incompatible signature or downgrade.
 
 The owner upgrade path is proven for exact GitHub source commit
-`b04f1c83718faf5f995aa4f0e8284a21c67d768e`: 950/950 tests and TypeScript
-typecheck passed, then the source was built, signed with the existing owner
-identity, and installed upgrade-in-place on the Fold7 with current app data
-preserved. This is owner-install evidence, not physical lens acceptance,
-production signing, or a public all-in-one release claim.
+`67989dada122ab6ce04594b11e57e742441dd2dd`. It passed 971/971 full tests,
+155/155 focused lifecycle and cross-component tests, 22/22 focused performance
+and privacy tests, TypeScript typecheck, diff checks, CI, and unsigned-production
+verification. The unsigned verifier SHA-256 is
+`8412ab0440a2513bf2020fd020b8bb62a2525758f0a11fcb7b1c80b2cc066cc3`.
 
-The validated app-source tree at
-`db6098d545ba8cd20d3cc02d3db0d975afc0fdd6` additionally passed 952/952
-tests, TypeScript typecheck, dependency security probes, and debug plus
-unsigned-production build verification. It is tree-identical to rebased
-`main` commit `8941a72f6926102f1ce8c1e4df3f7bd044519973`; the final documentation
-merge is `753bfa42ccff573d9fc469011e2f4f45b2081fc0`. Those dependency and
-documentation changes did not require replacing the already-installed APK.
-Permanent provenance tags `distribution-v0.1.0-android-source` and
-`owner-preview3-installed-source-20260825` keep both exact build inputs
-reachable after the reviewed branch was merged and removed.
-The reviewed all-source setup is also published as the
-[`v0.1.0` distribution prerelease](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.0).
+The source was fetched from GitHub, built, signed with the existing owner
+signer, and installed upgrade-in-place. Android preserved the package, UID,
+`firstInstallTime`, and app data; a warm launch succeeded with no crash markers.
+The signed APK SHA-256 is
+`1a90cd8998e2d2bd166d8580cbfcc456d498fd9fe7a3c5d1f19423bf3789651b`.
+This is owner-install evidence, not physical worn-lens acceptance, production
+signing, or a public all-in-one release claim.
+
+The current implementation merged to public `main` at
+`74e7224f55930a3964c79e118f1c5b6b1b0cc8b1`. The permanent tag
+`distribution-v0.1.1-android-source` keeps the exact installed build input
+reachable. Earlier tags `distribution-v0.1.0-android-source` and
+`owner-preview3-installed-source-20260825` retain the preceding Preview 3 build
+inputs as historical provenance rather than current install claims.
+The current reviewed all-source setup is published as distribution prerelease
+[`v0.1.1`](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.1)
+from distribution `main` commit
+`7c7f9d685c53b3ef374d9ee2716ee434c860dc74`. It passed independent review of an
+exact tagged checkout, a fresh install, and an update install. The earlier
+`v0.1.0` distribution release remains historical provenance only.
 
 See [`DEVELOPMENT.md`](DEVELOPMENT.md) for repository layout, safety rules,
 focused tests, and authorised-device commands.

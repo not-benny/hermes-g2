@@ -26,15 +26,15 @@ experimental feature in the repository.
 
 ## Canonical repository state
 
-| Area                 | State                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Development base     | `main`, exclusively                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Application baseline | Public `main` at `753bfa42ccff573d9fc469011e2f4f45b2081fc0`. Validated app tree `8941a72f6926102f1ce8c1e4df3f7bd044519973`, tree-identical to source lock `db6098d545ba8cd20d3cc02d3db0d975afc0fdd6`: 952/952 tests, TypeScript typecheck, dependency probes, and debug plus unsigned-production build verification passed. The functionally equivalent `b04f1c83718faf5f995aa4f0e8284a21c67d768e` source remains installed on the Fold7 with data preserved |
-| Android identity     | `versionCode 1000003`, `versionName 1.0.0-preview.3`; this identifies the next internal candidate, not a published release                                                                                                                                                                                                                                                                                                                                   |
-| Pull requests        | One focused PR at a time, based on current `main`                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Active work          | [Issue #59](https://github.com/not-benny/hermes-g2/issues/59) only: prove the real owner Hermes loop                                                                                                                                                                                                                                                                                                                                                         |
-| Publication          | Source repositories and the source-pinned installer are public. Distribution prerelease [`v0.1.0`](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.0) passed an independent disposable install. Protected APK publication remains disabled; repository variable `PROTECTED_RELEASE_ENABLED` remains `false`                                                                                                                            |
-| Installed identity   | The owner Fold7 has the exact `b04f1c83718faf5f995aa4f0e8284a21c67d768e` source upgrade installed, signed with the existing legacy Android development certificate. The package was updated without uninstalling or clearing app data; this is internal upgrade evidence only                                                                                                                                                                                |
+| Area                 | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Development base     | `main`, exclusively                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Application baseline | The current implementation merged to public `main` at `74e7224f55930a3964c79e118f1c5b6b1b0cc8b1`. Exact installed GitHub source `67989dada122ab6ce04594b11e57e742441dd2dd` passed 971/971 full tests, 155/155 focused lifecycle and cross-component tests, 22/22 focused performance and privacy tests, TypeScript typecheck, diff checks, CI, and unsigned-production verification. The permanent tag `distribution-v0.1.1-android-source` retains that exact build input                                                          |
+| Android identity     | `versionCode 1000003`, `versionName 1.0.0-preview.3`; this identifies the next internal candidate, not a published release                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Pull requests        | One focused PR at a time, based on current `main`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Active work          | [Issue #59](https://github.com/not-benny/hermes-g2/issues/59) only: prove the real owner Hermes loop                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Publication          | Source repositories and the source-pinned installer are public. Distribution prerelease [`v0.1.1`](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.1), from distribution `main` commit `7c7f9d685c53b3ef374d9ee2716ee434c860dc74`, passed independent tagged-checkout, fresh-install, and update-install review. The installed Android input is retained by `distribution-v0.1.1-android-source`. Protected APK publication remains disabled; repository variable `PROTECTED_RELEASE_ENABLED` remains `false` |
+| Installed identity   | The owner Fold7 has the exact `67989dada122ab6ce04594b11e57e742441dd2dd` source upgrade installed, signed with the existing owner signer. Android preserved the package, UID, `firstInstallTime`, and app data; a warm launch succeeded with no crash markers. This is internal upgrade evidence only                                                                                                                                                                                                                               |
 
 ## Supported owner envelope
 
@@ -79,45 +79,49 @@ experimental feature in the repository.
   interpreter. The rebuilt Fold package launched and Hermes Cockpit reported
   Host MCP online. This is private owner evidence, not a public deployment or a
   physical lens acceptance claim.
-- The live private profile now runs bridge 2.1.0 at
-  `ffb3b04b3bcdb77cd400c48be91fe319cf8891f6` and workflows 0.4.0 at
-  `24c740c29ca2a6634d095473bb6dd55d6af17d3e`, with exact package digest
-  `sha256:058042b30a942a761fdbc5f934914ed4739aecb1db0cbb6958c59db9343eb674`.
-  Independent live discovery found 42 MCP tools across workflows, calendar,
-  Home Assistant, and printers, plus 13 available private built-ins. The safe
-  parked-card Kanban workflow is present; raw G2 and generic Kanban tools are
-  absent.
+- The live private profile now runs bridge 2.1.1 at
+  `8c4f979020a21ae01fd6bc5351996e342d068136` and workflows 0.4.1 at
+  `8ecda2d984733328e4524c070386d3c1721f5c90`, with exact package digest
+  `sha256:beab3a2170289a0f64ebeb957fd7a5c63fcaa43960c3ab293968c829eb6f9d4c`.
+  Independent live discovery found all 13 workflow tools and 42 MCP tools
+  across workflows, calendar, Home Assistant, and printers, plus 13 available
+  private built-ins. The safe parked-card Kanban workflow is present; raw G2
+  and generic Kanban tools are absent.
 - Exact GitHub source commit
-  `b04f1c83718faf5f995aa4f0e8284a21c67d768e` passed 950/950 tests and
-  TypeScript typecheck, then built, signed, and installed over the existing
-  Fold7 package. Android retained the current app data. This proves the
-  same-identity owner upgrade path, not production signing or public release.
-- Validated app-source tree
-  `db6098d545ba8cd20d3cc02d3db0d975afc0fdd6` passed 952/952 tests,
-  TypeScript typecheck, dependency probes, and debug plus unsigned-production
-  build verification. It is tree-identical to rebased `main` commit
-  `8941a72f6926102f1ce8c1e4df3f7bd044519973`; the final documentation merge is
-  `753bfa42ccff573d9fc469011e2f4f45b2081fc0`. All four merge checks passed and
-  the previously open `uuid` and `yauzl` dependency alerts are closed. These
-  additional changes do not require replacing the functionally equivalent
-  installed `b04f1c...` build. Permanent provenance tags
+  `67989dada122ab6ce04594b11e57e742441dd2dd` passed 971/971 full tests,
+  155/155 focused lifecycle and cross-component tests, 22/22 focused
+  performance and privacy tests, TypeScript typecheck, diff checks, CI, and
+  unsigned-production verification. Its unsigned verifier SHA-256 is
+  `8412ab0440a2513bf2020fd020b8bb62a2525758f0a11fcb7b1c80b2cc066cc3`.
+  The source was built from GitHub, signed with the existing owner signer, and
+  installed as an upgrade. The signed APK SHA-256 is
+  `1a90cd8998e2d2bd166d8580cbfcc456d498fd9fe7a3c5d1f19423bf3789651b`.
+  Android preserved the package, UID, `firstInstallTime`, and app data; a warm
+  launch succeeded with no crash markers. This proves the same-identity owner
+  upgrade path, not production signing, public release, or worn-lens behavior.
+- The current implementation merged to public `main` at
+  `74e7224f55930a3964c79e118f1c5b6b1b0cc8b1`.
+  The permanent tag `distribution-v0.1.1-android-source` retains the exact
+  installed build input. Earlier tags
   `distribution-v0.1.0-android-source` and
-  `owner-preview3-installed-source-20260825` retain both exact build inputs.
+  `owner-preview3-installed-source-20260825` retain the preceding Preview 3
+  source inputs as historical provenance rather than current install claims.
 - The public source-pinned setup is published at
   [`not-benny/hermes-g2-distribution`](https://github.com/not-benny/hermes-g2-distribution).
   Its reviewed
-  [`v0.1.0` prerelease](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.0)
-  pins the exact bridge, workflow, Hermes capability baseline, and Android
-  source commits.
-  An independent disposable install fetched all four exact source commits,
-  installed both plugins, verified all thirteen workflow tools and the digest
-  grant, and did not start a gateway. Hermes itself remains a prerequisite.
+  [`v0.1.1` prerelease](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.1),
+  published from distribution `main` commit
+  `7c7f9d685c53b3ef374d9ee2716ee434c860dc74`, pins the exact bridge, workflow,
+  Hermes capability baseline, and Android source commits. Independent review
+  covered an exact tagged checkout, a fresh install, and an update install.
+  Hermes itself remains a prerequisite. The earlier `v0.1.0` release remains
+  historical provenance only.
 
 ## Implemented but not yet accepted
 
 - The final physical worn-glasses result path on the exact installed candidate.
   Build, signing, and upgrade-in-place are proven for
-  `b04f1c83718faf5f995aa4f0e8284a21c67d768e`, but the sleeping long-press to one
+  `67989dada122ab6ce04594b11e57e742441dd2dd`, but the sleeping long-press to one
   strict-acknowledged lens result still needs a fresh worn-glasses run.
 - The complete provider-backed voice loop, background tool work, and
   media/navigation/tool workflows on the exact Preview 3 artifact. Intermediate
@@ -146,9 +150,13 @@ experimental feature in the repository.
 - The installed display transactions now enforce exact strict ownership. An
   assistant result is not installed until ordinary rendering is drained, and
   an unacknowledged result owns no invisible input layer while its exact data
-  remains retryable. Sleep teardown cannot let an old strict completion poison
-  a new assistant turn, and Cockpit completion cannot duplicate the Host MCP
-  result.
+  remains retryable. A voice turn that begins with the display asleep primes an
+  isolated result before wake, returns to sleep after result dismissal or
+  expiry, and never leaves the HUD behind. A turn that begins while the HUD is
+  active preserves that HUD. Transaction-scoped teardown prevents an older
+  isolated result from restoring or clearing surfaces owned by a newer turn,
+  and Cockpit completion cannot duplicate the Host MCP result. These behaviors
+  are installed but still require worn-lens acceptance.
 - A screen-off Now Playing card is primed under isolated retained surfaces
   before unblank and commits only after its exact frame acknowledgement. Its
   play, pause, skip, dismissal, and companion release input no longer claim the
@@ -162,8 +170,20 @@ experimental feature in the repository.
   acknowledgement excludes Clock, remote, and dynamic presenters; Clock
   coverage of an acknowledged modal retains its wake; and strict remote or
   dynamic delivery cannot accept a covering Clock frame as its own
-  acknowledgement. These source fixes are installed, but the complete
-  worn-glasses acceptance matrix still needs a run on the exact artifact.
+  acknowledgement. Cards use the exact cached Android app icon when available,
+  with a deterministic app initial fallback inside optical-safe bounds. The
+  message keeps its full wearer-visible width and configured notification text
+  size. These source fixes are installed, but the complete worn-glasses
+  acceptance matrix still needs a run on the exact artifact.
+- The wearer UI now uses one 4-bit-safe design system for tone, spacing, radius,
+  focus, cards, progress, and bounded motion across the HUD, launcher, menus,
+  Assistant, notifications, media, Clock, and Conversate. The implementation
+  and geometry tests are complete; comfort, legibility, and animation on the
+  physical optics remain unverified.
+- Ring and touchpad scrolling at sensitivity levels 1 through 4 accepts repeat
+  input 1.25 times faster. The saved five-level setting, raw level 5 behavior,
+  and all non-scroll gestures are unchanged. Physical ring responsiveness on
+  the installed candidate remains unverified.
 - Conversate (the replacement for Transcribe) provides explicit foreground-only
   sessions, bundled on-device transcription by default, independently selected
   cloud transcription, volatile live text, and transparent local action/question/topic
@@ -247,10 +267,11 @@ after the owner-preview milestone. The permanent technical contract is in
 ## Immediate next action
 
 Run the worn-glasses acceptance rows in [`ROADMAP.md`](ROADMAP.md) against the
-installed `b04f1c83718faf5f995aa4f0e8284a21c67d768e` artifact. Verify the
+installed `67989dada122ab6ce04594b11e57e742441dd2dd` artifact. Verify the
 sleep-origin final result, Now Playing song-change wake and controls,
-notification card/detail return state, reminder, Clock, Work Tasks, weather,
-trains, and ring stop. Record the results on issue #59 and fix only blockers
-found by that run. Public release work remains limited to the remaining
-production-signing and support gates documented in
+notification app icon and text legibility, notification card/detail return
+state, shared UI geometry, reminder, Clock, Work Tasks, weather, trains, ring
+responsiveness, and ring stop. Record the results on issue #59 and fix only
+blockers found by that run. Public release work remains limited to the
+remaining production-signing and support gates documented in
 `docs/hermes-mcp-architecture.md` and `docs/release-security.md`.
