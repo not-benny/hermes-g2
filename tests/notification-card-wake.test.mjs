@@ -125,6 +125,76 @@ test("screen-off notification is primed behind black and dismissal restores slee
   assert.equal(subject.sleeps, 1);
 });
 
+test("a manual HUD wake during retained-card prime wins without later sleep", async () => {
+  const { NotificationShellHarness } = await loadHarness();
+  const events = [];
+  let resolvePrime;
+  const prime = new Promise((resolve) => { resolvePrime = resolve; });
+  let deliveries = 0;
+  const subject = new NotificationShellHarness(config(events, {
+    waitForShellRenderIdle: () => new Promise(() => {}),
+    requestShellDelivery: async (isOwner, requireSent = true) => {
+      assert.equal(isOwner(), true);
+      deliveries++;
+      events.push(requireSent ? "strict" : "prime");
+      if (!requireSent) return prime;
+      return { frameId: deliveries, outcome: "sent" };
+    },
+  }));
+  const pending = subject.openNotificationCard("n1", "r1", retained(events), "new");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(events.includes("prime"), true);
+
+  subject.screenOn = true; // a user-owned wake supersedes the sleeping transaction
+  resolvePrime({ frameId: deliveries, outcome: "sent" });
+  assert.equal(await pending, false);
+  assert.equal(subject.notificationCard, null);
+  assert.equal(subject.notificationCardWokeScreen, false);
+  assert.equal(subject.screenOn, true);
+  assert.equal(subject.sleeps, 0);
+  assert.equal(events.includes("wake"), false);
+  assert.equal(events.includes("reveal"), false);
+  assert.equal(events.includes("strict"), false);
+  assert.equal(events.includes("render"), true, "a safe retained frame is queued before release");
+  assert.ok(events.indexOf("render") < events.indexOf("release"));
+});
+
+test("card expiry during a manual-wake prime cannot reveal or revive the notification", async () => {
+  const { NotificationShellHarness } = await loadHarness();
+  const events = [];
+  let resolvePrime;
+  const prime = new Promise((resolve) => { resolvePrime = resolve; });
+  let deliveries = 0;
+  const subject = new NotificationShellHarness(config(events, {
+    waitForShellRenderIdle: () => new Promise(() => {}),
+    requestShellDelivery: async (isOwner, requireSent = true) => {
+      assert.equal(isOwner(), true);
+      deliveries++;
+      events.push(requireSent ? "strict" : "prime");
+      if (!requireSent) return prime;
+      return { frameId: deliveries, outcome: "sent" };
+    },
+  }));
+  const pending = subject.openNotificationCard("n1", "r1", retained(events), "new");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const card = subject.notificationCard;
+  assert.equal(card.timerArmed, true);
+
+  subject.screenOn = true;
+  card.expire();
+  resolvePrime({ frameId: deliveries, outcome: "sent" });
+  assert.equal(await pending, false);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(subject.notificationCard, null);
+  assert.equal(subject.notificationCardWokeScreen, false);
+  assert.equal(subject.screenOn, true);
+  assert.equal(subject.sleeps, 0);
+  assert.equal(events.includes("wake"), false);
+  assert.equal(events.includes("reveal"), false);
+  assert.equal(events.includes("strict"), false);
+  assert.ok(events.indexOf("render") < events.indexOf("release"));
+});
+
 test("click keeps the card opaque until detail is ready and transfers sleep ownership", async () => {
   const { NotificationShellHarness } = await loadHarness();
   const events = [];
@@ -183,39 +253,66 @@ test("assistant overlays and alerts recheck notification ownership after async b
   assert.match(alert, /const isOwner = \(\) =>[\s\S]*this\.notificationCard === null[\s\S]*this\.notificationCardPresentationPending === null/);
 });
 
-test("a notification shown over an already-on screen restores that screen instead of sleeping", async () => {
+test("a notification never replaces an already-visible HUD", async () => {
   const { NotificationShellHarness } = await loadHarness();
   const events = [];
   const subject = new NotificationShellHarness(config(events));
   subject.screenOn = true;
-  assert.equal(await subject.openNotificationCard("n1", "r1", retained(events), "new"), true);
-  subject.notificationCard.options.onDismissed();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(await subject.openNotificationCard("n1", "r1", retained(events), "new"), false);
+  assert.equal(subject.notificationCard, null);
+  assert.deepEqual(events, []);
   assert.equal(subject.sleeps, 0);
   assert.equal(subject.screenOn, true);
 });
 
-test("an already-on card arms its watchdog before a stalled render drain", async () => {
+test("a newer notification may replace a card that woke the sleeping display", async () => {
   const { NotificationShellHarness } = await loadHarness();
   const events = [];
+  const subject = new NotificationShellHarness(config(events));
+  assert.equal(await subject.openNotificationCard("n1", "r1", retained(events), "first"), true);
+  const first = subject.notificationCard;
+  assert.equal(subject.notificationCardWokeScreen, true);
+  const secondNotification = retained(events);
+  secondNotification.key = "n2";
+  assert.equal(await subject.openNotificationCard("n2", "r2", secondNotification, "second"), true);
+  assert.notEqual(subject.notificationCard, first);
+  assert.equal(subject.notificationCardWokeScreen, true);
+  subject.notificationCard.options.onDismissed();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(subject.sleeps, 1);
+});
+
+test("a replacement sleep-origin card arms its watchdog before a stalled render drain", async () => {
+  const { NotificationShellHarness } = await loadHarness();
+  const events = [];
+  const subject = new NotificationShellHarness(config(events));
+  assert.equal(await subject.openNotificationCard("n1", "r1", retained(events), "first"), true);
   let releaseDrain;
   const drain = new Promise((resolve) => { releaseDrain = resolve; });
-  const subject = new NotificationShellHarness(config(events, {
-    waitForShellRenderIdle: () => drain,
-  }));
-  subject.screenOn = true;
+  subject.config.waitForShellRenderIdle = () => drain;
+  const secondNotification = retained(events);
+  secondNotification.key = "n2";
 
-  const pending = subject.openNotificationCard("n1", "r1", retained(events), "new");
+  const pending = subject.openNotificationCard("n2", "r2", secondNotification, "second");
   const card = subject.notificationCard;
   assert.equal(card.timerArmed, true,
-    "the installed card must be bounded before entering the ordinary render barrier");
+    "the replacement card must be bounded before entering the ordinary render barrier");
   card.expire();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(subject.notificationCard, null);
-  assert.equal(subject.screenOn, true, "an already-on prior state stays on after watchdog cleanup");
+  assert.equal(subject.screenOn, false, "expiry restores the original sleep state");
 
   releaseDrain();
   assert.equal(await pending, false, "the stale continuation cannot revive the expired card");
+});
+
+test("fresh notification card follows the configured notification text size", () => {
+  const source = read("app/ui/shell/notification-card.ts");
+  assert.match(source, /notificationFontSizeSetting\.get\(\)/);
+  assert.match(source, /case "large":[\s\S]*getDefaultLargeFont\(\)/);
+  assert.match(source, /case "medium":[\s\S]*getDefaultMediumFont\(\)/);
+  assert.match(source, /case "small":[\s\S]*getDefaultSmallFont\(\)/);
+  assert.match(source, /drawText\(textFont[\s\S]*wrapText\(textFont/);
 });
 
 test("lock revocation during card-to-detail drain restores the prior sleep state", async () => {
