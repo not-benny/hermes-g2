@@ -19,6 +19,7 @@ import {
 } from "../../native/media-controller";
 import { mediaBrowserBridge, type MediaBrowserApp } from "../../native/media-browser";
 import { MediaBrowseLayer } from "./media-browse";
+import { resolvePlayingQueueIndex } from "./playlist-selection";
 import { Layer, type DashboardInputEvent, type LayerContext, type PaintBelow } from "../../ui/layers";
 import {
   createInProcessWindow,
@@ -263,9 +264,9 @@ class MusicAppLayer implements Layer {
           const item = queue[this.selectedQueueIndex];
           if (item) {
             await mediaControllerBridge.skipToQueueItem(item.id);
-            // The player rebuilds the queue with the chosen track at index 0.
-            this.selectedQueueIndex = 0;
-            this.queueScrollRow = 0;
+            // Keep the chosen row selected. Players differ on whether a queue
+            // jump preserves order, rotates the queue, or updates the active
+            // item asynchronously; re-entering Playlist resolves fresh state.
             this.queueScroller.reset();
           }
           return;
@@ -280,8 +281,7 @@ class MusicAppLayer implements Layer {
         else if (action.kind === "volume") {
           ctx.stack.push(new VolumeModalLayer(mediaControllerBridge.getMediaVolumePercent()));
         } else if (action.kind === "playlist") {
-          const activeIndex = queue.findIndex((item) => item.active);
-          if (activeIndex >= 0) this.selectedQueueIndex = activeIndex;
+          this.selectedQueueIndex = resolvePlayingQueueIndex(queue, media, 0);
           this.focusColumn = "playlist";
           this.queueScroller.reset();
         }

@@ -255,8 +255,8 @@ public class FaceclawMediaController {
 
     /**
      * The active session's queue (playlist) as JSON:
-     * [{"id": long, "title": string, "active": bool}, ...]. Empty string when
-     * the player exposes no queue.
+     * [{"id": long, "title": string, "subtitle": string, "active": bool}, ...].
+     * Empty string when the player exposes no queue.
      */
     public String getQueueJson() {
         synchronized (lock) {
@@ -274,9 +274,11 @@ public class FaceclawMediaController {
                 for (MediaSession.QueueItem item : queue) {
                     MediaDescription description = item.getDescription();
                     CharSequence title = description == null ? null : description.getTitle();
+                    CharSequence subtitle = description == null ? null : description.getSubtitle();
                     JSONObject entry = new JSONObject();
                     entry.put("id", item.getQueueId());
                     entry.put("title", title == null ? "" : title.toString());
+                    entry.put("subtitle", subtitle == null ? "" : subtitle.toString());
                     entry.put("active", item.getQueueId() == activeId);
                     out.put(entry);
                 }
