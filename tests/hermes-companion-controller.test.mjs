@@ -64,7 +64,7 @@ test("legacy Companion frames and commands are absent from the MCP-only bridge",
   const bridge = readFileSync(new URL("../app/assistant/bridge-client.ts", import.meta.url), "utf8");
   assert.match(bridge, /wss:\/\//);
   assert.match(bridge, /readonly companion = new HermesCompanionController/);
-  assert.match(bridge, /capabilities: \["mcp", "host-mcp-v1"\]/);
+  assert.match(bridge, /capabilities: \["mcp", "host-mcp-v1", CONVERSATE_CUES_CAPABILITY\]/);
   assert.match(bridge, /case "companion":\s*\n\s*return; \/\/ No legacy Companion command channel in the MCP-only bridge\./);
   assert.doesNotMatch(bridge, /hermes-companion-v1/);
   assert.doesNotMatch(bridge, /chan: "companion"/);

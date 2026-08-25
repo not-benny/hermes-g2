@@ -272,7 +272,40 @@ export function reduceNotificationTriage(
     };
   }
   if (event.kind === "presentation-failed") {
-    return { state: { ...state, deliveries: deliveries.filter((entry) => entry.key !== event.key) }, effects: [] };
+    const item = active[event.key];
+    if (!item) {
+      return { state: { ...state, deliveries: deliveries.filter((entry) => entry.key !== event.key) }, effects: [] };
+    }
+    const resolved = resolveTier(item, policy);
+    if (resolved.tier === "mute") {
+      return { state: { ...state, deliveries: deliveries.filter((entry) => entry.key !== event.key) }, effects: [] };
+    }
+    const existing = state.queue.find((queued) =>
+      queued.key === item.key && queued.revision === item.revision
+    );
+    const queue = state.queue.filter((queued) => queued.key !== item.key);
+    queue.push({
+      key: item.key,
+      packageName: item.packageName,
+      revision: item.revision,
+      duplicateKey: item.duplicateKey,
+      tier: resolved.tier,
+      reason: item.reason,
+      firstQueuedWallMs: existing?.firstQueuedWallMs ?? event.clock.wallMs,
+      firstQueuedElapsedMs: existing?.firstQueuedElapsedMs ?? event.clock.elapsedMs,
+      updatedElapsedMs: event.clock.elapsedMs,
+      dueElapsedMs: event.clock.elapsedMs,
+      sequence: existing?.sequence ?? state.nextSequence,
+    });
+    return {
+      state: {
+        ...state,
+        queue: boundedQueue(queue, policy),
+        deliveries: deliveries.filter((entry) => entry.key !== event.key),
+        nextSequence: existing ? state.nextSequence : state.nextSequence + 1,
+      },
+      effects: [],
+    };
   }
   if (event.kind === "clear-all") {
     if (state.clearOperations.includes(event.operationId)) {

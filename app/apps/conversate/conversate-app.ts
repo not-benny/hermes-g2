@@ -13,6 +13,7 @@ export const CONVERSATE_WINDOW_ID = "conversate";
 export const CONVERSATE_SURFACE_ID = "window:conversate";
 
 const TRAY_ICON_ID = "conversate";
+const timeoutHoldKey = (generation: number) => `conversate:${generation}`;
 const LISTENING_ICON = imageFromAsciiArt(
   [
     "     ####     ",
@@ -62,16 +63,30 @@ class ConversateRootLayer implements Layer {
 export function createConversateAppWindow(options: ConversateAppOptions): InProcessWindow {
   const startCapture = (provider: VoiceProvider) => {
     const generation = options.startContinuousVoiceCapture(provider);
-    if (generation > 0) shell.setTrayIcon(TRAY_ICON_ID, LISTENING_ICON);
+    if (generation > 0) {
+      shell.setTrayIcon(TRAY_ICON_ID, LISTENING_ICON);
+      shell.setScreenTimeoutHold(timeoutHoldKey(generation), true);
+    }
     return generation;
   };
   const stopCapture = (generation: number) => {
-    options.stopContinuousVoiceCapture(generation);
-    shell.setTrayIcon(TRAY_ICON_ID, null);
+    try {
+      options.stopContinuousVoiceCapture(generation);
+    } finally {
+      shell.setTrayIcon(TRAY_ICON_ID, null);
+      shell.setScreenTimeoutHold(timeoutHoldKey(generation), false);
+    }
   };
   const finishCapture = (generation: number) => {
     shell.setTrayIcon(TRAY_ICON_ID, null);
-    return options.finishContinuousVoiceCapture(generation);
+    try {
+      return options.finishContinuousVoiceCapture(generation).finally(() => {
+        shell.setScreenTimeoutHold(timeoutHoldKey(generation), false);
+      });
+    } catch (error) {
+      shell.setScreenTimeoutHold(timeoutHoldKey(generation), false);
+      return Promise.reject(error);
+    }
   };
   const layer = new ConversateLayer({ startCapture, finishCapture, stopCapture });
   const app = createInProcessWindow({

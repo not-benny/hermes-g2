@@ -8,16 +8,21 @@ import type { AssistantContext } from "./types";
 
 const MCP_PROTOCOL_VERSION = "2025-06-18";
 const HOST_VOICE_TOOL = "hermes.voice.turn";
+const HOST_CONVERSATE_CUES_TOOL = "hermes.conversate.cues";
 const HOST_COCKPIT_COMMAND_TOOL = "hermes.cockpit.command";
 const HOST_STATUS_RESOURCE_URI = "hermes://session/status";
 const COCKPIT_STATE_RESOURCE_URI = "hermes://cockpit/state";
 const DEFAULT_INITIALIZE_TIMEOUT_MS = 15_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 3 * 60 * 1000;
+const CONVERSATE_CUE_DEADLINE_MS = 2_500;
 const MAX_OUTBOUND_MCP_BYTES = 60 * 1024;
 const MAX_TURN_ID_CHARS = 128;
 const MAX_RESULT_TEXT_CHARS = 16 * 1024;
 const MAX_STOP_REASON_CHARS = 128;
 const MAX_ERROR_TEXT_CHARS = 4 * 1024;
+const MAX_CUE_TRANSCRIPT_SCALARS = 4_096;
+const MAX_CUES = 3;
+const MAX_CUE_TEXT_SCALARS = 160;
 
 export type HostVoiceTurnRequest = {
   turnId: string;
@@ -37,6 +42,31 @@ export type HostVoiceTurnCall = {
   cancel(reason?: string): void;
 };
 
+export type HostConversateCueKind = "question" | "topic" | "action";
+
+export type HostConversateCue = {
+  kind: HostConversateCueKind;
+  text: string;
+};
+
+export type HostConversateCuesRequest = {
+  sessionId: string;
+  revision: number;
+  transcript: string;
+};
+
+export type HostConversateCuesResult = {
+  sessionId: string;
+  revision: number;
+  cues: readonly HostConversateCue[];
+};
+
+export type HostConversateCuesCall = {
+  requestId: string;
+  result: Promise<HostConversateCuesResult>;
+  cancel(reason?: string): void;
+};
+
 export type HostSessionStatus = {
   connectionGeneration: string;
   voiceTurnState: "idle" | "running" | "cancelling";
@@ -48,6 +78,8 @@ export type HostSessionMcpClientOptions = {
   isConnectionGenerationActive: () => boolean;
   initializeTimeoutMs?: number;
   requestTimeoutMs?: number;
+  conversateCueTimeoutMs?: number;
+  conversateCuesSupported?: boolean;
   onStatus?: (status: HostSessionStatus) => void;
   onCockpitFrame?: (frame: unknown) => void;
 };
@@ -59,6 +91,16 @@ type VoiceRequest = {
   settled: boolean;
   timer: ReturnType<typeof setTimeout> | null;
   resolve: (result: HostVoiceTurnResult) => void;
+  reject: (error: Error) => void;
+};
+
+type ConversateCueRequest = {
+  requestId: string;
+  expected: HostConversateCuesRequest;
+  sent: boolean;
+  settled: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+  resolve: (result: HostConversateCuesResult) => void;
   reject: (error: Error) => void;
 };
 
@@ -86,6 +128,7 @@ export class HostSessionMcpClient {
   private initializeTimer: ReturnType<typeof setTimeout> | null = null;
   private initializationFailure: Error | null = null;
   private activeVoiceRequest: VoiceRequest | null = null;
+  private activeConversateCueRequest: ConversateCueRequest | null = null;
   private statusRequestId: string | null = null;
   private cockpitRequestId: string | null = null;
   private cockpitRefreshPending = false;
@@ -176,6 +219,88 @@ export class HostSessionMcpClient {
     };
   }
 
+  /**
+   * Request bounded, tool-free Conversate suggestions. Only one is live: a
+   * newer finalized transcript cancels the older request before it is sent.
+   */
+  callConversateCues(request: HostConversateCuesRequest): HostConversateCuesCall {
+    const previous = this.activeConversateCueRequest;
+    if (previous) this.cancelConversateCueRequest(previous, "Superseded by newer transcript", false);
+
+    const requestId = this.nextRequestId("conversate-cues");
+    let cueRequest!: ConversateCueRequest;
+    const result = new Promise<HostConversateCuesResult>((resolve, reject) => {
+      cueRequest = {
+        requestId,
+        expected: { ...request },
+        sent: false,
+        settled: false,
+        timer: null,
+        resolve,
+        reject,
+      };
+    });
+
+    if (!this.options.conversateCuesSupported) {
+      this.settleConversateCueError(cueRequest, new HostSessionMcpError("Hermes Conversate cues are not supported"));
+    } else if (this.lifecycle === "closed") {
+      this.settleConversateCueError(cueRequest, new HostSessionMcpError("Hermes host MCP connection is closed"));
+    } else if (this.lifecycle === "failed") {
+      this.settleConversateCueError(
+        cueRequest,
+        this.initializationFailure ?? new HostSessionMcpError("Hermes host MCP initialization failed"),
+      );
+    } else if (!isBoundedConversateCueRequest(request)) {
+      this.settleConversateCueError(cueRequest, new HostSessionMcpError("Invalid Hermes Conversate cue request"));
+    } else {
+      this.activeConversateCueRequest = cueRequest;
+      cueRequest.timer = setTimeout(() => {
+        this.cancelConversateCueRequest(cueRequest, "Hermes Conversate cue request timed out", true);
+      }, this.options.conversateCueTimeoutMs ?? CONVERSATE_CUE_DEADLINE_MS);
+      void this.initialized.then(() => {
+        if (cueRequest.settled) return;
+        if (!this.options.isConnectionGenerationActive()) {
+          this.settleConversateCueError(
+            cueRequest,
+            new HostSessionMcpError("Hermes host MCP connection is no longer active"),
+          );
+          return;
+        }
+        const message = {
+          jsonrpc: "2.0",
+          id: requestId,
+          method: "tools/call",
+          params: { name: HOST_CONVERSATE_CUES_TOOL, arguments: request },
+        };
+        if (!this.isBoundedMessage(message)) {
+          this.settleConversateCueError(
+            cueRequest,
+            new HostSessionMcpError("Hermes Conversate cue request exceeded the bounded message limit"),
+          );
+          return;
+        }
+        cueRequest.sent = true;
+        try {
+          this.options.send(message);
+        } catch (error) {
+          this.settleConversateCueError(
+            cueRequest,
+            asMcpError(error, "Unable to send Hermes Conversate cue request"),
+          );
+        }
+      }).catch((error) => {
+        this.settleConversateCueError(cueRequest, asMcpError(error, "Hermes host MCP initialization failed"));
+      });
+    }
+
+    return {
+      requestId,
+      result,
+      cancel: (reason = "Conversate cue request cancelled") =>
+        this.cancelConversateCueRequest(cueRequest, reason, false),
+    };
+  }
+
   /** Send one store-issued exact Cockpit command through the authenticated Host MCP. */
   sendCockpitCommand(command: object): boolean {
     if (this.lifecycle !== "initialized" || !isRecord(command) || typeof command.command_id !== "string") return false;
@@ -207,6 +332,12 @@ export class HostSessionMcpClient {
     const voiceRequest = this.activeVoiceRequest;
     if (voiceRequest && msg.id === voiceRequest.requestId) {
       this.handleVoiceResponse(msg, voiceRequest);
+      return;
+    }
+
+    const cueRequest = this.activeConversateCueRequest;
+    if (cueRequest && msg.id === cueRequest.requestId) {
+      this.handleConversateCueResponse(msg, cueRequest);
       return;
     }
 
@@ -262,6 +393,8 @@ export class HostSessionMcpClient {
     this.rejectInitialized(error);
     const voiceRequest = this.activeVoiceRequest;
     if (voiceRequest) this.settleVoiceError(voiceRequest, error);
+    const cueRequest = this.activeConversateCueRequest;
+    if (cueRequest) this.settleConversateCueError(cueRequest, error);
     this.cockpitCommandRequests.clear();
   }
 
@@ -407,6 +540,27 @@ export class HostSessionMcpClient {
     this.settleVoiceSuccess(voiceRequest, parsed);
   }
 
+  private handleConversateCueResponse(
+    msg: Record<string, unknown>,
+    cueRequest: ConversateCueRequest,
+  ): void {
+    if (!isJsonRpcResponse(msg)) {
+      this.settleConversateCueError(cueRequest, new HostSessionMcpError("Invalid Hermes Conversate cue response"));
+      return;
+    }
+    const remoteError = jsonRpcError(msg);
+    if (remoteError) {
+      this.settleConversateCueError(cueRequest, remoteError);
+      return;
+    }
+    const parsed = parseConversateCueCallToolResult(msg.result, cueRequest.expected);
+    if (parsed instanceof Error) {
+      this.settleConversateCueError(cueRequest, parsed);
+      return;
+    }
+    this.settleConversateCueSuccess(cueRequest, parsed);
+  }
+
   private cancelVoiceRequest(voiceRequest: VoiceRequest, reason: string, timedOut: boolean): void {
     if (voiceRequest.settled || this.activeVoiceRequest !== voiceRequest) return;
     if (voiceRequest.sent && this.options.isConnectionGenerationActive()) {
@@ -438,6 +592,46 @@ export class HostSessionMcpClient {
     voiceRequest.timer = null;
     if (this.activeVoiceRequest === voiceRequest) this.activeVoiceRequest = null;
     voiceRequest.reject(error);
+  }
+
+  private cancelConversateCueRequest(
+    cueRequest: ConversateCueRequest,
+    reason: string,
+    timedOut: boolean,
+  ): void {
+    if (cueRequest.settled || this.activeConversateCueRequest !== cueRequest) return;
+    if (cueRequest.sent && this.options.isConnectionGenerationActive()) {
+      this.sendIfActive({
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+        params: { requestId: cueRequest.requestId, reason: boundedReason(reason) },
+      });
+    }
+    const error = timedOut
+      ? new HostSessionMcpError("Hermes Conversate cue request timed out")
+      : new HostSessionMcpCancelledError(boundedReason(reason));
+    this.settleConversateCueError(cueRequest, error);
+  }
+
+  private settleConversateCueSuccess(
+    cueRequest: ConversateCueRequest,
+    result: HostConversateCuesResult,
+  ): void {
+    if (cueRequest.settled || this.activeConversateCueRequest !== cueRequest) return;
+    cueRequest.settled = true;
+    if (cueRequest.timer) clearTimeout(cueRequest.timer);
+    cueRequest.timer = null;
+    this.activeConversateCueRequest = null;
+    cueRequest.resolve(result);
+  }
+
+  private settleConversateCueError(cueRequest: ConversateCueRequest, error: Error): void {
+    if (cueRequest.settled) return;
+    cueRequest.settled = true;
+    if (cueRequest.timer) clearTimeout(cueRequest.timer);
+    cueRequest.timer = null;
+    if (this.activeConversateCueRequest === cueRequest) this.activeConversateCueRequest = null;
+    cueRequest.reject(error);
   }
 
   private failInitialization(error: Error): void {
@@ -510,6 +704,47 @@ function parseVoiceCallToolResult(value: unknown, expectedTurnId: string): HostV
     text: terminal.text,
     stopReason: terminal.stopReason,
   };
+}
+
+function parseConversateCueCallToolResult(
+  value: unknown,
+  expected: HostConversateCuesRequest,
+): HostConversateCuesResult | Error {
+  if (!isRecord(value) || !Array.isArray(value.content) || value.content.length !== 1 ||
+      (value.isError !== undefined && typeof value.isError !== "boolean")) {
+    return new HostSessionMcpError("Hermes Conversate cue tool returned an invalid CallToolResult");
+  }
+  const block = value.content[0];
+  if (!isRecord(block) || block.type !== "text" || typeof block.text !== "string") {
+    return new HostSessionMcpError("Hermes Conversate cue tool must return exactly one text content block");
+  }
+  if (value.isError === true) {
+    const message = block.text.length <= MAX_ERROR_TEXT_CHARS && block.text.length > 0
+      ? block.text
+      : "Hermes Conversate cues are temporarily unavailable";
+    return new HostSessionMcpError(message);
+  }
+  let terminal: unknown;
+  try {
+    terminal = JSON.parse(block.text);
+  } catch {
+    return new HostSessionMcpError("Hermes Conversate cue tool returned invalid JSON");
+  }
+  if (!isRecord(terminal) || !hasExactKeys(terminal, ["sessionId", "revision", "cues"]) ||
+      terminal.sessionId !== expected.sessionId || terminal.revision !== expected.revision ||
+      !Array.isArray(terminal.cues) || terminal.cues.length > MAX_CUES) {
+    return new HostSessionMcpError("Hermes Conversate cue tool returned an invalid terminal result");
+  }
+  const cues: HostConversateCue[] = [];
+  for (const cue of terminal.cues) {
+    if (!isRecord(cue) || !hasExactKeys(cue, ["kind", "text"]) ||
+        typeof cue.kind !== "string" || !["question", "topic", "action"].includes(cue.kind) ||
+        typeof cue.text !== "string" || !isBoundedOneLine(cue.text, MAX_CUE_TEXT_SCALARS)) {
+      return new HostSessionMcpError("Hermes Conversate cue tool returned an invalid cue");
+    }
+    cues.push({ kind: cue.kind as HostConversateCueKind, text: cue.text });
+  }
+  return { sessionId: terminal.sessionId, revision: terminal.revision, cues };
 }
 
 function parseHostStatusResource(value: unknown): HostSessionStatus | null {
@@ -595,6 +830,16 @@ function isRequestId(value: unknown): value is string | number {
 
 function isBoundedTurnId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= MAX_TURN_ID_CHARS;
+}
+
+function isBoundedConversateCueRequest(value: HostConversateCuesRequest): boolean {
+  return isBoundedTurnId(value.sessionId) && Number.isSafeInteger(value.revision) && value.revision > 0 &&
+    isBoundedOneLine(value.transcript, MAX_CUE_TRANSCRIPT_SCALARS);
+}
+
+function isBoundedOneLine(value: unknown, maxScalars: number): value is string {
+  if (typeof value !== "string" || !value.trim() || Array.from(value).length > maxScalars) return false;
+  return !/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/u.test(value);
 }
 
 function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {

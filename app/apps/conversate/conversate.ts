@@ -1,4 +1,6 @@
 import { CaptionSession, bottomAnchoredLines, wrapCaptionText } from "../../captions/caption-session";
+import { assistantBridge } from "../../assistant/bridge-client";
+import type { HostConversateCuesCall } from "../../assistant/host-session-mcp-client";
 import { captionProviderCapabilities } from "../../captions/caption-settings";
 import { getDefaultMediumFont, getDefaultSmallFont, type BdfFont } from "../../graphics/bdffont";
 import { GrayImage } from "../../graphics/image";
@@ -6,9 +8,11 @@ import { truncateText } from "../../graphics/textwrap";
 import { voiceControlBridge, type VoiceTranscriptEvent } from "../../native/voice-control";
 import {
   captionFontSizeSetting,
+  conversateHermesCuesSetting,
   captionLayoutSetting,
   captionSourceLanguageSetting,
   captionTargetLanguageSetting,
+  onAnySettingChanged,
   type VoiceProvider,
 } from "../../ui/dashboard-settings";
 import { GESTURE_CLICK, GESTURE_DOUBLE_CLICK } from "../../ui/gestures";
@@ -33,10 +37,17 @@ export type ConversateLayerOptions = {
 
 type ConversateView = "preflight" | "live" | "cue" | "review";
 
+const HERMES_CUE_PARTIAL_DEBOUNCE_MS = 500;
+const HERMES_CUE_PARTIAL_MAX_WAIT_MS = 1_000;
+const HERMES_CUE_PARTIAL_MIN_SCALARS = 8;
+const HERMES_CUE_PARTIAL_MIN_WORDS = 2;
+const HERMES_CUE_TRANSCRIPT_SCALARS = 4_096;
+
 /**
  * Local-first conversation assistance over the existing generation-gated mic
  * bridge. Audio remains owned by FaceclawVoiceController; this layer consumes
- * provider-neutral text events only and never writes either audio or text.
+ * provider-neutral text events only and never persists audio or text. With
+ * explicit opt-in, bounded recent text may use the isolated Hermes cue lane.
  */
 export class ConversateLayer implements Layer {
   private readonly conversation = new ConversationSession();
@@ -49,6 +60,16 @@ export class ConversateLayer implements Layer {
   private provider: ConversateProviderState = currentConversateProvider();
   private view: ConversateView = "preflight";
   private selectedCue = 0;
+  private hermesCues: readonly ConversationCue[] = [];
+  private hermesCueCall: HostConversateCuesCall | null = null;
+  private hermesCueSessionId: string | null = null;
+  private hermesCueRevision = 0;
+  private hermesCueActiveKey: string | null = null;
+  private hermesCueLatestKey: string | null = null;
+  private hermesCueResultKey: string | null = null;
+  private hermesCuePendingTranscript: string | null = null;
+  private hermesCueDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private hermesCueMaxWaitTimer: ReturnType<typeof setTimeout> | null = null;
   private finishing: "pause" | "end" | null = null;
   private transitionEpoch = 0;
   private status = "Ready";
@@ -56,6 +77,7 @@ export class ConversateLayer implements Layer {
   private requestRender: () => void = () => {};
   private unsubscribeTranscript: (() => void) | null = null;
   private unsubscribeStatus: (() => void) | null = null;
+  private unsubscribeSettings: (() => void) | null = null;
   private clockTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly options: ConversateLayerOptions) {}
@@ -73,6 +95,10 @@ export class ConversateLayer implements Layer {
         return;
       }
       this.status = status;
+      requestRender();
+    });
+    this.unsubscribeSettings = onAnySettingChanged(() => {
+      if (!conversateHermesCuesSetting.get()) this.resetHermesCues(this.hermesCueSessionId);
       requestRender();
     });
     this.clockTimer = setInterval(() => {
@@ -116,6 +142,7 @@ export class ConversateLayer implements Layer {
     this.captions.begin(captureGeneration, Date.now());
     this.lastTranscriptEvent = null;
     this.selectedCue = 0;
+    this.resetHermesCues(`cv-${captureGeneration}-${Date.now().toString(36)}`);
     this.view = "live";
     this.status = "Starting microphone";
     this.requestRender();
@@ -160,6 +187,7 @@ export class ConversateLayer implements Layer {
     this.sessionGeneration = null;
     this.lastTranscriptEvent = null;
     this.selectedCue = 0;
+    this.resetHermesCues(null);
     this.provider = currentConversateProvider();
     this.status = "Ready";
     this.view = "preflight";
@@ -243,12 +271,15 @@ export class ConversateLayer implements Layer {
     this.transitionEpoch++;
     this.finishing = null;
     this.stopCapture();
+    this.resetHermesCues(null);
     this.conversation.clear();
     this.captions.clear();
     this.unsubscribeTranscript?.();
     this.unsubscribeTranscript = null;
     this.unsubscribeStatus?.();
     this.unsubscribeStatus = null;
+    this.unsubscribeSettings?.();
+    this.unsubscribeSettings = null;
     if (this.clockTimer !== null) clearInterval(this.clockTimer);
     this.clockTimer = null;
   }
@@ -258,6 +289,7 @@ export class ConversateLayer implements Layer {
     this.lastTranscriptEvent = { ...event };
     this.captions.apply({ type: "transcript", ...event });
     this.conversation.apply({ ...event, generation: this.sessionGeneration });
+    this.requestHermesCues(event.isFinal ? "final" : "partial");
     const cues = this.currentCues();
     if (cues.length) this.selectedCue = Math.min(this.selectedCue, cues.length - 1);
     else this.selectedCue = 0;
@@ -277,6 +309,7 @@ export class ConversateLayer implements Layer {
       speakerEvidence: previous?.speakerEvidence,
       receivedAtMs: Date.now(),
     });
+    this.requestHermesCues("final");
   }
 
   private finishSessionCapture(target: "pause" | "end"): void {
@@ -291,6 +324,7 @@ export class ConversateLayer implements Layer {
       return;
     }
     this.finishing = target;
+    this.clearHermesCueTimers();
     this.status = target === "end" ? "Finishing transcript" : "Pausing after final words";
     const epoch = ++this.transitionEpoch;
     this.requestRender();
@@ -363,7 +397,128 @@ export class ConversateLayer implements Layer {
   }
 
   private currentCues(): readonly ConversationCue[] {
+    if (conversateHermesCuesSetting.get() && this.hermesCues.length) return this.hermesCues;
     return this.conversation.snapshot().cues;
+  }
+
+  private requestHermesCues(kind: "partial" | "final"): void {
+    if (!conversateHermesCuesSetting.get() || this.hermesCueSessionId === null) {
+      this.resetHermesCues(this.hermesCueSessionId);
+      return;
+    }
+    const snapshot = this.conversation.snapshot();
+    const transcript = Array.from(
+      [snapshot.fullTranscript, snapshot.liveText].filter(Boolean).join(" ").replace(/\s+/gu, " ").trim(),
+    ).slice(-HERMES_CUE_TRANSCRIPT_SCALARS).join("").trim();
+
+    const key = transcript.toLocaleLowerCase();
+    const meaningfulPartial = Array.from(transcript).length >= HERMES_CUE_PARTIAL_MIN_SCALARS &&
+      transcript.split(/\s+/u).length >= HERMES_CUE_PARTIAL_MIN_WORDS;
+
+    if (key !== this.hermesCueLatestKey) {
+      this.hermesCueLatestKey = key;
+      this.hermesCuePendingTranscript = transcript;
+      this.hermesCues = [];
+      this.hermesCueResultKey = null;
+    } else if (kind === "partial") {
+      return;
+    }
+
+    if (!transcript || (kind === "partial" && !meaningfulPartial)) {
+      this.clearHermesCueTimers();
+      this.hermesCuePendingTranscript = null;
+      if (this.hermesCueCall && this.hermesCueActiveKey !== key) {
+        const staleCall = this.hermesCueCall;
+        this.hermesCueCall = null;
+        this.hermesCueActiveKey = null;
+        staleCall.cancel("Superseded by newer transcript");
+      }
+      return;
+    }
+
+    if (kind === "final") {
+      this.clearHermesCueTimers();
+      if (this.hermesCueActiveKey === key || this.hermesCueResultKey === key) {
+        this.hermesCuePendingTranscript = null;
+        return;
+      }
+      this.hermesCuePendingTranscript = transcript;
+      this.flushHermesCues();
+      return;
+    }
+
+    if (this.finishing) return;
+    if (this.hermesCueDebounceTimer !== null) clearTimeout(this.hermesCueDebounceTimer);
+    this.hermesCueDebounceTimer = setTimeout(() => this.flushHermesCues(), HERMES_CUE_PARTIAL_DEBOUNCE_MS);
+    if (this.hermesCueMaxWaitTimer === null) {
+      this.hermesCueMaxWaitTimer = setTimeout(() => this.flushHermesCues(), HERMES_CUE_PARTIAL_MAX_WAIT_MS);
+    }
+  }
+
+  private flushHermesCues(): void {
+    this.clearHermesCueTimers();
+    const transcript = this.hermesCuePendingTranscript;
+    this.hermesCuePendingTranscript = null;
+    if (!transcript || !conversateHermesCuesSetting.get() || this.hermesCueSessionId === null) return;
+    const key = transcript.toLocaleLowerCase();
+    if (key !== this.hermesCueLatestKey || this.hermesCueActiveKey === key || this.hermesCueResultKey === key) return;
+    this.hermesCues = [];
+    this.hermesCueCall?.cancel("Superseded by newer transcript");
+    this.hermesCueCall = null;
+    this.hermesCueActiveKey = null;
+    const revision = ++this.hermesCueRevision;
+    const sessionId = this.hermesCueSessionId;
+    const call = assistantBridge.requestConversateCues({ sessionId, revision, transcript });
+    if (!call) {
+      if (this.hermesCueLatestKey === key) this.hermesCueLatestKey = null;
+      return;
+    }
+    this.hermesCueCall = call;
+    this.hermesCueActiveKey = key;
+    void call.result.then((result) => {
+      if (this.hermesCueCall !== call) return;
+      this.hermesCueCall = null;
+      this.hermesCueActiveKey = null;
+      if (this.hermesCueSessionId !== sessionId || this.hermesCueLatestKey !== key ||
+          result.sessionId !== sessionId || result.revision !== revision ||
+          !conversateHermesCuesSetting.get()) return;
+      this.hermesCueResultKey = key;
+      this.hermesCues = result.cues.map((cue) => ({ kind: cue.kind, text: cue.text }));
+      const cues = this.currentCues();
+      this.selectedCue = cues.length ? Math.min(this.selectedCue, cues.length - 1) : 0;
+      this.requestRender();
+    }).catch(() => {
+      if (this.hermesCueCall === call) {
+        this.hermesCueCall = null;
+        this.hermesCueActiveKey = null;
+        if (this.hermesCueLatestKey === key) this.hermesCueLatestKey = null;
+      }
+      // Silent local fallback: no shell alert, Working state, or AssistantLayer.
+    });
+  }
+
+  private resetHermesCues(sessionId: string | null): void {
+    this.clearHermesCueTimers();
+    this.hermesCueCall?.cancel("Conversate session changed");
+    this.hermesCueCall = null;
+    this.hermesCues = [];
+    this.hermesCueRevision = 0;
+    this.hermesCueSessionId = sessionId;
+    this.hermesCueActiveKey = null;
+    this.hermesCueLatestKey = null;
+    this.hermesCueResultKey = null;
+    this.hermesCuePendingTranscript = null;
+  }
+
+  private clearHermesCueTimers(): void {
+    if (this.hermesCueDebounceTimer !== null) clearTimeout(this.hermesCueDebounceTimer);
+    if (this.hermesCueMaxWaitTimer !== null) clearTimeout(this.hermesCueMaxWaitTimer);
+    this.hermesCueDebounceTimer = null;
+    this.hermesCueMaxWaitTimer = null;
+  }
+
+  private cueSource(): "HERMES" | "LOCAL" {
+    return conversateHermesCuesSetting.get() && this.hermesCues.length ? "HERMES" : "LOCAL";
   }
 
   private paintPreflight(image: GrayImage, width: number, height: number): GrayImage {
@@ -382,7 +537,15 @@ export class ConversateLayer implements Layer {
       truncateText(small, `GLASSES MIC · ${captionSourceLanguageSetting.get().toUpperCase()}`, width - 40),
       150,
     );
-    image.drawText(small, 20, 120, "Live transcript + local conversation cues", 190);
+    image.drawText(
+      small,
+      20,
+      120,
+      conversateHermesCuesSetting.get()
+        ? "Hermes cues on · recent transcript text is sent"
+        : "Live transcript + local conversation cues",
+      190,
+    );
     image.drawText(small, 20, 140, "Please inform participants before listening.", 150);
     image.drawText(small, 20, 164, truncateText(small, this.status, width - 40), 170);
     this.drawFooter(image, small, height, "scroll provider  · start  ·· back");
@@ -394,13 +557,16 @@ export class ConversateLayer implements Layer {
     const snapshot = this.conversation.snapshot();
     const phase = this.finishing ? "FINISHING" : snapshot.phase === "paused" ? "PAUSED" : "LISTENING";
     image.drawText(small, 18, 8, truncateText(small, `CONVERSATE · ${formatElapsed(snapshot.elapsedMs)} · ${phase}`, width - 36), 230);
-    image.drawText(small, 18, 27, truncateText(small, conversatePrivacyStatus(this.provider), width - 36), this.provider.locality === "local" ? 200 : 150);
-    const cues = snapshot.cues;
+    const processing = conversateHermesCuesSetting.get()
+      ? `${conversatePrivacyStatus(this.provider)} · TEXT→HERMES`
+      : conversatePrivacyStatus(this.provider);
+    image.drawText(small, 18, 27, truncateText(small, processing, width - 36), this.provider.locality === "local" ? 200 : 150);
+    const cues = this.currentCues();
     let transcriptTop = 55;
     if (cues.length) {
       const cue = cues[this.selectedCue % cues.length]!;
       image.drawRoundedRect(18, 49, width - 36, 54, 45, 8);
-      image.drawText(small, 30, 58, `${cue.kind.toUpperCase()}  ${this.selectedCue + 1}/${cues.length}`, 210);
+      image.drawText(small, 30, 58, `${this.cueSource()} ${cue.kind.toUpperCase()}  ${this.selectedCue + 1}/${cues.length}`, 210);
       image.drawText(small, 30, 78, truncateText(small, cue.text, width - 60), 235);
       transcriptTop = 113;
     }
@@ -443,13 +609,20 @@ export class ConversateLayer implements Layer {
     const medium = getDefaultMediumFont();
     const cues = this.currentCues();
     const cue = cues[this.selectedCue % Math.max(1, cues.length)];
-    image.drawText(small, 20, 10, `LOCAL CUE · ${cue?.kind.toUpperCase() ?? "NOTE"}`, 180);
+    const source = this.cueSource();
+    image.drawText(small, 20, 10, `${source} CUE · ${cue?.kind.toUpperCase() ?? "NOTE"}`, 180);
     image.drawLine(20, 31, width - 20, 31, 80);
     const lines = wrapCaptionText(cue?.text ?? "Cue is no longer available.", width - 48, (text) => medium.measureText(text));
     for (let index = 0; index < Math.min(7, lines.length); index++) {
       image.drawText(medium, 24, 48 + index * medium.lineHeight, lines[index]!, 235);
     }
-    image.drawText(small, 24, height - 42, "Heuristic note · not an external fact", 130);
+    image.drawText(
+      small,
+      24,
+      height - 42,
+      source === "HERMES" ? "AI suggestion · verify before relying" : "Heuristic note · not an external fact",
+      130,
+    );
     this.drawFooter(image, small, height, `${GESTURE_CLICK} back  ${GESTURE_DOUBLE_CLICK} back`);
     return image;
   }
@@ -461,9 +634,10 @@ export class ConversateLayer implements Layer {
     image.drawText(medium, 20, 9, "SESSION COMPLETE", 235);
     image.drawText(small, 20, 34, `${formatElapsed(snapshot.elapsedMs)} · ${snapshot.wordCount} words · ${snapshot.utteranceCount} turns`, 170);
     image.drawText(small, 20, 55, "AUDIO RELEASED · TEXT NOT SAVED", 200);
-    const actions = snapshot.cues.filter((cue) => cue.kind === "action");
-    const questions = snapshot.cues.filter((cue) => cue.kind === "question");
-    image.drawText(small, 20, 80, `LOCAL CUES  ${actions.length} action · ${questions.length} question`, 150);
+    const cues = this.currentCues();
+    const actions = cues.filter((cue) => cue.kind === "action");
+    const questions = cues.filter((cue) => cue.kind === "question");
+    image.drawText(small, 20, 80, `${this.cueSource()} CUES  ${actions.length} action · ${questions.length} question`, 150);
     const latest = snapshot.utterances[snapshot.utterances.length - 1]?.text ?? "No transcript captured.";
     const lines = wrapCaptionText(latest, width - 40, (text) => small.measureText(text));
     for (let index = 0; index < Math.min(5, lines.length); index++) {

@@ -61,6 +61,7 @@ async function loadNotificationModalCloseHarness() {
         this.sleeps++;
         this.stack.clearToBase();
       }
+      flushDeferredAssistantUi() {}
       ${shell.slice(closeStart, closeEnd)}
     }
     export { NotificationModalCloseHarness };
@@ -248,7 +249,8 @@ test("only an exact top notification modal with an unclaimed wake may sleep the 
   userOwned.notificationModalWakeOwnership.claim(userModal, 10);
   userOwned.activityRevision = 11;
   userOwned.closeNotificationModal(userModal);
-  assert.equal(userOwned.sleeps, 0, "later user activity claims the display from the modal wake");
+  assert.equal(userOwned.sleeps, 1,
+    "ring interaction inside the exact notification dialogue does not expose the dashboard");
 
   const exact = new NotificationModalCloseHarness(20);
   const exactModal = inertLayer();
@@ -268,14 +270,13 @@ test("only an exact top notification modal with an unclaimed wake may sleep the 
     shell.indexOf("noteUserActivity("),
     shell.indexOf("/** Re-baseline idle sleep", shell.indexOf("noteUserActivity(")),
   );
-  assert.match(userActivity, /this\.activityRevision\+\+;/,
-    "all subsequent user input invalidates the modal wake generation");
+  assert.match(userActivity, /this\.activityRevision\+\+;/);
 
   const digest = shell.slice(
     shell.indexOf("async openNotificationDigest"),
     shell.indexOf("isMusicCardActive", shell.indexOf("async openNotificationDigest")),
   );
-  assert.match(digest, /notificationModalWakeOwnership\.claim\(modal, this\.activityRevision\)/,
+  assert.match(digest, /notificationModalWakeOwnership\.claim\(modal\)/,
     "digest modals use the same exact wake ownership");
   assert.equal((digest.match(/this\.closeNotificationModal\(modal\)/g) ?? []).length, 2,
     "digest has one close callback and one failure close, without duplicate teardown");
@@ -319,6 +320,46 @@ test("notification modal drains the wake repaint before strict installation", as
   assert.equal(subject.stack.layers.length, 1, "the strict ACK leaves the modal installed");
   assert.equal(subject.stack.layers[0].base.options.retainedNotification, notification,
     "the pre-wake notification snapshot crosses the strict installation boundary");
+});
+
+test("notification modal strict delivery is revoked by the authoritative lock gate", async () => {
+  const { OpenNotificationModalHarness } = await loadOpenNotificationModalHarness();
+  let allowed = true;
+  let releaseStrict;
+  const strict = new Promise((resolve) => { releaseStrict = resolve; });
+  let ownerDuringDelivery;
+  const subject = new OpenNotificationModalHarness({
+    actions: {},
+    isNotificationPresentationAllowed: () => allowed,
+    requestShellDelivery: async (isOwner) => {
+      ownerDuringDelivery = isOwner;
+      assert.equal(isOwner(), true);
+      await strict;
+      return { frameId: 3, outcome: "sent" };
+    },
+  });
+  const notification = {
+    key: "notification-locked",
+    title: "Private detail",
+    lines: [],
+    actions: [],
+  };
+
+  const pending = subject.openNotificationModal(
+    notification.key,
+    "revision-locked",
+    true,
+    notification,
+    "default immediate",
+    true,
+  );
+  await Promise.resolve();
+  assert.equal(subject.stack.layers.length, 1);
+  allowed = false;
+  assert.equal(ownerDuringDelivery(), false, "lock revocation retires the in-flight strict owner");
+  releaseStrict();
+  assert.equal(await pending, false);
+  assert.equal(subject.stack.layers.length, 0, "revoked detail is removed instead of retained behind lock");
 });
 
 test("a presented notification snapshot survives live source replacement or removal", async () => {

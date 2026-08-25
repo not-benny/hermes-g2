@@ -5,7 +5,8 @@ import { grayImageFromPacket } from "./image-files";
 declare const com: any;
 
 export type MediaQueueItem = {
-  id: number;
+  /** Exact signed-64-bit Android MediaSession queue ID. */
+  id: string;
   title: string;
   subtitle: string;
   active: boolean;
@@ -124,9 +125,9 @@ export class FaceclawMediaControllerBridge {
   }
 
   /** Jump playback to a queue item (see getQueue). */
-  async skipToQueueItem(id: number): Promise<void> {
+  async skipToQueueItem(id: string): Promise<void> {
     this.ensureController();
-    this.controller?.skipToQueueItem(id);
+    this.controller?.skipToQueueItemById(id);
   }
 
   /** Current Android music-stream volume normalized to 0..100. */
@@ -163,9 +164,9 @@ export class FaceclawMediaControllerBridge {
     const json = String(this.controller.getQueueJson() ?? "");
     if (!json) return [];
     try {
-      const raw = JSON.parse(json) as Array<{ id?: number; title?: string; subtitle?: string; active?: boolean }>;
+      const raw = JSON.parse(json) as Array<{ id?: unknown; title?: string; subtitle?: string; active?: boolean }>;
       return raw.map((item) => ({
-        id: Number(item.id ?? -1),
+        id: String(item.id ?? "-1"),
         title: String(item.title ?? ""),
         subtitle: String(item.subtitle ?? ""),
         active: Boolean(item.active),

@@ -220,3 +220,32 @@ test("queued duplicates coalesce, urgent obeys policy, and digest waits for ackn
   assert.deepEqual(quietUrgent.effects, []);
   assert.equal(quietUrgent.state.queue[0].reason, "quiet hours");
 });
+
+test("a failed immediate presentation remains retryable without a new Android post", () => {
+  const policy = {
+    ...DEFAULT_NOTIFICATION_POLICY,
+    quietStartMinute: 0,
+    quietEndMinute: 0,
+  };
+  const posted = post(createNotificationTriageState(), item(), clock(1_000), policy);
+  assert.equal(posted.effects[0]?.kind, "immediate");
+  const failed = reduceNotificationTriage(
+    posted.state,
+    { kind: "presentation-failed", key: "key-1", clock: clock(1_001) },
+    policy,
+  );
+  assert.equal(failed.state.queue.length, 1);
+  assert.equal(failed.state.queue[0]?.dueElapsedMs, 1_001);
+  assert.equal(failed.state.deliveries.some((entry) => entry.key === "key-1"), false);
+  const retry = reduceNotificationTriage(
+    failed.state,
+    { kind: "tick", clock: clock(1_002) },
+    policy,
+  );
+  assert.deepEqual(retry.effects[0], {
+    kind: "digest-ready",
+    items: [{ key: "key-1", revision: "rev-1" }],
+    omittedCount: 0,
+    reason: "scheduled digest",
+  });
+});

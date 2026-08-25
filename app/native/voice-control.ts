@@ -73,7 +73,8 @@ type ActiveCapture = {
   finishTimer: ReturnType<typeof setTimeout> | null;
 };
 
-const PROVIDER_FINISH_TIMEOUT_MS = 5_000;
+/** Absolute app-side bound, including a missing native onCaptureStopped callback. */
+const CONTINUOUS_FINISH_ABSOLUTE_TIMEOUT_MS = 8_000;
 
 export class FaceclawVoiceControlBridge {
   private readonly statusListeners = new Set<(state: VoiceControlState) => void>();
@@ -174,7 +175,7 @@ export class FaceclawVoiceControlBridge {
   /**
    * Stop accepting audio but keep this exact generation alive long enough for
    * the native/on-provider final transcript. Resolves after that final event or
-   * a bounded provider timeout; cancellation remains a separate immediate path.
+   * an absolute app-side timeout; cancellation remains a separate immediate path.
    */
   finishContinuousCapture(generation: number): Promise<void> {
     const capture = this.activeCapture;
@@ -185,6 +186,17 @@ export class FaceclawVoiceControlBridge {
       capture.finishPromise = new Promise<void>((resolve) => {
         capture.resolveFinish = resolve;
       });
+    }
+    // Arm this before crossing the native stop boundary. Java's bounded join
+    // can return while a non-cooperative worker is still alive, in which case
+    // onCaptureStopped never reaches us. Conversate's global timeout hold must
+    // not inherit that missing callback forever.
+    if (capture.finishTimer === null) {
+      capture.finishTimer = setTimeout(() => {
+        if (this.activeCapture !== capture) return;
+        this.turnGate.cancel(capture.generation);
+        this.releaseCompletedCapture(capture, true);
+      }, CONTINUOUS_FINISH_ABSOLUTE_TIMEOUT_MS);
     }
     if (this.turnGate.finish(generation)) {
       if (capture.started && global.isAndroid) this.controller?.stop(generation);
@@ -354,11 +366,8 @@ export class FaceclawVoiceControlBridge {
       this.releaseCompletedCapture(capture, true);
       return;
     }
-    if (this.activeCapture === capture && capture.finishTimer === null) {
-      capture.finishTimer = setTimeout(() => {
-        if (this.activeCapture === capture) this.releaseCompletedCapture(capture, true);
-      }, PROVIDER_FINISH_TIMEOUT_MS);
-    }
+    // The absolute timer was armed when finishing began. Keep that deadline
+    // instead of granting a provider a fresh window after native teardown.
   }
 
   private releaseCompletedCapture(capture: ActiveCapture, stopClient: boolean): void {

@@ -12,6 +12,14 @@
             <Label text="Conversation text remains in memory only and clears when the window closes. Conversate never retains raw audio. Translation never hides source text when it is late or unavailable."
                    textWrap="true" class="supporting-text m-t-8" />
 
+            <Label text="Conversation assistance" class="section-label m-t-20" />
+            <GridLayout columns="*,auto" class="control-row">
+                <Label col="0" text="Hermes quick cues" class="control-row-label" verticalAlignment="center" />
+                <Switch col="1" checked="{{ hermesCues }}" accessibilityLabel="Hermes quick conversation cues" />
+            </GridLayout>
+            <Label text="Off by default. When enabled, bounded recent transcript text, including live revisions but not audio, is sent to your connected Hermes host and its configured auxiliary model. It is not added to agent chat or history. Your model provider may process the text under its own policy. Local cues remain available if Hermes is slow or unavailable."
+                   textWrap="true" class="supporting-text m-t-4" />
+
             <Label text="Languages" class="section-label m-t-20" />
             <Button text="Source: {{ sourceLanguage }}" tap="{{ onSourceTap }}" class="-secondary m-t-8" />
             <Button text="Translate to: {{ targetLanguage }}" tap="{{ onTargetTap }}" class="-secondary m-t-8" />

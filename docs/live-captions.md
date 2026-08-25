@@ -4,14 +4,16 @@ Hermes G2's **Conversate** app replaces the former Transcribe launcher surface.
 It provides an explicit, volatile conversation session with live transcription,
 optional Soniox translation, and locally derived action/question/topic cues on
 the bounded monochrome display. It is inspired by the interaction shape of Even
-Conversate but does not depend on the Even cloud service.
+Conversate but does not depend on the Even cloud service. A separate opt-in can
+replace local heuristics with fast Hermes-generated cues from recent transcript
+text, including live revisions.
 
 ## Lens controls
 
 - Opening **Conversate** does not start the microphone.
 - On the preflight screen, scroll to choose between on-device transcription and
   cloud providers whose credentials are already configured; click starts.
-- During a session, scroll through local cues and click for cue detail. The
+- During a session, scroll through cues and click for cue detail. The
   window menu also provides pause/resume and end actions.
 - Pausing flushes the exact provider generation before releasing it, so final
   words are retained. Resume receives a fresh capture generation.
@@ -23,14 +25,15 @@ Conversate but does not depend on the Even cloud service.
   new session or closing the window clears it.
 
 Every important state is textual on-lens: ready, starting, listening, paused,
-finishing, network/provider error, and complete. Cues are explicitly labelled as
-local heuristics, not externally verified facts.
+finishing, network/provider error, and complete. Cues are labelled `LOCAL` or
+`HERMES`; AI cues are suggestions and are not presented as verified facts.
 
 ## Phone settings
 
 Settings → **Conversate & captions** exposes bounded controls for:
 
 - an app-owned transcription provider independent from assistant dictation;
+- an off-by-default **Hermes quick cues** switch;
 - source language hint and optional Soniox translation target;
 - source-only, source/translation split, or translation-first layout;
 - font size, line spacing, and maximum lines;
@@ -60,12 +63,31 @@ provider swaps, screen-off, backgrounding, pause, close, and cancellation are
 generation-bound. Pause/end use a bounded provider-final flush. Exact cloud
 client identity is checked as well as generation.
 
+When Hermes quick cues are enabled and the bridge negotiates
+`conversate-cues-v1`, meaningful live transcript revisions are coalesced behind
+a 500 ms debounce (with a one-second max wait), while provider finals flush
+immediately. Each request sends only the newest bounded 4,096 Unicode scalars
+through Host MCP `hermes.conversate.cues`; audio never enters this lane. The
+request goes directly to the configured
+`hermes_g2_conversate_cues` auxiliary model with no agent chat turn, history,
+workflow, device tools, Assistant layer, progress notification, or `Working`
+state. Only one request can be active: newer text cancels older work, both ends
+enforce a 2.5-second deadline, and an unavailable/slow/malformed result silently
+leaves the existing local cues in place.
+
 ## Privacy
 
 Source and translation text remain memory-only. Hermes does not write a
 Conversate transcript to Downloads or persistence. Conversate never enables the
 developer voice-recording path, even if that separate assistant diagnostic
 switch is on.
+
+Hermes quick cues are disabled by default. Enabling them sends bounded recent
+transcript text, including live revisions but not audio, to the connected Hermes host
+and the model provider selected for its cue auxiliary slot. It is not appended
+to the Hermes agent's chat or session history, but the provider may process the
+request under its own retention and data-use policy. Turning the option off
+preserves fully local heuristic cues.
 
 On-device transcription keeps audio on the phone. Explicitly selecting a cloud
 provider sends microphone audio to that provider under its terms. Soniox
@@ -76,8 +98,8 @@ for informing participants and complying with applicable recording laws.
 
 ## Limitations and evidence
 
-- Local cues classify captured words only. They do not search the web, identify
-  people, or fabricate factual answers.
+- Local cues classify captured words only. Hermes cues use no tools or web
+  search and must not be treated as factual answers.
 - The bitmap renderer does not provide complete Unicode shaping or bidirectional
   layout. Grapheme-safe wrapping prevents broken scalar sequences, but full
   Arabic shaping and RTL ordering are not claimed.

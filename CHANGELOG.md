@@ -38,6 +38,10 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
   current/recent authenticated G2 sessions, listed answers, deny/allow-once
   permissions, steering, and interruption without exposing prompts, reasoning,
   tool activity, unrelated sessions, or terminal access.
+- Added an optional low-latency Conversate cue lane over Host MCP. Stable live
+  transcript text is coalesced and sent only when the owner enables the setting;
+  requests are tool-free, latest-wins, tightly bounded, and silently fall back
+  to immediate local cues without showing Working or taking over the glasses.
 - Scoped portable workflow calls to the reviewed profile relay endpoint through
   `HERMES_G2_WORKFLOW_RELAY`; the package no longer infers a global socket or
   receives broad profile state.
@@ -57,6 +61,12 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
   added shared bounded emoji-to-text fallback for unsupported glyphs.
 - Added paged notification digest/action menus and double-tap dismiss while
   preserving Back, Reply, Android actions, and Dismiss.
+- Present fresh phone notifications as opaque, blank-first cards. A tap opens
+  the existing notification dialogue, while dismissal restores the exact prior
+  display state, including returning a sleep-origin presentation to sleep.
+- Keep the Music playlist selector on the actual playing queue item, preserve
+  manual browsing, and track stable queue identity through delayed callbacks or
+  queue reordering instead of jumping to the first row.
 - Added a full Clock app with timers, alarms, world clocks, voice creation,
   durable Android scheduling, worn/off-head alert campaigns, visual feedback,
   and ring dismissal.
@@ -69,11 +79,14 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
   isolated retained surfaces are prepared before unblank, then committed only
   after the exact current card frame is acknowledged. Failure and supersession
   roll back only the provisional music owner.
+- Suspend the global screen timeout only while Conversate is actively capturing
+  or completing its bounded final transcript flush, then restore a full timeout
+  interval without letting an older capture release a newer capture's hold.
 
 ### Verification and limits
 
-- Phone suite: 889 tests passed; TypeScript typecheck passed.
-- Native gateway suite: 308 passed with one optional live test skipped.
+- Phone suite: 926 tests passed; TypeScript typecheck passed.
+- Native gateway suite: 314 passed with one optional live test skipped.
 - Portable workflow MCP: 26 tests plus current MCP SDK and plugin-doctor checks.
 - Hermes capability/plugin suite: 335 tests.
 - The current source built successfully as a JDK 21 / Android SDK 35 debug APK,

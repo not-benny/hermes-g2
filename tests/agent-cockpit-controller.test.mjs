@@ -108,7 +108,7 @@ test("question answers and permission decisions send only store-issued exact han
 test("Cockpit status is Host MCP-only and the legacy channel is inert", () => {
   const bridge = readFileSync(new URL("../app/assistant/bridge-client.ts", import.meta.url), "utf8");
   assert.match(bridge, /readonly cockpit = new AgentCockpitController/);
-  assert.match(bridge, /capabilities: \["mcp", "host-mcp-v1"\]/);
+  assert.match(bridge, /capabilities: \["mcp", "host-mcp-v1", CONVERSATE_CUES_CAPABILITY\]/);
   assert.match(bridge, /case "cockpit":\s*\n\s*return; \/\/ Cockpit state is read only through Host MCP resources\./);
   assert.doesNotMatch(bridge, /legacyCockpitSupported/);
   assert.doesNotMatch(bridge, /chan: "cockpit"/);

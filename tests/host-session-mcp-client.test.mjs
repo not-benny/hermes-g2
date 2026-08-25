@@ -21,7 +21,7 @@ const context = {
   headsetBattery: 72,
 };
 
-function setup() {
+function setup({ conversateCuesSupported = false } = {}) {
   const sent = [];
   let active = true;
   const client = new HostSessionMcpClient({
@@ -30,6 +30,8 @@ function setup() {
     send: (msg) => sent.push(structuredClone(msg)),
     initializeTimeoutMs: 5_000,
     requestTimeoutMs: 5_000,
+    conversateCueTimeoutMs: 5_000,
+    conversateCuesSupported,
   });
   return { client, sent, retire: () => { active = false; } };
 }
@@ -122,6 +124,78 @@ test("voice cancellation is standard MCP notifications/cancelled and late finals
   client.close();
 });
 
+test("optional Conversate cue calls are exact, bounded, and latest-wins", async () => {
+  const { client, sent } = setup({ conversateCuesSupported: true });
+  acknowledgeInitialize(client, sent);
+  const first = client.callConversateCues({
+    sessionId: "cv-1",
+    revision: 1,
+    transcript: "We should plan the release",
+  });
+  await tick();
+  const firstWire = sent.find((message) => message.id === first.requestId);
+  assert.deepEqual(firstWire.params, {
+    name: "hermes.conversate.cues",
+    arguments: { sessionId: "cv-1", revision: 1, transcript: "We should plan the release" },
+  });
+
+  const second = client.callConversateCues({
+    sessionId: "cv-1",
+    revision: 2,
+    transcript: "We should plan the Friday release",
+  });
+  await assert.rejects(first.result, HostSessionMcpCancelledError);
+  assert.ok(sent.some((message) => message.method === "notifications/cancelled" &&
+    message.params?.requestId === first.requestId));
+  await tick();
+  client.handleMessage({ jsonrpc: "2.0", id: second.requestId, result: {
+    content: [{ type: "text", text: JSON.stringify({
+      sessionId: "cv-1",
+      revision: 2,
+      cues: [{ kind: "question", text: "What must be ready before Friday?" }],
+    }) }],
+    isError: false,
+  } });
+  assert.deepEqual(await second.result, {
+    sessionId: "cv-1",
+    revision: 2,
+    cues: [{ kind: "question", text: "What must be ready before Friday?" }],
+  });
+
+  const malformed = client.callConversateCues({ sessionId: "cv-1", revision: 3, transcript: "Next" });
+  await tick();
+  client.handleMessage({ jsonrpc: "2.0", id: malformed.requestId, result: {
+    content: [{ type: "text", text: JSON.stringify({
+      sessionId: "cv-1", revision: 3,
+      cues: [{ kind: "question", text: "Okay?", extra: "leak" }],
+    }) }],
+  } });
+  await assert.rejects(malformed.result, /invalid cue/);
+  client.close();
+});
+
+test("Conversate cue deadline cancels the exact Host MCP request", async () => {
+  const sent = [];
+  const client = new HostSessionMcpClient({
+    connectionGeneration: "socket-cue-timeout",
+    isConnectionGenerationActive: () => true,
+    send: (message) => sent.push(structuredClone(message)),
+    initializeTimeoutMs: 5_000,
+    conversateCueTimeoutMs: 10,
+    conversateCuesSupported: true,
+  });
+  acknowledgeInitialize(client, sent);
+  const call = client.callConversateCues({
+    sessionId: "cv-timeout",
+    revision: 1,
+    transcript: "A finalized transcript",
+  });
+  await assert.rejects(call.result, /timed out/);
+  assert.ok(sent.some((message) => message.method === "notifications/cancelled" &&
+    message.params?.requestId === call.requestId));
+  client.close();
+});
+
 test("exact CallToolResult, tool errors, and JSON-RPC errors map to terminal outcomes", async () => {
   const { client, sent } = setup();
   acknowledgeInitialize(client, sent);
@@ -175,12 +249,13 @@ test("connection generations and message bounds retire work without stale succes
 
 test("bridge requires host-mcp-v1 and has no legacy custom turn channel", () => {
   const bridge = readFileSync(new URL("../app/assistant/bridge-client.ts", import.meta.url), "utf8");
-  assert.match(bridge, /capabilities: \["mcp", "host-mcp-v1"\]/);
+  assert.match(bridge, /capabilities: \["mcp", "host-mcp-v1", CONVERSATE_CUES_CAPABILITY\]/);
   assert.match(bridge, /frame\.capabilities\.includes\("host-mcp-v1"\)/);
   assert.match(bridge, /case "host-mcp":\s*\n\s*if \(!this\.requireAuthenticated\(generation\)\) return/);
   assert.match(bridge, /new HostSessionMcpClient\(\{/);
   assert.match(bridge, /case "chat":\s*\n\s*return; \/\/ Legacy custom turns are never an authority path\./);
   assert.match(bridge, /callVoiceTurn\(\{ turnId, text, context: ctx \}\)/);
+  assert.match(bridge, /callConversateCues\(request\)/);
   assert.match(bridge, /chan: "host-mcp", msg/);
   assert.match(bridge, /Bridge does not support the required Host MCP/);
   assert.doesNotMatch(bridge, /chan: "chat"/);

@@ -31,15 +31,21 @@ assert.match(controller, /reduceNotificationTriage/);
 assert.match(controller, /serializeNotificationTriageMetadata/);
 assert.doesNotMatch(controller, /console\.(?:log|warn|error).*notification/i);
 assert.match(dashboard, /digest-ready/);
-assert.match(dashboard, /openNotificationDigest/);
+assert.match(dashboard, /openNotificationCard/);
 assert.match(dashboard, /isCurrent\(/);
 assert.match(dashboard, /acknowledgeDigest/);
+assert.match(dashboard, /isNotificationPresentationAllowed: \(\) => this\.isAssistantResultPresentationAllowed\(\)/,
+  "notification strict acknowledgement is invalid while the opaque lock surface owns the lens");
+assert.match(dashboard, /if \(!visible\)[\s\S]*notificationTriageController\.tick\(\)/,
+  "unlock immediately retries retained notification presentations");
 assert.match(dashboard, /notificationPresentationChain = this\.notificationPresentationChain\.then/);
 assert.match(phone, /onTierTap/);
 assert.match(phone, /onResetPrioritiesTap/);
 assert.match(phoneXml, /Precedence:/);
 assert.match(phoneXml, /Reset app priorities/);
 assert.match(glasses, /NotificationDigestLayer/);
+assert.match(glasses, /`Notifications \$\{this\.selectedIndex \+ 1\}/,
+  "the wearer-facing grouped view uses plain language rather than the internal digest term");
 assert.match(glasses, /Why:/);
 assert.match(glasses, /retainAndroidNotification/);
 assert.match(glasses, /this\.retainedNotification \?\?/,
@@ -51,34 +57,27 @@ assert.doesNotMatch(
   "a displayed digest is retained until wearer dismissal or global sleep",
 );
 
-const notificationModal = shell.slice(shell.indexOf("async openNotificationModal"), shell.indexOf("async openNotificationDigest"));
-const notificationDigest = shell.slice(shell.indexOf("async openNotificationDigest"), shell.indexOf("isMusicCardActive"));
-for (const presentation of [notificationModal, notificationDigest]) {
-  const waitIndex = presentation.indexOf("await this.config.waitForShellRenderIdle");
-  const pushIndex = presentation.indexOf("this.stack.push(modal)");
-  const initialGuard = presentation.slice(0, waitIndex);
-  assert.match(initialGuard, /!this\.screenOn/);
-  assert.match(initialGuard, /this\.activeVoiceLayer/,
-    "Android notification presentation fails closed while wearer voice input owns the shell");
-  assert.match(initialGuard, /this\.assistantOnlyPresentation/,
-    "Android notifications cannot displace the isolated assistant surface");
-  assert.ok(waitIndex >= 0 && pushIndex > waitIndex,
-    "ordinary wake renders must drain before a strict notification becomes stack-top");
-  const postDrainGuard = presentation.slice(waitIndex, pushIndex);
-  assert.match(postDrainGuard, /!this\.screenOn/);
-  assert.match(postDrainGuard, /this\.activeVoiceLayer/);
-  assert.match(postDrainGuard, /this\.assistantOnlyPresentation/,
-    "notification authority is rechecked after the ordinary render drain");
-  assert.match(presentation, /this\.stack\.push\(modal\);[\s\S]*this\.restartScreenTimeout\(\);[\s\S]*await this\.config\.requestShellDelivery\(isOwner\)/,
-    "notification installation cannot inherit an already-expired idle baseline");
-  assert.match(presentation, /await this\.config\.requestShellDelivery\(isOwner\)/);
-  assert.match(presentation, /if \(!isOwner\(\)\) throw new Error/);
-  assert.match(presentation, /if \(!isOwner\(\)\) throw new Error[\s\S]*this\.restartScreenTimeout\(\)/,
-    "notification reading time starts only after an owned frame is accepted");
-}
+const notificationCard = shell.slice(shell.indexOf("async openNotificationCard"), shell.indexOf("async openNotificationModal"));
+assert.match(notificationCard, /this\.assistantOnlyPresentation/);
+assert.match(notificationCard, /this\.activeVoiceLayer/);
+assert.match(notificationCard, /this\.stack\.push\(card\)/,
+  "the opaque card is installed before a screen-off wake");
+assert.match(notificationCard, /prepareNotificationCardDisplay[\s\S]*requestShellDelivery\(isInstalledOwner, false\)[\s\S]*this\.wake\("sidebar"\)[\s\S]*revealNotificationCardDisplay[\s\S]*requestShellDelivery\(isOwner\)/,
+  "screen-off notification delivery primes behind black and requires its own strict receipt");
+assert.match(notificationCard, /openNotificationCardDetail/,
+  "clicking the card transfers into the full notification dialogue");
+assert.match(notificationCard, /notificationCardWokeScreen/,
+  "the card retains whether it must return to sleep");
+assert.match(notificationCard, /isNotificationPresentationAllowed/,
+  "lock authority is checked before and throughout strict card delivery");
 
-assert.match(dashboard, /readNotificationByKey\(effect\.key\)[\s\S]*ensureEvenHubSessionActive/,
-  "the Android notification is retained before the asynchronous G2 wake barrier");
-assert.match(dashboard, /openNotificationModal\([\s\S]*immediateNotification![\s\S]*effect\.reason/);
+assert.doesNotMatch(
+  dashboard.slice(dashboard.indexOf("private async handleNotificationTriageEffects"), dashboard.indexOf("private async playBuzzerSequence")),
+  /shell\.wake\(/,
+  "notification triage delegates blank-first wake ownership to the card transaction",
+);
+assert.match(dashboard, /openNotificationCard\([\s\S]*immediateNotification![\s\S]*effect\.reason/);
+assert.match(dashboard, /openNotificationCard\([\s\S]*new notifications[\s\S]*digestNotifications/,
+  "bursts are represented by one summary card whose click opens the digest dialogue");
 
 test("notification triage is wired across Android, policy, phone, and glasses", () => {});
