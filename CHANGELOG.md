@@ -28,8 +28,17 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
   cancellation, and typed receipt validation.
 - Replaced model-driven reminder firing with a deterministic durable outbox that
   calls only the fixed proactive notification route.
-- Added a status-only Hermes Cockpit using the `H` identity and Host MCP status
-  resource. It exposes no transcript, tool activity, or command authority.
+- Added a bounded Hermes Cockpit using the `H` identity,
+  `hermes://cockpit/state`, and the exact `hermes.cockpit.command`. It exposes
+  current/recent authenticated G2 sessions, listed answers, deny/allow-once
+  permissions, steering, and interruption without exposing prompts, reasoning,
+  tool activity, unrelated sessions, or terminal access.
+- Scoped portable workflow calls to the reviewed profile relay endpoint through
+  `HERMES_G2_WORKFLOW_RELAY`; the package no longer infers a global socket or
+  receives broad profile state.
+- Accepted redundant UK country qualifiers in weather lookup, disambiguated
+  Liverpool Central (`LVC`) from Liverpool Lime Street (`LIV`) in the train
+  contract, and added only fixed content-free failure-stage diagnostics.
 
 ### Glasses reliability and UI
 
@@ -46,16 +55,27 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
 - Added a full Clock app with timers, alarms, world clocks, voice creation,
   durable Android scheduling, worn/off-head alert campaigns, visual feedback,
   and ring dismissal.
+- Prevented an old assistant-only result close from blanking a replacement deck
+  that is still inside its isolated wake transaction.
+- Let final decks atomically replace terminal Clock feedback while active and
+  pending alerts remain non-preemptible, and made strict Clock/card markers
+  remain distinct after the glasses' wire quantization.
+- Made screen-off Now Playing presentation blank-first: the opaque card and
+  isolated retained surfaces are prepared before unblank, then committed only
+  after the exact current card frame is acknowledged. Failure and supersession
+  roll back only the provisional music owner.
 
 ### Verification and limits
 
-- Phone suite: 873 tests passed; TypeScript typecheck passed.
-- Native gateway suite: 282 passed with one optional live test skipped.
-- Portable workflow MCP: 23 tests plus current MCP SDK and plugin-doctor checks.
+- Phone suite: 889 tests passed; TypeScript typecheck passed.
+- Native gateway suite: 308 passed with one optional live test skipped.
+- Portable workflow MCP: 26 tests plus current MCP SDK and plugin-doctor checks.
 - Hermes capability/plugin suite: 335 tests.
-- The debug APK built with JDK 21 and Android SDK 35, installed, launched, and
-  reported Hermes Cockpit online. The glasses BLE session was offline during
-  the final check, so a fresh physical lens acceptance run remains required.
+- The current source built successfully as a JDK 21 / Android SDK 35 debug APK,
+  passed ZIP integrity and APK signature verification, and was not installed.
+  An earlier APK launched and reported Hermes Cockpit online, but the current
+  display, relay, weather, train, and Cockpit fixes still await ADB installation
+  and physical lens acceptance.
 - The private owner cutover passed review. Combined public distribution remains
   blocked because the native bridge is redistribution-prohibited. The separate
   public-web MCP is an undeployed review candidate and still requires host-level
