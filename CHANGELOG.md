@@ -20,6 +20,11 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
 - Reduced the owner SOUL to identity and response style only. Removed native G2
   skills, tool registration, generic phone discovery/call proxies, and legacy
   custom chat, Cockpit, and Companion command channels.
+- Separated the distributable least-privilege profile from an explicit local
+  owner capability overlay. A private owner profile may grant reviewed general
+  host tools without widening the phone MCP allowlist or moving authority into
+  SOUL; browser attachment still requires Chromium's visible per-connection
+  approval and consequential actions retain approval.
 - Added twelve exact high-level workflows for Work Tasks, Clock timers, Clock
   alarms, reminders, weather, National Rail departures, app/window management,
   media, navigation, notifications, ring-health summary, and calendar agenda.

@@ -44,6 +44,9 @@ experimental feature in the repository.
   firmware is required for the full 640×480 glasses runtime; stock firmware is
   limited to phone preview. No flash or recovery is in scope.
 - Authenticated private `wss://` transport and fail-closed connection ownership.
+- An explicitly administered private Hermes profile may add selected general
+  host toolsets for the owner. This local authority is separate from the
+  distributable least-privilege G2 profile and fixed phone MCP allowlist.
 - When the optional R1 is connected: direct battery, firmware-version,
   heart-rate, SpO2, HRV, activity, and calorie polling. The official Even app
   must release its R1 connection first.
@@ -61,8 +64,12 @@ experimental feature in the repository.
   registrations are absent, and the legacy custom chat/Cockpit/Companion WSS
   channels are inert. The bounded MCP Cockpit supports listed answers,
   deny/allow-once permissions, steering, and interruption for exact current or
-  recent authenticated G2 sessions. Runtime inventory and independent review found no raw G2 proxy,
-  terminal, code-execution, delegation, or browser-exec route.
+  recent authenticated G2 sessions. The distributable inventory and
+  independent review found no raw G2 proxy, delegation, or general host toolset.
+  A separately administered owner profile may explicitly grant `browser`,
+  `terminal`, `file`, `skills`, `web`, `memory`, `session_search`, `cronjob`,
+  and `computer_use` without changing the G2 MCP contracts. Consequential
+  actions retain approval and this authority is never encoded in SOUL.
 - The final private deployment was healthy after restart with an authenticated
   phone WSS and the Hermes workflow child running under the reviewed isolated
   interpreter. The rebuilt Fold package launched and Hermes Cockpit reported
