@@ -36,37 +36,36 @@ test("controller publishes only validated synchronized projections", () => {
   assert.deepEqual(sent, []);
 });
 
-test("only a fresh final assistant row emits a wearer result notification", () => {
+test("assistant terminal rows remain a passive Cockpit projection", () => {
   const controller = new AgentCockpitController(() => {}, {
     createCommandId: () => "command_1234567890",
   });
-  const results = [];
-  controller.onAssistantResult((result) => results.push(result));
+  assert.equal(controller.onAssistantResult, undefined,
+    "Cockpit must not expose a second wearer-facing completion channel");
   assert.equal(controller.handleFrame(snapshot), true);
-  assert.deepEqual(results, [], "snapshot/reconnect state never wakes the wearer");
 
   assert.equal(controller.handleFrame({
     v: 1, chan: "cockpit", type: "timeline_append", sequence: 2,
     session_id: session.session_id, generation: 4, revision: 2,
     row: { id: "timeline_tool_1234", kind: "tool", text: "private_tool · done", status: "done" },
   }), true);
-  assert.deepEqual(results, [], "tool activity never becomes a result notification");
 
   assert.equal(controller.handleFrame({
     v: 1, chan: "cockpit", type: "timeline_append", sequence: 3,
     session_id: session.session_id, generation: 4, revision: 3,
     row: { id: "timeline_answer_1234", kind: "assistant", text: "Focused tests pass", status: "done" },
   }), true);
-  assert.deepEqual(results, [{
-    sessionId: session.session_id, generation: 4, revision: 3, text: "Focused tests pass",
-  }]);
+  assert.deepEqual(controller.snapshot().sessions[0].timeline, [
+    { id: "timeline_answer_1234", kind: "assistant", text: "Focused tests pass", status: "done" },
+  ], "the final remains visible only inside the synchronized Cockpit app");
 
   assert.equal(controller.handleFrame({
     v: 1, chan: "cockpit", type: "timeline_append", sequence: 4,
     session_id: session.session_id, generation: 4, revision: 4,
     row: { id: "timeline_answer_1234", kind: "assistant", text: "Focused tests pass", status: "done" },
   }), true);
-  assert.equal(results.length, 1, "same row identity cannot wake twice");
+  assert.equal(controller.snapshot().sessions[0].timeline.length, 1,
+    "same row identity remains deduplicated inside the projection");
 });
 
 test("disconnect clears authority and reconnect snapshot never replays queued actions", () => {

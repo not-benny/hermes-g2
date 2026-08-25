@@ -247,6 +247,11 @@ export class MusicCardLayer implements Layer {
   }
 
   onRemoved(): void {
+    // A queued animation callback may still run after LayerStack teardown.
+    // Mark the lifecycle inactive before clearing its resources so that callback
+    // cannot mistake an absent card for a merely covered one and rearm forever.
+    this.presentationStarted = false;
+    this.ctx = null;
     if (this.dismissTimer !== null) {
       clearTimeout(this.dismissTimer);
       this.dismissTimer = null;
@@ -267,6 +272,28 @@ export class MusicCardLayer implements Layer {
     this.ctx?.actions.requestRender();
   }
 
+  /**
+   * A higher-priority opaque layer (currently Clock) may cover this card. Keep
+   * both the retained card and its sleep-origin wake alive until it is top
+   * again; dismissing it underneath the cover would later expose the HUD.
+   */
+  deferDismissalWhileCovered(): boolean {
+    if (
+      !this.presentationStarted ||
+      !this.ctx ||
+      !this.ctx.stack.contains(this) ||
+      this.ctx.stack.topMatches((top) => top === this)
+    ) {
+      return false;
+    }
+    if (this.dismissTimer !== null) clearTimeout(this.dismissTimer);
+    this.dismissTimer = null;
+    this.phase = "holding";
+    this.ticking = false;
+    this.armDismiss();
+    return true;
+  }
+
   private offsetY(now: number): number {
     if (this.phase === "dropping") {
       const t = clamp((now - this.animStart) / DROP_MS, 0, 1);
@@ -280,13 +307,14 @@ export class MusicCardLayer implements Layer {
   }
 
   private startAnimTicker(): void {
-    if (!this.ticking) {
+    if (this.presentationStarted && !this.ticking) {
       this.ticking = true;
       this.tick();
     }
   }
 
   private tick(): void {
+    if (!this.presentationStarted) return;
     this.options.actions.requestRender();
     const dur = this.phase === "rising" ? RISE_MS : DROP_MS;
     if (this.ticking && Date.now() - this.animStart < dur) {
@@ -299,14 +327,14 @@ export class MusicCardLayer implements Layer {
       this.armDismiss();
       this.options.actions.requestRender();
     } else if (this.phase === "rising") {
+      if (this.deferDismissalWhileCovered()) return;
       this.ticking = false;
-      this.onRemoved();
       this.options.onDismissed();
     }
   }
 
   private beginRise(): void {
-    if (this.phase === "rising") return;
+    if (!this.presentationStarted || this.phase === "rising") return;
     if (this.dismissTimer !== null) {
       clearTimeout(this.dismissTimer);
       this.dismissTimer = null;
@@ -321,9 +349,12 @@ export class MusicCardLayer implements Layer {
   }
 
   private armDismiss(): void {
+    if (!this.presentationStarted) return;
     if (this.dismissTimer !== null) clearTimeout(this.dismissTimer);
     this.dismissTimer = setTimeout(() => {
       this.dismissTimer = null;
+      if (!this.presentationStarted) return;
+      if (this.deferDismissalWhileCovered()) return;
       this.beginRise();
     }, this.dismissMs());
   }

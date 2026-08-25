@@ -469,6 +469,8 @@ class Shell {
   private readonly assistantResultWakeOwnership = new AssistantResultWakeOwnership();
   private readonly notificationModalWakeOwnership =
     new NotificationModalWakeOwnership<ShellModalLayer>();
+  /** Exact notification modal still awaiting its first strict physical receipt. */
+  private notificationModalPresentationPending: ShellModalLayer | null = null;
   private remoteViewLayer: ShellRemoteViewLayer | null = null;
   private dynamicAppLayer: ShellDynamicAppLayer | null = null;
   /** Sleep-origin atomic answer that must return to darkness when it closes. */
@@ -554,20 +556,12 @@ class Shell {
       if (state.phase === this.bridgePhase) return;
       this.bridgePhase = state.phase;
       this.config.requestShellRender();
-      if (state.phase === "connected") this.flushPendingAssistantResult();
+      if (state.phase === "connected") this.retryPendingAssistantResult();
     });
-    // Cockpit snapshots are state synchronization and must never wake G2.
-    // The controller emits this hook only for a fresh, validated final
-    // assistant row received after synchronization, so it can share the same
-    // retained wake + strict delivery path as a completed voice turn.
-    assistantBridge.cockpit.onAssistantResult(({ text }) => {
-      const result = text.trim();
-      if (!result) return;
-      this.pendingAssistantResult = result;
-      this.pendingAssistantResultIsolated = false;
-      void playEventBeep("assistantReply", this.config.actions.playBuzzerSequence);
-      this.flushPendingAssistantResult();
-    });
+    // Cockpit is a passive projection of the same authenticated G2 voice turn.
+    // Its terminal row must never become a second wearer-facing result: the
+    // Host MCP CallToolResult is the sole authority that completes this shell's
+    // AssistantLayer. Cockpit snapshots remain available inside the app.
   }
 
   /** Add a window (or replace one with the same windowId, keeping its slot). */
@@ -773,9 +767,7 @@ class Shell {
     return Boolean(
       this.config.requestShellDelivery &&
       !this.assistantOnlyPresentation &&
-      this.musicCardPresentationPending === null &&
-      this.notificationCardPresentationPending === null &&
-      this.notificationCard === null &&
+      !this.hasOpaqueCardPresentation() &&
       this.directNotificationLayer === null &&
       this.activeVoiceLayer === null &&
       this.stack.isAtBase(),
@@ -788,7 +780,7 @@ class Shell {
     }
   }
 
-  /** Retry a retained short assistant result after the real G2 session returns. */
+  /** Retry retained assistant UI after either transport recovers. */
   retryPendingAssistantResult(): void {
     this.flushDeferredAssistantUi();
     this.notifyDirectNotificationOpportunity();
@@ -813,6 +805,20 @@ class Shell {
     this.activityRevision++;
     this.restartScreenTimeout(nowMs);
     this.assistantResultWakeOwnership.invalidate();
+  }
+
+  /** Opaque cards exclusively own both pixels and input until explicitly preempted. */
+  private hasOpaqueCardPresentation(): boolean {
+    return this.musicCard !== null ||
+      this.musicCardPresentationPending !== null ||
+      this.notificationCard !== null ||
+      this.notificationCardPresentationPending !== null;
+  }
+
+  /** A deferred assistant final must not claim a sleep-origin card's provisional wake. */
+  private noteAssistantResultActivity(): void {
+    if (this.hasOpaqueCardPresentation()) return;
+    this.noteUserActivity();
   }
 
   /** Re-baseline idle sleep without claiming or invalidating a provisional wake. */
@@ -859,6 +865,7 @@ class Shell {
   sleep(): void {
     this.assistantResultWakeOwnership.invalidate();
     this.notificationModalWakeOwnership.clear();
+    this.notificationModalPresentationPending = null;
     if (!this.screenOn) return;
     this.cancelEscapeMenuTimer();
     this.exitWindowManagement();
@@ -1353,11 +1360,13 @@ class Shell {
     );
     this.stack.push(modal);
     if (ownsWake) this.notificationModalWakeOwnership.claim(modal);
+    this.notificationModalPresentationPending = modal;
     this.restartScreenTimeout();
     try {
       const isOwner = () =>
         this.screenOn &&
         isPresentationAllowed() &&
+        this.notificationModalPresentationPending === modal &&
         this.stack.topMatches((layer) => layer === modal);
       await this.config.requestShellDelivery(isOwner);
       if (!isOwner()) throw new Error("The notification modal was superseded before presentation.");
@@ -1366,6 +1375,10 @@ class Shell {
     } catch {
       this.closeNotificationModal(modal);
       return false;
+    } finally {
+      if (this.notificationModalPresentationPending === modal) {
+        this.notificationModalPresentationPending = null;
+      }
     }
   }
 
@@ -1424,11 +1437,13 @@ class Shell {
     );
     this.stack.push(modal);
     if (ownsWake) this.notificationModalWakeOwnership.claim(modal);
+    this.notificationModalPresentationPending = modal;
     this.restartScreenTimeout();
     try {
       const isOwner = () =>
         this.screenOn &&
         isPresentationAllowed() &&
+        this.notificationModalPresentationPending === modal &&
         this.stack.topMatches((layer) => layer === modal);
       await this.config.requestShellDelivery(isOwner);
       if (!isOwner()) throw new Error("The notification digest was superseded before presentation.");
@@ -1437,6 +1452,10 @@ class Shell {
     } catch {
       this.closeNotificationModal(modal);
       return false;
+    } finally {
+      if (this.notificationModalPresentationPending === modal) {
+        this.notificationModalPresentationPending = null;
+      }
     }
   }
 
@@ -1445,7 +1464,11 @@ class Shell {
     // Clock's coordinator retries failed visual projections. Never let it
     // supersede an in-flight blanked music transaction: its independent wake
     // barrier could otherwise unblank before either exact opaque layer lands.
-    if (this.musicCardPresentationPending || this.notificationCardPresentationPending) return false;
+    if (
+      this.musicCardPresentationPending ||
+      this.notificationCardPresentationPending ||
+      this.notificationModalPresentationPending
+    ) return false;
     if (this.clockAlertLayer) {
       this.clockAlertLayer.update(state);
       if (!this.stack.topMatches((top) => top === this.clockAlertLayer)) {
@@ -1454,7 +1477,6 @@ class Shell {
       }
     } else {
       this.assistantResultWakeOwnership.invalidate();
-      this.notificationModalWakeOwnership.clear();
       this.clockAlertLayer = new ClockAlertLayer(state);
       this.stack.push(this.clockAlertLayer);
     }
@@ -1650,6 +1672,9 @@ class Shell {
   private async closeMusicCard(card: MusicCardLayer): Promise<void> {
     if (this.musicCard !== card) return; // stale (already replaced/torn down)
     const wasTop = this.stack.topMatches((top) => top === card);
+    if (!wasTop && this.clockAlertLayer !== null && card.deferDismissalWhileCovered()) {
+      return;
+    }
     this.stack.remove(card);
     const woke = this.musicCardWokeScreen;
     const ownsWake = woke && this.musicCardWakeActivityRevision === this.activityRevision;
@@ -1715,6 +1740,38 @@ class Shell {
     return this.stack.paint();
   }
 
+  /** Apply the shared ring sensitivity gate without changing display ownership. */
+  private shouldDiscardThrottledScroll(event: DashboardInputEvent): boolean {
+    if (
+      (event.type !== "scroll-up" && event.type !== "scroll-down") ||
+      this.reorderingWindowId !== null
+    ) return false;
+    const interval = ringScrollMinIntervalMs(ringSensitivitySetting.get());
+    if (interval <= 0) return false;
+    const now = Date.now();
+    if (now - this.lastScrollHonoredAtMs < interval) return true;
+    this.lastScrollHonoredAtMs = now;
+    return false;
+  }
+
+  /**
+   * A card that woke a sleeping display owns ordinary ring/arm input. Route it
+   * before global activity or deferred UI bookkeeping so play/pause, skip and
+   * their companion release events cannot turn the provisional wake into HUD.
+   */
+  private async receiveTopMusicCardInput(
+    event: DashboardInputEvent,
+  ): Promise<ShellInputOutcome | null> {
+    const card = this.musicCard;
+    if (!this.screenOn || !card || !this.stack.topMatches((top) => top === card)) return null;
+    this.cancelEscapeMenuTimer();
+    if (this.shouldDiscardThrottledScroll(event)) {
+      return { shell: false, window: false };
+    }
+    await this.stack.handleInput(event);
+    return { shell: true, window: false };
+  }
+
   async receiveInput(event: DashboardInputEvent, frameId = 0): Promise<ShellInputOutcome> {
     // The stock lifecycle has already interpreted the physical double tap as
     // "wake". Keep that directionality if delivery is delayed or duplicated.
@@ -1766,9 +1823,13 @@ class Shell {
       return { shell: false, window: false };
     }
 
+    const musicCardOutcome = await this.receiveTopMusicCardInput(event);
+    if (musicCardOutcome) return musicCardOutcome;
+
     this.noteUserActivity();
     this.flushDeferredAssistantUi();
     this.detachStaleRunningAssistantLayer();
+    this.rehideUnacknowledgedAssistantOverlayBeforeInput();
 
     // Anything but the long-press itself means the press ended (or the event
     // stream moved on), so the escape countdown stops.
@@ -1924,16 +1985,7 @@ class Shell {
     // soon after the last honored one, so a fast swipe doesn't race. Applied
     // before any consumer (list, text, sidebar) so every scroll obeys it.
     // Reorder scrolls are exempt: those are deliberate one-at-a-time steps.
-    if ((event.type === "scroll-up" || event.type === "scroll-down") && this.reorderingWindowId === null) {
-      const interval = ringScrollMinIntervalMs(ringSensitivitySetting.get());
-      if (interval > 0) {
-        const now = Date.now();
-        if (now - this.lastScrollHonoredAtMs < interval) {
-          return { shell: false, window: false };
-        }
-        this.lastScrollHonoredAtMs = now;
-      }
-    }
+    if (this.shouldDiscardThrottledScroll(event)) return { shell: false, window: false };
 
     if (!this.stack.isAtBase()) {
       await this.stack.handleInput(event);
@@ -2416,7 +2468,11 @@ class Shell {
           // Removed by any path (Done, or the screen sleeping mid-conversation):
           // stop the turn and drop the reference so a later query starts clean.
           this.assistantSession?.cancel();
-          if (this.assistantLayer === created) this.assistantLayer = null;
+          if (this.assistantLayer === created) {
+            this.assistantLayer = null;
+            this.assistantTurnBackgrounded = false;
+            this.assistantOverlayRestorePending = false;
+          }
           if (this.isolatedAssistantTurn === created) this.isolatedAssistantTurn = null;
         },
       });
@@ -2473,16 +2529,32 @@ class Shell {
     this.backgroundAssistantLayer(layer);
   }
 
-  private restoreBackgroundAssistantLayer(layer: AssistantLayer): void {
-    if (this.assistantLayer !== layer || !this.assistantTurnBackgrounded) return;
+  /** User input belongs to the prior screen until the final card is physically acknowledged. */
+  private rehideUnacknowledgedAssistantOverlayBeforeInput(): boolean {
+    const layer = this.assistantLayer;
+    if (
+      !this.assistantOverlayDelivery ||
+      !this.assistantOverlayRestorePending ||
+      !layer ||
+      this.assistantTurnBackgrounded ||
+      !this.stack.topMatches((top) => top === layer)
+    ) return false;
+    this.rehideAssistantOverlayForRetry(layer);
+    startDetachedCleanup(() => this.config.requestShellRender());
+    return true;
+  }
+
+  private restoreBackgroundAssistantLayer(layer: AssistantLayer): boolean {
+    if (this.assistantLayer !== layer || !this.assistantTurnBackgrounded) return false;
     if (this.activeVoiceLayer) {
       this.assistantOverlayRestorePending = true;
-      return;
+      return false;
     }
     this.assistantTurnBackgrounded = false;
-    this.assistantOverlayRestorePending = false;
     this.stack.push(layer);
-    this.config.requestShellRender();
+    // Do not request an ordinary render here. The strict delivery immediately
+    // following installation must own the first frame containing this card.
+    return true;
   }
 
   private finishBackgroundAssistantTurn(layer: AssistantLayer): void {
@@ -2498,7 +2570,7 @@ class Shell {
     if (isolated) this.isolatedAssistantTurn = null;
     // Baseline/invalidate any older wake before flush synchronously acquires
     // the exact provisional wake for this completed result.
-    this.noteUserActivity();
+    this.noteAssistantResultActivity();
     if (reply) {
       this.pendingAssistantResult = reply;
       this.pendingAssistantResultIsolated = isolated;
@@ -2508,7 +2580,7 @@ class Shell {
   }
 
   private flushDeferredAssistantUi(): void {
-    if (this.activeVoiceLayer) return;
+    if (this.activeVoiceLayer || this.hasOpaqueCardPresentation()) return;
     if (this.assistantOverlayRestorePending && this.assistantLayer) {
       this.flushPendingAssistantOverlay();
     }
@@ -2519,7 +2591,7 @@ class Shell {
   private queueAssistantOverlayResult(layer: AssistantLayer): void {
     if (this.assistantLayer !== layer || !this.assistantTurnBackgrounded) return;
     this.assistantOverlayRestorePending = true;
-    this.noteUserActivity();
+    this.noteAssistantResultActivity();
     this.flushPendingAssistantOverlay();
   }
 
@@ -2528,9 +2600,9 @@ class Shell {
       this.assistantOverlayDelivery ||
       !this.assistantOverlayRestorePending ||
       !this.assistantLayer ||
+      !this.config.requestShellDelivery ||
       this.activeVoiceLayer ||
-      this.notificationCard !== null ||
-      this.notificationCardPresentationPending !== null ||
+      this.hasOpaqueCardPresentation() ||
       (this.config.isDisplayAvailable && !this.config.isDisplayAvailable())
     ) return;
     const layer = this.assistantLayer;
@@ -2541,8 +2613,7 @@ class Shell {
       this.assistantTurnBackgrounded &&
       this.assistantOverlayRestorePending &&
       !this.activeVoiceLayer &&
-      this.notificationCard === null &&
-      this.notificationCardPresentationPending === null;
+      !this.hasOpaqueCardPresentation();
     this.assistantOverlayDelivery = true;
     let preparation: AssistantResultDisplayPreparation | null = null;
     let strictAcknowledged = false;
@@ -2560,52 +2631,61 @@ class Shell {
             ? await this.config.prepareAssistantResultDisplay()
             : this.screenOn;
         }
+        // Wake/readiness can leave an ordinary base render in flight. Drain it
+        // before installing the unique final card so it cannot consume or
+        // supersede the fingerprint that the strict transaction must prove.
+        if (ready && this.config.waitForShellRenderIdle) {
+          await this.config.waitForShellRenderIdle();
+        }
         if (
           !ready ||
           !this.screenOn ||
           this.activeVoiceLayer ||
-          this.notificationCard !== null ||
-          this.notificationCardPresentationPending !== null ||
+          this.hasOpaqueCardPresentation() ||
           !this.assistantOverlayRestorePending ||
-          this.assistantLayer !== layer
+          this.assistantLayer !== layer ||
+          !this.assistantTurnBackgrounded
         ) return;
-        this.restoreBackgroundAssistantLayer(layer);
+        if (!this.restoreBackgroundAssistantLayer(layer)) return;
         this.restartScreenTimeout();
         // Keep retry ownership until the completed card itself receives a
         // transport ACK; the wake barrier alone only proves lifecycle state.
-        this.assistantOverlayRestorePending = true;
         const isOwner = () =>
           this.assistantLayer === layer &&
           !this.assistantTurnBackgrounded &&
           this.screenOn &&
           !this.activeVoiceLayer &&
-          this.notificationCard === null &&
-          this.notificationCardPresentationPending === null &&
+          !this.hasOpaqueCardPresentation() &&
           this.stack.topMatches((top) => top === layer);
-        if (this.config.requestShellDelivery) {
-          await this.config.requestShellDelivery(isOwner);
-        } else {
-          await this.config.requestShellRender();
+        const receipt = await this.config.requestShellDelivery(isOwner);
+        if (!isOwner() || receipt.frameId <= 0 || !isSuccessfulFrameOutcome(receipt.outcome)) {
+          throw new Error("The assistant overlay did not receive a current transport acknowledgement.");
         }
-        if (isOwner()) {
-          this.restartScreenTimeout();
-          this.assistantOverlayRestorePending = false;
-          preparation?.commit();
-          strictAcknowledged = true;
-          if (isolated && this.isolatedAssistantTurn === layer) {
-            this.isolatedAssistantTurn = null;
-          }
+        this.restartScreenTimeout();
+        this.assistantOverlayRestorePending = false;
+        preparation?.commit();
+        strictAcknowledged = true;
+        if (isolated && this.isolatedAssistantTurn === layer) {
+          this.isolatedAssistantTurn = null;
         }
       } catch {
         // Keep the completed overlay queued for the next wake or reconnect.
       } finally {
+        const retainedForRetry = !strictAcknowledged && this.assistantLayer === layer;
+        if (retainedForRetry) {
+          // A card without its own physical send must not remain a logical
+          // stack/input owner. Preserve the exact completed layer for retry,
+          // then repaint the now-detached base without retaining delivery.
+          this.rehideAssistantOverlayForRetry(layer);
+        }
         if (isolated && !strictAcknowledged) {
-          // Detach the retryable final before rollback sleep clears visible
-          // layers, then blank/sleep before releasing the assistant-only app
-          // surfaces. Reversing the latter operations can flash retained HUD.
-          this.rehideIsolatedAssistantOverlayForRetry(layer, true);
+          // Blank/sleep before releasing the assistant-only app surfaces;
+          // reversing these operations can flash the retained HUD.
           preparation?.rollback();
           this.setAssistantOnlyPresentation(false);
+        }
+        if (retainedForRetry) {
+          startDetachedCleanup(() => this.config.requestShellRender());
         }
         this.assistantOverlayDelivery = false;
       }
@@ -2617,8 +2697,7 @@ class Shell {
       this.pendingAssistantResultDelivery ||
       !this.pendingAssistantResult ||
       this.activeVoiceLayer ||
-      this.notificationCard !== null ||
-      this.notificationCardPresentationPending !== null ||
+      this.hasOpaqueCardPresentation() ||
       (this.config.isDisplayAvailable && !this.config.isDisplayAvailable())
     ) return;
     const pending = this.pendingAssistantResult;
@@ -2627,8 +2706,7 @@ class Shell {
       this.pendingAssistantResult === pending &&
       this.pendingAssistantResultIsolated === isolated &&
       !this.activeVoiceLayer &&
-      this.notificationCard === null &&
-      this.notificationCardPresentationPending === null;
+      !this.hasOpaqueCardPresentation();
     this.pendingAssistantResultDelivery = true;
     let delivered = false;
     let preparation: AssistantResultDisplayPreparation | null = null;
@@ -2650,8 +2728,7 @@ class Shell {
           !ready ||
           !this.screenOn ||
           this.activeVoiceLayer ||
-          this.notificationCard !== null ||
-          this.notificationCardPresentationPending !== null ||
+          this.hasOpaqueCardPresentation() ||
           this.pendingAssistantResult !== pending
         ) return;
         await this.showAlert(
@@ -2849,12 +2926,13 @@ class Shell {
     return true;
   }
 
-  /** Detach a failed isolated final before wake rollback clears stack overlays. */
-  private rehideIsolatedAssistantOverlayForRetry(layer: AssistantLayer, isolated: boolean): void {
-    if (!isolated || this.isolatedAssistantTurn !== layer) return;
-    if (this.assistantLayer === layer && !this.assistantTurnBackgrounded) {
-      this.backgroundAssistantLayer(layer);
-    }
+  /** Detach any unacknowledged final without firing teardown; retain it for retry. */
+  private rehideAssistantOverlayForRetry(layer: AssistantLayer): boolean {
+    if (this.assistantLayer !== layer) return false;
+    const detached = this.stack.detach(layer);
+    this.assistantTurnBackgrounded = true;
+    this.assistantOverlayRestorePending = true;
+    return detached;
   }
 
   /** Wake and strictly deliver one completed direct Hermes result. */
@@ -3027,11 +3105,7 @@ class Shell {
     if (!this.screenOn) throw new Error("The glasses display is off; no alert was sent.");
     if (this.clockAlertLayer) throw new Error("A Clock alert owns the glasses display.");
     if (this.activeVoiceLayer) throw new Error("Voice capture owns the glasses display.");
-    if (
-      this.musicCardPresentationPending ||
-      this.notificationCardPresentationPending ||
-      this.notificationCard
-    ) {
+    if (this.hasOpaqueCardPresentation()) {
       throw new Error("An opaque card owns the display; no unrelated alert was sent.");
     }
     // Assistant result cards explicitly use the persistent lifetime; every
@@ -3053,8 +3127,7 @@ class Shell {
       this.activeVoiceLayer !== null ||
       signal?.aborted ||
       (isSideEffectAllowed && !isSideEffectAllowed()) ||
-      this.notificationCard !== null ||
-      this.notificationCardPresentationPending !== null ||
+      this.hasOpaqueCardPresentation() ||
       (this.assistantOnlyPresentation && lifetime !== "until-dismiss-or-sleep")
     ) {
       throw new Error("The alert operation was superseded or cancelled; no alert was sent.");
@@ -3071,8 +3144,7 @@ class Shell {
       this.screenOn &&
       this.clockAlertLayer === null &&
       this.activeVoiceLayer === null &&
-      this.notificationCard === null &&
-      this.notificationCardPresentationPending === null &&
+      !this.hasOpaqueCardPresentation() &&
       (!this.assistantOnlyPresentation || lifetime === "until-dismiss-or-sleep");
     const dismiss = () => {
       layer.markCloseReason("dismissed");
@@ -3144,7 +3216,10 @@ class Shell {
     if (this.clockAlertLayer) {
       throw new Error("A Clock alert owns the glasses display; no remote view was sent.");
     }
-    if (this.musicCardPresentationPending || this.notificationCard) {
+    if (this.notificationModalPresentationPending !== null) {
+      throw new Error("A notification modal is awaiting delivery; no remote view was sent.");
+    }
+    if (this.hasOpaqueCardPresentation()) {
       throw new Error("An opaque card owns the display; no remote view was sent.");
     }
     if (this.assistantOnlyPresentation) {
@@ -3165,6 +3240,9 @@ class Shell {
     this.assistantResultWakeOwnership.invalidate();
     const isOwner = () =>
       this.remoteViewLayer === layer &&
+      this.clockAlertLayer === null &&
+      !this.hasOpaqueCardPresentation() &&
+      this.stack.topMatches((top) => top === layer) &&
       !signal?.aborted &&
       (!isSideEffectAllowed || isSideEffectAllowed());
     try {
@@ -3177,7 +3255,10 @@ class Shell {
       this.stack.remove(layer);
       if (this.remoteViewLayer === layer) {
         this.remoteViewLayer = prior;
-        if (prior) this.stack.push(prior);
+        if (prior) {
+          const clock = this.clockAlertLayer;
+          if (!clock || !this.stack.insertBefore(prior, clock)) this.stack.push(prior);
+        }
       }
       try { await this.config.requestShellRender(); } catch { /* preserve delivery error */ }
       throw error;
@@ -3233,9 +3314,6 @@ class Shell {
         ? (!this.assistantOnlyPresentation || this.isolatedAssistantTurn === answerAssistant)
         : this.isolatedAssistantTurn === answerAssistant
     );
-    if (this.musicCardPresentationPending || this.notificationCard) {
-      throw new Error("An opaque card owns the display; no dynamic app was sent.");
-    }
     if (this.assistantOnlyPresentation && !mayPresentAssistantAnswer) {
       throw new Error("The assistant voice presentation owns the display; no dynamic app was sent.");
     }
@@ -3248,8 +3326,19 @@ class Shell {
     if (signal?.aborted || (isSideEffectAllowed && !isSideEffectAllowed())) {
       throw new Error("The dynamic app operation is stale.");
     }
+    if (this.notificationModalPresentationPending !== null) {
+      throw new Error("A notification modal is awaiting delivery; no dynamic app was sent.");
+    }
+    const terminalClockWasPresent = this.clockAlertLayer !== null;
     if (this.clockAlertLayer && !this.releaseTerminalClockAlertLayer()) {
       throw new Error("An active Clock alert owns the glasses display; no dynamic app was sent.");
+    }
+    if (this.hasOpaqueCardPresentation()) {
+      // A terminal Clock can cover a sleep-origin opaque card. Retire the Clock
+      // atomically first, then reveal that exact retained owner instead of
+      // letting an unrelated dynamic result steal its return-to-sleep state.
+      if (terminalClockWasPresent) this.config.requestShellRender();
+      throw new Error("An opaque card owns the display; no dynamic app was sent.");
     }
     const isolatedAnswer = mayPresentAssistantAnswer && !this.screenOn;
     let prior = this.dynamicAppLayer;
@@ -3300,7 +3389,11 @@ class Shell {
       // Wake over a deliberately blank isolated shell first. Installing the
       // result layer before this barrier lets the wake-triggered ordinary
       // render race the strict send and turn it into a no-change receipt.
-      const wakeOwner = () => this.dynamicAppLayer === prior && answerStillCurrent();
+      const wakeOwner = () =>
+        this.dynamicAppLayer === prior &&
+        this.clockAlertLayer === null &&
+        !this.hasOpaqueCardPresentation() &&
+        answerStillCurrent();
       preparation = await prepareAtomicAssistantResultLayer({
         enterIsolation: () => this.setAssistantOnlyPresentation(true),
         prepare: async () => this.config.prepareIsolatedAssistantResultDisplay
@@ -3326,6 +3419,9 @@ class Shell {
     if (!isolatedAnswer) this.assistantResultWakeOwnership.invalidate();
     const isOwner = () =>
       this.dynamicAppLayer === layer &&
+      this.clockAlertLayer === null &&
+      !this.hasOpaqueCardPresentation() &&
+      this.stack.topMatches((top) => top === layer) &&
       !signal?.aborted &&
       (!isSideEffectAllowed || isSideEffectAllowed()) &&
       (!finalContextAnswer || answerStillCurrent());
@@ -3365,7 +3461,10 @@ class Shell {
           this.assistantOnlyDynamicAppLayer = priorWasAssistantOnly ? prior : null;
         }
         this.contextDashboardVoicePrefix = priorContextPrefix;
-        if (prior) this.stack.push(prior);
+        if (prior) {
+          const clock = this.clockAlertLayer;
+          if (!clock || !this.stack.insertBefore(prior, clock)) this.stack.push(prior);
+        }
         if (displacedAssistant && shouldRestoreDisplacedAssistant({
           ownsLayer,
           screenOn: this.screenOn,
@@ -3376,7 +3475,10 @@ class Shell {
         })) {
           this.detachedAssistantLayer = null;
           this.assistantLayer = displacedAssistant;
-          this.stack.push(displacedAssistant);
+          const clock = this.clockAlertLayer;
+          if (!clock || !this.stack.insertBefore(displacedAssistant, clock)) {
+            this.stack.push(displacedAssistant);
+          }
         }
       }
       if (isolatedAnswer) {

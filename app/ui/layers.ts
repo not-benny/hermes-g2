@@ -137,6 +137,20 @@ export class LayerStack {
     return this.layers.length > 1 && predicate(this.layers[this.layers.length - 1]!);
   }
 
+  /** Whether this exact overlay is still installed anywhere above the base. */
+  contains(target: Layer): boolean {
+    return this.layers.indexOf(target) > 0;
+  }
+
+  /** Reinstall a detached layer immediately below one exact covering overlay. */
+  insertBefore(target: Layer, cover: Layer): boolean {
+    if (this.layers.includes(target)) return false;
+    const coverIndex = this.layers.indexOf(cover);
+    if (coverIndex <= 0) return false;
+    this.layers.splice(coverIndex, 0, target);
+    return true;
+  }
+
   /** Pop the top layer only if it matches; returns whether a layer was popped. */
   popIfTop(predicate: (layer: Layer) => boolean): boolean {
     if (this.layers.length > 1 && predicate(this.layers[this.layers.length - 1]!)) {

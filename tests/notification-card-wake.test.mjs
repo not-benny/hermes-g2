@@ -239,6 +239,10 @@ test("a stalled detail transition retains the bounded card timeout and returns t
 
 test("assistant overlays and alerts recheck notification ownership after async barriers", () => {
   const shell = read("app/ui/shell/shell.ts");
+  const opaqueCard = shell.slice(
+    shell.indexOf("private hasOpaqueCardPresentation()"),
+    shell.indexOf("private noteAssistantResultActivity()"),
+  );
   const overlay = shell.slice(
     shell.indexOf("private flushPendingAssistantOverlay()"),
     shell.indexOf("private flushPendingAssistantResult()"),
@@ -247,10 +251,12 @@ test("assistant overlays and alerts recheck notification ownership after async b
     shell.indexOf("async showAlert("),
     shell.indexOf("/** Replace the one shell-owned MCP view", shell.indexOf("async showAlert(")),
   );
-  assert.match(overlay, /const isPending = \(\) =>[\s\S]*this\.notificationCard === null[\s\S]*this\.notificationCardPresentationPending === null/);
-  assert.match(overlay, /!ready[\s\S]*this\.notificationCard !== null[\s\S]*this\.notificationCardPresentationPending !== null/);
-  assert.match(alert, /waitForShellRenderIdle\(\)[\s\S]*this\.notificationCard !== null[\s\S]*this\.notificationCardPresentationPending !== null/);
-  assert.match(alert, /const isOwner = \(\) =>[\s\S]*this\.notificationCard === null[\s\S]*this\.notificationCardPresentationPending === null/);
+  assert.match(opaqueCard, /this\.notificationCard !== null/);
+  assert.match(opaqueCard, /this\.notificationCardPresentationPending !== null/);
+  assert.match(overlay, /const isPending = \(\) =>[\s\S]*!this\.hasOpaqueCardPresentation\(\)/);
+  assert.match(overlay, /!ready[\s\S]*this\.hasOpaqueCardPresentation\(\)/);
+  assert.match(alert, /waitForShellRenderIdle\(\)[\s\S]*this\.hasOpaqueCardPresentation\(\)/);
+  assert.match(alert, /const isOwner = \(\) =>[\s\S]*!this\.hasOpaqueCardPresentation\(\)/);
 });
 
 test("a notification never replaces an already-visible HUD", async () => {

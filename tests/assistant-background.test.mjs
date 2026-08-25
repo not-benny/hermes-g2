@@ -12,6 +12,132 @@ async function loadRouting() {
   return import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
 }
 
+async function loadAssistantOverlayLifecycleHarness() {
+  const shell = read("app/ui/shell/shell.ts");
+  const ownershipStart = shell.indexOf("/** Opaque cards exclusively own both pixels and input");
+  const ownershipEnd = shell.indexOf("/** Re-baseline idle sleep", ownershipStart);
+  const flowStart = shell.indexOf("sendToAssistant(text: string): void");
+  const flowEnd = shell.indexOf("\n  private flushPendingAssistantResult", flowStart);
+  const rehideStart = shell.indexOf("private rehideAssistantOverlayForRetry(layer: AssistantLayer)");
+  const rehideEnd = shell.indexOf("\n  /** Wake and strictly deliver", rehideStart);
+  assert.ok(ownershipStart >= 0 && ownershipEnd > ownershipStart);
+  assert.ok(flowStart >= 0 && flowEnd > flowStart);
+  assert.ok(rehideStart >= 0 && rehideEnd > rehideStart);
+  const source = `
+    const assistantBackendSetting = { get: () => "external" };
+    const playEventBeep = async () => {};
+    const assistantReplyNeedsOverlay = (text) => !text || text.includes("?");
+    const isSuccessfulFrameOutcome = (outcome) =>
+      typeof outcome === "string" && outcome.startsWith("sent");
+    const startDetachedCleanup = (task) => { void Promise.resolve().then(task); };
+    class AssistantLayer {
+      constructor(_actions, options) { this.options = options; }
+      startTurn() { this.running = true; }
+      onTurnDone(text) { this.running = false; this.reply = text; }
+      onError(text) { this.running = false; this.reply = text; }
+      getReplyText() { return this.reply ?? ""; }
+      isRunning() { return this.running === true; }
+      onRemoved() {
+        if (this.removed) return;
+        this.removed = true;
+        this.options.onRemoved();
+      }
+    }
+    class Session {
+      active = false;
+      isTurnActive() { return this.active; }
+      sendUtterance(_text, _context, callbacks) {
+        this.active = true;
+        this.callbacks = callbacks;
+      }
+      cancel() { this.active = false; }
+      finish(text) {
+        this.active = false;
+        this.callbacks.onTurnDone({ text, stopReason: "end" });
+      }
+    }
+    class LifecycleHarness {
+      screenOn = true;
+      activeVoiceLayer = null;
+      assistantLayer = null;
+      detachedAssistantLayer = null;
+      assistantTurnBackgrounded = false;
+      assistantOverlayRestorePending = false;
+      assistantOverlayDelivery = false;
+      isolatedAssistantTurn = null;
+      pendingAssistantResult = null;
+      pendingAssistantResultIsolated = false;
+      musicCard = null;
+      musicCardPresentationPending = null;
+      notificationCard = null;
+      notificationCardPresentationPending = null;
+      activityRevision = 0;
+      strictRequests = [];
+      ordinaryRenders = 0;
+      constructor() {
+        this.session = new Session();
+        this.assistantSession = this.session;
+        const base = { kind: "base" };
+        this.stack = {
+          layers: [base],
+          push: (layer) => this.stack.layers.push(layer),
+          detach: (layer) => {
+            const index = this.stack.layers.indexOf(layer);
+            if (index < 0) return false;
+            this.stack.layers.splice(index, 1);
+            return true;
+          },
+          topMatches: (predicate) => predicate(this.stack.layers.at(-1)),
+          clearToBase: () => {
+            while (this.stack.layers.length > 1) this.stack.layers.pop().onRemoved?.();
+          },
+        };
+        this.config = {
+          actions: {},
+          requestShellRender: () => { this.ordinaryRenders++; },
+          requestShellDelivery: (isOwner) => new Promise((resolve) => {
+            this.strictRequests.push({ isOwner, resolve });
+          }),
+          prepareAssistantResultDisplay: async () => true,
+          waitForShellRenderIdle: async () => {},
+          isDisplayAvailable: () => true,
+        };
+      }
+      ensureAssistantSession() { this.assistantSession = this.session; return this.session; }
+      buildAssistantContext() { return {}; }
+      wake() { this.screenOn = true; return true; }
+      noteUserActivity() { this.activityRevision++; }
+      restartScreenTimeout() {}
+      startAssistantFollowUp() {}
+      closeAssistantLayer() {}
+      setAssistantOnlyPresentation() {}
+      flushPendingAssistantResult() {}
+      notifyDirectNotificationOpportunity() {}
+      retryPendingAssistantResult() { this.flushDeferredAssistantUi(); }
+      clearVisibleLayersForSleep() {
+        this.screenOn = false;
+        this.stack.clearToBase();
+      }
+      ${shell.slice(ownershipStart, ownershipEnd)}
+      ${shell.slice(flowStart, flowEnd)}
+      ${shell.slice(rehideStart, rehideEnd)}
+    }
+    export { LifecycleHarness };
+  `;
+  const js = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  return import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+}
+
+async function settleUntil(predicate, message) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (predicate()) return;
+    await Promise.resolve();
+  }
+  assert.fail(message);
+}
+
 test("short tool results stay in the background while conversational replies need the overlay", async () => {
   const { assistantReplyNeedsOverlay } = await loadRouting();
   assert.equal(assistantReplyNeedsOverlay("Bedroom light on ."), false);
@@ -33,6 +159,9 @@ test("short tool results stay in the background while conversational replies nee
   assert.equal(assistantReplyNeedsOverlay("I need you to know the timer finished."), false);
   assert.equal(assistantReplyNeedsOverlay("Please choose one of the following options."), true);
   assert.equal(assistantReplyNeedsOverlay("x".repeat(161)), true);
+  const incidentReply = "I can add **“Mimecast creation”**, but I don’t have a connected “Blocker Board” destination. Should I add it to your **Work Tasks** inbox instead?";
+  assert.equal([...incidentReply].length, 146, "preserve the exact P1 incident reply");
+  assert.equal(assistantReplyNeedsOverlay(incidentReply), true);
 });
 
 test("assistant turns are detached before thinking starts and progress stays private", () => {
@@ -73,7 +202,7 @@ test("sleeping PTT rejects a second press and sleeps after handing off hidden wo
   const dialog = shell.slice(shell.indexOf("private openVoiceDialog"), shell.indexOf("private buildVoiceSendTargets"));
   assert.match(dialog, /queueMicrotask\(\(\) => \{[\s\S]*this\.finishSleepingAssistantVoiceHandoff\(\)/);
   assert.match(dialog, /this\.finishSleepingAssistantVoiceDismissal\(options\.returnToSleepOnClose === true\)/);
-  const handoff = shell.slice(shell.indexOf("private finishSleepingAssistantVoiceHandoff"), shell.indexOf("private rehideIsolatedAssistantOverlayForRetry"));
+  const handoff = shell.slice(shell.indexOf("private finishSleepingAssistantVoiceHandoff"), shell.indexOf("private rehideAssistantOverlayForRetry"));
   assert.match(handoff, /this\.assistantOnlyPresentation[\s\S]*this\.assistantTurnBackgrounded[\s\S]*this\.assistantSession\?\.isTurnActive\(\)/);
   assert.match(handoff, /this\.isolatedAssistantTurn = layer[\s\S]*this\.sleep\(\)/);
   const sleep = shell.slice(shell.indexOf("sleep(): void"), shell.indexOf("acquireAssistantResultWake"));
@@ -86,7 +215,7 @@ test("sleep-origin voice discard blanks before releasing isolated app surfaces",
   const input = shell.slice(shell.indexOf("async receiveInput("), shell.indexOf("foregroundWindow():", shell.indexOf("async receiveInput(")));
   const sleepingRoute = input.slice(input.indexOf("A sleeping long-press"), input.indexOf("if (!this.screenOn)", input.indexOf("A sleeping long-press") + 1));
   assert.match(sleepingRoute, /returnToSleepOnClose: true/);
-  const dismissal = shell.slice(shell.indexOf("private finishSleepingAssistantVoiceDismissal"), shell.indexOf("private rehideIsolatedAssistantOverlayForRetry"));
+  const dismissal = shell.slice(shell.indexOf("private finishSleepingAssistantVoiceDismissal"), shell.indexOf("private rehideAssistantOverlayForRetry"));
   assert.match(dismissal, /!returnToSleepOnClose/);
   assert.match(dismissal, /this\.assistantSession\?\.isTurnActive\(\)/);
   assert.match(dismissal, /if \(this\.screenOn\) this\.sleep\(\)/);
@@ -107,15 +236,22 @@ test("sleeping PTT isolation returns only for its final and releases on failed d
   assert.match(finish, /const isolated = this\.isolatedAssistantTurn === layer/);
   assert.match(finish, /this\.pendingAssistantResultIsolated = isolated/);
   assert.ok(
-    finish.indexOf("this.noteUserActivity()") < finish.indexOf("this.flushPendingAssistantResult()"),
+    finish.indexOf("this.noteAssistantResultActivity()") < finish.indexOf("this.flushPendingAssistantResult()"),
     "completion must invalidate older wake ownership before acquiring the final's provisional wake",
   );
+  const resultActivity = shell.slice(
+    shell.indexOf("private noteAssistantResultActivity"),
+    shell.indexOf("/** Re-baseline idle sleep"),
+  );
+  assert.match(resultActivity, /if \(this\.hasOpaqueCardPresentation\(\)\) return;/,
+    "assistant completion must defer activity while a sleep-origin opaque card owns the display");
+  assert.match(resultActivity, /this\.noteUserActivity\(\)/);
   const overlay = shell.slice(shell.indexOf("private flushPendingAssistantOverlay"), shell.indexOf("private flushPendingAssistantResult"));
   assert.match(overlay, /if \(isolated\) this\.setAssistantOnlyPresentation\(true\)/);
   assert.match(overlay, /this\.config\.prepareIsolatedAssistantResultDisplay\(isPending\)/);
   assert.match(overlay, /preparation\?\.commit\(\)[\s\S]*strictAcknowledged = true/);
   assert.match(overlay,
-    /this\.rehideIsolatedAssistantOverlayForRetry\(layer, true\);[\s\S]*preparation\?\.rollback\(\);[\s\S]*this\.setAssistantOnlyPresentation\(false\)/);
+    /this\.rehideAssistantOverlayForRetry\(layer\);[\s\S]*preparation\?\.rollback\(\);[\s\S]*this\.setAssistantOnlyPresentation\(false\)/);
   assert.match(overlay, /this\.isolatedAssistantTurn = null/);
   const compact = shell.slice(shell.indexOf("private flushPendingAssistantResult"), shell.indexOf("private startAssistantFollowUp"));
   assert.match(compact, /const isolated = this\.pendingAssistantResultIsolated/);
@@ -167,14 +303,14 @@ test("background completion uses a compact persistent result unless conversation
     /const queuedNext = this\.pendingAssistantResult !== null && this\.pendingAssistantResult !== pending;[\s\S]*if \(queuedNext\) this\.flushPendingAssistantResult\(\)/,
   );
   const bridgeState = shell.slice(shell.indexOf("assistantBridge.onStateChange"), shell.indexOf("registerWindow"));
-  assert.match(bridgeState, /this\.flushPendingAssistantResult\(\)/);
+  assert.match(bridgeState, /this\.retryPendingAssistantResult\(\)/);
 });
 
 test("a retained result retries when the real G2 display reconnects", () => {
   const shell = read("app/ui/shell/shell.ts");
   assert.match(
     shell,
-    /retryPendingAssistantResult\(\): void \{[\s\S]*this\.flushPendingAssistantResult\(\)/,
+    /retryPendingAssistantResult\(\): void \{[\s\S]*this\.flushDeferredAssistantUi\(\)/,
   );
   const controller = read("app/g2/dashboard-controller.ts");
   const stateCallback = controller.slice(
@@ -187,25 +323,20 @@ test("a retained result retries when the real G2 display reconnects", () => {
   );
 });
 
-test("fresh cockpit finals share the retained wake path without replaying snapshots", () => {
+test("Cockpit projection cannot duplicate the authoritative voice result on the glasses", () => {
   const shell = read("app/ui/shell/shell.ts");
   const subscribe = shell.slice(
     shell.indexOf("private subscribeToTopBarSettings"),
     shell.indexOf("/** Add a window"),
   );
-  assert.match(subscribe, /assistantBridge\.cockpit\.onAssistantResult/);
-  assert.match(subscribe, /this\.pendingAssistantResult = result/);
-  assert.match(subscribe, /this\.flushPendingAssistantResult\(\)/);
-  assert.doesNotMatch(subscribe, /cockpit\.onChange/);
+  assert.doesNotMatch(subscribe, /cockpit\.onAssistantResult/,
+    "Cockpit is a passive projection of the same G2 turn, not a second UI completion path");
+  assert.match(subscribe, /Host MCP CallToolResult is the sole authority/);
 
-  const controller = read("app/agent-cockpit/controller.ts");
-  assert.match(controller, /accepted\.type === "timeline_append"/);
-  assert.match(controller, /accepted\.row\.kind === "assistant"/);
-  assert.match(controller, /accepted\.row\.status === "done"/);
-  assert.doesNotMatch(
-    controller.slice(controller.indexOf("handleFrame"), controller.indexOf("snapshot():")),
-    /accepted\.type === "snapshot"[\s\S]*resultListeners/,
-  );
+  const bridge = read("app/assistant/bridge-client.ts");
+  const send = bridge.slice(bridge.indexOf("sendUtterance("), bridge.indexOf("private connect"));
+  assert.match(send, /this\.hostMcpClient\.callVoiceTurn/);
+  assert.match(send, /turn\.callbacks\.onTurnDone\(\{ stopReason: result\.stopReason, text: result\.text \}\)/);
 });
 
 test("legacy bridge progress is inert and only the Host MCP terminal result completes the UI turn", () => {
@@ -256,11 +387,23 @@ test("completed short and interactive results cross the same wake barrier", () =
     "interactive result must wait for display readiness before becoming visible",
   );
   assert.ok(
+    interactive.indexOf("await this.config.waitForShellRenderIdle()") <
+      interactive.indexOf("this.restoreBackgroundAssistantLayer(layer)"),
+    "interactive result must drain ordinary rendering before installing its card",
+  );
+  assert.ok(
     interactive.indexOf("this.restoreBackgroundAssistantLayer(layer)") <
       interactive.indexOf("await this.config.requestShellDelivery(isOwner)"),
     "interactive result must retain retry ownership until its own frame ACK",
   );
-  assert.match(interactive, /if \(isOwner\(\)\) \{[\s\S]*this\.assistantOverlayRestorePending = false/);
+  const installedToStrict = interactive.slice(
+    interactive.indexOf("this.restoreBackgroundAssistantLayer(layer)"),
+    interactive.indexOf("await this.config.requestShellDelivery(isOwner)"),
+  );
+  assert.doesNotMatch(installedToStrict, /requestShellRender/,
+    "no ordinary render may race the installed card's first strict frame");
+  assert.match(interactive,
+    /const receipt = await this\.config\.requestShellDelivery\(isOwner\);[\s\S]*receipt\.frameId <= 0[\s\S]*!isSuccessfulFrameOutcome\(receipt\.outcome\)[\s\S]*this\.assistantOverlayRestorePending = false/);
 
   const controller = read("app/g2/dashboard-controller.ts");
   assert.match(controller, /prepareAssistantResultDisplay:\s*\(isAllowed\)\s*=>\s*this\.prepareAssistantResultDisplay\(isAllowed\)/);
@@ -321,8 +464,105 @@ test("installed and accepted completed presentations start a fresh global readin
     shell.indexOf("private flushPendingAssistantOverlay"),
     shell.indexOf("private flushPendingAssistantResult"),
   );
-  assert.match(interactive, /this\.restoreBackgroundAssistantLayer\(layer\);[\s\S]*this\.restartScreenTimeout\(\);[\s\S]*await this\.config\.requestShellDelivery\(isOwner\)/);
-  assert.match(interactive, /await this\.config\.requestShellDelivery\(isOwner\)[\s\S]*if \(isOwner\(\)\) \{[\s\S]*this\.restartScreenTimeout\(\)/);
+  assert.match(interactive, /this\.restoreBackgroundAssistantLayer\(layer\)[\s\S]*this\.restartScreenTimeout\(\);[\s\S]*await this\.config\.requestShellDelivery\(isOwner\)/);
+  assert.match(interactive, /await this\.config\.requestShellDelivery\(isOwner\)[\s\S]*isSuccessfulFrameOutcome\(receipt\.outcome\)[\s\S]*this\.restartScreenTimeout\(\)/);
+});
+
+test("an unacknowledged interactive result releases input ownership and remains retryable", () => {
+  const shell = read("app/ui/shell/shell.ts");
+  const interactive = shell.slice(
+    shell.indexOf("private flushPendingAssistantOverlay"),
+    shell.indexOf("private flushPendingAssistantResult"),
+  );
+  assert.match(interactive,
+    /const retainedForRetry = !strictAcknowledged && this\.assistantLayer === layer;[\s\S]*this\.rehideAssistantOverlayForRetry\(layer\);[\s\S]*startDetachedCleanup\(\(\) => this\.config\.requestShellRender\(\)\)/,
+    "no-change, superseded, or thrown strict delivery must detach before best-effort repaint");
+
+  const rehide = shell.slice(
+    shell.indexOf("private rehideAssistantOverlayForRetry"),
+    shell.indexOf("async notifyAssistantResult", shell.indexOf("private rehideAssistantOverlayForRetry")),
+  );
+  assert.match(rehide, /if \(this\.assistantLayer !== layer\) return false/);
+  assert.match(rehide, /this\.stack\.detach\(layer\)/,
+    "retryable failure must not fire AssistantLayer teardown");
+  assert.match(rehide, /this\.assistantTurnBackgrounded = true/);
+  assert.match(rehide, /this\.assistantOverlayRestorePending = true/);
+
+  const input = shell.slice(
+    shell.indexOf("async receiveInput("),
+    shell.indexOf("foregroundWindow():", shell.indexOf("async receiveInput(")),
+  );
+  const releaseIndex = input.indexOf("this.rehideUnacknowledgedAssistantOverlayBeforeInput()");
+  const stackRouteIndex = input.indexOf("if (!this.stack.isAtBase())");
+  assert.ok(releaseIndex >= 0 && releaseIndex < stackRouteIndex,
+    "input must release a provisional card before choosing the top-layer route");
+  const provisional = shell.slice(
+    shell.indexOf("private rehideUnacknowledgedAssistantOverlayBeforeInput"),
+    shell.indexOf("private restoreBackgroundAssistantLayer"),
+  );
+  assert.match(provisional, /this\.assistantOverlayDelivery/);
+  assert.match(provisional, /this\.assistantOverlayRestorePending/);
+  assert.match(provisional, /this\.stack\.topMatches/);
+  assert.match(provisional, /this\.rehideAssistantOverlayForRetry\(layer\)/);
+
+  assert.match(shell,
+    /retryPendingAssistantResult\(\): void \{[\s\S]*this\.flushDeferredAssistantUi\(\)/,
+    "the retained exact layer must retry after a display recovery edge");
+});
+
+test("sleep teardown during an unresolved strict result cannot poison the next assistant turn", async () => {
+  const { LifecycleHarness } = await loadAssistantOverlayLifecycleHarness();
+  const subject = new LifecycleHarness();
+
+  subject.sendToAssistant("first");
+  const firstLayer = subject.assistantLayer;
+  subject.session.finish("First clarification?");
+  await settleUntil(() => subject.strictRequests.length === 1,
+    "the first completed overlay never entered strict delivery");
+  assert.equal(subject.stack.layers.at(-1), firstLayer);
+
+  // Global sleep clears the exact installed layer while its transport receipt
+  // remains unresolved. Its onRemoved callback must retire all lifecycle flags.
+  subject.clearVisibleLayersForSleep();
+  assert.equal(subject.assistantLayer, null);
+  assert.equal(subject.assistantTurnBackgrounded, false);
+  assert.equal(subject.assistantOverlayRestorePending, false);
+
+  subject.sendToAssistant("second");
+  const secondLayer = subject.assistantLayer;
+  assert.notEqual(secondLayer, firstLayer);
+  assert.equal(subject.assistantTurnBackgrounded, true);
+  assert.notEqual(subject.stack.layers.at(-1), secondLayer,
+    "the new thinking layer stays detached");
+
+  // Input/reconnect while the stale strict send is unresolved cannot install
+  // either old or new content or hand input to an invisible result layer.
+  assert.equal(subject.rehideUnacknowledgedAssistantOverlayBeforeInput(), false);
+  subject.retryPendingAssistantResult();
+  assert.notEqual(subject.stack.layers.at(-1), secondLayer);
+
+  subject.session.finish("Second clarification?");
+  subject.retryPendingAssistantResult();
+  assert.equal(subject.strictRequests.length, 1,
+    "the stale strict transaction keeps the new final detached until it retires");
+
+  subject.strictRequests[0].resolve({ frameId: 51, outcome: "sent tiles" });
+  await settleUntil(() => subject.assistantOverlayDelivery === false,
+    "the stale strict transaction did not retire");
+  assert.notEqual(subject.stack.layers.at(-1), firstLayer);
+  assert.notEqual(subject.stack.layers.at(-1), secondLayer);
+
+  subject.retryPendingAssistantResult();
+  await settleUntil(() => subject.strictRequests.length === 2,
+    "the retained second final did not retry after reconnect");
+  assert.equal(subject.stack.layers.at(-1), secondLayer);
+  assert.equal(subject.assistantOverlayRestorePending, true,
+    "logical completion waits for the exact second frame receipt");
+
+  subject.strictRequests[1].resolve({ frameId: 52, outcome: "sent tiles" });
+  await settleUntil(() => subject.assistantOverlayRestorePending === false,
+    "the second final did not commit after strict delivery");
+  assert.equal(subject.stack.layers.at(-1), secondLayer);
 });
 
 test("strict result alert waits for ordinary shell rendering before becoming visible", () => {
