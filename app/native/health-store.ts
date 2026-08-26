@@ -7,13 +7,15 @@ import { ApplicationSettings } from "@nativescript/core";
 import { BATTERY_FUTURE_SKEW_MS, canonicalizeHealthDocument, parseLocalDateKey, type HealthStoreDocument, type RingBatterySnapshot } from "../health/health-store";
 import { dateKeyOf, summarizeDay, type DailyHealthSummary, type DaySummaryInputs } from "../health/health-history";
 import { buildHourlyPoints, type HourlyPoint } from "../health/health-hourly";
-import type { RingActivitySnapshot } from "../health/ring-health-store";
+import { canonicalizeActivitySnapshot, canonicalizeSleepSnapshot, type RingActivitySnapshot } from "../health/ring-health-store";
+import { canonicalizeRingSleepData, type RingSleepData } from "../health/ring-parser";
 
 export const HEALTH_STORE_KEY = "health.store.v1";
 export const LEGACY_HISTORY_KEY = "health.history.v1";
 export const LEGACY_HOURLY_KEY = "health.hourly.v1";
 export const LEGACY_ACTIVITY_KEY = "health.activity.v1";
 export const HERMES_CONSENT_KEY = "health.hermes.consent.v1";
+export const HEALTH_RING_SCOPE_KEY = "health.ring.scope.v1";
 const LEGACY_KEYS = [LEGACY_HISTORY_KEY, LEGACY_HOURLY_KEY, LEGACY_ACTIVITY_KEY] as const;
 const BATTERY_PERSIST_INTERVAL_MS = 60 * 60 * 1000;
 type RingHour = { hourIdx: number; avg: number; max: number; min: number; timestampSec?: number | null; timezoneOffsetMinutes?: number | null };
@@ -25,6 +27,7 @@ export interface HealthApplicationSettings {
   getBoolean(key: string, defaultValue?: boolean): boolean;
   setBoolean(key: string, value: boolean): void;
   remove(key: string): void;
+  flush?(): boolean;
 }
 export interface HealthLoadResult { ok: boolean; document?: HealthStoreDocument; error?: string; }
 export interface HealthWriteResult { ok: boolean; document?: HealthStoreDocument; error?: string; }
@@ -38,8 +41,11 @@ export interface HealthPersistence {
   recordHourly(hr: RingHour[], spo2: RingHour[], hrv: RingHour[], nowMs: number): HourlyPoint[];
   loadActivity(nowMs?: number): RingActivitySnapshot | null;
   recordActivity(activity: RingActivitySnapshot | null): void;
+  loadSleep(nowMs?: number): RingSleepData | null;
+  recordSleep(sleep: RingSleepData | null): void;
   loadBattery(ringId: string): RingBatterySnapshot | null;
   recordBattery(ringId: string, percent: number | null, updatedAtMs: number | null): void;
+  transitionRingIdentity(previousRingId: string, nextRingId: string): HealthWriteResult;
   getHermesConsent(): boolean;
   setHermesConsent(on: boolean): void;
   clearHealthData(): void;
@@ -55,11 +61,24 @@ const isFiniteNumber = (value: unknown): value is number => typeof value === "nu
 const isDateKey = (value: unknown): value is string => parseLocalDateKey(value) !== null;
 const normalizeRingId = (value: string): string => value.trim().toUpperCase();
 const isValidRingId = (value: string): boolean => /^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$/.test(normalizeRingId(value));
+const canonicalRingId = (value: string): string => isValidRingId(value) ? normalizeRingId(value) : "";
+
+type PersistedRingScope = { version: 1; ringId: string };
+
+function parseRingScope(raw: string): PersistedRingScope | null {
+  const parsed = parseJson(raw, null);
+  if (!parsed || typeof parsed !== "object") return null;
+  const value = parsed as Record<string, unknown>;
+  if (value.version !== 1 || typeof value.ringId !== "string") return null;
+  const ringId = value.ringId === "" ? "" : canonicalRingId(value.ringId);
+  return value.ringId === "" || ringId ? { version: 1, ringId } : null;
+}
 
 function isValidPersistedDocument(value: Record<string, unknown>, nowMs: number): boolean {
   if (value.version !== 1 || value.retentionDays !== 90 || !isFiniteNumber(value.updatedAtMs) ||
     !Array.isArray(value.history) || !Array.isArray(value.hourly) ||
-    (value.activity !== null && typeof value.activity !== "object")) return false;
+    (value.activity !== null && typeof value.activity !== "object") ||
+    (value.sleep !== undefined && value.sleep !== null && typeof value.sleep !== "object")) return false;
   if (value.history.some((candidate) => {
     if (!candidate || typeof candidate !== "object") return true;
     const row = candidate as Record<string, unknown>;
@@ -101,6 +120,7 @@ function isValidPersistedDocument(value: Record<string, unknown>, nowMs: number)
       (typeof battery.ringId !== "string" || !isValidRingId(battery.ringId) ||
         (battery.updatedAtMs as number) > nowMs + BATTERY_FUTURE_SKEW_MS)) return false;
   }
+  if (value.sleep !== undefined && value.sleep !== null && canonicalizeRingSleepData(value.sleep) === null) return false;
   if (value.activity === null) return true;
   const activity = value.activity as Record<string, unknown>;
   if (!Number.isInteger(activity.dayBaseSec) || !Number.isInteger(activity.timezoneOffsetMinutes) ||
@@ -125,12 +145,37 @@ function isValidPersistedDocument(value: Record<string, unknown>, nowMs: number)
     totalCalories += slot.totalCalories as number;
     restingCalories += slot.restingCalories as number;
   }
+  // Activity is intentionally current-day-only when projected for display, but
+  // an otherwise sound snapshot naturally becomes yesterday's at midnight.
+  // Validate it against its own anchored day here; canonicalization below will
+  // prune it against `nowMs`. Treating normal day rollover as corruption would
+  // reject the entire single-key document, hiding durable history/hourly data
+  // and preventing every subsequent health write.
+  // The stored base is already the UTC epoch corresponding to exact local
+  // midnight under the record's fixed offset. Validate at that anchor itself;
+  // adding an arbitrary wall-clock offset risks changing the derived local day
+  // at the supported UTC-14/UTC+14 boundaries.
+  const activityOwnDayMs = (activity.dayBaseSec as number) * 1000;
   return activity.totalSteps === totalSteps && activity.activeCalories === activeCalories &&
     activity.totalCalories === totalCalories && activity.restingCalories === restingCalories &&
-    canonicalizeHealthDocument(value, nowMs).activity !== null;
+    canonicalizeActivitySnapshot(activity, activityOwnDayMs) !== null;
 }
 
 export function createHealthPersistence(settings: HealthApplicationSettings, now: () => number = () => Date.now()): HealthPersistence {
+  // Android SharedPreferences.apply updates in-memory reads before durable I/O.
+  // Remember a failed synchronous flush so equality fast paths cannot later
+  // mistake that candidate for a committed document/scope.
+  let durabilityPending = false;
+  const ensureDurable = (): string | null => {
+    if (!durabilityPending) return null;
+    try {
+      if (settings.flush && !settings.flush()) return "health settings flush failed";
+      durabilityPending = false;
+      return null;
+    } catch (error) {
+      return `health settings flush failed: ${String(error)}`;
+    }
+  };
   const removeLegacy = () => {
     for (const key of LEGACY_KEYS) {
       try { settings.remove(key); } catch (error) {
@@ -141,14 +186,16 @@ export function createHealthPersistence(settings: HealthApplicationSettings, now
   const writeVerified = (document: HealthStoreDocument, removeCandidateOnFailure: boolean): HealthWriteResult => {
     const serialized = JSON.stringify(document);
     try {
+      durabilityPending = Boolean(settings.flush);
       settings.setString(HEALTH_STORE_KEY, serialized);
-      if (settings.getString(HEALTH_STORE_KEY, "") !== serialized) {
+      const durabilityError = ensureDurable();
+      if (durabilityError || settings.getString(HEALTH_STORE_KEY, "") !== serialized) {
         if (removeCandidateOnFailure) {
           try { settings.remove(HEALTH_STORE_KEY); } catch (error) {
             console.error(`[health-store] failed canonical candidate cleanup: ${String(error)}`);
           }
         }
-        return { ok: false, error: "canonical health write could not be verified" };
+        return { ok: false, error: durabilityError ?? "canonical health write could not be verified" };
       }
       removeLegacy();
       return { ok: true, document };
@@ -163,6 +210,8 @@ export function createHealthPersistence(settings: HealthApplicationSettings, now
     }
   };
   const loadHealthDocumentResult = (): HealthLoadResult => {
+    const durabilityError = ensureDurable();
+    if (durabilityError) return { ok: false, error: durabilityError };
     const nowMs = now();
     const canonicalRaw = settings.getString(HEALTH_STORE_KEY, "");
     if (canonicalRaw) {
@@ -199,8 +248,73 @@ export function createHealthPersistence(settings: HealthApplicationSettings, now
     const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
     return writeVerified(canonicalizeHealthDocument({ ...source, updatedAtMs: nowMs }, nowMs), false);
   };
+  const writeRingScopeVerified = (ringId: string): string | null => {
+    const serialized = JSON.stringify({ version: 1, ringId });
+    try {
+      durabilityPending = Boolean(settings.flush);
+      settings.setString(HEALTH_RING_SCOPE_KEY, serialized);
+      const durabilityError = ensureDurable();
+      return !durabilityError && settings.getString(HEALTH_RING_SCOPE_KEY, "") === serialized
+        ? null
+        : durabilityError ?? "ring health identity scope could not be verified";
+    } catch (error) {
+      return `ring health identity scope write failed: ${String(error)}`;
+    }
+  };
+  const transitionRingIdentity = (previousRingId: string, nextRingId: string): HealthWriteResult => {
+    const durabilityError = ensureDurable();
+    if (durabilityError) return { ok: false, error: durabilityError };
+    const previous = canonicalRingId(previousRingId);
+    const next = canonicalRingId(nextRingId);
+    const scopeRaw = settings.getString(HEALTH_RING_SCOPE_KEY, "");
+    const persistedScope = scopeRaw ? parseRingScope(scopeRaw) : null;
+    const explicitChange = previous !== next;
+    const persistedChange = persistedScope !== null && persistedScope.ringId !== next;
+    const malformedScope = Boolean(scopeRaw) && persistedScope === null;
+    const unconfiguredFirstBind = !scopeRaw && next === "";
+
+    // First-run migration can safely adopt the ring already configured at
+    // boot. An explicit A->B/removal transition, a persisted mismatch on
+    // relaunch, or a malformed scope must scrub all ring-specific current data.
+    if (!explicitChange && !persistedChange && !malformedScope && !unconfiguredFirstBind) {
+      const error = persistedScope ? null : writeRingScopeVerified(next);
+      if (error) return { ok: false, error };
+      const loaded = loadHealthDocumentResult();
+      return loaded.ok && loaded.document
+        ? { ok: true, document: loaded.document }
+        : { ok: false, error: loaded.error ?? "health document unavailable while binding ring identity" };
+    }
+
+    const loaded = loadHealthDocumentResult();
+    if (!loaded.ok || !loaded.document) {
+      return { ok: false, error: loaded.error ?? "health document unavailable during ring identity transition" };
+    }
+    const nowMs = now();
+    const today = dateKeyOf(nowMs);
+    const safelyCompletedBeforeMs = nowMs - 24 * 60 * 60 * 1000;
+    const scrubbed = canonicalizeHealthDocument({
+      ...loaded.document,
+      // Completed prior days are user history and remain useful across
+      // hardware replacement. Current-day readiness and every unsummarized,
+      // ring-derived source are unscoped and therefore cannot cross rings.
+      history: loaded.document.history.filter((row) =>
+        row.dateKey < today && row.updatedAtMs < safelyCompletedBeforeMs),
+      hourly: [],
+      activity: null,
+      sleep: null,
+      battery: null,
+      updatedAtMs: nowMs,
+    }, nowMs);
+    const write = writeVerified(scrubbed, false);
+    if (!write.ok) return write;
+    // Scope is committed only after the scrub is durably verified. A crash or
+    // failure between writes leaves the old scope, causing an idempotent scrub
+    // on the next boot rather than restoring old-ring data under the new ring.
+    const scopeError = writeRingScopeVerified(next);
+    return scopeError ? { ok: false, document: scrubbed, error: scopeError } : { ok: true, document: scrubbed };
+  };
   return {
-    loadHealthDocument, loadHealthDocumentResult, replaceHealthDocument,
+    loadHealthDocument, loadHealthDocumentResult, replaceHealthDocument, transitionRingIdentity,
     loadHealthHistory: () => loadHealthDocumentResult().document?.history ?? [],
     recordHealthDay(inputs) {
       const loaded = loadHealthDocumentResult();
@@ -229,6 +343,19 @@ export function createHealthPersistence(settings: HealthApplicationSettings, now
       if (JSON.stringify(loaded.document.activity) === JSON.stringify(activity)) return;
       replaceHealthDocument({ ...loaded.document, activity });
     },
+    loadSleep(nowMs = now()) {
+      const loaded = loadHealthDocumentResult();
+      return loaded.document ? canonicalizeSleepSnapshot(loaded.document.sleep, nowMs) : null;
+    },
+    recordSleep(sleep) {
+      if (!sleep) return;
+      const canonical = canonicalizeSleepSnapshot(sleep, now());
+      if (!canonical) return;
+      const loaded = loadHealthDocumentResult();
+      if (!loaded.ok || !loaded.document) return;
+      if ((loaded.document.sleep?.endTs ?? -1) >= canonical.endTs) return;
+      replaceHealthDocument({ ...loaded.document, sleep: canonical });
+    },
     loadBattery(ringId) {
       if (!isValidRingId(ringId)) return null;
       const loaded = loadHealthDocumentResult();
@@ -250,8 +377,29 @@ export function createHealthPersistence(settings: HealthApplicationSettings, now
       replaceHealthDocument({ ...loaded.document, battery });
     },
     getHermesConsent: () => settings.getBoolean(HERMES_CONSENT_KEY, false),
-    setHermesConsent: (on) => settings.setBoolean(HERMES_CONSENT_KEY, on),
-    clearHealthData() { try { settings.remove(HEALTH_STORE_KEY); } catch {} removeLegacy(); },
+    setHermesConsent(on) {
+      durabilityPending = Boolean(settings.flush);
+      settings.setBoolean(HERMES_CONSENT_KEY, on);
+      const durabilityError = ensureDurable();
+      if (durabilityError || settings.getBoolean(HERMES_CONSENT_KEY, !on) !== on) {
+        throw new Error(durabilityError ?? "health consent write could not be verified");
+      }
+    },
+    clearHealthData() {
+      durabilityPending = Boolean(settings.flush);
+      settings.remove(HEALTH_STORE_KEY);
+      removeLegacy();
+      const durabilityError = ensureDurable();
+      const canonicalRemains = settings.hasKey
+        ? settings.hasKey(HEALTH_STORE_KEY)
+        : settings.getString(HEALTH_STORE_KEY, "") !== "";
+      const legacyRemains = LEGACY_KEYS.some((key) => settings.hasKey
+        ? settings.hasKey(key)
+        : settings.getString(key, "") !== "");
+      if (durabilityError || canonicalRemains || legacyRemains) {
+        throw new Error(durabilityError ?? "health data removal could not be verified");
+      }
+    },
   };
 }
 const healthPersistence = createHealthPersistence(ApplicationSettings);
@@ -264,8 +412,11 @@ export const loadHourly = healthPersistence.loadHourly;
 export const recordHourly = healthPersistence.recordHourly;
 export const loadActivity = healthPersistence.loadActivity;
 export const recordActivity = healthPersistence.recordActivity;
+export const loadSleep = healthPersistence.loadSleep;
+export const recordSleep = healthPersistence.recordSleep;
 export const loadBattery = healthPersistence.loadBattery;
 export const recordBattery = healthPersistence.recordBattery;
+export const transitionHealthRingIdentity = healthPersistence.transitionRingIdentity;
 export const getHermesConsent = healthPersistence.getHermesConsent;
 export const setHermesConsent = healthPersistence.setHermesConsent;
 export const clearHealthData = healthPersistence.clearHealthData;

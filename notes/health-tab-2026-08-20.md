@@ -2,7 +2,8 @@
 
 > **Historical pre-implementation snapshot.** Current HR/current-hour refresh,
 > hourly history, anchored timestamps, activity, calories, and persistence are
-> implemented. Sleep remains fail-closed. See `ROADMAP.md` and
+> implemented. Complete type-1 sleep is now implemented; type 2 remains
+> fail-closed. See `ROADMAP.md` and
 > `docs/audit-remediation-2026-08-21.md`.
 
 The Health tab is a direct-BLE ring dashboard: it reads the R1 ring's health
@@ -23,7 +24,7 @@ can export / share it. Everything renders with plain NativeScript core views
   merge, bounded query, and privacy projection for the v1 document.
 - `app/native/health-store.ts` — sole persistence owner. It stores one app-private
   `health.store.v1` JSON document shaped `{ version: 1, updatedAtMs,
-  retentionDays: 90, history, hourly, activity }`; consent remains separately at
+  retentionDays: 90, history, hourly, activity, sleep, battery }`; consent remains separately at
   `health.hermes.consent.v1` and defaults off.
 - `app/native/health-export.ts` — explicit user file export through Android
   ACTION_SEND/FileProvider. The file contains the full canonical document plus
@@ -51,7 +52,9 @@ can export / share it. Everything renders with plain NativeScript core views
 - Heart rate card: current (latest-hour avg until a live stream is wired),
   resting / range / trend, and a **24h range chart** (min..max per hour, hourly
   average marked, resting-HR baseline).
-- Sleep card: gated behind a lock until the cmd=6 sleep decoder is validated.
+- Sleep card: for a current complete type-1 night, shows the authoritative ring
+  score, duration, efficiency, and awake/REM/light/deep totals; otherwise it
+  truthfully asks for a recent sync.
 - Supporting tiles: SpO2, HRV, Temperature (nightly variation vs baseline),
   Battery.
 - Export JSON button + "Allow assistant health access" consent toggle.

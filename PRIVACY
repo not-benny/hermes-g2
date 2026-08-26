@@ -94,11 +94,12 @@ stored locally.
 
 The supported R1 health path reads bonded BLE data directly from the ring and
 does not require an Even cloud account. Decoded battery, firmware version,
-heart-rate, SpO2, HRV, activity, calorie, and timestamp data can be retained in
-local application storage and exported only when the user invokes export.
+heart-rate, SpO2, HRV, activity, calorie, timestamp, and complete type-1 sleep
+data can be retained in local application storage and exported only when the
+user invokes export. Interval-only type-2 sleep is rejected because its
+absolute time base is unknown; Hermes does not surface guessed results.
 
-Sleep decoding remains unavailable and does not surface guessed results. Raw
-Bluetooth captures, official-app databases, health exports, detailed reverse-
+Raw Bluetooth captures, official-app databases, health exports, detailed reverse-
 engineering evidence, and firmware binaries are development evidence and must
 remain outside the repository and ordinary app data path.
 

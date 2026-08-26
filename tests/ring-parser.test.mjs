@@ -18,6 +18,7 @@ const {
   decodeRingFirmwareVersion,
   decodeTemperatureDetail,
   decodeSleep,
+  canonicalizeRingSleepData,
   RING_HEALTH_CMD,
 } = await import("data:text/javascript;base64," + Buffer.from(js).toString("base64"));
 
@@ -91,6 +92,38 @@ function buildActivityPayload(timezoneOffsetMinutes, dayBaseSec, records) {
     ...u32(dayBaseSec),
     ...records.flat(),
   ]);
+}
+
+function buildSleepPayload(overrides = {}) {
+  const startTs = overrides.startTs ?? 1_800_000_000;
+  const runs = overrides.runs ?? [
+    [0, 60], [2, 240], [3, 90], [2, 300], [1, 180], [3, 90],
+  ];
+  const payload = new Uint8Array(32 + runs.length * 3 + 4);
+  payload.set([
+    overrides.recordType ?? 1,
+    overrides.efficiencyPct ?? 93,
+    overrides.score ?? 87,
+    0,
+    6, 19, 56, 19,
+    ...u16(overrides.bodyTemperatureDeciC ?? 344),
+    ...u16(overrides.timezoneOffsetMinutes ?? 60),
+    ...u32(startTs),
+    ...u32(overrides.endTs ?? startTs + 480 * 60),
+    ...u16(overrides.totalSleepSec ?? 450 * 60),
+    ...u16(overrides.awakeSec ?? 30 * 60),
+    ...u16(overrides.remSec ?? 90 * 60),
+    ...u16(overrides.lightSec ?? 270 * 60),
+    ...u16(overrides.deepSec ?? 90 * 60),
+    runs.length,
+    0,
+  ], 0);
+  runs.forEach(([type, halfMinutes], index) => {
+    const offset = 32 + index * 3;
+    payload.set([type, ...u16(halfMinutes)], offset);
+  });
+  payload.set([0xaa, 0x55, 0x12, 0x34], payload.length - 4); // opaque protocol trailer
+  return payload;
 }
 
 // --- CRC-32 --------------------------------------------------------------
@@ -322,12 +355,65 @@ test("decodeRingFirmwareVersion never reads past the 16-byte field", () => {
   assert.equal(decodeRingFirmwareVersion(bytes), "1234567890abcdef");
 });
 
+// --- sleep -----------------------------------------------------------------
+
+test("decodeSleep decodes a synthetic canonical type-1 summary and hypnogram", () => {
+  const decoded = decodeSleep(buildSleepPayload());
+  assert.deepEqual(decoded, {
+    recordType: 1,
+    efficiencyPct: 93,
+    score: 87,
+    bodyTemperatureDeciC: 344,
+    timezoneOffsetMinutes: 60,
+    startTs: 1_800_000_000,
+    endTs: 1_800_028_800,
+    totalSleepSec: 27_000,
+    awakeSec: 1_800,
+    remSec: 5_400,
+    lightSec: 16_200,
+    deepSec: 5_400,
+    stages: [
+      { type: 0, halfMinutes: 60 },
+      { type: 2, halfMinutes: 240 },
+      { type: 3, halfMinutes: 90 },
+      { type: 2, halfMinutes: 300 },
+      { type: 1, halfMinutes: 180 },
+      { type: 3, halfMinutes: 90 },
+    ],
+  });
+  assert.notEqual(decoded.stages, canonicalizeRingSleepData(decoded).stages, "canonicalization defensively copies runs");
+});
+
+test("decodeSleep treats a zero body-temperature field as unavailable", () => {
+  assert.equal(decodeSleep(buildSleepPayload({ bodyTemperatureDeciC: 0 })).bodyTemperatureDeciC, null);
+});
+
+test("decodeSleep rejects type-2, relative, truncated, and internally inconsistent records", () => {
+  assert.throws(() => decodeSleep(buildSleepPayload({ recordType: 2 })), /unsupported.*type/);
+  const intervalOnlyType2 = new Uint8Array(36); intervalOnlyType2[0] = 2;
+  assert.throws(() => decodeSleep(intervalOnlyType2), /unsupported.*type/);
+  assert.throws(() => decodeSleep(buildSleepPayload({ startTs: 60, endTs: 28_860 })), /invariants/);
+  assert.throws(() => decodeSleep(buildSleepPayload().subarray(0, 40)), /length mismatch/);
+
+  const badScore = buildSleepPayload(); badScore[2] = 101;
+  assert.throws(() => decodeSleep(badScore), /invariants/);
+  const signedDeltaMasqueradingAsTemperature = buildSleepPayload();
+  signedDeltaMasqueradingAsTemperature.set(u16(-4), 8);
+  assert.throws(() => decodeSleep(signedDeltaMasqueradingAsTemperature), /invariants/);
+  const badStageTotal = buildSleepPayload(); badStageTotal[33] += 1;
+  assert.throws(() => decodeSleep(badStageTotal), /invariants/);
+  const badPercentageSum = buildSleepPayload(); badPercentageSum[4] -= 1;
+  assert.throws(() => decodeSleep(badPercentageSum), /percentages/,
+    "firmware constructs the fourth share as a remainder, so the sum is exact");
+  const badPercentages = buildSleepPayload(); badPercentages[4] = 102;
+  assert.throws(() => decodeSleep(badPercentages), /percentages/);
+});
+
 // --- unavailable layouts ---------------------------------------------------
 
-test("temperature has no separate record; captured sleep remains fail-closed", () => {
+test("temperature has no separate record; incomplete sleep remains fail-closed", () => {
   // Temperature rides the stride-9 hourly layout (no dedicated record); the
-  // stub is a defensive never-call. Sleep frames exist, but their absolute
-  // reference and summary/stage-bearing layout are not validated.
+  // stub is a defensive never-call. Sleep requires a complete type-1 summary.
   assert.throws(() => decodeTemperatureDetail(new Uint8Array(0)), /no separate ring temperature-detail record/);
-  assert.throws(() => decodeSleep(new Uint8Array(0)), /captured but layout\/base not validated/);
+  assert.throws(() => decodeSleep(new Uint8Array(0)), /payload too short/);
 });

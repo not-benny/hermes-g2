@@ -13,7 +13,9 @@
  */
 
 import {
+  canonicalizeRingSleepData,
   decodeDailyData,
+  decodeSleep,
   parseFragment,
   parseInnerFrame,
   reassembleHealthFrames,
@@ -26,6 +28,7 @@ import {
   type RingFragment,
   type RingHealthSample,
   type RingHrvSample,
+  type RingSleepData,
 } from "./ring-parser";
 
 export interface RingActivitySnapshot {
@@ -45,6 +48,10 @@ export function canonicalizeActivitySnapshot(value: unknown, nowMs = Date.now())
   const base = candidate.dayBaseSec;
   const timezone = candidate.timezoneOffsetMinutes;
   if (!Number.isInteger(base) || !Number.isInteger(timezone) || !Array.isArray(candidate.slots)) return null;
+  // The wire anchor is an unsigned 32-bit epoch second. Keeping that bound
+  // explicit also lets persistence validate an expired snapshot against its
+  // own day without accidentally accepting pre-epoch or synthetic huge dates.
+  if (base! <= 0 || base! > 0xffffffff) return null;
   if (timezone! < -14 * 60 || timezone! > 14 * 60) return null;
   const nowSec = Math.floor(nowMs / 1000);
   const expectedBase = Math.floor((nowSec + timezone! * 60) / 86400) * 86400 - timezone! * 60;
@@ -92,6 +99,8 @@ export interface RingHealthSnapshot {
   hrv: RingHrvSample | null;
   /** Accumulated confirmed activity buckets for one local day. */
   activity: RingActivitySnapshot | null;
+  /** Latest protocol-verified type-1 nightly sleep summary. */
+  sleep: RingSleepData | null;
   /** Ring battery percent from the deviceStatus response. */
   batteryPercent: number | null;
   /** Wall-clock ms of the last deviceStatus battery response. */
@@ -116,6 +125,7 @@ const EMPTY: RingHealthSnapshot = {
   temperature: null,
   hrv: null,
   activity: null,
+  sleep: null,
   batteryPercent: null,
   batteryUpdatedAtMs: null,
   firmwareVersion: null,
@@ -137,6 +147,27 @@ const CMD_SYSTEM = 0;
 const SUBCMD_DEVICE_STATUS = 1;
 const SUBCMD_DEVICE_INFO = 2;
 const BATTERY_FUTURE_SKEW_MS = 5 * 60 * 1000;
+const SLEEP_FUTURE_SKEW_MS = 5 * 60 * 1000;
+const SLEEP_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+
+type DailyVitalMetric = "heartRate" | "spo2" | "temperature" | "hrv";
+
+function localDayToken(nowMs: number): string {
+  const date = new Date(nowMs);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function emptyDailyVitalDays(): Record<DailyVitalMetric, string | null> {
+  return { heartRate: null, spo2: null, temperature: null, hrv: null };
+}
+
+/** Apply the app's retention/future-time gate to a structurally valid night. */
+export function canonicalizeSleepSnapshot(value: unknown, nowMs = Date.now()): RingSleepData | null {
+  const sleep = canonicalizeRingSleepData(value);
+  if (!sleep || sleep.endTs * 1000 > nowMs + SLEEP_FUTURE_SKEW_MS ||
+    sleep.endTs * 1000 < nowMs - SLEEP_RETENTION_MS) return null;
+  return sleep;
+}
 
 export class RingHealthStore {
   private snapshotState: RingHealthSnapshot = { ...EMPTY };
@@ -144,6 +175,8 @@ export class RingHealthStore {
   private pendingOrder: number[] = [];
   private listeners = new Set<(snapshot: RingHealthSnapshot) => void>();
   private log: (line: string) => void = () => {};
+  /** Receipt-day tokens prevent retained daily pushes surviving local midnight. */
+  private dailyVitalDays = emptyDailyVitalDays();
 
   constructor(private readonly nowMs: () => number = () => Date.now()) {}
 
@@ -153,6 +186,8 @@ export class RingHealthStore {
   }
 
   snapshot(): RingHealthSnapshot {
+    this.pruneExpiredActivity();
+    this.pruneExpiredDailyVitals();
     return this.snapshotState;
   }
 
@@ -161,6 +196,18 @@ export class RingHealthStore {
     const canonical = canonicalizeActivitySnapshot(activity, this.nowMs());
     if (!canonical) return;
     this.snapshotState = { ...this.snapshotState, activity: canonical };
+    this.emit();
+  }
+
+  /** Restore the latest validated night from device-local persistence. */
+  restoreSleep(value: RingSleepData | null): void {
+    const sleep = canonicalizeSleepSnapshot(value, this.nowMs());
+    if (!sleep || (this.snapshotState.sleep?.endTs ?? -1) >= sleep.endTs) return;
+    this.snapshotState = {
+      ...this.snapshotState,
+      sleep,
+      bodyTempC: sleep.bodyTemperatureDeciC === null ? null : sleep.bodyTemperatureDeciC / 10,
+    };
     this.emit();
   }
 
@@ -205,8 +252,18 @@ export class RingHealthStore {
   reset(): void {
     this.pending.clear();
     this.pendingOrder = [];
+    this.dailyVitalDays = emptyDailyVitalDays();
     this.snapshotState = { ...EMPTY };
     this.emit();
+  }
+
+  /**
+   * Hard live-state boundary for configured-ring replacement or removal.
+   * Kept explicit so address/config flows cannot accidentally clear only the
+   * battery while leaving old-ring vitals, activity, sleep, or fragments live.
+   */
+  resetForIdentityChange(): void {
+    this.reset();
   }
 
   /**
@@ -215,6 +272,14 @@ export class RingHealthStore {
    */
   seedMock(snapshot: RingHealthSnapshot): void {
     this.snapshotState = snapshot;
+    const today = localDayToken(this.nowMs());
+    this.dailyVitalDays = {
+      heartRate: snapshot.heartRate !== null || snapshot.heartRateSeries.length > 0 || snapshot.currentHr !== null
+        ? today : null,
+      spo2: snapshot.spo2 !== null || snapshot.spo2Series.length > 0 ? today : null,
+      temperature: snapshot.temperature !== null ? today : null,
+      hrv: snapshot.hrv !== null || snapshot.hrvSeries.length > 0 ? today : null,
+    };
     this.emit();
   }
 
@@ -281,8 +346,23 @@ export class RingHealthStore {
     }
     if (parsed.module !== MODULE_HEALTH) return;
     if (parsed.data.length === 0) return; // bare command ACK, no records.
+    if (parsed.cmd === 6) {
+      // Sleep may reach state only through the fully checked daily-push
+      // envelope. decodeSleep itself accepts only the complete type-1 schema.
+      if (parsed.status !== 2 || parsed.subCmd !== 1 || !isCanonicalRingInnerFrame(inner)) return;
+      const sleep = canonicalizeSleepSnapshot(decodeSleep(parsed.data), this.nowMs());
+      if (!sleep || (this.snapshotState.sleep?.endTs ?? -1) >= sleep.endTs) return;
+      this.snapshotState = {
+        ...this.snapshotState,
+        sleep,
+        bodyTempC: sleep.bodyTemperatureDeciC === null ? null : sleep.bodyTemperatureDeciC / 10,
+        updatedAtMs: this.nowMs(),
+      };
+      this.emit();
+      return;
+    }
     const metric = RING_HEALTH_CMD[parsed.cmd];
-    if (!metric) return; // sleep (cmd 6) and unknown cmds: layout not decoded yet.
+    if (!metric) return;
 
     if (metric === "activity") {
       // Only the confirmed rich daily push layout may populate native totals.
@@ -315,6 +395,7 @@ export class RingHealthStore {
       const newest = latestByHour(daily.records);
       if (!newest) return;
       const series = [...daily.records].sort((a, b) => a.hourIdx - b.hourIdx);
+      this.dailyVitalDays.hrv = localDayToken(this.nowMs());
       this.snapshotState = { ...this.snapshotState, hrv: newest, hrvSeries: series, updatedAtMs: this.nowMs() };
       this.emit();
       return;
@@ -328,18 +409,62 @@ export class RingHealthStore {
     if (metric === "heartRate") {
       // The frame header carries the ring's live/current reading; surface it.
       seriesPatch = { heartRateSeries: series, currentHr: daily.current };
+      this.dailyVitalDays.heartRate = localDayToken(this.nowMs());
     } else if (metric === "spo2") {
       seriesPatch = { spo2Series: series };
+      this.dailyVitalDays.spo2 = localDayToken(this.nowMs());
+    } else {
+      this.dailyVitalDays.temperature = localDayToken(this.nowMs());
     }
     this.snapshotState = { ...this.snapshotState, [metric]: newest, ...seriesPatch, updatedAtMs: this.nowMs() };
     this.emit();
   }
 
   private emit(): void {
+    // Activity is explicitly a current-local-day aggregate. The clock can roll
+    // over while the app remains alive, so do not let yesterday's retained
+    // buckets escape on an unrelated battery/vital notification.
+    this.pruneExpiredActivity();
+    this.pruneExpiredDailyVitals();
     const snapshot = this.snapshotState;
     for (const listener of Array.from(this.listeners)) {
-      listener(snapshot);
+      try {
+        listener(snapshot);
+      } catch (error) {
+        // State has already been atomically installed. One UI/subscriber fault
+        // must not block persistence or be misreported as a decode failure.
+        this.log(`ring health: listener failed (${String(error)})`);
+      }
     }
+  }
+
+  private pruneExpiredActivity(): void {
+    if (this.snapshotState.activity &&
+      !canonicalizeActivitySnapshot(this.snapshotState.activity, this.nowMs())) {
+      this.snapshotState = { ...this.snapshotState, activity: null };
+    }
+  }
+
+  private pruneExpiredDailyVitals(): void {
+    const today = localDayToken(this.nowMs());
+    let patch: Partial<RingHealthSnapshot> | null = null;
+    if (this.dailyVitalDays.heartRate !== null && this.dailyVitalDays.heartRate !== today) {
+      patch = { ...(patch ?? {}), heartRate: null, heartRateSeries: [], currentHr: null };
+      this.dailyVitalDays.heartRate = null;
+    }
+    if (this.dailyVitalDays.spo2 !== null && this.dailyVitalDays.spo2 !== today) {
+      patch = { ...(patch ?? {}), spo2: null, spo2Series: [] };
+      this.dailyVitalDays.spo2 = null;
+    }
+    if (this.dailyVitalDays.temperature !== null && this.dailyVitalDays.temperature !== today) {
+      patch = { ...(patch ?? {}), temperature: null };
+      this.dailyVitalDays.temperature = null;
+    }
+    if (this.dailyVitalDays.hrv !== null && this.dailyVitalDays.hrv !== today) {
+      patch = { ...(patch ?? {}), hrv: null, hrvSeries: [] };
+      this.dailyVitalDays.hrv = null;
+    }
+    if (patch) this.snapshotState = { ...this.snapshotState, ...patch };
   }
 }
 

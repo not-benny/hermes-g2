@@ -52,13 +52,14 @@ function dateDaysBefore(days) {
 
 test("canonical document has the exact v1 top-level shape", () => {
   const doc = canonicalizeHealthDocument({}, NOW);
-  assert.deepEqual(Object.keys(doc), ["version", "updatedAtMs", "retentionDays", "history", "hourly", "activity", "battery"]);
+  assert.deepEqual(Object.keys(doc), ["version", "updatedAtMs", "retentionDays", "history", "hourly", "activity", "sleep", "battery"]);
   assert.equal(doc.version, 1);
   assert.equal(doc.updatedAtMs, NOW);
   assert.equal(doc.retentionDays, HEALTH_RETENTION_DAYS);
   assert.deepEqual(doc.history, []);
   assert.deepEqual(doc.hourly, []);
   assert.equal(doc.activity, null);
+  assert.equal(doc.sleep, null);
   assert.equal(doc.battery, null);
 });
 
@@ -78,21 +79,24 @@ test("retention cutoff uses local calendar arithmetic across DST boundaries", ()
   assert.equal(retentionStartDateKey(afterSpringDst), expected);
 });
 
-test("malformed and future daily rows are dropped while duplicates merge without null erasure", () => {
+test("malformed and unbounded future daily rows are dropped while ring-local tomorrow is retained", () => {
   const today = dateDaysBefore(0);
   const doc = canonicalizeHealthDocument({ history: [
     { dateKey: dateDaysBefore(2), updatedAtMs: NOW, steps: 5 },
     daily(today, { restingHr: 61 }),
     daily(today, { restingHr: null, hrvAvg: 44, updatedAtMs: NOW + 1 }),
     daily(dateDaysBefore(-1)),
+    daily(dateDaysBefore(-2)),
     daily("2026-02-30"),
     daily(dateDaysBefore(1), { steps: "not-a-number" }),
   ] }, NOW);
-  assert.equal(doc.history.length, 2);
+  assert.equal(doc.history.length, 3);
   assert.equal(doc.history[0].restingHr, null, "missing nullable migration fields become null");
   assert.equal(doc.history[1].restingHr, 61);
   assert.equal(doc.history[1].hrvAvg, 44);
   assert.equal(doc.history[1].updatedAtMs, NOW + 1);
+  assert.equal(doc.history[2].dateKey, dateDaysBefore(-1),
+    "a fixed-offset ring can legitimately be one date ahead of the phone");
 });
 
 test("hourly rows require valid bounds and finite metrics, merge partial duplicates, and sort", () => {

@@ -129,12 +129,16 @@ release and general support still require separate acceptance. See
 Hermes exchanges a bounded, positive-allowlisted health session over the bonded
 BLE link. It does not expose pairing, ownership, provisioning, NVM, power,
 firmware, reset, wipe, or destructive command families. Frames are envelope,
-CRC, shape, generation, and current-day validated before persistence.
+CRC, shape, generation, and time-window validated before persistence.
 
-Sleep remains unavailable. CRC-valid type-2 frames establish relative intervals,
-but the absolute time base and type-1 summary/stage layout are not proven, so
-`decodeSleep` deliberately throws. Start with [`docs/ring-health`](docs/ring-health)
-and [`notes/ring-wire-format-2026-08-20.md`](notes/ring-wire-format-2026-08-20.md).
+Complete type-1 sleep summaries are decoded fail-closed: absolute start/end,
+ring score and efficiency, asleep/awake/REM/light/deep totals, 30-second stage
+runs, timezone, and optional absolute nightly skin temperature. The latest
+verified night persists across app closure and feeds the phone and glasses only
+while current; older nights remain history. Interval-only type-2 records still
+lack an absolute base and remain rejected. Start with
+[`docs/ring-health`](docs/ring-health) and
+[`notes/ring-sleep-frames-2026-08-20.md`](notes/ring-sleep-frames-2026-08-20.md).
 
 ## Firmware warning
 
@@ -160,6 +164,13 @@ npm test
 npm run typecheck
 npm run build
 ```
+
+Every push to `main` runs the guarded Android release build and publishes a
+30-day Actions artifact named `hermes-g2-owner-preview-<commit-sha>`. It contains
+an owner-signed, non-debuggable Preview 3 APK plus checksums, provenance, SBOMs,
+and native-alignment evidence. Download it from the completed
+`Protected Release Validation` run; it is an unsupported owner-preview binary,
+not a Play Store or general compatibility release.
 
 ### Build, sign, and update from GitHub
 

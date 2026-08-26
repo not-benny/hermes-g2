@@ -117,7 +117,7 @@ There is no per-beat or per-second stream.
 | temperature | 3 | rides the hourly layout; sparse and often absent |
 | HRV | 4 | confirmed, implemented |
 | activity (steps + calories) | 5 | confirmed, implemented (10-minute buckets) |
-| sleep | 6 | type-2 relative interval confirmed; full decode gated |
+| sleep | 6 | type-1 summary/stages confirmed and implemented; type 2 rejected |
 | battery | system | confirmed, implemented |
 
 - **Activity/steps/calories (cmd=5):** confirmed data header is
@@ -126,23 +126,27 @@ There is no per-beat or per-second stream.
   Resting kcal is `total-active`, and absolute time is `dayBase+slot*600`.
   The captured slot 71 reproduces the Even CSV's 11:50 row exactly: 0 steps and
   15 kcal = 12 resting + 3 active. Buckets persist locally and merge by day/slot.
-- **Sleep (cmd=6):** three CRC-valid type-2 frames carry relative start/end u32
-  endpoints at data offsets 12/16; all three spans match distinct interval-only
-  ring1Notify sessions and the firmware serializer independently confirms the
-  fields. Their absolute reference is absent. The known output schema and stage
-  map remain gated because no type-1 summary/stage frame matches the available
-  non-empty-stage row. See `notes/ring-sleep-frames-2026-08-20.md`.
+- **Sleep (cmd=6):** a complete CRC-valid type-1 frame plus firmware producer,
+  serializer, and log paths establish absolute epoch start/end, the ring's
+  efficiency and score, five duration totals, timezone, optional absolute body
+  temperature, and compact stage runs. Runs use stage ids 0=awake, 1=REM,
+  2=light/core, 3=deep and unsigned 30-second duration units. The decoder checks
+  the envelope, exact record length, reserved fields, absolute interval,
+  aggregate/run equality, score/efficiency ranges, stage ids, and temperature
+  range before state. The four-byte trailer remains opaque. Type-2 records still
+  carry only relative endpoints without their base and are rejected. See
+  `notes/ring-sleep-frames-2026-08-20.md`.
 - **Temperature (cmd=3):** has no separate detail record; it rides the same
   hourly layout as HR/SpO2. Its data is sparse and frequently absent, so it is
   treated as best-effort and not depended on.
 
 ## Open items
 
-- Capture a CRC-valid type-1 `cmd=6` frame matching a non-empty-stage
-  ring1Notify row and identify the absolute interval-base handoff.
+- Keep type-2 `cmd=6` records fail-closed unless their missing absolute-base
+  handoff is independently established; they are not needed for type-1 nights.
 - Determine whether the opaque non-activity daily word at offset 7 has any time
-  semantics. It is distinct from activity's confirmed epoch base and cmd=6's
-  unresolved interval reference.
+  semantics. It is distinct from activity's confirmed epoch base and type-1
+  sleep's confirmed epoch fields.
 - MTU 247 and packetAck are implemented: connect requests MTU after service
   discovery and before notify subscription/probing, with a logged safe fallback;
   only complete CRC-valid health pushes queue a bounded cursor, and the

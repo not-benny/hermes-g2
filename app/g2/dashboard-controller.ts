@@ -33,7 +33,23 @@ import { registerHealthTools } from "../assistant/health-tools";
 import { registerNavigateTools } from "../assistant/navigate-tools";
 import { assistantBridge } from "../assistant/bridge-client";
 import { ringHealthStore } from "../health/ring-health-store";
-import { loadActivity, loadBattery, recordActivity, recordBattery } from "../native/health-store";
+import { RingHealthPersistenceCoordinator } from "../health/health-persistence-coordinator";
+import {
+  bindRingHealthIdentityAtBoot,
+  isRingHealthPersistenceIdentityReady,
+} from "../health/ring-health-identity";
+import {
+  loadActivity,
+  loadBattery,
+  loadHealthHistory,
+  loadHourly,
+  loadSleep,
+  recordActivity,
+  recordBattery,
+  recordHealthDay,
+  recordHourly,
+  recordSleep,
+} from "../native/health-store";
 import { playEventBeep } from "../ui/event-beeps";
 import { registerWindowTools } from "../assistant/window-tools";
 import { registerClockTools } from "../assistant/clock-tools";
@@ -324,6 +340,7 @@ class DashboardController {
   // the boot-time registry (just the launcher) never clobbers the saved list.
   private openAppsRestored = false;
   private suppressOpenAppsPersist = false;
+  private readonly healthPersistenceCoordinator: RingHealthPersistenceCoordinator;
 
   constructor() {
     const sharedActions = {
@@ -338,6 +355,45 @@ class DashboardController {
       playBuzzerSequence: (payload: Uint8Array) => this.playBuzzerSequence(payload),
     };
     this.sharedActions = sharedActions;
+    const bootRingIdentity = loadDeviceAddresses().ring;
+    const bootHealthScope = bindRingHealthIdentityAtBoot(bootRingIdentity);
+    this.healthPersistenceCoordinator = new RingHealthPersistenceCoordinator({
+      loadHealthHistory,
+      recordHealthDay,
+      loadHourly,
+      recordHourly,
+      loadActivity,
+      recordActivity,
+      loadSleep,
+      recordSleep,
+    }, () => Date.now(), (line) => this.appendLog(`health persistence: ${line}`));
+    // Restore persisted health before app boot, then keep persistence owned by
+    // this process-wide controller rather than the optional phone Health page.
+    // Identity binding runs first: an A->B relaunch scrubs A's unscoped
+    // current data before any activity/sleep/readiness can be restored as B.
+    if (bootHealthScope.ok) {
+      this.healthPersistenceCoordinator.restoreInto(ringHealthStore);
+    } else {
+      ringHealthStore.resetForIdentityChange();
+      this.appendLog(`health persistence: ring identity bind failed: ${bootHealthScope.error ?? "unknown error"}`);
+    }
+    ringHealthStore.onChange((snapshot) => {
+      if (isRingHealthPersistenceIdentityReady(loadDeviceAddresses().ring)) {
+        this.healthPersistenceCoordinator.persist(snapshot);
+      }
+    });
+    if (bootHealthScope.ok) this.healthPersistenceCoordinator.persist(ringHealthStore.snapshot());
+
+    // Battery is identity-scoped. Restore it offline only for the ring still
+    // configured at boot; a replacement/removed ring cannot inherit the value.
+    const bootBattery = bootHealthScope.ok ? loadBattery(bootRingIdentity) : null;
+    if (bootBattery) {
+      ringHealthStore.restoreBattery(bootBattery.percent, bootBattery.updatedAtMs);
+      shell.setBatteryLevels({ ring: bootBattery.percent });
+    } else {
+      ringHealthStore.clearBattery();
+      shell.setBatteryLevels({ ring: null });
+    }
     // The always-available assistant tools (calendar, media, notifications,
     // glasses state) register once at startup, independent of any connection.
     registerSystemTools();
@@ -1779,7 +1835,6 @@ class DashboardController {
         }
       });
       ringHealthStore.setLog((line) => this.appendLog(line));
-      ringHealthStore.restoreActivity(loadActivity());
       const persistedBattery = loadBattery(ringIdentity);
       if (!persistedBattery) {
         ringHealthStore.clearBattery();
@@ -1795,10 +1850,12 @@ class DashboardController {
       this.offRingHealthChange = ringHealthStore.onChange((snapshot) => {
         if (!isRingIdentityCurrent()) {
           shell.setBatteryLevels({ ring: null });
+          shell.setRingHeartRate(null);
           return;
         }
-        recordActivity(snapshot.activity);
-        recordBattery(ringIdentity, snapshot.batteryPercent, snapshot.batteryUpdatedAtMs);
+        if (isRingHealthPersistenceIdentityReady(ringIdentity)) {
+          recordBattery(ringIdentity, snapshot.batteryPercent, snapshot.batteryUpdatedAtMs);
+        }
         shell.setRingHeartRate(snapshot.currentHr ?? snapshot.heartRate?.avg ?? null);
         if (snapshot.batteryPercent !== null) {
           shell.setBatteryLevels({ ring: snapshot.batteryPercent });

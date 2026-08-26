@@ -5,7 +5,8 @@
  */
 import { upsertSummary, type DailyHealthSummary } from "./health-history";
 import type { HourlyMetric, HourlyPoint } from "./health-hourly";
-import { canonicalizeActivitySnapshot, type RingActivitySnapshot } from "./ring-health-store";
+import { canonicalizeActivitySnapshot, canonicalizeSleepSnapshot, type RingActivitySnapshot } from "./ring-health-store";
+import type { RingSleepData } from "./ring-parser";
 
 export const HEALTH_RETENTION_DAYS = 90;
 export const BATTERY_FUTURE_SKEW_MS = 5 * 60 * 1000;
@@ -23,6 +24,7 @@ export interface HealthStoreDocument {
   history: DailyHealthSummary[];
   hourly: HourlyPoint[];
   activity: RingActivitySnapshot | null;
+  sleep: RingSleepData | null;
   battery: RingBatterySnapshot | null;
 }
 
@@ -129,12 +131,12 @@ function canonicalHourly(value: unknown): HourlyPoint | null {
   return point.hr || point.spo2 || point.hrv ? point : null;
 }
 
-function canonicalHistory(value: unknown, cutoff: string, today: string): DailyHealthSummary[] {
+function canonicalHistory(value: unknown, cutoff: string, latestDate: string): DailyHealthSummary[] {
   let history: DailyHealthSummary[] = [];
   if (!Array.isArray(value)) return history;
   for (const candidate of value) {
     const row = canonicalDaily(candidate);
-    if (!row || row.dateKey < cutoff || row.dateKey > today) continue;
+    if (!row || row.dateKey < cutoff || row.dateKey > latestDate) continue;
     history = upsertSummary(history, row, HEALTH_RETENTION_DAYS);
   }
   return history;
@@ -191,15 +193,24 @@ function canonicalBattery(value: unknown, nowMs: number): RingBatterySnapshot | 
 /** Normalize arbitrary persisted JSON into the exact v1 document contract. */
 export function canonicalizeHealthDocument(value: unknown, nowMs = Date.now()): HealthStoreDocument {
   const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const today = localDateKey(new Date(nowMs));
+  const now = new Date(nowMs);
+  const today = localDateKey(now);
+  // A protocol-anchored ring day can legitimately be one calendar day ahead
+  // of the phone near the UTC date line. Retain that single adjacent date while
+  // still rejecting arbitrary future history; unanchored hourly rows remain
+  // capped at the phone's today below.
+  const latestRingDate = localDateKey(new Date(
+    now.getFullYear(), now.getMonth(), now.getDate() + 1,
+  ));
   const cutoff = retentionStartDateKey(nowMs);
   return {
     version: 1,
     updatedAtMs: typeof raw.updatedAtMs === "number" && Number.isFinite(raw.updatedAtMs) ? raw.updatedAtMs : nowMs,
     retentionDays: HEALTH_RETENTION_DAYS,
-    history: canonicalHistory(raw.history, cutoff, today),
+    history: canonicalHistory(raw.history, cutoff, latestRingDate),
     hourly: canonicalHourlyRows(raw.hourly, cutoff, today, nowMs),
     activity: canonicalizeActivitySnapshot(raw.activity, nowMs),
+    sleep: canonicalizeSleepSnapshot(raw.sleep, nowMs),
     battery: canonicalBattery(raw.battery, nowMs),
   };
 }

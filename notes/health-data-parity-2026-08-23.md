@@ -17,8 +17,8 @@ semantics, or nullable schema capacity as proof that a value is implemented.
 | HRV: hourly minimum, maximum, and average | Daily cmd 4 | Cmd 4 is mapped to `hrv`; hourly records are retained | Hourly min/max/average and the latest-hour daily summary are stored and exported | Latest hourly average on phone/glasses and used as a local readiness input | **Parity for the documented hourly fields.** A separate first-party live field is not claimed. |
 | Steps: 10-minute buckets | Daily cmd 5 | Cmd 5 is mapped to `activity`; validated, timestamped 10-minute buckets and the local-day total are retained | Canonical buckets and the daily total are stored and exported | Daily total on phone and glasses; buckets in explicit JSON export | **Data parity; intentionally summarized presentation.** |
 | Calories: 10-minute total, active, and resting buckets | Daily cmd 5 | Native total and active values are retained; resting is derived as total minus active | Canonical buckets and daily totals are stored and exported | Active calories on phone/glasses; all components in explicit JSON export | **Data parity; partial presentation parity.** |
-| Skin temperature: sparse daily/nightly value | Cmd 3 is reserved and is not polled by the full health poll | Cmd 3 has an hourly-shaped parser path, but no validated mapping populates production state | Real temperature samples are not stored or exported; the daily field remains nullable | Phone placeholder; no real glasses value | **Gap / mapping blocked.** The nullable nightly field and an unvalidated cmd-3 shape are not interchangeable evidence. |
-| Sleep: start/end, duration/totals, stage runs, timezone, and temperature delta | Daily cmd 6 is requested | Cmd 6 is intentionally absent from `RING_HEALTH_CMD`; `decodeSleep` throws and the store ignores the unmapped response | Nullable schema fields exist, but no real sleep value is stored or exported | The phone passes `sleep: null`; no real sleep value is shown on phone or glasses | **Major gap / evidence blocked.** Production must remain fail-closed until the gate below is met. |
+| Skin temperature: sparse nightly absolute value | Type-1 daily cmd 6; cmd 3 remains reserved | Cmd 6 decodes the firmware's unsigned absolute `body_temp` in 0.1°C units; zero remains unavailable | The latest canonical sleep record and daily summary store/export the value | Phone shows the absolute value while its local baseline builds, then variation; a recent value contributes to phone/glasses readiness | **Parity for type-1 nightly temperature.** No independent cmd-3 stream is claimed. |
+| Sleep: start/end, duration/totals, stage runs, timezone, efficiency, and score | Daily cmd 6 | A strict type-1 path retains absolute timestamps, aggregate totals, 30-second runs, and the authoritative ring score; type 2 is rejected | The latest-by-end-time canonical night survives closure and is exported; daily summaries retain bounded trend fields | Phone shows score source, duration, efficiency, and awake/REM/light/deep totals; recent sleep feeds phone and glasses readiness | **Implemented for complete type-1 records; physical owner acceptance remains.** |
 
 Ring battery and firmware version are adjacent device telemetry, not health-export
 parity fields. Hermes readiness is locally derived and is not presented as a
@@ -29,34 +29,33 @@ first-party exported metric.
 - `FaceclawBleCommunicator.java` owns the read-only full poll: device status,
   HR, SpO2, HRV, activity, and sleep, with temperature reserved. The current-hour
   HR refresh is scheduled separately.
-- `app/health/ring-parser.ts` owns envelope validation and the established
-  cmds 1-5 metric layouts. `decodeSleep` deliberately throws.
+- `app/health/ring-parser.ts` owns envelope validation, cmds 1-5 metric layouts,
+  and strict type-1 sleep decoding. It deliberately rejects type 2.
 - `app/health/ring-health-store.ts` owns reassembly, CRC checks, current state,
-  and rejection of unmapped cmd 6.
+  latest-night ordering, and the canonical cmd-6 envelope gate.
 - `app/health/health-store.ts`, `app/health/health-history.ts`, and
   `app/health/health-hourly.ts` own fail-closed device-local persistence.
 - `app/native/health-export.ts` exports the canonical document without inventing
-  missing sleep or temperature values or exposing the app-private ring identity.
+  missing values or exposing the app-private ring identity.
 - `app/phone-ui/even-health-view-model.ts` is the phone presentation/persistence
-  bridge and explicitly supplies `sleep: null`; the glasses surface consumes the
-  same validated health state.
+  bridge; the glasses surface consumes the same validated, freshness-gated
+  sleep/readiness state.
 
-## Sleep decoder release gate
+## Sleep decoder evidence and remaining boundary
 
-Cmd 6 remains unmapped and `decodeSleep` must continue to throw until all of the
-following can be satisfied without inference:
+The type-1 implementation was enabled only after these evidence requirements
+were satisfied without committing private health vectors:
 
-1. Obtain a CRC-valid cmd-6 frame containing stage data and correlate it to
-   authoritative ground truth for the exact same worn session.
-2. Establish the absolute time-base handoff, timezone semantics, interval units,
-   and stage-code meanings.
-3. Freeze sanitized vectors that reproduce start/end, every reported total,
-   ordered stage runs, timezone, and any temperature field exactly.
-4. Add negative vectors for malformed lengths, CRC failures, impossible times,
-   inconsistent totals, and unknown stages; no partial value may reach state,
-   persistence, export, or UI.
-5. Run the complete host, type, Android-build, and authorized upgrade/device
-   checks before enabling cmd 6 in `RING_HEALTH_CMD`.
+1. A complete CRC-valid cmd-6 frame contains summary and stage data.
+2. Firmware producer/serializer/log paths establish absolute timestamps,
+   timezone, score/efficiency, temperature units, aggregates, and run encoding.
+3. Synthetic canonical tests reproduce every field and use no private timestamp
+   or stage vector.
+4. Negative tests reject malformed lengths/envelopes, relative times, invalid
+   ranges, inconsistent totals/runs, unknown stages, stale readiness input, and
+   out-of-order overwrite.
+5. Focused host tests and TypeScript checks pass; physical owner-device
+   acceptance remains a separate release check.
 
-Until that evidence exists, emitting a guessed sleep record would be a data
-integrity regression, not parity work.
+Type-2 records still lack an absolute base. They remain fail-closed and cannot
+populate state, persistence, export, or UI.

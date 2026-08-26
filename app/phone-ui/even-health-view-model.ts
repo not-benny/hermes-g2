@@ -1,4 +1,4 @@
-import { AbsoluteLayout, Color, Label, Observable, Page } from "@nativescript/core";
+import { AbsoluteLayout, Application, Color, Label, Observable, Page } from "@nativescript/core";
 
 import { ringHealthStore, type RingHealthSnapshot } from "../health/ring-health-store";
 import { dashboardController, type DashboardSnapshot } from "../g2/dashboard-controller";
@@ -6,6 +6,7 @@ import type { RingConnectionState } from "../native/faceclaw-communicator";
 import {
   heartRateInsights,
   readinessScore,
+  sleepSessionFromRing,
   sleepInsights,
   temperatureInsights,
   type InsightInputs,
@@ -21,8 +22,6 @@ import {
 } from "./health-charts";
 import {
   loadHealthHistory,
-  recordHealthDay,
-  recordHourly,
   loadHourly,
   getHermesConsent,
   setHermesConsent,
@@ -57,6 +56,7 @@ const RING_BOX = 168;
 const RING_R = 72;
 const DOT = 9;
 const TRACK = "#24312A";
+const DISPLAY_FRESHNESS_INTERVAL_MS = 60_000;
 
 export class EvenHealthViewModel extends Observable {
   private health: RingHealthSnapshot = ringHealthStore.snapshot();
@@ -64,6 +64,8 @@ export class EvenHealthViewModel extends Observable {
   private evenAppConflictMessageState = "";
   private offHealth: (() => void) | null = null;
   private offDashboard: (() => void) | null = null;
+  private freshnessTimer: ReturnType<typeof setInterval> | null = null;
+  private resumeListening = false;
   private ringDots: Label[] = [];
   private readinessRaw: number | null = null;
   private readinessColor = TRACK;
@@ -93,9 +95,42 @@ export class EvenHealthViewModel extends Observable {
   }
 
   dispose(): void {
+    this.deactivate();
     this.offHealth?.(); this.offHealth = null;
     this.offDashboard?.(); this.offDashboard = null;
   }
+
+  /**
+   * Refresh retained tab state on every visible entry and app resume. The ring
+   * may be quiet (or Bluetooth may be off) across local midnight and the 36 h
+   * sleep-readiness boundary, so store emissions alone are not a clock.
+   */
+  activate(page: Page): void {
+    this.refreshForDisplay();
+    this.buildRing(page);
+    if (!this.freshnessTimer) {
+      this.freshnessTimer = setInterval(() => this.refreshForDisplay(), DISPLAY_FRESHNESS_INTERVAL_MS);
+    }
+    if (!this.resumeListening) {
+      Application.on(Application.resumeEvent, this.onApplicationResume);
+      this.resumeListening = true;
+    }
+  }
+
+  deactivate(): void {
+    if (this.freshnessTimer) clearInterval(this.freshnessTimer);
+    this.freshnessTimer = null;
+    if (this.resumeListening) Application.off(Application.resumeEvent, this.onApplicationResume);
+    this.resumeListening = false;
+  }
+
+  refreshForDisplay(): void {
+    // snapshot() also applies the store's same-process local-day pruning.
+    this.health = ringHealthStore.snapshot();
+    this.refresh();
+  }
+
+  private readonly onApplicationResume = (): void => this.refreshForDisplay();
 
   /** Build the ring gauge + charts once the page views exist (page 'loaded'). */
   buildRing(page: Page): void {
@@ -182,23 +217,26 @@ export class EvenHealthViewModel extends Observable {
 
   // --- insight computation ---------------------------------------------------
   private inputs(): InsightInputs {
-    const baselines = computeBaselines(loadHealthHistory(), Date.now());
+    const nowMs = Date.now();
+    const sleep = sleepSessionFromRing(this.health.sleep, nowMs);
+    const bodyTempC = sleep && this.health.sleep?.bodyTemperatureDeciC !== null
+      ? this.health.sleep!.bodyTemperatureDeciC / 10
+      : null;
+    const baselines = computeBaselines(loadHealthHistory(), nowMs);
     return {
       heartRate: this.hrHours(),
       hrv: this.hrvHours(),
-      sleep: null, // gated until the cmd=6 sleep decoder is validated on worn data
+      sleep,
       liveHr: this.health.currentHr,
-      bodyTempC: this.health.bodyTempC,
+      bodyTempC,
       baselines,
-      nowMs: Date.now(),
+      nowMs,
     };
   }
 
   private refresh(): void {
-    // Persist this poll's hours into the rolling hourly store, then read back the
-    // accumulated day so the tab reflects everything gathered (not just this poll,
-    // which is often empty once the ring has already handed over its cache).
-    recordHourly(this.health.heartRateSeries, this.health.spo2Series, this.health.hrvSeries, Date.now());
+    // Persistence is process-wide; this optional view only reads the accumulated
+    // day, so never opening the Health tab cannot discard an overnight sync.
     this.hourlyToday = hourlyForDay(loadHourly(), dateKeyOf(Date.now()));
 
     const i = this.inputs();
@@ -212,18 +250,6 @@ export class EvenHealthViewModel extends Observable {
 
     this.spo2Latest = this.latestHour(this.spo2Hours());
     this.hrvLatest = this.latestHour(this.hrvHours());
-
-    // Log the daily summary (merge-safe) once there's data (live or accumulated).
-    if (this.health.updatedAtMs !== null || this.hourlyToday.length > 0) {
-      recordHealthDay({
-        hr, sleep, readiness,
-        hrvAvg: this.hrvLatest?.avg ?? null,
-        spo2Avg: this.spo2Latest?.avg ?? null,
-        steps: this.health.activity?.totalSteps ?? null,
-        bodyTempC: this.health.bodyTempC,
-        updatedAtMs: this.health.updatedAtMs ?? Date.now(),
-      });
-    }
 
     // Stash the computed values for the getters, then notify everything.
     this.hrI = hr; this.sleepI = sleep; this.tempI = temp; this.readinessI = readiness;
@@ -264,7 +290,8 @@ export class EvenHealthViewModel extends Observable {
     if (!queued) console.log("[health] R1 retry blocked until Even is stopped");
   }
   private get hasData(): boolean {
-    return this.health.updatedAtMs !== null || this.health.batteryUpdatedAtMs !== null || this.hourlyToday.length > 0;
+    return this.health.updatedAtMs !== null || this.health.batteryUpdatedAtMs !== null ||
+      this.hourlyToday.length > 0 || sleepSessionFromRing(this.health.sleep) !== null;
   }
   get emptyStateVisibility(): "visible" | "collapse" {
     return this.hasData ? "collapse" : "visible";
@@ -316,20 +343,29 @@ export class EvenHealthViewModel extends Observable {
       : "Your readiness trend fills in over the next few days.";
   }
 
-  // --- sleep (gated) ---------------------------------------------------------
+  // --- sleep -----------------------------------------------------------------
   get sleepAvailable(): boolean { return this.sleepI.available === "full"; }
   get sleepLockedVisibility(): "visible" | "collapse" { return this.sleepI.available === "full" ? "collapse" : "visible"; }
   get sleepFullVisibility(): "visible" | "collapse" { return this.sleepI.available === "full" ? "visible" : "collapse"; }
   get sleepHint(): string {
     return this.ringState === "ready"
-      ? "Wear the ring overnight to unlock sleep staging."
-      : "Connect the ring, then wear it overnight.";
+      ? "No complete sleep summary from the last 36 hours. Wear the ring overnight."
+      : "Connect the ring to sync last night's sleep.";
   }
   get sleepScoreLabel(): string { return this.sleepI.score === null ? "--" : String(this.sleepI.score); }
-  get sleepDurationLabel(): string {
-    const m = this.sleepI.totalSleepMin;
-    return m === null ? "" : `${Math.floor(m / 60)}h ${m % 60}m`;
+  get sleepScoreSourceLabel(): string {
+    return this.sleepI.scoreSource === "ring" ? "Ring score" : this.sleepI.scoreSource === "derived" ? "Estimated score" : "";
   }
+  get sleepDurationLabel(): string {
+    return formatMinutes(this.sleepI.totalSleepMin);
+  }
+  get sleepEfficiencyLabel(): string {
+    return this.sleepI.efficiencyPct === null ? "" : `Efficiency ${this.sleepI.efficiencyPct}%`;
+  }
+  get sleepAwakeLabel(): string { return `Awake ${formatMinutes(this.sleepI.stages?.awakeMin ?? null)}`; }
+  get sleepRemLabel(): string { return `REM ${formatMinutes(this.sleepI.stages?.remMin ?? null)}`; }
+  get sleepLightLabel(): string { return `Light ${formatMinutes(this.sleepI.stages?.lightMin ?? null)}`; }
+  get sleepDeepLabel(): string { return `Deep ${formatMinutes(this.sleepI.stages?.deepMin ?? null)}`; }
 
   // --- supporting tiles ------------------------------------------------------
   get spo2Value(): string { return this.spo2Latest ? String(this.spo2Latest.avg) : "--"; }
@@ -381,7 +417,8 @@ const NOTIFY = [
   "readinessValue", "readinessOutOf", "readinessVerdict", "readinessBlurb", "driverChips", "driverChipsVisibility",
   "currentHrValue", "currentHrSource", "restingHrLabel", "hrRangeLabel", "hrTrendLabel", "hrChartVisibility",
   "trendChartVisibility", "trendEmptyVisibility", "trendEmptyLabel",
-  "sleepLockedVisibility", "sleepFullVisibility", "sleepHint", "sleepScoreLabel", "sleepDurationLabel",
+  "sleepLockedVisibility", "sleepFullVisibility", "sleepHint", "sleepScoreLabel", "sleepScoreSourceLabel",
+  "sleepDurationLabel", "sleepEfficiencyLabel", "sleepAwakeLabel", "sleepRemLabel", "sleepLightLabel", "sleepDeepLabel",
   "spo2Value", "hrvValue", "temperatureValue", "temperatureUnit", "temperatureSub", "batteryValue",
   "caloriesValue", "caloriesMetricLabel", "caloriesSourceLabel", "stepsValue",
 ];
@@ -392,4 +429,12 @@ function relativeTime(ms: number): string {
   const mins = Math.round(secs / 60);
   if (mins < 60) return `${mins} min ago`;
   return `${Math.round(mins / 60)} h ago`;
+}
+
+function formatMinutes(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "--";
+  const minutes = Math.max(0, Math.round(value));
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return hours > 0 ? `${hours}h ${remainder}m` : `${remainder}m`;
 }

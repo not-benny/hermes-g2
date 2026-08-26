@@ -14,6 +14,7 @@ import { ApplicationSettings } from "@nativescript/core";
 import { ringHealthStore, type RingHealthSnapshot } from "../health/ring-health-store";
 import { dateKeyOf, type DailyHealthSummary } from "../health/health-history";
 import { type HourlyPoint } from "../health/health-hourly";
+import { type RingSleepData } from "../health/ring-parser";
 import { isPreviewOnlyMode } from "../phone-ui/onboarding-state";
 import { clearHealthData, replaceHealthDocument } from "./health-store";
 
@@ -47,15 +48,40 @@ function demoHistory(nowMs: number): DailyHealthSummary[] {
       hrvAvg: 45 + i,
       spo2Avg: 97,
       steps: 6200 + i * 400,
-      sleepScore: null,
-      sleepDurationMin: null,
-      sleepDeepMin: null,
-      sleepRemMin: null,
-      bodyTempC: null,
+      sleepScore: 78 + i,
+      sleepDurationMin: 405 + i * 5,
+      sleepDeepMin: 70 + i,
+      sleepRemMin: 84 + i * 2,
+      bodyTempC: 34.3 + (i % 3) * 0.1,
       readinessScore,
       updatedAtMs: ms,
     };
   });
+}
+
+function demoSleep(nowMs: number): RingSleepData {
+  const endTs = Math.floor(nowMs / 1000) - 60 * 60;
+  const timeInBedSec = 462 * 60;
+  return {
+    recordType: 1,
+    efficiencyPct: 90,
+    score: 84,
+    bodyTemperatureDeciC: 345,
+    timezoneOffsetMinutes: -new Date(endTs * 1000).getTimezoneOffset(),
+    startTs: endTs - timeInBedSec,
+    endTs,
+    totalSleepSec: 420 * 60,
+    awakeSec: 42 * 60,
+    remSec: 90 * 60,
+    lightSec: 255 * 60,
+    deepSec: 75 * 60,
+    stages: [
+      { type: 0, halfMinutes: 84 },
+      { type: 2, halfMinutes: 510 },
+      { type: 3, halfMinutes: 150 },
+      { type: 1, halfMinutes: 180 },
+    ],
+  };
 }
 
 function demoSnapshot(nowMs: number): RingHealthSnapshot {
@@ -63,6 +89,7 @@ function demoSnapshot(nowMs: number): RingHealthSnapshot {
   const spo2Series = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: 97, max: 99, min: 95, timestampSec: null, timezoneOffsetMinutes: null }));
   const hrvSeries = HR_HOURS.map((h) => ({ hourIdx: h.hourIdx, avg: 44 + (h.hourIdx % 5) * 3, max: 62, min: 38, timestampSec: null, timezoneOffsetMinutes: null }));
   const newest = series[series.length - 1];
+  const sleep = demoSleep(nowMs);
   return {
     heartRate: newest,
     spo2: spo2Series[spo2Series.length - 1],
@@ -77,6 +104,7 @@ function demoSnapshot(nowMs: number): RingHealthSnapshot {
       totalCalories: 1830,
       restingCalories: 1418,
     },
+    sleep,
     batteryPercent: 84,
     batteryUpdatedAtMs: nowMs,
     firmwareVersion: null,
@@ -85,7 +113,7 @@ function demoSnapshot(nowMs: number): RingHealthSnapshot {
     spo2Series,
     hrvSeries,
     currentHr: 72,
-    bodyTempC: null,
+    bodyTempC: sleep.bodyTemperatureDeciC! / 10,
   };
 }
 
@@ -97,7 +125,9 @@ function demoSnapshot(nowMs: number): RingHealthSnapshot {
 export function seedPreviewDemo(nowMs: number = Date.now()): void {
   if (!isPreviewOnlyMode()) return;
   if (!ApplicationSettings.getBoolean(DEMO_FLAG, false)) {
-    const result = replaceHealthDocument({ history: demoHistory(nowMs), hourly: demoHourly(nowMs), activity: null });
+    const result = replaceHealthDocument({
+      history: demoHistory(nowMs), hourly: demoHourly(nowMs), activity: null, sleep: demoSleep(nowMs),
+    });
     if (result.ok) ApplicationSettings.setBoolean(DEMO_FLAG, true);
   }
   ringHealthStore.seedMock(demoSnapshot(nowMs));

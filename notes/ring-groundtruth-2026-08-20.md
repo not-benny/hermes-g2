@@ -1,9 +1,10 @@
 # R1 ring ground truth: btsnoop + Even health export (2026-08-20)
 
-> **Historical decoding snapshot.** HR, SpO2, HRV, current-hour refresh,
-> activity, calories, and anchored daily persistence were implemented after this
-> note. Open evidence questions now concern sleep type-1/stage and absolute
-> timebase only. Session setup performs bounded allowlisted `healthEnable` and
+> **Historical decoding snapshot, updated 2026-08-25.** HR, SpO2, HRV,
+> current-hour refresh, activity, calories, anchored daily persistence, and the
+> complete type-1 sleep summary/stage decoder were implemented after the
+> original note. Type-2 sleep's absolute timebase remains unproved and is
+> rejected. Session setup performs bounded allowlisted `healthEnable` and
 > `systemTime` writes; provisioning/ownership/NVM/DFU remain prohibited.
 
 **Status: verified.** A full btsnoop HCI capture of the Even app driving the R1
@@ -155,7 +156,13 @@ timestamp,start_ts,end_ts,total_time,wake_time,rem_time,light_time,deep_time,sta
   **seconds**.
 - `stages` is a JSON array of `{type, half_minutes}` at **30-second epochs**
   (`half_minutes` counts 30-second units).
-- `body_temp_delta` is the nightly body-temperature delta.
+- `body_temp_delta` is the legacy export column name. Subsequent firmware
+  producer/formatter evidence establishes the type-1 wire value as an unsigned
+  absolute nightly body/skin temperature in 0.1 C (zero means unavailable),
+  not a signed delta: its input path accepts absolute 30,000–50,000 milli-C
+  sensor magnitudes and requires at least 12 samples before aggregation. Hermes
+  computes variation from a local baseline instead of interpreting this name
+  as wire semantics.
 - **STAGE TYPE MAPPING (verified against the `*_time` totals):**
   `0 = Wake`, `1 = REM`, `2 = Light`, `3 = Deep`. Summing the `half_minutes` per
   type reproduces the corresponding `*_time` seconds, which is how the mapping was
@@ -171,11 +178,11 @@ timestamp,start_ts,end_ts,total_time,wake_time,rem_time,light_time,deep_time,sta
   active split) instead of estimating. Keep the existing HR-based Keytel
   estimator as a fallback for when native buckets are unavailable
   (see `notes/calorie-estimation.md`).
-- **Sleep:** decode the ring `cmd=6` frames against this now-known schema: a
-  hypnogram of 30-second epochs using the `0/1/2/3` stage mapping, plus the
-  total / wake / rem / light / deep seconds and `body_temp_delta`. A raw overnight
-  `cmd=6` capture is still needed to finish the byte layout
-  (see `notes/ring-sleep-frames-2026-08-20.md`).
+- **Sleep:** the complete type-1 `cmd=6` schema is now decoded: a hypnogram of
+  30-second epochs using the `0/1/2/3` stage mapping, ring score/efficiency,
+  absolute start/end, total/wake/REM/light/deep seconds, timezone, and optional
+  absolute nightly temperature. Interval-only type 2 remains fail-closed (see
+  `notes/ring-sleep-frames-2026-08-20.md`).
 - **Steps:** decode the 10-minute step buckets.
 
 ## 5. Open items
@@ -184,7 +191,6 @@ timestamp,start_ts,end_ts,total_time,wake_time,rem_time,light_time,deep_time,sta
   channel.
 - Finish the frame-to-value decode on the `0x0015` / `0x0017` richer channel
   (device metadata + health payloads).
-- Capture a raw overnight `cmd=6` sleep frame set on a night that is also present
-  in the export, to pin and validate the sleep byte layout.
 - Validate each decoder (HR, HRV, SpO2, calories, steps, sleep) against the
-  private ground-truth CSVs before surfacing its values in the UI.
+  private ground-truth CSVs and device-owner acceptance before widening any
+  currently fail-closed record form.

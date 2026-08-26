@@ -23,6 +23,7 @@ import { ringHealthStore } from "../../health/ring-health-store";
 import {
   heartRateInsights,
   readinessScore,
+  sleepSessionFromRing,
   type HeartRateInsights,
   type ReadinessInsights,
 } from "../../health/health-insights";
@@ -52,13 +53,16 @@ function liveHealth(): { readiness: ReadinessInsights; hr: HeartRateInsights; ho
   const nowMs = Date.now();
   const hourly = hourlyForDay(loadHourly(), dateKeyOf(nowMs));
   const s = ringHealthStore.snapshot();
+  const sleep = sleepSessionFromRing(s.sleep, nowMs);
   const hours: HourHr[] = hourly.filter((p) => p.hr).map((p) => ({ hourIdx: p.hourIdx, min: p.hr!.min, max: p.hr!.max, avg: p.hr!.avg }));
   const inputs = {
     heartRate: hours.map((h) => ({ hourIdx: h.hourIdx, avg: h.avg, max: h.max, min: h.min, timestampSec: null, timezoneOffsetMinutes: null })),
     hrv: hourly.filter((p) => p.hrv).map((p) => ({ hourIdx: p.hourIdx, timestampSec: p.timestampSec ?? null, timezoneOffsetMinutes: p.timezoneOffsetMinutes ?? null, ...p.hrv! })),
-    sleep: null,
+    sleep,
     liveHr: s.currentHr,
-    bodyTempC: s.bodyTempC,
+    bodyTempC: sleep && s.sleep?.bodyTemperatureDeciC !== null
+      ? s.sleep!.bodyTemperatureDeciC / 10
+      : null,
     baselines: computeBaselines(loadHealthHistory(), nowMs),
     nowMs,
   };

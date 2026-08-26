@@ -10,7 +10,7 @@ const src = readFileSync(new URL("../app/health/health-insights.ts", import.meta
 const js = ts.transpileModule(src, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
 }).outputText;
-const { heartRateInsights, sleepInsights, readinessScore, temperatureInsights } = await import(
+const { heartRateInsights, sleepInsights, sleepSessionFromRing, readinessScore, temperatureInsights } = await import(
   "data:text/javascript;base64," + Buffer.from(js).toString("base64")
 );
 
@@ -61,6 +61,41 @@ test("sleepInsights scores a full night from real stage data", () => {
   assert.deepEqual(s.stages, { awakeMin: 31, lightMin: 288, deepMin: 74, remMin: 85 });
   assert.equal(s.totalSleepMin, 447);
   assert.ok(s.score >= 75 && s.score <= 95, `good-night score ${s.score} in band`);
+  assert.equal(s.scoreSource, "derived");
+});
+
+test("sleepInsights preserves the ring score and exposes its source to readiness", () => {
+  const sleep = { ...GOOD_NIGHT, sourceScore: 87 };
+  const insight = sleepInsights({ sleep });
+  assert.equal(insight.score, 87);
+  assert.equal(insight.scoreSource, "ring");
+  assert.equal(readinessScore({ sleep }).contributors.find((c) => c.key === "sleep").score, 87);
+});
+
+test("sleepSessionFromRing projects protocol seconds and score without recomputing them", () => {
+  const endTs = 1000 + 480 * 60;
+  const session = sleepSessionFromRing({
+    recordType: 1, efficiencyPct: 93, score: 87, bodyTemperatureDeciC: 344,
+    timezoneOffsetMinutes: 60, startTs: 1000, endTs,
+    totalSleepSec: 450 * 60, awakeSec: 30 * 60, remSec: 90 * 60,
+    lightSec: 270 * 60, deepSec: 90 * 60, stages: [],
+  }, endTs * 1000 + 60_000);
+  assert.equal(session.totalSleepMin, 450);
+  assert.equal(session.timeInBedMin, 480);
+  assert.equal(session.sourceScore, 87);
+  assert.equal(session.available, "full");
+});
+
+test("sleepSessionFromRing keeps old nights as history instead of current readiness input", () => {
+  const endTs = 1_800_000_000;
+  const night = {
+    recordType: 1, efficiencyPct: 93, score: 87, bodyTemperatureDeciC: 344,
+    timezoneOffsetMinutes: 60, startTs: endTs - 480 * 60, endTs,
+    totalSleepSec: 450 * 60, awakeSec: 30 * 60, remSec: 90 * 60,
+    lightSec: 270 * 60, deepSec: 90 * 60, stages: [],
+  };
+  assert.ok(sleepSessionFromRing(night, endTs * 1000 + 35 * 60 * 60 * 1000));
+  assert.equal(sleepSessionFromRing(night, endTs * 1000 + 37 * 60 * 60 * 1000), null);
 });
 
 test("sleepInsights degrades to duration-only, then none", () => {

@@ -80,6 +80,24 @@ function u32le(value) {
   return [value & 0xff, (value >>> 8) & 0xff, (value >>> 16) & 0xff, (value >>> 24) & 0xff];
 }
 
+function u16le(value) {
+  return [value & 0xff, (value >>> 8) & 0xff];
+}
+
+function sleepPayload(startTs = 1_800_000_000, score = 87) {
+  const runs = [[0, 60], [2, 240], [3, 90], [2, 300], [1, 180], [3, 90]];
+  const data = new Uint8Array(32 + runs.length * 3 + 4);
+  data.set([
+    1, 93, score, 0, 6, 19, 56, 19,
+    ...u16le(344), ...u16le(60), ...u32le(startTs), ...u32le(startTs + 480 * 60),
+    ...u16le(450 * 60), ...u16le(30 * 60), ...u16le(90 * 60),
+    ...u16le(270 * 60), ...u16le(90 * 60), runs.length, 0,
+  ]);
+  runs.forEach(([type, halfMinutes], index) => data.set([type, ...u16le(halfMinutes)], 32 + index * 3));
+  data.set([0xaa, 0x55, 0x12, 0x34], data.length - 4);
+  return data;
+}
+
 /**
  * Daily payload (real layout): [count u8][6 reserved][base u32 LE][current u8]
  * + 4-byte records [hourIdx][avg][max][min]. See ring-daily-layout notes.
@@ -222,6 +240,59 @@ test("activity ACK status cannot populate native totals", () => {
   assert.equal(store.snapshot().activity, null);
 });
 
+test("canonical type-1 sleep populates score, stages, and nightly temperature", () => {
+  const startTs = 1_800_000_000;
+  const nowMs = (startTs + 481 * 60) * 1000;
+  const store = new RingHealthStore(() => nowMs);
+  for (const frame of fragments(buildInner(2, 6, 1, 2, sleepPayload(startTs)))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().sleep?.score, 87, "protocol sleep score is preserved");
+  assert.equal(store.snapshot().sleep?.totalSleepSec, 450 * 60);
+  assert.equal(store.snapshot().sleep?.stages.length, 6);
+  assert.equal(store.snapshot().bodyTempC, 34.4);
+  assert.equal(store.snapshot().updatedAtMs, nowMs);
+});
+
+test("sleep requires the canonical push envelope and a recent absolute interval", () => {
+  const startTs = 1_800_000_000;
+  const nowMs = (startTs + 481 * 60) * 1000;
+  for (const [status, subCmd] of [[3, 1], [2, 2]]) {
+    const store = new RingHealthStore(() => nowMs);
+    for (const frame of fragments(buildInner(2, 6, subCmd, status, sleepPayload(startTs)))) store.ingestFrame(frame);
+    assert.equal(store.snapshot().sleep, null);
+  }
+  const badCrcStore = new RingHealthStore(() => nowMs);
+  const badCrc = buildInner(2, 6, 1, 2, sleepPayload(startTs));
+  badCrc[10] ^= 0xff;
+  for (const frame of fragments(badCrc)) badCrcStore.ingestFrame(frame);
+  assert.equal(badCrcStore.snapshot().sleep, null, "inner CRC is mandatory");
+  const stale = new RingHealthStore(() => nowMs + 91 * 86400_000);
+  for (const frame of fragments(buildInner(2, 6, 1, 2, sleepPayload(startTs)))) stale.ingestFrame(frame);
+  assert.equal(stale.snapshot().sleep, null);
+});
+
+test("a persisted canonical night restores without impersonating a fresh sync", () => {
+  const startTs = 1_800_000_000;
+  const nowMs = (startTs + 481 * 60) * 1000;
+  const source = new RingHealthStore(() => nowMs);
+  for (const frame of fragments(buildInner(2, 6, 1, 2, sleepPayload(startTs)))) source.ingestFrame(frame);
+  const restored = new RingHealthStore(() => nowMs);
+  restored.restoreSleep(source.snapshot().sleep);
+  assert.deepEqual(restored.snapshot().sleep, source.snapshot().sleep);
+  assert.equal(restored.snapshot().bodyTempC, 34.4);
+  assert.equal(restored.snapshot().updatedAtMs, null);
+});
+
+test("out-of-order sleep pushes never replace the newest completed night", () => {
+  const newerStartTs = 1_800_000_000;
+  const olderStartTs = newerStartTs - 24 * 60 * 60;
+  const nowMs = (newerStartTs + 481 * 60) * 1000;
+  const store = new RingHealthStore(() => nowMs);
+  for (const frame of fragments(buildInner(2, 6, 1, 2, sleepPayload(newerStartTs, 91)))) store.ingestFrame(frame);
+  for (const frame of fragments(buildInner(2, 6, 1, 2, sleepPayload(olderStartTs, 72)))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().sleep?.startTs, newerStartTs);
+  assert.equal(store.snapshot().sleep?.score, 91);
+});
+
 test("activity pushes merge by day and replace duplicate slots", () => {
   const dayBaseSec = 1_787_180_400;
   const store = new RingHealthStore(() => (dayBaseSec + 12 * 60 * 60) * 1000);
@@ -246,6 +317,39 @@ test("activity pushes merge by day and replace duplicate slots", () => {
     totalCalories: 35,
     restingCalories: 25,
   });
+});
+
+test("activity rolls over at local midnight before reads or unrelated emissions", () => {
+  const dayBaseSec = 1_787_180_400;
+  let nowMs = (dayBaseSec + 12 * 60 * 60) * 1000;
+  const store = new RingHealthStore(() => nowMs);
+  for (const frame of fragments(buildInner(2, 1, 1, 2,
+    dailyHealth(68, [{ hourIdx: 12, avg: 64, max: 71, min: 57 }])))) store.ingestFrame(frame);
+  for (const frame of fragments(buildInner(2, 2, 1, 2,
+    dailyHealth(98, [{ hourIdx: 12, avg: 97, max: 99, min: 95 }])))) store.ingestFrame(frame);
+  store.restoreActivity({
+    dayBaseSec,
+    timezoneOffsetMinutes: 60,
+    slots: [{ slot: 71, steps: 12, activeCalories: 3, totalCalories: 15 }],
+  });
+  assert.equal(store.snapshot().activity?.totalSteps, 12, "same-day restore remains available");
+  assert.equal(store.snapshot().currentHr, 68);
+  assert.equal(store.snapshot().heartRateSeries.length, 1);
+  assert.equal(store.snapshot().spo2Series.length, 1);
+
+  let emitted = null;
+  store.onChange((snapshot) => { emitted = snapshot; });
+  nowMs += 24 * 60 * 60 * 1000;
+  store.updateBatteryPercent(82);
+
+  assert.equal(emitted?.activity, null, "another metric cannot re-emit yesterday's activity");
+  assert.equal(emitted?.currentHr, null, "a retained point HR cannot survive local midnight");
+  assert.equal(emitted?.heartRate, null);
+  assert.deepEqual(emitted?.heartRateSeries, []);
+  assert.equal(emitted?.spo2, null);
+  assert.deepEqual(emitted?.spo2Series, []);
+  assert.equal(store.snapshot().activity, null, "post-midnight reads prune stale activity too");
+  assert.equal(store.snapshot().batteryPercent, 82);
 });
 
 test("activity push without a day base remains gated off", () => {
@@ -299,6 +403,25 @@ test("persisted activity is deduplicated and all derived fields are rebuilt", ()
   });
 });
 
+test("persisted activity rejects zero and anchors outside the ring's unsigned 32-bit clock", () => {
+  const sample = {
+    timezoneOffsetMinutes: 0,
+    slots: [{ slot: 0, steps: 1, activeCalories: 1, totalCalories: 2 }],
+  };
+  assert.equal(canonicalizeActivitySnapshot(
+    { ...sample, dayBaseSec: 0 },
+    43_200_000,
+  ), null);
+  assert.equal(canonicalizeActivitySnapshot(
+    { ...sample, dayBaseSec: -86_400 },
+    -43_200_000,
+  ), null);
+  assert.equal(canonicalizeActivitySnapshot(
+    { ...sample, dayBaseSec: 0x1_0000_0000 },
+    (0x1_0000_0000 + 43_200) * 1000,
+  ), null);
+});
+
 test("interleaved batches both decode", () => {
   const store = new RingHealthStore();
   const hrFrames = fragments(buildInner(2, 1, 1, 2, dailyHealth(70, [{ hourIdx: 10, avg: 70, max: 75, min: 65 }])), null);
@@ -320,7 +443,7 @@ test("garbage, unknown metrics and CRC mismatches are dropped without throwing",
   store.ingestFrame(new Uint8Array([1, 2])); // too short for a fragment header
   assert.ok(logs.some((l) => l.includes("bad fragment")), "short frame logged");
 
-  // sleep (cmd 6) has no decoded layout: reassembles fine, then is ignored.
+  // Non-push sleep envelopes are ignored before their data can be decoded.
   const sleep = fragments(buildInner(2, 6, 1, 3, new Uint8Array([1, 60, 0, 0, 0, 0, 0])));
   for (const frame of sleep) store.ingestFrame(frame);
 
@@ -346,4 +469,51 @@ test("reset clears decoded values and emits", () => {
   store.reset();
   assert.equal(store.snapshot().batteryPercent, null);
   assert.ok(emitted, "reset notifies listeners");
+});
+
+test("configured-ring identity reset clears every live metric and in-flight source", () => {
+  const nowSec = 1_800_050_000;
+  const store = new RingHealthStore(() => nowSec * 1000);
+  const dayBaseSec = Math.floor(nowSec / 86400) * 86400;
+  for (const frame of fragments(buildInner(1, 0, 1, 3, new Uint8Array([88])))) store.ingestFrame(frame);
+  for (const frame of fragments(buildInner(2, 1, 1, 2,
+    dailyHealth(68, [{ hourIdx: 10, avg: 65, max: 72, min: 58 }])))) store.ingestFrame(frame);
+  for (const frame of fragments(buildInner(2, 5, 1, 2,
+    activityPayload(0, dayBaseSec, [{ slot: 70, steps: 50, activeCalories: 4, totalCalories: 7 }])))) {
+    store.ingestFrame(frame);
+  }
+  for (const frame of fragments(buildInner(2, 6, 1, 2,
+    sleepPayload(nowSec - 9 * 60 * 60)))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().batteryPercent, 88);
+  assert.equal(store.snapshot().currentHr, 68);
+  assert.equal(store.snapshot().heartRateSeries.length, 1);
+  assert.equal(store.snapshot().activity?.totalSteps, 50);
+  assert.ok(store.snapshot().sleep);
+
+  let emission = null;
+  store.onChange((snapshot) => { emission = snapshot; });
+  store.resetForIdentityChange();
+  assert.equal(store.snapshot().batteryPercent, null);
+  assert.equal(store.snapshot().currentHr, null);
+  assert.equal(store.snapshot().heartRate, null);
+  assert.deepEqual(store.snapshot().heartRateSeries, []);
+  assert.equal(store.snapshot().activity, null);
+  assert.equal(store.snapshot().sleep, null);
+  assert.equal(store.snapshot().bodyTempC, null);
+  assert.equal(store.snapshot().firmwareVersion, null);
+  assert.ok(emission, "identity reset notifies persistence and UI listeners");
+});
+
+test("a throwing listener cannot block later health and persistence listeners", () => {
+  const store = new RingHealthStore();
+  const logs = [];
+  let laterCalls = 0;
+  store.setLog((line) => logs.push(line));
+  store.onChange(() => { throw new Error("synthetic UI failure"); });
+  store.onChange(() => { laterCalls += 1; });
+  for (const frame of fragments(buildInner(1, 0, 1, 3, new Uint8Array([64])))) store.ingestFrame(frame);
+  assert.equal(store.snapshot().batteryPercent, 64);
+  assert.equal(laterCalls, 1);
+  assert.ok(logs.some((line) => line.includes("listener failed")));
+  assert.equal(logs.some((line) => line.includes("batch") && line.includes("dropped")), false);
 });
