@@ -49,8 +49,8 @@ security, privacy, data-loss, or hardware-safety finding.
 - [ ] Prove exact ownership through screen-off, G2 reconnect, gateway restart,
   app restart, stale reply, duplicate operation, and offline recovery.
 - [ ] Confirm G2 optical readability. If the optional R1 and health access were
-  explicitly authorised for this run, also confirm battery/health polling; R1
-  sleep is not part of this milestone.
+  explicitly authorised for this run, also confirm battery/health polling and
+  the newly implemented complete type-1 sleep/readiness path.
 - [ ] Check Fold7 cover and unfolded layouts and the critical TalkBack path. Do
   not expand this into a general phone matrix.
 - [ ] Review package-filtered logs plus companion traffic, operation journal,
@@ -64,18 +64,19 @@ security, privacy, data-loss, or hardware-safety finding.
 
 #### Exit state
 
-Preview 3 remains an internal owner artifact. Its completion does not enable the
-protected publication job, authorize a new signing identity, or claim public
-support.
+Preview 3 remains an unsupported owner-preview artifact. Its completion does not
+enable the protected production publication job, authorize a new signing
+identity, or claim public support. Main-branch CI may publish the owner-signed
+preview APK for convenience without changing that release boundary.
 
 ## Deferred, not active backlog
 
-- Production signing, package/data migration, Play Store or public distribution
+- Production signing, package/data migration, Play Store or supported public distribution
   ([issue #69](https://github.com/not-benny/hermes-g2/issues/69)).
 - General public-web activation or untrusted remote rendering. The public
   bridge and workflow packages remain separate Apache-2.0 publication units.
 - Home Assistant mutation, WhatsApp, new integrations, and new applications.
-- G2 firmware/recovery, R1 provisioning/ownership/DFU, and R1 sleep decoding.
+- G2 firmware/recovery and R1 provisioning/ownership/DFU.
 - Broader phone, firmware, or user support.
 - Feature expansion unrelated to a failed acceptance item or a current
   owner-requested P0/P1 usability correction.

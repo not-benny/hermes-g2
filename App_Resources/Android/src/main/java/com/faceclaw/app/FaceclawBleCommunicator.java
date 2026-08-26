@@ -47,6 +47,10 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     // an R1 without it remains usable but reports no battery percentage.
     private static final String RING_BATTERY_LEVEL_UUID = "00002a19-0000-1000-8000-00805f9b34fb";
     private static final int RING_BATTERY_READ_TIMEOUT_MS = 2_500;
+    // Successful pairAuth replies arrived 22-160ms after the write in the
+    // 2026-08-23/24 captures. 1.5s leaves >9x the slowest observed scheduling
+    // margin while still retiring a contended/non-responsive session promptly.
+    private static final int RING_PAIR_AUTH_ACK_TIMEOUT_MS = 1_500;
     private static final int RING_CONNECT_OPERATION = -1;
     // Health-sampling experiment gate. The prior "auth/host-binding wall" verdict
     // was WRONG: root-cause analysis of com.even.sg's BleRing1Model.toBytes showed
@@ -102,12 +106,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
     private boolean ringConnected;
     private boolean ringNotificationsReady;
     private int ringBattery = -1;
-    // Ring health-sampling spike: per-session write sequence + one-shot guard.
-    // The R1 streams health pushes on its notify channel only after it is put
-    // into HRV sampling mode; probeRingHealth sends that enable command once
-    // per connection. Reset on ring disconnect so a reconnect re-arms it.
+    // Per-session write sequence plus acknowledged command-session state. A
+    // successful GATT write is not enough: under competing-central contention
+    // the write can complete while the R1 never accepts pairAuth. Only its
+    // canonical statusAck opens health polling for this connection generation.
     private int ringWriteSeq = 0;
-    private boolean ringHealthProbeSent = false;
+    private boolean ringHealthSessionEstablished = false;
+    private int ringPairAuthAckGeneration = -1;
+    private int ringPairAuthPendingGeneration = -1;
     // packetAck cursors are captured on the BLE callback and drained only by
     // the communicator worker, so notify handling never performs a nested write.
     private static final class RingPacketAckCursor {
@@ -138,6 +144,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         ringConnectionGeneration++;
         ringOperationGate.retire();
         ringPacketAckQueue.clear();
+        ringLock.notifyAll();
     }
     // Identity of the current two-arm connection attempt. Arm callbacks and
     // teardown invalidate an in-flight attempt before it can resurrect a ready
@@ -1619,6 +1626,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             if (BleProtocol.R1_NOTIFY_CHAR_UUID.equals(uuid)) {
                 // Health/command channel: hand the raw frame to the JS decode
                 // path (app/health) for reassembly and state.health population.
+                acceptRingPairAuthAck(data, generation);
                 queueRingPacketAck(data, generation);
                 emitRingHealthFrame(shortCharUuid(uuid), hex(data), generation);
             }
@@ -1735,7 +1743,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                 ringConnected = false;
                 ringNotificationsReady = false;
                 ringBattery = -1;
-                ringHealthProbeSent = false;
+                ringHealthSessionEstablished = false;
+                ringPairAuthAckGeneration = -1;
+                ringPairAuthPendingGeneration = -1;
                 connectionHealth.setR1State(hasRingAddress() ? "idle" : "not-configured");
                 invalidateRingPacketAckStateLocked();
                 ringReconnectAfterMs = SystemClock.elapsedRealtime()
@@ -1764,7 +1774,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         ringNotificationsReady = false;
         if (!connected) {
             ringBattery = -1;
-            ringHealthProbeSent = false;
+            ringHealthSessionEstablished = false;
+            ringPairAuthAckGeneration = -1;
+            ringPairAuthPendingGeneration = -1;
             lastRingHealthPollMs = 0;
             lastRingCurrentHrPollMs = 0;
             invalidateRingPacketAckStateLocked();
@@ -1997,7 +2009,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             ringConnected = false;
             ringNotificationsReady = false;
             ringBattery = -1;
-            ringHealthProbeSent = false;
+            ringHealthSessionEstablished = false;
+            ringPairAuthAckGeneration = -1;
+            ringPairAuthPendingGeneration = -1;
             lastRingHealthPollMs = 0;
             lastRingCurrentHrPollMs = 0;
             invalidateRingPacketAckStateLocked();
@@ -2053,7 +2067,11 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
 
         boolean phoneNotify = enableRingNotification(BleProtocol.R1_PHONE_NOTIFY_CHAR_UUID);
         boolean dataNotify = enableRingNotification(BleProtocol.R1_NOTIFY_CHAR_UUID);
-        if (!phoneNotify && !dataNotify) {
+        // bae80013 is the command-response and rich-health channel. Treating a
+        // phone-notify-only subscription as "ready" strands the health worker:
+        // its writes can start, but pairAuth and every daily response are
+        // unobservable, so no amount of polling can populate health state.
+        if (!dataNotify) {
             throw new RingFailureException(ConnectionHealthTracker.Failure.PROTOCOL);
         }
 
@@ -2065,13 +2083,20 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                         || ringAttemptGeneration != ringConnectionGeneration) {
                     throw new IllegalStateException("ring connect cancelled");
                 }
+                // A replacement GATT always needs a new acknowledged pairAuth,
+                // including replacements caused by a G2-side hard failure whose
+                // retired ring callback may never have reached us.
+                ringHealthSessionEstablished = false;
+                ringPairAuthAckGeneration = -1;
+                ringPairAuthPendingGeneration = -1;
+                lastRingHealthPollMs = 0;
+                lastRingCurrentHrPollMs = 0;
                 invalidateRingPacketAckStateLocked();
                 generation = ringConnectionGeneration;
                 ringConnected = true;
                 ringNotificationsReady = true;
                 ringOperationGate.publishReady();
                 ringReconnectAfterMs = 0;
-                ringConsecutiveFailures = 0;
                 connectionHealth.setR1State("ready");
             }
         }
@@ -2194,7 +2219,8 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         synchronized (ringLock) {
             generation = ringConnectionGeneration;
             if (!isRingOperationAllowedLocked(generation)
-                    || now - lastRingHealthPollMs < RING_HEALTH_POLL_INTERVAL_MS) {
+                    || (lastRingHealthPollMs > 0
+                        && now - lastRingHealthPollMs < RING_HEALTH_POLL_INTERVAL_MS)) {
                 return;
             }
             lastRingHealthPollMs = now;
@@ -2213,7 +2239,7 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         synchronized (ringLock) {
             generation = ringConnectionGeneration;
             if (!isRingOperationAllowedLocked(generation)
-                    || !ringHealthProbeSent
+                    || !ringHealthSessionEstablished
                     || now - lastRingCurrentHrPollMs < RING_CURRENT_HR_POLL_INTERVAL_MS) {
                 return;
             }
@@ -2232,18 +2258,41 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             if (!isRingOperationAllowedLocked(generation)) {
                 return;
             }
-            openSession = !ringHealthProbeSent;
-            ringHealthProbeSent = true;
+            openSession = !ringHealthSessionEstablished;
             if (openSession) {
-                ringWriteSeq = 1; // fresh serialId per connection, like the app
+                // pairAuth is the captured fixed serial-1 frame. Generated
+                // commands must continue at serial 2 rather than reusing 1.
+                ringWriteSeq = 2;
+                ringPairAuthAckGeneration = -1;
+                ringPairAuthPendingGeneration = -1;
             }
         }
         if (openSession) {
-            logLine("ring health session open — pairAuth + enable; NEEDS exclusive ring (stop com.even.sg). watch bae80013");
+            logLine("opening ring health session — pairAuth + enable; NEEDS exclusive ring (stop com.even.sg). watch bae80013");
             // pairAuth: verbatim golden frame (CRC-32 verified) opens the command session.
-            if (!sendRawRingFrameForGeneration(generation, "pairAuth (session open)",
-                    hexToBytes("00971953f964016401000000080d003f0101"))) return;
-            if (!ringProbeGap(generation) || !ringProbeGap(generation)) return;
+            synchronized (ringLock) {
+                if (!isRingOperationAllowedLocked(generation)) return;
+                // Arm before the GATT write so a synchronous notification is
+                // accepted, while a delayed serial-1 ACK that arrived before
+                // this fresh request can never establish the new session.
+                ringPairAuthPendingGeneration = generation;
+            }
+            boolean pairAuthAcknowledged = false;
+            try {
+                if (!sendRawRingFrameForGeneration(generation, "pairAuth (session open)",
+                        hexToBytes("00971953f964016401000000080d003f0101"))) return;
+                pairAuthAcknowledged = awaitRingPairAuthAck(generation);
+            } finally {
+                synchronized (ringLock) {
+                    if (ringPairAuthPendingGeneration == generation) {
+                        ringPairAuthPendingGeneration = -1;
+                    }
+                }
+            }
+            if (!pairAuthAcknowledged) {
+                throw new RingFailureException(ConnectionHealthTracker.Failure.PROTOCOL);
+            }
+            if (!ringProbeGap(generation)) return;
             // Safe read-only metadata request. The deviceInfo ack's first
             // NUL-padded 16-byte ASCII field is the ring firmware version.
             if (!sendRingCommandForGeneration(generation,
@@ -2269,8 +2318,15 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             // carry a local-midnight day anchor. Failure never blocks health GETs.
             int timezoneOffsetMinutes = TimeZone.getDefault().getOffset(nowMs) / 60_000;
             byte[] clockPayload = FaceclawRingClock.encode(epochSec, timezoneOffsetMinutes);
-            sendRingCommandForGeneration(generation,
-                    "systemTime SET", 0x01, 0x00, 0x05, 0x02, clockPayload);
+            try {
+                sendRingCommandForGeneration(generation,
+                        "systemTime SET", 0x01, 0x00, 0x05, 0x02, clockPayload);
+            } catch (RingFailureException optionalClockFailure) {
+                // systemTime is optional metadata. Keep the health transaction
+                // moving; the first mandatory GET below remains authoritative
+                // and will retire a genuinely broken current-generation GATT.
+                logLine("ring systemTime SET failed (best-effort); continuing health poll");
+            }
             logLine("ring systemTime SET best-effort; write failures are logged; continuing health poll");
             if (!ringProbeGap(generation)) return;
         }
@@ -2279,6 +2335,14 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         // subCmd=deviceStatus(1); status=3 response carries percent in data[0].
         if (!sendRingCommandForGeneration(generation,
                 "deviceStatus GET (battery)", 0x01, 0x00, 0x01, 0x00, null)) return;
+        synchronized (ringLock) {
+            if (isRingOperationAllowedLocked(generation) && ringHealthSessionEstablished) {
+                // Do not forgive contention/auth failures merely because GATT
+                // notifications subscribed. Reset backoff only after a fresh
+                // pairAuth ACK and the first mandatory health-session write.
+                ringConsecutiveFailures = 0;
+            }
+        }
         if (!ringProbeGap(generation)) return;
         // Health data GETs (re-fired every poll): module=health(2), subCmd=daily(1),
         // status=req, no payload. cmd: heartRate=1 spo2=2 hrv=4 activity=5 sleep=6.
@@ -2320,6 +2384,66 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             // spacing; lifecycle cancellation is distinguished by generation.
             drainRingPacketAcks();
         }
+    }
+
+    /**
+     * Accept only the canonical successful reply to the fixed pairAuth request
+     * (serial 1). A GATT write callback proves delivery to Android's controller,
+     * not acceptance by the R1 command session; this response is the authority.
+     */
+    private void acceptRingPairAuthAck(byte[] frame, int generation) {
+        if (!isSuccessfulRingPairAuthAck(frame)) return;
+        synchronized (ringLock) {
+            if (!isRingOperationAllowedLocked(generation)
+                    || ringPairAuthPendingGeneration != generation) return;
+            ringHealthSessionEstablished = true;
+            ringPairAuthAckGeneration = generation;
+            ringPairAuthPendingGeneration = -1;
+            ringLock.notifyAll();
+        }
+        logDirectRingLine("direct ring pairAuth acknowledged", generation);
+    }
+
+    private boolean awaitRingPairAuthAck(int generation) {
+        long deadlineMs = SystemClock.elapsedRealtime() + RING_PAIR_AUTH_ACK_TIMEOUT_MS;
+        synchronized (ringLock) {
+            while (isRingOperationAllowedLocked(generation)
+                    && ringPairAuthPendingGeneration == generation
+                    && ringPairAuthAckGeneration != generation) {
+                long remainingMs = deadlineMs - SystemClock.elapsedRealtime();
+                if (remainingMs <= 0) break;
+                try {
+                    ringLock.wait(remainingMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            return isRingOperationAllowedLocked(generation)
+                && ringPairAuthAckGeneration == generation
+                && ringHealthSessionEstablished;
+        }
+    }
+
+    private static boolean isSuccessfulRingPairAuthAck(byte[] frame) {
+        if (frame == null || frame.length != 18 || (frame[0] & 0xff) != 0x00
+                || (frame[5] & 0xff) != 0x64 || (frame[6] & 0xff) != 0x01
+                || (frame[7] & 0xff) != 0x64) {
+            return false;
+        }
+        int innerLen = (frame[13] & 0xff) | ((frame[14] & 0xff) << 8);
+        if (innerLen != 13 || frame.length != 5 + innerLen) return false;
+        int storedCrc = (frame[1] & 0xff) | ((frame[2] & 0xff) << 8)
+            | ((frame[3] & 0xff) << 16) | ((frame[4] & 0xff) << 24);
+        if (storedCrc != ringCrc32(frame, 5, innerLen)) return false;
+        int storedInnerCrc = (frame[15] & 0xff) | ((frame[16] & 0xff) << 8);
+        if (storedInnerCrc != ringIncomingCrc16Modbus(frame, 5, innerLen)) return false;
+        int serial = (frame[8] & 0xff) | ((frame[9] & 0xff) << 8);
+        return serial == 1
+            && (frame[10] & 0xff) == 0x03
+            && (frame[11] & 0xff) == 0x00
+            && (frame[12] & 0xff) == 0x08
+            && (frame[17] & 0xff) == 0x00;
     }
 
     /**
@@ -2419,10 +2543,22 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
                     ConnectionOptions.WRITE_TIMEOUT_MS
                 ));
             logLine("direct ring " + label + " write " + (ok ? "ok" : "failed"));
-            return ok;
+            if (!ok) {
+                // A failed current-generation GATT write must retire this
+                // connection. BluetoothGatt can already have been invalidated
+                // without a current callback, otherwise leaving R1 "ready"
+                // forever while every later poll targets a missing handle.
+                throw new RingFailureException(ConnectionHealthTracker.Failure.TRANSPORT);
+            }
+            return true;
+        } catch (RingFailureException failure) {
+            throw failure;
         } catch (Throwable t) {
+            synchronized (ringLock) {
+                if (!isRingOperationAllowedLocked(generation)) return false;
+            }
             logLine("direct ring " + label + " write error");
-            return false;
+            throw new RingFailureException(classifyRingFailure(t));
         }
     }
 
@@ -2583,6 +2719,24 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
             c ^= ((c & 0xff) << 5) & 0xffff;
         }
         return c & 0xffff;
+    }
+
+    // Incoming R1 rich/status frames use CRC-16/MODBUS, unlike the outbound
+    // CCITT builder above. Their crc slot is inner[10..11] and is treated as
+    // zero while calculating, matching the captured official-app responses.
+    private static int ringIncomingCrc16Modbus(byte[] data, int off, int len) {
+        int crc = 0xffff;
+        for (int i = 0; i < len; i++) {
+            int innerIndex = i;
+            int value = (innerIndex == 10 || innerIndex == 11)
+                ? 0
+                : (data[off + i] & 0xff);
+            crc ^= value;
+            for (int bit = 0; bit < 8; bit++) {
+                crc = (crc & 1) != 0 ? (crc >>> 1) ^ 0xa001 : crc >>> 1;
+            }
+        }
+        return crc & 0xffff;
     }
 
     private static byte[] hexToBytes(String hex) {
@@ -4027,7 +4181,9 @@ public class FaceclawBleCommunicator implements FaceclawBleListener, Runnable {
         ringNotificationsReady = false;
         ringBattery = -1;
         ringWriteSeq = 0;
-        ringHealthProbeSent = false;
+        ringHealthSessionEstablished = false;
+        ringPairAuthAckGeneration = -1;
+        ringPairAuthPendingGeneration = -1;
         lastRingHealthPollMs = 0;
         lastRingCurrentHrPollMs = 0;
         invalidateRingPacketAckStateLocked();

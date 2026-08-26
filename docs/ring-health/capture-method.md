@@ -76,10 +76,10 @@ authorises it.
 5. Write a public-safe note stating what was proven, what remains inferred, and
    which exact evidence is still missing.
 
-For sleep, the required missing evidence is a complete CRC-valid type-1 command-6
-notification correlated to the matching non-empty-stage `ring1Notify` row, plus
-proof of the absolute time-base handoff. Type-2 interval frames alone are not
-sufficient to implement sleep decoding.
+For any future type-2 sleep work, the missing evidence is still proof of its
+absolute time-base handoff. The implemented type-1 summary/stage decoder does not
+make relative type-2 endpoints safe to reinterpret; type-2 interval frames alone
+remain insufficient.
 
 ## Restore and close
 

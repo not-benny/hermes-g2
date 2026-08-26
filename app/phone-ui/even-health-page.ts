@@ -11,10 +11,12 @@ export function navigatingTo(args: EventData): void {
 
 export function loaded(args: EventData): void {
   const page = args.object as Page;
-  // Build the readiness ring gauge once the AbsoluteLayout mount exists.
-  (page.bindingContext as EvenHealthViewModel | undefined)?.buildRing(page);
+  (page.bindingContext as EvenHealthViewModel | undefined)?.activate(page);
 }
 
-// Health tab root: keep the VM (and its ring-store subscription) alive across
-// tab-unload, since navigatingTo does not re-fire on tab return.
-export function unloaded(_args: EventData): void {}
+// NativeScript retains the tab root VM while unloading distant tabs. Release
+// its listeners/timer while hidden; loaded() reactivates and refreshes it from
+// the process-wide store because navigatingTo does not re-fire on tab return.
+export function unloaded(args: EventData): void {
+  (args.object as Page).bindingContext?.deactivate?.();
+}

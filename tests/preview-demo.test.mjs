@@ -17,7 +17,9 @@ test("preview mode seeds anonymous demo health on boot, only in preview", () => 
   assert.match(demo, /if \(!isPreviewOnlyMode\(\)\) return;/); // gated on preview
   // Seeds the canonical store the real app reads (so charts/tiles/HUD light up).
   assert.match(demo, /ringHealthStore\.seedMock/);
-  assert.match(demo, /replaceHealthDocument\(\{ history: demoHistory\(nowMs\), hourly: demoHourly\(nowMs\), activity: null \}\)/);
+  assert.match(demo, /replaceHealthDocument\(\{[\s\S]*history: demoHistory\(nowMs\)[\s\S]*sleep: demoSleep\(nowMs\)/);
+  assert.match(demo, /score: 84/);
+  assert.match(demo, /bodyTemperatureDeciC: 345/);
   assert.match(demo, /if \(result\.ok\) ApplicationSettings\.setBoolean\(DEMO_FLAG, true\)/);
   assert.doesNotMatch(demo, /ApplicationSettings\.setString/);
 });

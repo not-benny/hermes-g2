@@ -67,7 +67,7 @@
                        visibility="{{ hrChartVisibility }}" />
             </StackLayout>
 
-            <!-- [D] sleep (gated) -->
+            <!-- [D] latest complete sleep summary -->
             <StackLayout class="card m-t-12">
                 <Label text="SLEEP" class="section-label" />
                 <StackLayout visibility="{{ sleepLockedVisibility }}" class="m-t-4">
@@ -76,8 +76,20 @@
                 </StackLayout>
                 <StackLayout visibility="{{ sleepFullVisibility }}" class="m-t-4">
                     <GridLayout columns="auto,*">
-                        <Label col="0" text="{{ sleepScoreLabel }}" class="hr-big" />
-                        <Label col="1" text="{{ sleepDurationLabel }}" class="muted" verticalAlignment="bottom" horizontalAlignment="right" />
+                        <StackLayout col="0">
+                            <Label text="{{ sleepScoreLabel }}" class="hr-big" />
+                            <Label text="{{ sleepScoreSourceLabel }}" class="chart-caption" />
+                        </StackLayout>
+                        <StackLayout col="1" horizontalAlignment="right" verticalAlignment="center">
+                            <Label text="{{ sleepDurationLabel }}" class="value" horizontalAlignment="right" />
+                            <Label text="{{ sleepEfficiencyLabel }}" class="muted" horizontalAlignment="right" />
+                        </StackLayout>
+                    </GridLayout>
+                    <GridLayout rows="auto,auto" columns="*,*" class="m-t-8">
+                        <Label row="0" col="0" text="{{ sleepAwakeLabel }}" class="muted" fontSize="12" />
+                        <Label row="0" col="1" text="{{ sleepRemLabel }}" class="muted" fontSize="12" textAlignment="right" />
+                        <Label row="1" col="0" text="{{ sleepLightLabel }}" class="muted" fontSize="12" />
+                        <Label row="1" col="1" text="{{ sleepDeepLabel }}" class="muted" fontSize="12" textAlignment="right" />
                     </GridLayout>
                 </StackLayout>
             </StackLayout>

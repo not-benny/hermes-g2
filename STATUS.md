@@ -20,9 +20,11 @@ flash or recovery action. The interaction contract is voice-initiated but
 visual-first: structured results lead on the lenses, with speech/plain text as
 the short fallback rather than the primary surface.
 
-This phase is about proving that loop in daily use. It is not a public Android
-release, a generic MCP platform, a firmware product, or a mandate to finish every
-experimental feature in the repository.
+This phase is about proving that loop in daily use. It is not a supported public
+Android release, a generic MCP platform, a firmware product, or a mandate to
+finish every experimental feature in the repository. Main-branch CI may publish
+an owner-preview APK for convenience; that artifact remains unsupported and
+non-production.
 
 ## Canonical repository state
 
@@ -33,7 +35,7 @@ experimental feature in the repository.
 | Android identity     | `versionCode 1000003`, `versionName 1.0.0-preview.3`; this identifies the next internal candidate, not a published release                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Pull requests        | One focused PR at a time, based on current `main`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Active work          | [Issue #59](https://github.com/not-benny/hermes-g2/issues/59) only: prove the real owner Hermes loop                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Publication          | Source repositories and the source-pinned installer are public. Distribution prerelease [`v0.1.1`](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.1), from distribution `main` commit `7c7f9d685c53b3ef374d9ee2716ee434c860dc74`, passed independent tagged-checkout, fresh-install, and update-install review. The installed Android input is retained by `distribution-v0.1.1-android-source`. Protected APK publication remains disabled; repository variable `PROTECTED_RELEASE_ENABLED` remains `false` |
+| Publication          | Source repositories and the source-pinned installer are public. Main pushes now publish a 30-day, owner-signed Preview 3 APK Actions artifact labelled unsupported/non-production. Distribution prerelease [`v0.1.1`](https://github.com/not-benny/hermes-g2-distribution/releases/tag/v0.1.1), from distribution `main` commit `7c7f9d685c53b3ef374d9ee2716ee434c860dc74`, passed independent tagged-checkout, fresh-install, and update-install review. The installed Android input is retained by `distribution-v0.1.1-android-source`. Protected production APK publication remains disabled; repository variable `PROTECTED_RELEASE_ENABLED` remains `false` |
 | Installed identity   | The owner Fold7 has the exact `67989dada122ab6ce04594b11e57e742441dd2dd` source upgrade installed, signed with the existing owner signer. Android preserved the package, UID, `firstInstallTime`, and app data; a warm launch succeeded with no crash markers. This is internal upgrade evidence only                                                                                                                                                                                                                               |
 
 ## Supported owner envelope
@@ -52,8 +54,9 @@ experimental feature in the repository.
   host toolsets for the owner. This local authority is separate from the
   distributable least-privilege G2 profile and fixed phone MCP allowlist.
 - When the optional R1 is connected: direct battery, firmware-version,
-  heart-rate, SpO2, HRV, activity, and calorie polling. The official Even app
-  must release its R1 connection first.
+  heart-rate, SpO2, HRV, activity, calorie, and complete type-1 sleep polling.
+  Sleep persists locally and drives freshness-bounded readiness on phone and
+  glasses. The official Even app must release its R1 connection first.
 - Phone settings, notification mirroring, glasses shell lifecycle, bounded
   rendering, and bounded wearer input within the single owner setup.
 
@@ -119,6 +122,10 @@ experimental feature in the repository.
 
 ## Implemented but not yet accepted
 
+- Strict type-1 R1 sleep decoding, latest-night persistence across app closure,
+  and phone/glasses readiness/presentation pass synthetic host tests. Type-2
+  interval-only records remain rejected. The exact owner ring still needs an
+  installed end-to-end sync check.
 - The final physical worn-glasses result path on the exact installed candidate.
   Build, signing, and upgrade-in-place are proven for
   `67989dada122ab6ce04594b11e57e742441dd2dd`, but the sleeping long-press to one
@@ -219,8 +226,10 @@ experimental feature in the repository.
   falling back to Work Tasks.
 - Fold7 unfolded, tabletop, split-screen, and TalkBack operation as a complete
   physical matrix.
-- Public-facing release mechanics. The unsigned production surface and signing
-  gates are tested, but no approved production signing identity exists.
+- Public-facing release mechanics. Main pushes produce a SHA-labelled owner-
+  signed Preview 3 APK artifact with checksums, provenance, SBOMs, and native
+  alignment evidence. The artifact is unsupported/non-production; no approved
+  production signing identity exists.
 
 These are not parallel feature tracks. A failure matters now only when it blocks
 the active owner loop or exposes a security, privacy, data-loss, or hardware risk.
@@ -228,13 +237,14 @@ the active owner loop or exposes a security, privacy, data-loss, or hardware ris
 ## Unsupported and deliberately blocked
 
 - First-time G2 or R1 pairing, provisioning, ownership transfer, or recovery.
-- R1 sleep decoding, DFU/OTA, reset, wipe, host rebinding, NVM mutation, or
+- R1 DFU/OTA, reset, wipe, host rebinding, NVM mutation, or
   power-control commands.
 - G2 firmware flashing or recovery from a release build.
-- A prebuilt public APK, production signing identity, Play Store release, or
-  broad compatibility/support claim. The reviewed source installer can build,
-  sign locally, verify, and use Android's data-preserving replacement path, but
-  it does not turn the owner preview into a supported production release.
+- A supported public APK, production signing identity, Play Store release, or
+  broad compatibility/support claim. The reviewed source installer and the
+  public owner-preview artifact can build, sign, verify, and use Android's
+  data-preserving replacement path, but neither turns the owner preview into a
+  supported production release.
   Untrusted remote rendering, HTML/CSS/script or raw-layout
   generated interfaces, arbitrary remote actions/control, raw Browser Harness
   execution, and production Home Assistant mutation remain unsupported.
@@ -252,11 +262,12 @@ plaintext token copies when the settings store initializes.
 
 ## Release posture
 
-The protected workflow must remain unable to publish while
-`PROTECTED_RELEASE_ENABLED=false`. The current owner certificate has an
-`Android Debug` subject and is not a production identity. A non-debuggable APK
-signed with it may be used only for controlled same-owner upgrade validation and
-must be labelled internal-only.
+The owner-preview workflow may publish a public, 30-day Actions artifact on
+`main`, but it must remain labelled unsupported/non-production and use only the
+existing owner certificate (`f64ccdb8…7766d4`). The protected production
+workflow must remain unable to publish while `PROTECTED_RELEASE_ENABLED=false`.
+The owner certificate has an `Android Debug` subject and is not a production
+identity; the preview artifact is for the evidenced owner setup only.
 
 Production signing and app-data migration are deferred in
 [issue #69](https://github.com/not-benny/hermes-g2/issues/69). They become active

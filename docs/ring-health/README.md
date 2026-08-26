@@ -91,7 +91,7 @@ Health commands (`module=2`, `subCmd=1`):
 | 3 | temperature | shared hourly layout; sparse |
 | 4 | HRV | confirmed and implemented |
 | 5 | activity/calories | confirmed and implemented |
-| 6 | sleep | interval evidence only; decoder blocked |
+| 6 | sleep | type-1 summary/stages implemented; type 2 rejected |
 
 System reads include `deviceStatus(0x01)` for battery and `deviceInfo(0x02)` for
 the read-only firmware version. `systemTime(0x05)` is sent once, best-effort,
@@ -143,7 +143,24 @@ as total minus active. Stale and future-day activity is rejected.
 
 ## Sleep status
 
-Three complete CRC-valid type-2 notifications establish this sanitised shape:
+A complete CRC-valid type-1 notification and independent firmware paths now
+establish the summary/stage schema. Hermes decodes absolute Unix start/end,
+timezone, ring score and efficiency, asleep/awake/REM/light/deep totals,
+optional absolute nightly body temperature (unsigned 0.1°C), and stage runs
+encoded as `(stage id, 30-second units)`. Stage ids are 0=awake, 1=REM,
+2=light/core, and 3=deep.
+
+The decoder fails closed unless the exact run-count length, canonical envelope,
+reserved bytes, ranges, absolute interval, aggregate equality, and per-stage run
+sums all agree. Firmware quantizes three stage-share bytes and constructs the
+fourth as their remainder, so those display percentages must total 100. The
+newest `endTs` wins,
+persists across closure, and can drive current phone/glasses readiness for 36
+hours. See the sanitized field table in
+[`notes/ring-sleep-frames-2026-08-20.md`](../../notes/ring-sleep-frames-2026-08-20.md).
+
+Type 2 remains a separate, rejected record form. Three complete CRC-valid
+type-2 notifications establish this sanitised shape:
 
 ```text
 [0]       record type (=2)
@@ -154,14 +171,9 @@ Three complete CRC-valid type-2 notifications establish this sanitised shape:
 ```
 
 The ordered endpoints are seconds and their spans match distinct interval-only
-`ring1Notify` rows. They are not proven epoch timestamps. The absolute base is
-not carried in those frames, and no captured type-1 frame matches the available
-stage-bearing row.
-
-Therefore score, efficiency, totals, temperature delta, stage runs, and absolute
-start/end remain unvalidated. `decodeSleep` must continue to throw and the store
-must ignore command 6 until a separately reviewed evidence and implementation
-change closes both missing gates.
+`ring1Notify` rows. They are not proven epoch timestamps and their absolute base
+is not carried in those frames. `decodeSleep` therefore accepts complete type 1
+only and rejects type 2 rather than emitting partial or guessed nights.
 
 ## Capture and privacy
 

@@ -33,7 +33,9 @@ test("native crypto helper provides HMAC-SHA256 and AES-256-CBC", () => {
 test("Even Health is a direct-BLE readiness dashboard reachable from the Health tab", () => {
   const vm = read("app/phone-ui/even-health-view-model.ts");
   const xml = read("app/phone-ui/even-health-page.xml");
+  const page = read("app/phone-ui/even-health-page.ts");
   const shell = read("app/phone-ui/shell-page.xml");
+  const coordinator = read("app/health/health-persistence-coordinator.ts");
 
   // Store-backed (not the old Even cloud), computing insights + a readiness score.
   assert.match(vm, /ringHealthStore/);
@@ -46,15 +48,30 @@ test("Even Health is a direct-BLE readiness dashboard reachable from the Health 
   assert.match(vm, /get caloriesMetricLabel\(\): string/);
   assert.match(xml, /\{\{ caloriesMetricLabel \}\}/);
   assert.match(xml, /\{\{ caloriesSourceLabel \}\}/);
-  // Historic logging + JSON export are wired from the tab.
-  assert.match(vm, /recordHealthDay/);
+  // The optional tab is read-only. Process-wide persistence must not depend on
+  // constructing this view model during an overnight/background session.
+  assert.doesNotMatch(vm, /recordHealthDay/);
+  assert.doesNotMatch(vm, /recordHourly/);
+  assert.match(coordinator, /export class RingHealthPersistenceCoordinator/);
+  assert.match(coordinator, /this\.persistence\.recordHourly/);
+  assert.match(coordinator, /this\.persistence\.recordHealthDay/);
+  assert.match(coordinator, /restoreInto\(store: RestorableRingHealthStore\)/);
+  // JSON export remains an explicit action in the tab.
   assert.match(vm, /shareHealthJson/);
   assert.match(vm, /toolRegistry\.fireToolsChanged\(\)/);
-  assert.doesNotMatch(vm, /pushHealthToHermes|HERMES_PUSH_INTERVAL_MS|setInterval|hermesTimer/);
-  // Hourly accumulation: each poll persists its hours and the tab reads back the
-  // accumulated day (survives empty polls + relaunches), not just the live poll.
-  assert.match(vm, /recordHourly/);
+  assert.doesNotMatch(vm, /pushHealthToHermes|HERMES_PUSH_INTERVAL_MS|hermesTimer/);
+  // Hourly accumulation is process-wide; the tab reads back the accumulated day
+  // (survives empty polls + relaunches), not just the live poll.
   assert.match(vm, /hourlyForDay/);
+  assert.match(vm, /sleepSessionFromRing\(this\.health\.sleep, nowMs\)/);
+  // A retained tab must still advance with wall time when the ring is silent:
+  // returning/resuming refreshes the pruned store snapshot, while a visible
+  // minute tick crosses midnight and the bounded sleep-readiness expiry.
+  assert.match(page, /\.activate\(page\)/);
+  assert.match(page, /\.deactivate\?\.\(\)/);
+  assert.match(vm, /Application\.resumeEvent/);
+  assert.match(vm, /DISPLAY_FRESHNESS_INTERVAL_MS = 60_000/);
+  assert.match(vm, /this\.health = ringHealthStore\.snapshot\(\)/);
   assert.match(vm, /hrHours\(\)/); // insights + chart read the accumulated hours
   assert.match(xml, /Export JSON/);
   assert.doesNotMatch(xml, /Export CSV/); // consolidated to a single JSON export
@@ -72,9 +89,22 @@ test("Even Health is a direct-BLE readiness dashboard reachable from the Health 
   assert.match(persisted, /HEALTH_STORE_KEY = "health\.store\.v1"/);
   assert.match(persisted, /export const loadActivity/);
   assert.match(persisted, /export const recordActivity/);
+  assert.match(persisted, /export const loadSleep/);
+  assert.match(persisted, /export const recordSleep/);
   const controller = read("app/g2/dashboard-controller.ts");
-  assert.match(controller, /ringHealthStore\.restoreActivity\(loadActivity\(\)\)/);
-  assert.match(controller, /recordActivity\(snapshot\.activity\)/);
+  assert.match(controller, /new RingHealthPersistenceCoordinator/);
+  assert.match(controller, /this\.healthPersistenceCoordinator\.restoreInto\(ringHealthStore\)/);
+  assert.match(controller,
+    /ringHealthStore\.onChange\(\(snapshot\) => \{\s*if \(isRingHealthPersistenceIdentityReady\(loadDeviceAddresses\(\)\.ring\)\) \{\s*this\.healthPersistenceCoordinator\.persist\(snapshot\);\s*\}\s*\}\)/,
+    "persistence consults the live verified ring-identity gate on every emission");
+  assert.match(controller, /if \(bootHealthScope\.ok\) this\.healthPersistenceCoordinator\.persist\(ringHealthStore\.snapshot\(\)\)/);
+  // Battery restores before connection using the currently saved ring identity,
+  // while a missing/mismatched identity clears stale display state.
+  assert.match(controller, /const bootRingIdentity = loadDeviceAddresses\(\)\.ring/);
+  assert.match(controller, /const bootBattery = bootHealthScope\.ok \? loadBattery\(bootRingIdentity\) : null/);
+  assert.match(controller, /ringHealthStore\.restoreBattery\(bootBattery\.percent, bootBattery\.updatedAtMs\)/);
+  assert.match(controller, /ringHealthStore\.clearBattery\(\)/);
+  assert.match(controller, /recordBattery\(ringIdentity, snapshot\.batteryPercent, snapshot\.batteryUpdatedAtMs\)/);
   const manifest = read("App_Resources/Android/src/main/AndroidManifest.xml");
   assert.match(manifest, /androidx\.core\.content\.FileProvider/);
   assert.match(manifest, /\.fileprovider/);
@@ -95,6 +125,9 @@ test("Even Health is a direct-BLE readiness dashboard reachable from the Health 
   assert.match(vm, /paintTrendChart/);
   assert.match(xml, /id="hrChart"/);
   assert.match(xml, /id="trendChart"/);
+  for (const binding of ["sleepScoreSourceLabel", "sleepEfficiencyLabel", "sleepAwakeLabel", "sleepRemLabel", "sleepLightLabel", "sleepDeepLabel"]) {
+    assert.match(xml, new RegExp(`\\{\\{ ${binding} \\}\\}`), binding);
+  }
 
   // Reachable as the Health tab of the shell.
   assert.match(shell, /title="Health"/);

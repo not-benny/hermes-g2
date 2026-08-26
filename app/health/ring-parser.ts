@@ -11,9 +11,9 @@
  * Wire format was reverse-engineered from a real capture and validated end to
  * end: every multi-packet frame reassembled and every crc32 matched its batch
  * id. Temperature has no separate record (it rides the stride-9 hourly layout);
- * captured sleep interval records still lack a validated absolute reference and
- * stage-bearing layout, so sleep remains a marked fail-closed stub rather than
- * being guessed.
+ * type-1 sleep summaries have also been validated against the ring firmware and
+ * a complete overnight capture. Type-2 interval-only records still lack an
+ * absolute time base and are deliberately rejected.
  */
 
 /** A byte source: anything indexable that yields 0..255 values. */
@@ -110,6 +110,36 @@ export interface RingDailyData<T = RingHealthSample> {
 
 export interface RingActivityData extends RingDailyData<RingActivitySample> {
   current: null;
+}
+
+/** Firmware stage ids used by a type-1 sleep summary. */
+export type RingSleepStageType = 0 | 1 | 2 | 3;
+
+/** One run in the firmware's compact hypnogram (duration units are 30 seconds). */
+export interface RingSleepStageRun {
+  /** 0=awake, 1=REM, 2=light/core, 3=deep. */
+  type: RingSleepStageType;
+  halfMinutes: number;
+}
+
+/** Protocol-verified type-1 nightly summary carried by health cmd=6. */
+export interface RingSleepData {
+  recordType: 1;
+  /** Ring-calculated sleep efficiency, percent. */
+  efficiencyPct: number;
+  /** Authoritative sleep score calculated by the ring. */
+  score: number;
+  /** Absolute nightly body/skin temperature in tenths of a degree C. */
+  bodyTemperatureDeciC: number | null;
+  timezoneOffsetMinutes: number;
+  startTs: number;
+  endTs: number;
+  totalSleepSec: number;
+  awakeSec: number;
+  remSec: number;
+  lightSec: number;
+  deepSec: number;
+  stages: RingSleepStageRun[];
 }
 
 /** Unwrapped inner-frame envelope fields. */
@@ -468,7 +498,7 @@ export function decodeRingFirmwareVersion(deviceInfoData: Bytes): string {
   return chars.join("");
 }
 
-// --- unavailable layouts (stubs) -------------------------------------------
+// --- temperature + sleep ----------------------------------------------------
 
 /**
  * There is NO separate temperature-detail record (RE conclusion, specs/
@@ -482,14 +512,138 @@ export function decodeTemperatureDetail(_payload: Bytes): never {
   throw new Error("no separate ring temperature-detail record; use the stride-9 hourly path");
 }
 
+const SLEEP_FIXED_BYTES = 32;
+const SLEEP_STAGE_BYTES = 3;
+const SLEEP_TRAILER_BYTES = 4;
+const SLEEP_MAX_SECONDS = 24 * 60 * 60;
+const SLEEP_MIN_EPOCH_SEC = 946684800; // 2000-01-01; rejects relative type-2 values.
+
+function isIntegerIn(value: unknown, min: number, max: number): value is number {
+  return Number.isInteger(value) && (value as number) >= min && (value as number) <= max;
+}
+
 /**
- * TODO: the complete sleep record layout is not yet decoded.
+ * Validate and defensively copy a decoded/persisted type-1 sleep summary.
  *
- * Three captured type-2 frames contain relative interval endpoints, but the
- * absolute reference is absent from those payloads. They carry no summary or
- * stage runs, so score, duration, temperature, and stage fields remain
- * unvalidated. Do not guess the missing base or the stage-bearing layout.
+ * This is intentionally stricter than a UI model: every aggregate must agree
+ * with both the absolute interval and the compact stage runs. It therefore
+ * cannot turn an interval-only type-2 record or partially decoded bytes into a
+ * user-visible night.
  */
-export function decodeSleep(_payload: Bytes): never {
-  throw new Error("ring sleep captured but layout/base not validated");
+export function canonicalizeRingSleepData(value: unknown): RingSleepData | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<RingSleepData>;
+  if (raw.recordType !== 1 ||
+    !isIntegerIn(raw.efficiencyPct, 0, 100) ||
+    !isIntegerIn(raw.score, 0, 100) ||
+    !isIntegerIn(raw.timezoneOffsetMinutes, -840, 840) ||
+    !isIntegerIn(raw.startTs, SLEEP_MIN_EPOCH_SEC, 0xffffffff) ||
+    !isIntegerIn(raw.endTs, SLEEP_MIN_EPOCH_SEC + 1, 0xffffffff) ||
+    !isIntegerIn(raw.totalSleepSec, 0, SLEEP_MAX_SECONDS) ||
+    !isIntegerIn(raw.awakeSec, 0, SLEEP_MAX_SECONDS) ||
+    !isIntegerIn(raw.remSec, 0, SLEEP_MAX_SECONDS) ||
+    !isIntegerIn(raw.lightSec, 0, SLEEP_MAX_SECONDS) ||
+    !isIntegerIn(raw.deepSec, 0, SLEEP_MAX_SECONDS) ||
+    !Array.isArray(raw.stages) || raw.stages.length < 1 || raw.stages.length > 255) return null;
+  if (raw.bodyTemperatureDeciC !== null &&
+    !isIntegerIn(raw.bodyTemperatureDeciC, 200, 450)) return null;
+
+  const intervalSec = raw.endTs - raw.startTs;
+  const totals = [raw.totalSleepSec, raw.awakeSec, raw.remSec, raw.lightSec, raw.deepSec] as number[];
+  if (intervalSec <= 0 || intervalSec > SLEEP_MAX_SECONDS || intervalSec % 30 !== 0 ||
+    totals.some((seconds) => seconds % 30 !== 0) ||
+    raw.totalSleepSec !== raw.remSec + raw.lightSec + raw.deepSec ||
+    intervalSec !== raw.totalSleepSec + raw.awakeSec ||
+    raw.efficiencyPct !== Math.floor(raw.totalSleepSec * 100 / intervalSec)) return null;
+
+  const stageTotals = [0, 0, 0, 0];
+  const stages: RingSleepStageRun[] = [];
+  for (const candidate of raw.stages) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const stage = candidate as Partial<RingSleepStageRun>;
+    if (!isIntegerIn(stage.type, 0, 3) || !isIntegerIn(stage.halfMinutes, 1, 0xffff)) return null;
+    if (stages.at(-1)?.type === stage.type) return null;
+    stageTotals[stage.type] += stage.halfMinutes * 30;
+    if (stageTotals[stage.type] > SLEEP_MAX_SECONDS) return null;
+    stages.push({ type: stage.type as RingSleepStageType, halfMinutes: stage.halfMinutes });
+  }
+  if (stageTotals[0] !== raw.awakeSec || stageTotals[1] !== raw.remSec ||
+    stageTotals[2] !== raw.lightSec || stageTotals[3] !== raw.deepSec) return null;
+
+  return {
+    recordType: 1,
+    efficiencyPct: raw.efficiencyPct,
+    score: raw.score,
+    bodyTemperatureDeciC: raw.bodyTemperatureDeciC,
+    timezoneOffsetMinutes: raw.timezoneOffsetMinutes,
+    startTs: raw.startTs,
+    endTs: raw.endTs,
+    totalSleepSec: raw.totalSleepSec,
+    awakeSec: raw.awakeSec,
+    remSec: raw.remSec,
+    lightSec: raw.lightSec,
+    deepSec: raw.deepSec,
+    stages,
+  };
+}
+
+/**
+ * Decode the firmware's complete type-1 cmd=6 sleep summary.
+ *
+ * Fixed fields are followed by `count` three-byte stage runs
+ * `[stage u8][duration u16 LE]` and a four-byte protocol trailer. The trailer
+ * is retained as an envelope invariant but not interpreted. Type-2 records are
+ * interval-only and lack an absolute base, so this decoder rejects them.
+ */
+export function decodeSleep(payload: Bytes): RingSleepData {
+  if (payload.length < 1) {
+    throw new Error(`ring sleep payload too short: ${payload.length} bytes`);
+  }
+  if (payload[0] !== 1) {
+    throw new Error(`unsupported ring sleep record type: ${payload[0]}`);
+  }
+  if (payload.length < SLEEP_FIXED_BYTES + SLEEP_STAGE_BYTES + SLEEP_TRAILER_BYTES) {
+    throw new Error(`ring sleep payload too short: ${payload.length} bytes`);
+  }
+  const count = payload[30];
+  const required = SLEEP_FIXED_BYTES + count * SLEEP_STAGE_BYTES + SLEEP_TRAILER_BYTES;
+  if (count === 0 || payload.length !== required) {
+    throw new Error(`ring sleep payload length mismatch: need ${required}, got ${payload.length}`);
+  }
+  // Firmware leaves these alignment/reserved bytes zero in the type-1 schema.
+  if (payload[3] !== 0 || payload[31] !== 0) {
+    throw new Error("ring sleep reserved bytes are non-zero");
+  }
+  // The firmware quantizes three stage shares and constructs byte 4 as their
+  // remainder from 100, so the four display percentages sum exactly. Duration
+  // totals/runs below remain the stronger semantic integrity check.
+  const stagePercentages = [payload[4], payload[5], payload[6], payload[7]];
+  if (stagePercentages.some((value) => value > 100) ||
+    stagePercentages.reduce((sum, value) => sum + value, 0) !== 100) {
+    throw new Error("ring sleep stage percentages are invalid");
+  }
+
+  const stages: RingSleepStageRun[] = [];
+  for (let index = 0; index < count; index++) {
+    const offset = SLEEP_FIXED_BYTES + index * SLEEP_STAGE_BYTES;
+    stages.push({ type: payload[offset] as RingSleepStageType, halfMinutes: u16le(payload, offset + 1) });
+  }
+  const bodyTemperatureRaw = u16le(payload, 8);
+  const decoded = canonicalizeRingSleepData({
+    recordType: 1,
+    efficiencyPct: payload[1],
+    score: payload[2],
+    bodyTemperatureDeciC: bodyTemperatureRaw === 0 ? null : bodyTemperatureRaw,
+    timezoneOffsetMinutes: i16le(payload, 10),
+    startTs: u32le(payload, 12),
+    endTs: u32le(payload, 16),
+    totalSleepSec: u16le(payload, 20),
+    awakeSec: u16le(payload, 22),
+    remSec: u16le(payload, 24),
+    lightSec: u16le(payload, 26),
+    deepSec: u16le(payload, 28),
+    stages,
+  });
+  if (!decoded) throw new Error("ring sleep summary invariants failed");
+  return decoded;
 }

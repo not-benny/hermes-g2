@@ -14,7 +14,7 @@
  * capture confirms them, so the module tolerates any input being absent.
  */
 
-import type { RingHealthSample, RingHrvSample, RingActivitySample } from "./ring-parser";
+import type { RingHealthSample, RingHrvSample, RingActivitySample, RingSleepData } from "./ring-parser";
 
 export interface MetricBaseline {
   mean: number;
@@ -33,6 +33,8 @@ export interface SleepSession {
   remMin: number | null;
   awakeMin: number | null;
   efficiencyPct: number | null;
+  /** Protocol-provided ring score; derived scoring is only a fallback. */
+  sourceScore?: number | null;
   /** Data confidence: none (undecoded), duration-only, or full stage breakdown. */
   available: "none" | "duration-only" | "full";
 }
@@ -70,7 +72,30 @@ export interface SleepInsights {
   efficiencyPct: number | null;
   stages: { awakeMin: number; lightMin: number; deepMin: number; remMin: number } | null;
   score: number | null;
+  scoreSource: "ring" | "derived" | null;
   available: "none" | "duration-only" | "full";
+}
+
+/** A night older than this remains history, but cannot drive current readiness. */
+export const SLEEP_READINESS_MAX_AGE_MS = 36 * 60 * 60 * 1000;
+
+/** Project the lossless protocol record into the UI/readiness sleep contract. */
+export function sleepSessionFromRing(sleep: RingSleepData | null, nowMs = Date.now()): SleepSession | null {
+  if (!sleep || sleep.endTs * 1000 > nowMs + 5 * 60 * 1000 ||
+    sleep.endTs * 1000 < nowMs - SLEEP_READINESS_MAX_AGE_MS) return null;
+  return {
+    startTs: sleep.startTs,
+    endTs: sleep.endTs,
+    totalSleepMin: sleep.totalSleepSec / 60,
+    timeInBedMin: (sleep.endTs - sleep.startTs) / 60,
+    deepMin: sleep.deepSec / 60,
+    lightMin: sleep.lightSec / 60,
+    remMin: sleep.remSec / 60,
+    awakeMin: sleep.awakeSec / 60,
+    efficiencyPct: sleep.efficiencyPct,
+    sourceScore: sleep.score,
+    available: "full",
+  };
 }
 
 export interface TemperatureInsights {
@@ -106,6 +131,11 @@ function clamp01(x: number): number {
 }
 function mean(xs: number[]): number {
   return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+}
+function sourceSleepScore(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100
+    ? Math.round(value)
+    : null;
 }
 
 // --- heart-rate insights -----------------------------------------------------
@@ -153,15 +183,19 @@ export function heartRateInsights(i: InsightInputs): HeartRateInsights {
 export function sleepInsights(i: InsightInputs): SleepInsights {
   const s = i.sleep;
   if (!s || s.available === "none") {
-    return { totalSleepMin: null, timeInBedMin: null, efficiencyPct: null, stages: null, score: null, available: "none" };
+    return { totalSleepMin: null, timeInBedMin: null, efficiencyPct: null, stages: null, score: null, scoreSource: null, available: "none" };
   }
   const target = i.targets?.sleepMin ?? 480;
   const total = s.totalSleepMin;
+  const ringScore = sourceSleepScore(s.sourceScore);
   if (s.available === "duration-only" || s.deepMin === null || s.lightMin === null || s.remMin === null || s.awakeMin === null) {
     const durationScore = total !== null ? clamp01(total / target) * 100 : null;
     return {
       totalSleepMin: total, timeInBedMin: s.timeInBedMin, efficiencyPct: s.efficiencyPct,
-      stages: null, score: durationScore === null ? null : Math.round(durationScore), available: "duration-only",
+      stages: null,
+      score: ringScore ?? (durationScore === null ? null : Math.round(durationScore)),
+      scoreSource: ringScore !== null ? "ring" : durationScore === null ? null : "derived",
+      available: "duration-only",
     };
   }
   const stages = { awakeMin: s.awakeMin, lightMin: s.lightMin, deepMin: s.deepMin, remMin: s.remMin };
@@ -171,12 +205,15 @@ export function sleepInsights(i: InsightInputs): SleepInsights {
   const efficiencyScore = clamp((eff - 75) / (95 - 75), 0, 1) * 100;
   const deepRemScore = clamp((stages.deepMin + stages.remMin) / (0.4 * Math.max(1, totalMin)), 0, 1) * 100;
   const restfulnessScore = clamp(1 - stages.awakeMin / 60, 0, 1) * 100;
-  const score = weightedRenorm([
+  const derivedScore = weightedRenorm([
     [durationScore, 0.4], [efficiencyScore, 0.2], [deepRemScore, 0.25], [restfulnessScore, 0.15],
   ]);
   return {
     totalSleepMin: totalMin, timeInBedMin: s.timeInBedMin, efficiencyPct: Math.round(eff),
-    stages, score: Math.round(score), available: "full",
+    stages,
+    score: ringScore ?? Math.round(derivedScore),
+    scoreSource: ringScore === null ? "derived" : "ring",
+    available: "full",
   };
 }
 

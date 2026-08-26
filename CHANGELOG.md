@@ -185,7 +185,10 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
 - Current HR refreshes through a lightweight 15-second HR-only request; full multi-metric polling remains slower and separate.
 - Daily vital decoding validates signed timezone, local-midnight day base, independent current timestamp, record count, and envelope/CRC boundaries. Invalid metadata preserves permitted readings without inventing timestamps.
 - Activity ingestion rejects malformed, stale, future-day, wrong-status, wrong-subcommand, and bad-CRC frames; deterministic clocks prevent date-sensitive test failures.
-- Sleep research now confirms three type-2 relative start/end intervals in seconds. Full sleep decoding still fails closed because the absolute base and type-1 summary/stage layout are not proven.
+- Complete type-1 sleep summaries now decode fail-closed and persist across app
+  closure: ring score/efficiency, absolute interval, stage totals/runs, timezone,
+  and optional nightly temperature feed freshness-bounded phone/glasses
+  readiness. Relative type-2 records remain rejected.
 - Direct-ring contention and reconnect UI now explains the Even hand-off and exposes bounded retry behaviour.
 
 ### Verification evidence
@@ -205,7 +208,9 @@ This changelog records user-visible work in the Hermes G2 1.0.0 development-prev
 ### Known limitations
 
 - The official Even app remains required for first-time provisioning and official maintenance. It must release Bluetooth before Hermes can hold the glasses and R1 sessions.
-- Sleep decoding remains a throwing stub. Skin temperature is sparse/daily, and R1 heart rate is current/hourly rather than a per-beat stream.
+- Type-2 sleep remains unavailable because its absolute base is unknown. Type-1
+  nightly temperature is sparse, and R1 heart rate is current/hourly rather
+  than a per-beat stream.
 - WhatsApp self-service pairing remains blocked by the upstream Baileys `link_code_companion_reg` 400 regression.
 - The complete wakeword → authenticated private bridge → agent → tool → reply path still needs end-to-end validation in the intended private deployment.
 - Public `glasses.render_view`, a published Hermes G2 skill, R1 provisioning independence, and destructive firmware/recovery operations are unavailable.
