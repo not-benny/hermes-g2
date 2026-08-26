@@ -220,6 +220,47 @@ test("post-failure status arriving before its matching snapshot cannot mutate th
   assert.equal(sent.length, 1);
 });
 
+test("an unknown steer keeps global commands closed through pre-outcome snapshot and status responses", () => {
+  const sent = [];
+  const commandIds = ["command_unknown_steer_123", "command_after_epoch_123"];
+  const controller = new AgentCockpitController((command) => {
+    sent.push(command);
+    return true;
+  }, {
+    createCommandId: () => commandIds.shift(),
+    requestResync: () => true,
+  });
+  synchronize(controller);
+
+  const commandId = controller.steer(session.session_id, session.generation, "Use focused tests");
+  assert.equal(commandId, "command_unknown_steer_123");
+  assert.equal(controller.handleCommandOutcome({
+    commandId,
+    sessionId: session.session_id,
+    generation: session.generation,
+    outcome: "outcome_unknown",
+    code: "receipt_timeout",
+  }, 2), true);
+
+  assert.equal(controller.handleFrame(snapshot, 1), true,
+    "a snapshot read begun before the unknown outcome may restore only read-only projection state");
+  assert.equal(controller.handleMcpStatus(status), true,
+    "a racing status response may restore its raw capability observation");
+  assert.equal(controller.snapshot().commandsAvailable, false,
+    "neither pre-outcome response can reopen global mutation authority");
+  assert.equal(controller.steer(session.session_id, session.generation, "Do not send yet"), null);
+  assert.equal(controller.interrupt(session.session_id, session.generation), null,
+    "the unknown steer barrier applies to every mutation, not only another steer");
+  assert.equal(sent.length, 1);
+
+  assert.equal(controller.handleFrame(snapshot, 2), true,
+    "the resource read begun after the outcome is authoritative recovery proof");
+  assert.equal(controller.snapshot().commandsAvailable, true);
+  assert.equal(controller.steer(session.session_id, session.generation, "Continue now"),
+    "command_after_epoch_123");
+  assert.equal(sent.length, 2);
+});
+
 test("a failed resync dispatch does not permanently latch recovery", () => {
   let attempts = 0;
   const controller = new AgentCockpitController(() => {}, {
