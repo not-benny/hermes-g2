@@ -388,6 +388,14 @@ test("decodeSleep treats a zero body-temperature field as unavailable", () => {
   assert.equal(decodeSleep(buildSleepPayload({ bodyTemperatureDeciC: 0 })).bodyTemperatureDeciC, null);
 });
 
+test("canonical sleep uses one stable representation for the UTC offset", () => {
+  const sleep = decodeSleep(buildSleepPayload({ timezoneOffsetMinutes: 0 }));
+  sleep.timezoneOffsetMinutes = -0;
+  const canonical = canonicalizeRingSleepData(sleep);
+  assert.equal(Object.is(canonical.timezoneOffsetMinutes, -0), false);
+  assert.equal(canonical.timezoneOffsetMinutes, 0);
+});
+
 test("decodeSleep rejects type-2, relative, truncated, and internally inconsistent records", () => {
   assert.throws(() => decodeSleep(buildSleepPayload({ recordType: 2 })), /unsupported.*type/);
   const intervalOnlyType2 = new Uint8Array(36); intervalOnlyType2[0] = 2;

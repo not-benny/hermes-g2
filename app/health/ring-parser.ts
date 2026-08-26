@@ -575,7 +575,10 @@ export function canonicalizeRingSleepData(value: unknown): RingSleepData | null 
     efficiencyPct: raw.efficiencyPct,
     score: raw.score,
     bodyTemperatureDeciC: raw.bodyTemperatureDeciC,
-    timezoneOffsetMinutes: raw.timezoneOffsetMinutes,
+    // JSON and the native settings bridge serialize -0 as 0. Canonicalize the
+    // UTC offset before it crosses that boundary so an otherwise unchanged
+    // sleep record has one stable in-memory and persisted representation.
+    timezoneOffsetMinutes: raw.timezoneOffsetMinutes === 0 ? 0 : raw.timezoneOffsetMinutes,
     startTs: raw.startTs,
     endTs: raw.endTs,
     totalSleepSec: raw.totalSleepSec,
