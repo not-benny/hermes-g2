@@ -95,6 +95,27 @@ test("untrusted pull requests cannot publish an APK as release evidence", () => 
   assert.doesNotMatch(release, /pull_request:/);
   assert.match(release, /push:\n\s+branches: \[main\]/);
   assert.match(release, /ANDROID_USER_HOME=%s[^\n]*RUNNER_TEMP[^\n]*hermes-untrusted-android/);
+  assert.match(release, /Set monotonic CI version code/);
+  assert.match(release, /HERMES_CI_VERSION_CODE=%s/);
+  const ownerPreviewJob = release.match(/\n  owner-preview-sign:\n([\s\S]*?)(?=\n  sign:)/)?.[1] ?? "";
+  assert.match(ownerPreviewJob, /name: owner-preview-release/);
+  assert.match(ownerPreviewJob, /needs: build/);
+  assert.doesNotMatch(ownerPreviewJob, /if: /);
+  assert.match(ownerPreviewJob, /ANDROID_OWNER_PREVIEW_KEYSTORE_BASE64/);
+  assert.match(ownerPreviewJob, /ANDROID_OWNER_PREVIEW_STORE_PASSWORD/);
+  assert.match(ownerPreviewJob, /ANDROID_OWNER_PREVIEW_KEY_ALIAS/);
+  assert.match(ownerPreviewJob, /ANDROID_OWNER_PREVIEW_KEY_PASSWORD/);
+  assert.match(ownerPreviewJob, /f64ccdb8d462b42c6d143cb1323350b052acebc0a5023e14d05fea86ef7766d4/);
+  assert.match(ownerPreviewJob, /hermes-g2-owner-preview-\$\{\{ github\.sha \}\}/);
+  assert.match(ownerPreviewJob, /retention-days: 30/);
+  assert.match(ownerPreviewJob, /--debuggable-apk-permitted false/);
+  assert.match(ownerPreviewJob, /verify_unsigned_container/);
+  assert.match(ownerPreviewJob, /verify_release_surface/);
+  assert.match(ownerPreviewJob, /pre-central-directory signing material/);
+  assert.match(ownerPreviewJob, /Number of signers/);
+  assert.match(ownerPreviewJob, /Verified for SourceStamp/);
+  assert.match(ownerPreviewJob, /support=owner-only-unsupported/);
+  assert.doesNotMatch(ownerPreviewJob, /actions\/checkout@|npm |gradlew|scripts\//);
   const signingJob = release.match(/\n  sign:\n([\s\S]*)/)?.[1] ?? "";
   assert.match(signingJob, /needs: build/);
   assert.match(signingJob, /if: vars\.PROTECTED_RELEASE_ENABLED == 'true'/);
@@ -127,6 +148,8 @@ test("untrusted pull requests cannot publish an APK as release evidence", () => 
 
   const verifier = read("scripts/verify-release-artifacts.sh");
   assert.match(verifier, /HERMES_SIGNING_MODE/);
+  assert.match(verifier, /HERMES_CI_VERSION_CODE/);
+  assert.match(verifier, /expected_version_code/);
   assert.match(verifier, /untrusted/);
   assert.match(verifier, /unsigned/);
   assert.match(verifier, /HERMES_ARTIFACT_VARIANT/);
@@ -176,7 +199,7 @@ test("durable PR and main CI enforce the release safety matrix", () => {
   assert.match(verifier, /llvm-readelf/);
   assert.match(verifier, /ground-truth-private/);
   assert.match(verifier, /"\$APKSIGNER" verify/);
-  assert.match(verifier, /versionCode='1000003'/);
+  assert.match(verifier, /versionCode='\$expected_version_code'/);
   assert.match(verifier, /versionName='1\.0\.0-preview\.3'/);
   assert.match(verifier, /private content in APK/);
   assert.match(verifier, /HERMES_PROTECTED_CERT_SHA256/);
@@ -197,7 +220,11 @@ test("Android native inputs and release metadata are pinned", () => {
   assert.match(gradle, /faceclawCmakeVersion = "3\.22\.1"/);
   assert.match(gradle, /MessageDigest\.getInstance\("SHA-256"\)/);
   assert.match(gradle, /\.part/);
-  assert.match(gradle, /versionCode 1000003/);
+  assert.match(gradle, /HERMES_CI_VERSION_CODE/);
+  assert.match(gradle, /hermesVersionCode = 1000003/);
+  assert.match(gradle, /toInteger\(\)/);
+  assert.match(gradle, /2100000000/);
+  assert.match(gradle, /versionCode hermesVersionCode/);
   assert.match(gradle, /versionName "1\.0\.0-preview\.3"/);
   assert.doesNotMatch(gradle, /ANDROID_SIGNING_STORE_FILE|signingConfigs\s*\{\s*debug/);
   for (const abi of ["armeabi-v7a", "x86", "x86_64"]) {

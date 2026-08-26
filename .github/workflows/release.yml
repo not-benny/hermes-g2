@@ -65,6 +65,18 @@ jobs:
         run: |
           npm sbom --sbom-format=cyclonedx > sbom.cdx.json
           npm --prefix App_Resources/Android/whatsapp-node sbom --sbom-format=cyclonedx > whatsapp-sbom.cdx.json
+      - name: Set monotonic CI version code
+        run: |
+          if [[ ! "$GITHUB_RUN_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            printf 'GitHub run number is not a positive decimal integer.\n' >&2
+            exit 1
+          fi
+          version_code=$((1000000 + GITHUB_RUN_NUMBER))
+          if (( version_code > 2100000000 )); then
+            printf 'Computed CI version code is outside the Android range.\n' >&2
+            exit 1
+          fi
+          printf 'HERMES_CI_VERSION_CODE=%s\n' "$version_code" >> "$GITHUB_ENV"
       - name: Android JDK 21 / SDK 35 unsigned release build
         run: npm run verify:release-unsigned
       - name: Verify unsigned release integrity, privacy, and debug-surface exclusion
@@ -80,6 +92,208 @@ jobs:
             build/reports/native-alignment.txt
           if-no-files-found: error
           retention-days: 1
+
+  owner-preview-sign:
+    name: owner-preview-release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Download isolated signing input
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: hermes-g2-unsigned-${{ github.sha }}
+          path: signing-input
+      - name: Sign and verify owner-preview APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_OWNER_PREVIEW_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_OWNER_PREVIEW_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_OWNER_PREVIEW_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_OWNER_PREVIEW_KEY_PASSWORD }}
+          EXPECTED_CERT_SHA256: f64ccdb8d462b42c6d143cb1323350b052acebc0a5023e14d05fea86ef7766d4
+        run: |
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_BASE64" || -z "$STORE_PASSWORD" || -z "$KEY_ALIAS" || -z "$KEY_PASSWORD" ]]; then
+            printf 'Owner preview Android signing credentials are required and must be complete.\n' >&2
+            exit 1
+          fi
+          if [[ ! "$GITHUB_RUN_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            printf 'GitHub run number is not a positive decimal integer.\n' >&2
+            exit 1
+          fi
+          version_code=$((1000000 + GITHUB_RUN_NUMBER))
+          if (( version_code > 2100000000 )); then
+            printf 'Computed CI version code is outside the Android range.\n' >&2
+            exit 1
+          fi
+          input=signing-input/platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          apk=signing-input/hermes-g2-owner-preview-${GITHUB_SHA}.apk
+          if [[ ! -f "$input" || -L "$input" ]]; then
+            printf 'Isolated signing input is missing or invalid.\n' >&2
+            exit 1
+          fi
+          APKSIGNER=/usr/local/lib/android/sdk/build-tools/35.0.1/apksigner
+          AAPT=/usr/local/lib/android/sdk/build-tools/35.0.1/aapt
+          ZIPALIGN=/usr/local/lib/android/sdk/build-tools/35.0.1/zipalign
+          if [[ ! -x "$APKSIGNER" || ! -x "$AAPT" || ! -x "$ZIPALIGN" ]]; then
+            printf 'Pinned Android artifact tools are unavailable.\n' >&2
+            exit 1
+          fi
+          verify_unsigned_container() {
+            local candidate=$1
+            python3 - "$candidate" <<'PY'
+          import struct, sys, zipfile
+
+          path = sys.argv[1]
+          with zipfile.ZipFile(path) as archive:
+              entries = archive.infolist()
+              for name in archive.namelist():
+                  upper = name.upper()
+                  if upper.startswith("META-INF/") and (
+                      upper == "META-INF/MANIFEST.MF" or upper.endswith((".SF", ".RSA", ".DSA", ".EC"))
+                  ):
+                      raise SystemExit("Signing input contains a v1 signature entry")
+          with open(path, "rb") as source:
+              source.seek(0, 2)
+              size = source.tell()
+              source.seek(max(0, size - 65557))
+              tail = source.read()
+              index = tail.rfind(b"PK\x05\x06")
+              if index < 0 or index + 20 > len(tail):
+                  raise SystemExit("Signing input has no APK end-of-central-directory record")
+              central_offset = struct.unpack_from("<I", tail, index + 16)[0]
+              if not entries:
+                  raise SystemExit("Signing input is empty")
+              last = max(entries, key=lambda entry: entry.header_offset)
+              source.seek(last.header_offset)
+              header = source.read(30)
+              if len(header) != 30 or header[:4] != b"PK\x03\x04":
+                  raise SystemExit("Signing input has an invalid local header")
+              name_length, extra_length = struct.unpack_from("<HH", header, 26)
+              data_end = last.header_offset + 30 + name_length + extra_length + last.compress_size
+              if last.flag_bits & 0x08:
+                  source.seek(data_end)
+                  descriptor_signature = source.read(4)
+                  zip64 = last.compress_size > 0xFFFFFFFF or last.file_size > 0xFFFFFFFF
+                  data_end += (24 if zip64 else 16) if descriptor_signature == b"PK\x07\x08" else (20 if zip64 else 12)
+              if data_end != central_offset:
+                  raise SystemExit("Signing input has pre-central-directory signing material")
+          PY
+            if "$APKSIGNER" verify "$candidate" >/dev/null 2>&1; then
+              printf 'Signing input must be the verified unsigned release artifact.\n' >&2
+              return 1
+            fi
+          }
+          verify_release_surface() {
+            local candidate=$1 manifest badging
+            manifest=$($AAPT dump xmltree "$candidate" AndroidManifest.xml)
+            for marker in FaceclawDebugControlReceiver com.faceclaw.app.DEBUG_CONTROL_V1 android.permission.DUMP; do
+              if [[ "$manifest" == *"$marker"* ]]; then
+                printf 'Release artifact exposes debug-only manifest surface: %s\n' "$marker" >&2
+                return 1
+              fi
+            done
+            badging=$($AAPT dump badging "$candidate")
+            if [[ "$badging" != *"package: name='com.faceclaw.app' versionCode='$version_code' versionName='1.0.0-preview.3'"* ]]; then
+              printf 'Owner preview APK has unexpected package or version metadata.\n' >&2
+              return 1
+            fi
+            if [[ "$badging" == *"application-debuggable"* ]] || [[ "$manifest" =~ android:debuggable.*0xffffffff ]]; then
+              printf 'Release artifact is debuggable.\n' >&2
+              return 1
+            fi
+            python3 - "$candidate" <<'PY'
+          import sys, zipfile
+
+          blocked_dex = (b"FaceclawDebugControlReceiver", b"com.faceclaw.app.DEBUG_CONTROL_V1")
+          blocked_js = (b"HERMES_DEBUG_CONTROL_RUNTIME_V1", b"voice.fixture", b"capture-offline", b"DebugControlHarness")
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              for name in archive.namelist():
+                  if name.startswith("classes") and name.endswith(".dex"):
+                      data = archive.read(name)
+                      if any(marker in data for marker in blocked_dex):
+                          raise SystemExit("Release artifact contains debug-only code surface")
+                  if name.startswith("assets/app/") and name.endswith(".mjs"):
+                      data = archive.read(name)
+                      if any(marker in data for marker in blocked_js):
+                          raise SystemExit("Release artifact contains debug-control JavaScript")
+          PY
+          }
+          verify_unsigned_container "$input"
+          verify_release_surface "$input"
+          cp "$input" "$apk"
+          umask 077
+          keystore="$RUNNER_TEMP/hermes-owner-preview.keystore"
+          partial="$keystore.part"
+          trap 'rm -f "$partial" "$keystore"' EXIT
+          if ! printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$partial" || [[ ! -s "$partial" ]]; then
+            printf 'Owner preview Android signing keystore is invalid.\n' >&2
+            exit 1
+          fi
+          mv "$partial" "$keystore"
+          "$APKSIGNER" sign --debuggable-apk-permitted false --ks "$keystore" --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD "$apk"
+          "$APKSIGNER" verify --verbose "$apk" >/dev/null
+          verify_release_surface "$apk"
+          cert_report=$($APKSIGNER verify --verbose --print-certs "$apk")
+          if ! parsed_cert=$(python3 -c 'import re, sys
+          digests = []
+          subjects = []
+          signer_counts = []
+          source_stamps = []
+          for raw_line in sys.stdin:
+              line = raw_line.rstrip("\r\n")
+              digest = re.fullmatch(r"Signer #(\d+) certificate SHA-256 digest: ([0-9a-fA-F]{64})", line)
+              subject = re.fullmatch(r"Signer #(\d+) certificate DN: (.+)", line)
+              signer_count = re.fullmatch(r"Number of signers: (\d+)", line)
+              source_stamp = re.fullmatch(r"Verified for SourceStamp: (true|false)", line)
+              if digest:
+                  digests.append((int(digest.group(1)), digest.group(2).lower()))
+              elif subject:
+                  subjects.append((int(subject.group(1)), subject.group(2)))
+              elif signer_count:
+                  signer_counts.append(int(signer_count.group(1)))
+              elif source_stamp:
+                  source_stamps.append(source_stamp.group(1) == "true")
+          if (len(digests) != 1 or len(subjects) != 1 or signer_counts != [1]
+                  or source_stamps != [False] or digests[0][0] != 1 or subjects[0][0] != 1):
+              raise SystemExit(1)
+          print(digests[0][1])
+          print(subjects[0][1])' <<< "$cert_report"); then
+            printf 'Owner preview APK must contain exactly one signing identity and no SourceStamp.\n' >&2
+            exit 1
+          fi
+          mapfile -t cert_fields <<< "$parsed_cert"
+          if [[ ${#cert_fields[@]} -ne 2 ]]; then
+            printf 'Owner preview APK must contain exactly one signing identity.\n' >&2
+            exit 1
+          fi
+          actual=${cert_fields[0]}
+          subject=${cert_fields[1]}
+          if [[ "$actual" != "$EXPECTED_CERT_SHA256" ]]; then
+            printf 'Owner preview APK certificate verification failed.\n' >&2
+            exit 1
+          fi
+          if [[ "${subject,,}" != *"cn=android debug"* ]]; then
+            printf 'Owner preview APK does not use the pinned owner development identity.\n' >&2
+            exit 1
+          fi
+          "$ZIPALIGN" -c -P 16 -v 4 "$apk" >/dev/null
+          unzip -t "$apk" >/dev/null
+          sha256sum "$apk" signing-input/sbom.cdx.json signing-input/whatsapp-sbom.cdx.json > SHA256SUMS
+          printf 'source=%s\nsize=%s\nversion_code=%s\nsigning_mode=owner-preview\nvariant=release\ncertificate_sha256=%s\nsupport=owner-only-unsupported\n' "$GITHUB_SHA" "$(stat -c %s "$apk")" "$version_code" "$EXPECTED_CERT_SHA256" > PROVENANCE.txt
+      - name: Upload public owner-preview artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hermes-g2-owner-preview-${{ github.sha }}
+          path: |
+            signing-input/hermes-g2-owner-preview-${{ github.sha }}.apk
+            SHA256SUMS
+            PROVENANCE.txt
+            signing-input/sbom.cdx.json
+            signing-input/whatsapp-sbom.cdx.json
+            signing-input/build/reports/native-alignment.txt
+          if-no-files-found: error
+          retention-days: 30
 
   sign:
     name: protected-release
