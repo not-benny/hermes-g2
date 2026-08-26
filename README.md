@@ -96,6 +96,8 @@ reminder, configuration, test, and release contract is in
 The owner profile SOUL contains persona and response style only; every Hermes
 workflow, command, receipt, and authority boundary is packaged in the Host,
 Device, or portable workflow MCP contracts and enforced by code or configuration.
+The public research index in [`docs/research/`](docs/research/) maps the
+protocol, hardware, UX, security, and feasibility work behind those decisions.
 The Apache-2.0 package is maintained separately as
 [`not-benny/hermes-g2-workflows`](https://github.com/not-benny/hermes-g2-workflows).
 The phone-to-Hermes bridge is also separately public under Apache-2.0 at
