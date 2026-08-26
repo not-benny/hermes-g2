@@ -37,6 +37,8 @@ const SECRET_SETTING_KEYS = new Set([
   "assistant.directNotifications.v1",
   "clock.store.v1",
   "work.tasks.store.v1",
+  "captures.store.v1",
+  "notifications.rules.v2",
 ]);
 
 function getJava(): any {

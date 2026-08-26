@@ -16,7 +16,7 @@ async function loadAssistantOverlayLifecycleHarness() {
   const shell = read("app/ui/shell/shell.ts");
   const ownershipStart = shell.indexOf("/** Opaque cards exclusively own both pixels and input");
   const ownershipEnd = shell.indexOf("/** Re-baseline idle sleep", ownershipStart);
-  const flowStart = shell.indexOf("sendToAssistant(text: string): void");
+  const flowStart = shell.indexOf("sendToAssistant(text: string");
   const flowEnd = shell.indexOf("\n  private flushPendingAssistantResult", flowStart);
   const rehideStart = shell.indexOf("private rehideAssistantOverlayForRetry(layer: AssistantLayer)");
   const rehideEnd = shell.indexOf("\n  /** Wake and strictly deliver", rehideStart);

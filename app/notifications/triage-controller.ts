@@ -7,10 +7,10 @@ import {
 import {
   notificationQuietEndSetting,
   notificationQuietStartSetting,
-  notificationRulesSetting,
   notificationTriageMetadataSetting,
   parseNotificationAppTiers,
 } from "../ui/dashboard-settings";
+import { notificationRulesStore } from "./rules-store";
 import {
   DEFAULT_NOTIFICATION_POLICY,
   hydrateNotificationTriage,
@@ -74,18 +74,14 @@ function minuteSetting(value: string, fallback: number): number {
 function configuredRules(): NotificationRule[] {
   const rules: NotificationRule[] = [];
   try {
-    const parsed = JSON.parse(notificationRulesSetting.get());
+    const parsed = notificationRulesStore.get();
     if (Array.isArray(parsed)) {
       for (const candidate of parsed.slice(0, 256)) {
-        const scope = String(candidate?.scope ?? "");
-        const tier = String(candidate?.tier ?? "");
-        if (!["sender", "channel", "category"].includes(scope)) continue;
-        if (!["mute", "digest", "immediate", "urgent"].includes(tier)) continue;
+        if (!candidate || typeof candidate !== "object") continue;
         rules.push({
-          scope: scope as NotificationRule["scope"],
-          packageName: bounded(String(candidate.packageName ?? ""), 256) || undefined,
-          value: bounded(String(candidate.value ?? ""), 128),
-          tier: tier as NotificationRule["tier"],
+          ...candidate,
+          ...(candidate.packageName ? { packageName: bounded(candidate.packageName, 256) } : {}),
+          ...(candidate.value ? { value: bounded(candidate.value, 128) } : {}),
         });
       }
     }

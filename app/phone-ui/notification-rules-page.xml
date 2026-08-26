@@ -1,0 +1,30 @@
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" unloaded="unloaded">
+    <ActionBar title="Notification Rules" />
+    <GridLayout rows="auto,auto,auto,*,auto" class="screen-content">
+        <Label row="0" text="{{ status }}" textWrap="true" class="status-banner status-info" />
+        <StackLayout row="1" class="surface-card m-t-8">
+            <Label text="Default rule" class="control-row-label" />
+            <Label text="Set the fallback tier for notifications that match no sender, channel, category, or app rule." textWrap="true" class="supporting-text m-t-4" />
+            <Button text="Add / update Default" tap="{{ onAddDefaultTap }}" class="-secondary m-t-8" />
+        </StackLayout>
+        <StackLayout row="2" class="surface-card m-t-8">
+            <Label text="App rule" class="control-row-label" />
+            <TextField text="{{ appPackage }}" hint="com.example.app" autocorrect="false" autocapitalizationType="none" class="input m-t-4" accessibilityLabel="Android package name" />
+            <Button text="Add / update app rule" tap="{{ onAddAppTap }}" class="-secondary m-t-8" />
+        </StackLayout>
+        <ListView row="3" items="{{ rules }}" class="m-t-12">
+            <ListView.itemTemplate>
+                <GridLayout columns="*,auto" rows="auto,auto,auto" class="list-row">
+                    <Label col="0" row="0" text="{{ label }}" class="list-row-title" />
+                    <Label col="0" row="1" text="{{ detail }}" class="supporting-text" textWrap="true" />
+                    <Button col="0" row="2" text="{{ tierLabel }}" tap="{{ onTierTap }}" class="-secondary m-t-4" />
+                    <Button col="1" row="0" rowSpan="3" text="Delete" tap="{{ onDeleteTap }}" class="-danger" />
+                </GridLayout>
+            </ListView.itemTemplate>
+        </ListView>
+        <GridLayout row="4" columns="*,*" class="m-t-12">
+            <Button col="0" text="Reset rules" tap="{{ onResetTap }}" class="-danger" />
+            <Button col="1" text="Back" tap="{{ onBackTap }}" class="-secondary" />
+        </GridLayout>
+    </GridLayout>
+</Page>
