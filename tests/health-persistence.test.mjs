@@ -69,7 +69,7 @@ const sleepNight = (endTs = Math.floor(NOW / 1000) - 3600) => ({
   efficiencyPct: 93,
   score: 87,
   bodyTemperatureDeciC: 344,
-  timezoneOffsetMinutes: -new Date(endTs * 1000).getTimezoneOffset(),
+  timezoneOffsetMinutes: -new Date(endTs * 1000).getTimezoneOffset() || 0,
   startTs: endTs - 480 * 60,
   endTs,
   totalSleepSec: 450 * 60,
