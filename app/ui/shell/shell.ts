@@ -11,7 +11,7 @@ import { AssistantLayer } from "./assistant";
 import { assistantReplyNeedsOverlay } from "./assistant-routing";
 import { AssistantSession, type AssistantBackendConfig } from "../../assistant/session";
 import { resolveAssistantModel } from "../../assistant/models";
-import type { AssistantContext } from "../../assistant/types";
+import type { AssistantContext, AssistantSubject } from "../../assistant/types";
 import { NotificationDigestLayer, SingleNotificationLayer } from "../notifications";
 import { assistantBridge, type AssistantBridgePhase } from "../../assistant/bridge-client";
 import {
@@ -2460,7 +2460,7 @@ class Shell {
     return llm ? { kind: "direct", llm } : null;
   }
 
-  private buildAssistantContext(): AssistantContext {
+  private buildAssistantContext(selectedSubject?: AssistantSubject): AssistantContext {
     const foreground = this.getForegroundApp();
     return {
       foregroundApp: foreground?.appId ?? null,
@@ -2468,6 +2468,7 @@ class Shell {
       screenOn: this.screenOn,
       localTime: formatAssistantTime(new Date()),
       headsetBattery: this.battery.headset,
+      ...(selectedSubject ? { selectedSubject } : {}),
     };
   }
 
@@ -2476,7 +2477,7 @@ class Shell {
    * Opens the assistant overlay if it isn't already up; a follow-up reuses the
    * existing session and overlay.
    */
-  sendToAssistant(text: string): void {
+  sendToAssistant(text: string, selectedSubject?: AssistantSubject): void {
     const session = this.ensureAssistantSession();
     if (!session) {
       void this.showAlert(
@@ -2513,17 +2514,17 @@ class Shell {
       this.assistantLayer = created;
       this.stack.push(created);
     }
-    this.runAssistantTurn(session, layer, text);
+    this.runAssistantTurn(session, layer, text, selectedSubject);
     this.config.requestShellRender();
   }
 
-  private runAssistantTurn(session: AssistantSession, layer: AssistantLayer, text: string): void {
+  private runAssistantTurn(session: AssistantSession, layer: AssistantLayer, text: string, selectedSubject?: AssistantSubject): void {
     if (session.isTurnActive() || this.assistantTurnBackgrounded) return;
     // Detach before startTurn requests its first paint. Thinking, streamed
     // text, and tool activity never become a glasses frame.
     this.backgroundAssistantLayer(layer);
     layer.startTurn();
-    session.sendUtterance(text, this.buildAssistantContext(), {
+    session.sendUtterance(text, this.buildAssistantContext(selectedSubject), {
       onTextDelta: () => {},
       onToolActivity: () => {},
       onTurnDone: (result) => {

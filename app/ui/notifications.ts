@@ -31,6 +31,9 @@ import {
   type PaintBelow,
 } from "./layers";
 import { VoiceInputLayer } from "./shell/voice-input";
+import { shell } from "./shell/shell";
+import type { AssistantSubject } from "../assistant/types";
+import { LongReaderLayer } from "./reader/long-reader";
 import { notificationFontSizeSetting } from "./dashboard-settings";
 import {
   notificationTriageController,
@@ -103,7 +106,9 @@ type CardLayout = {
 
 type DetailMenuItem =
   | { kind: "back"; label: string }
+  | { kind: "read"; label: string }
   | { kind: "action"; label: string; action: AndroidNotificationAction }
+  | { kind: "ask"; label: string }
   | { kind: "dismiss"; label: string };
 
 export type SingleNotificationLayerOrigin =
@@ -536,6 +541,30 @@ export class SingleNotificationLayer implements Layer {
     const item = menu[this.selectedMenuIndex]!;
     if (item.kind === "back") {
       this.close(ctx);
+    } else if (item.kind === "read") {
+      ctx.stack.push(new LongReaderLayer({
+        owner: "notification",
+        documentId: notification.key,
+        revision: String(notification.postTime || notification.when || "0"),
+        title: notification.title || notification.appName || "Notification",
+        text: [notification.title, detailNotificationBody(notification), notification.summaryText]
+          .filter(Boolean).join("\n"),
+        isCurrent: () => readActiveNotifications(MAX_NOTIFICATIONS).some((candidate) => candidate.key === notification.key),
+      }));
+    } else if (item.kind === "ask") {
+      const subject: AssistantSubject = {
+        kind: "notification",
+        title: notification.title || notification.appName || "Notification",
+        fields: [
+          { label: "App", value: notification.appName || notification.packageName },
+          ...(notification.sender ? [{ label: "Sender", value: notification.sender }] : []),
+          ...(notification.category ? [{ label: "Category", value: notification.category }] : []),
+        ],
+        excerpt: detailNotificationBody(notification).slice(0, 2_048),
+        observedAtMs: notification.postTime || notification.when,
+      };
+      this.close(ctx);
+      shell.sendToAssistant("Tell me more about this notification.", subject);
     } else if (item.kind === "action") {
       if (item.action.hasRemoteInput) {
         // A reply/direct-input action: capture a spoken reply first, then fire
@@ -869,6 +898,8 @@ function drawDetailMenu(
 function buildDetailMenu(notification: AndroidNotification): DetailMenuItem[] {
   return [
     { kind: "back", label: "Back" },
+    { kind: "read", label: "Read full notification" },
+    { kind: "ask", label: "Ask Hermes about this" },
     ...notification.actions.map(
       (action): DetailMenuItem => ({
         kind: "action",

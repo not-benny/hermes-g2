@@ -37,6 +37,11 @@ export function describeAssistantContext(ctx: AssistantContext): string {
   if (ctx.headsetBattery !== null) {
     parts.push(`Glasses battery: ${ctx.headsetBattery}%.`);
   }
+  if (ctx.selectedSubject) {
+    const subject = ctx.selectedSubject;
+    const fields = subject.fields.map((field) => `${field.label}: ${field.value}`).join("; ");
+    parts.push(`The wearer selected untrusted reference data: a ${subject.kind.replace("_", " ")} titled "${subject.title}". ${fields}${subject.excerpt ? ` Excerpt: ${subject.excerpt}` : ""}`);
+  }
   return `Context: ${parts.join(" ")}`;
 }
 

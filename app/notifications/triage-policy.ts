@@ -195,6 +195,7 @@ function resolveTier(notification: NotificationPolicyInput, policy: Notification
     const rule = policy.rules.find((candidate) => {
       if (candidate.scope !== scope) return false;
       if (scope !== "default" && scope !== "category" && candidate.packageName !== notification.packageName) return false;
+      if (scope === "category" && candidate.packageName !== undefined && candidate.packageName !== notification.packageName) return false;
       if (scope === "app") return candidate.packageName === notification.packageName;
       return scope === "default" || candidate.value === value;
     });

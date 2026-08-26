@@ -15,6 +15,18 @@ export type AssistantContext = {
   localTime: string;
   /** Headset battery percent (0..100), or null if unknown. */
   headsetBattery: number | null;
+  /** Optional user-selected source material, never an authority or tool command. */
+  selectedSubject?: AssistantSubject;
+};
+
+export type AssistantSubjectKind = "notification" | "calendar_event" | "work_task" | "media_item" | "file";
+
+export type AssistantSubject = {
+  kind: AssistantSubjectKind;
+  title: string;
+  fields: Array<{ label: string; value: string }>;
+  excerpt?: string;
+  observedAtMs?: number;
 };
 
 export type AssistantTurnCallbacks = {
