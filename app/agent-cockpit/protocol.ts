@@ -134,6 +134,8 @@ type AwaitingSnapshotCommand = IssuedCommand & {
   minimumSequence: number | null;
   /** Synthetic outcomes require a resource read begun after that outcome. */
   minimumSnapshotReadEpoch: number | null;
+  /** An ambiguous mutation revokes global command authority until reconciliation. */
+  blocksCommands: boolean;
 };
 
 const ID = /^[A-Za-z0-9._-]{12,128}$/;
@@ -317,7 +319,7 @@ export class AgentCockpitStore {
   snapshot(): CockpitSnapshot {
     return {
       synchronized: this.synchronized,
-      commandsAvailable: this.commandsAvailable,
+      commandsAvailable: this.commandsAvailable && !this.hasCommandRecoveryBarrier(),
       connectionGeneration: this.connectionGeneration,
       sequence: this.sequence,
       sessions: [...this.sessions.values()].map(cloneSession),
@@ -499,20 +501,31 @@ export class AgentCockpitStore {
         (reconciliation.minimumSequence !== undefined && !uint(reconciliation.minimumSequence)) ||
         (reconciliation.minimumSnapshotReadEpoch !== undefined && !uint(reconciliation.minimumSnapshotReadEpoch))) return false;
     this.issuedCommands.delete(outcome.commandId);
-    if (issued.reservationKey !== null) this.awaitingSnapshot.set(outcome.commandId, {
-      ...issued,
-      minimumSequence: reconciliation.minimumSequence ?? null,
-      minimumSnapshotReadEpoch: reconciliation.minimumSnapshotReadEpoch ?? null,
-    });
+    const blocksCommands = outcome.outcome === "outcome_unknown";
+    if (issued.reservationKey !== null || blocksCommands) {
+      this.awaitingSnapshot.set(outcome.commandId, {
+        ...issued,
+        minimumSequence: reconciliation.minimumSequence ?? null,
+        minimumSnapshotReadEpoch: reconciliation.minimumSnapshotReadEpoch ?? null,
+        blocksCommands,
+      });
+    }
     this.lastReceipt = { ...outcome };
     this.lastReceiptConnectionGeneration = issued.connectionGeneration;
     return true;
   }
 
   private liveSession(sessionId: string, generation: number): CockpitSession | null {
-    if (!this.synchronized) return null;
+    if (!this.synchronized || this.hasCommandRecoveryBarrier()) return null;
     const session = this.sessions.get(sessionId);
     return session?.generation === generation && !TERMINAL_STATES.has(session.state) ? session : null;
+  }
+
+  private hasCommandRecoveryBarrier(): boolean {
+    for (const command of this.awaitingSnapshot.values()) {
+      if (command.blocksCommands) return true;
+    }
+    return false;
   }
 
   private reserve(key: string): boolean {
