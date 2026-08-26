@@ -42,6 +42,18 @@ done
 
 signing_mode=${HERMES_SIGNING_MODE:-protected}
 artifact_variant=${HERMES_ARTIFACT_VARIANT:-release}
+expected_version_code=${HERMES_CI_VERSION_CODE:-1000003}
+if ! python3 - "$expected_version_code" <<'PY'
+import sys
+
+value = sys.argv[1]
+if not value.isdecimal() or value.startswith("0") or not 1 <= int(value) <= 2_100_000_000:
+    raise SystemExit("invalid HERMES_CI_VERSION_CODE")
+PY
+then
+  printf 'invalid HERMES_CI_VERSION_CODE\n' >&2
+  exit 1
+fi
 LEGACY_DEVELOPMENT_CERT_SHA256=f64ccdb8d462b42c6d143cb1323350b052acebc0a5023e14d05fea86ef7766d4
 actual_cert=
 actual_subject=
@@ -148,7 +160,7 @@ case "$signing_mode" in
     ;;
 esac
 badging=$($AAPT dump badging "$APK")
-if [[ "$badging" != *"package: name='com.faceclaw.app' versionCode='1000003' versionName='1.0.0-preview.3'"* ]]; then
+if [[ "$badging" != *"package: name='com.faceclaw.app' versionCode='$expected_version_code' versionName='1.0.0-preview.3'"* ]]; then
   printf 'unexpected APK package identity or version\n' >&2
   exit 1
 fi

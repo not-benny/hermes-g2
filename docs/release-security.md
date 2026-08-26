@@ -5,29 +5,40 @@ This document is the maintained release contract for Hermes G2. Historical previ
 ## Identity, versioning, and signing
 
 - The Android application ID remains `com.faceclaw.app` for upgrade compatibility with the current owner installation. Renaming it would create a second app and strand app-private state, so it requires a separately planned migration.
-- Version metadata is `versionCode 1000003` and
-  `versionName 1.0.0-preview.3`. It identifies the current internal candidate;
-  it is not a publication claim. Future builds must increase `versionCode`.
+- Local version metadata remains `versionCode 1000003` and
+  `versionName 1.0.0-preview.3`. Main-branch CI sets the validated
+  `HERMES_CI_VERSION_CODE` override to `1000000 + github.run_number`, so each
+  published preview build has a monotonic Android version code while retaining
+  the Preview 3 name. These values are not a production publication claim.
 - Pull-request debug builds use an isolated ephemeral identity and are not
   production release APKs. Pull-request CI separately builds an explicitly
   unsigned, production-bundled variant only to verify the publishable surface.
 - Unsigned means positive absence of v1 signature entries and of every byte gap
   before the ZIP central directory. A generic `apksigner verify` failure is not
   sufficient because corrupt signed inputs fail verification too.
+- Every successful push to `main` produces a source-free owner-preview signing
+  job. It consumes only the exact unsigned artifact from `main`, rechecks the
+  release surface and ZIP/native alignment, signs with dedicated owner-preview
+  secrets, and requires exactly one signer, no SourceStamp, and the pinned owner
+  certificate `f64ccdb8…7766d4`.
+- The owner-preview APK, checksums, provenance, SBOMs, and alignment report are
+  published as a public Actions artifact for 30 days. It is explicitly
+  unsupported/non-production and is intended only for the evidenced owner
+  Fold7 setup; it is not a Play Store or general compatibility release.
 - The protected path consumes only the content-addressed unsigned artifact after
   a green `main` build. Its source-free job rechecks the manifest, DEX, JavaScript
   surface, and debuggability; signs with
   `--debuggable-apk-permitted false`; requires exactly one signer and no
   SourceStamp; and matches the configured certificate fingerprint while rejecting
   an `Android Debug` subject.
-- The signing job never checks out or executes repository source, npm, Gradle, or
-  project scripts beside credentials. It is disabled unless
+- Neither signing job checks out or executes repository source, npm, Gradle, or
+  project scripts beside credentials. The protected job is disabled unless
   `PROTECTED_RELEASE_ENABLED` is exactly `true` and the separate
   `ANDROID_RELEASE_CERT_SHA256` value matches the non-development keystore.
-- The owner install uses the legacy Android development identity. A
-  non-debuggable same-certificate artifact is internal upgrade evidence only.
-  Do not install a differently signed build over the owner phone until an
-  explicit signing and app-data migration plan is approved.
+- The owner-preview install uses the legacy Android development identity. A
+  non-debuggable same-certificate artifact is owner-preview evidence only. Do
+  not install a differently signed build over the owner phone until an explicit
+  signing and app-data migration plan is approved.
 - The APK is large because it includes offline speech/model and arm64 native runtime assets. CI records its exact size and SHA-256. Splitting models into optional, hash-verified downloads is the preferred future footprint reduction.
 
 ## Credentials and storage
@@ -59,8 +70,9 @@ Android backup is disabled. Keystore keys are device/app-install scoped: uninsta
   deployment uses Host Session MCP, private Device MCP, and the portable static
   workflow MCP described in `hermes-mcp-architecture.md`. The GPL app,
   Apache-2.0 bridge, Apache-2.0 workflow package, and source-pinned distribution
-  are public. Protected APK publication remains disabled while artifact,
-  privacy, and physical-device acceptance gates are open.
+  are public. Protected production APK publication remains disabled while
+  artifact, privacy, and physical-device acceptance gates are open; the
+  owner-preview Actions artifact is the separately labelled non-production path.
 - The checked-in G2 configuration remains an MCP-only, least-privilege release
   baseline. A separately administered private owner profile may explicitly add
   general host capabilities, including Browser Harness access to a signed-in
@@ -73,7 +85,7 @@ Android backup is disabled. Keystore keys are device/app-install scoped: uninsta
 
 ## Build and CI gates
 
-Permanent `CI / release-gate` runs on pull requests without repository signing secrets: locked install, host tests, TypeScript, diff hygiene, full root dependency audit at high severity, runtime-only WhatsApp audit, CycloneDX inventory, JDK 21/SDK 35 debug compilation, unsigned release assembly, ZIP integrity, private-path scan, checksum/provenance, release debug-surface exclusion, ZIP 16 KiB alignment, and APK-wide ELF LOAD alignment. It uploads only SBOM/provenance/alignment evidence, never either PR APK. `Protected Release Validation` repeats the host matrix on `main`, builds and verifies only the unsigned release variant, then hands that exact content-addressed artifact to isolated `protected-release` signing. `CodeQL / codeql` performs source scanning. Dependabot monitors npm and pinned GitHub Actions. Major runtime/toolchain and reviewed prerelease pins are not auto-merge candidates.
+Permanent `CI / release-gate` runs on pull requests without repository signing secrets: locked install, host tests, TypeScript, diff hygiene, full root dependency audit at high severity, runtime-only WhatsApp audit, CycloneDX inventory, JDK 21/SDK 35 debug compilation, unsigned release assembly, ZIP integrity, private-path scan, checksum/provenance, release debug-surface exclusion, ZIP 16 KiB alignment, and APK-wide ELF LOAD alignment. It uploads only SBOM/provenance/alignment evidence, never either PR APK. `Protected Release Validation` repeats the host matrix on `main`, assigns a monotonic CI version code, builds and verifies only the unsigned release variant, hands that exact content-addressed artifact to source-free owner-preview signing, and keeps the separate protected production signer disabled. `CodeQL / codeql` performs source scanning. Dependabot monitors npm and pinned GitHub Actions. Major runtime/toolchain and reviewed prerelease pins are not auto-merge candidates.
 
 NativeScript CLI's legacy development-only graph is lockfile-overridden to
 reviewed patched releases of Axios, lodash, minimatch, simple-git, tar, `uuid`,

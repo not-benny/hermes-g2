@@ -419,6 +419,24 @@ android {
     }
   }
 
+  // Main-branch preview builds use a monotonic CI version code derived from
+  // the workflow run. Local builds retain the reviewed Preview 3 metadata.
+  def hermesVersionCode = 1000003
+  def hermesCiVersionCode = System.getenv("HERMES_CI_VERSION_CODE")?.trim()
+  if (hermesCiVersionCode) {
+    if (!(hermesCiVersionCode ==~ /[1-9][0-9]*/)) {
+      throw new GradleException("HERMES_CI_VERSION_CODE must be a positive decimal integer")
+    }
+    try {
+      hermesVersionCode = hermesCiVersionCode.toInteger()
+    } catch (ignored) {
+      throw new GradleException("HERMES_CI_VERSION_CODE is outside the Android versionCode range")
+    }
+    if (hermesVersionCode > 2100000000) {
+      throw new GradleException("HERMES_CI_VERSION_CODE is outside the Android versionCode range")
+    }
+  }
+
   defaultConfig {
     minSdkVersion 24
     targetSdkVersion 35
@@ -427,7 +445,7 @@ android {
     }
 
     // Version Information
-    versionCode 1000003
+    versionCode hermesVersionCode
     versionName "1.0.0-preview.3"
     
     generatedDensities = []
