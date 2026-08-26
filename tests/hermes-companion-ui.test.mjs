@@ -11,7 +11,7 @@ test("dedicated Hermes tab preserves the existing glasses flow", () => {
   assert.equal((shell.match(/<TabViewItem /g) ?? []).length, 5);
 });
 
-test("Fold7 and A32 page uses live window bounds, bounded width, and 48dp action rows", () => {
+test("Fold7 and A32 page uses live window bounds, bounded width, and touch-safe bridge recovery", () => {
   const page = read("app/phone-ui/hermes-page.ts");
   const xml = read("app/phone-ui/hermes-page.xml");
   const css = read("app/app.css");
@@ -26,31 +26,30 @@ test("Fold7 and A32 page uses live window bounds, bounded width, and 48dp action
   assert.match(css, /\.phone-content,[\s\S]*max-width:\s*840/);
   assert.match(css, /Button\s*\{[\s\S]*min-height:\s*48/);
   assert.match(css, /\.hermes-session-row,[\s\S]*min-height:\s*48/);
-  assert.equal((xml.match(/text="(Open|Resume|Cancel|New voice session)"/g) ?? []).length >= 7, true);
+  assert.match(xml, /text="Open bridge settings"[^>]*tap="\{\{ onOpenBridgeSettingsTap \}\}"/);
 });
 
-test("page is capability-aware and binds only redacted companion projections", () => {
+test("page renders the authoritative Host MCP Cockpit projection instead of the retired Companion surface", () => {
   const xml = read("app/phone-ui/hermes-page.xml");
   const viewModel = read("app/phone-ui/hermes-view-model.ts");
-  for (const label of ["Model", "Profile", "Last connection", "RECENT SESSIONS", "VOICE", "USAGE", "RECENT TOOL ACTIVITY", "RECENT ERRORS"]) {
+  for (const label of ["BRIDGE", "HOST MCP", "RUNS", "ATTENTION", "SHARED HERMES RUNS", "ON THE GLASSES"]) {
     assert.match(xml, new RegExp(label));
   }
-  assert.match(xml, /usageUnavailableVisibility/);
-  assert.match(xml, /voiceUnavailableVisibility/);
-  assert.match(xml, /activityUnavailableVisibility/);
-  assert.match(xml, /Nothing will be queued for reconnect/);
-  assert.match(viewModel, /generatedAtMs[\s\S]*2 \* 60_000/);
-  assert.match(viewModel, /support === "unsupported"/);
-  assert.match(viewModel, /does not advertise Hermes companion support/);
-  assert.doesNotMatch(viewModel, /\bIntl\b/);
+  assert.match(viewModel, /assistantBridge\.cockpit\.snapshot\(\)/);
+  assert.match(viewModel, /assistantBridge\.cockpit\.onChange/);
+  assert.match(viewModel, /projectHermesStatus/);
+  assert.match(xml, /read-only view of the same validated projection/);
+  assert.match(xml, /Nothing is queued/);
+  assert.doesNotMatch(xml, /New voice session|Voice telemetry|Token and cost|Not reported/);
+  assert.doesNotMatch(viewModel, /assistantBridge\.companion/);
   assert.doesNotMatch(xml, /password|credential|bearer|raw_payload|prompt/i);
-  assert.doesNotMatch(viewModel, /api-keys|tokenInput|prompt|raw_payload|tool\.args|tool\.result/i);
+  assert.doesNotMatch(viewModel, /tokenInput|prompt|raw_payload|tool\.args|tool\.result/i);
 });
 
 test("dynamic Hermes state is announced without exposing its decorative status dot", () => {
   const xml = read("app/phone-ui/hermes-page.xml");
   assert.match(xml, /class="hermes-status-strip" accessibilityLiveRegion="polite"/);
   assert.match(xml, /text="●"[^>]*accessibilityHidden="true"/);
-  assert.match(xml, /class="card m-t-12 hermes-offline-banner"[\s\S]*?accessibilityRole="alert" accessibilityLiveRegion="assertive"/);
-  assert.match(xml, /text="\{\{ operationStatusLabel \}\}"[^>]*accessibilityLiveRegion="polite"/);
+  assert.match(xml, /class="status-banner status-warning m-t-12"[\s\S]*?accessibilityRole="alert" accessibilityLiveRegion="assertive"/);
+  assert.match(xml, /text="\{\{ lastReceiptLabel \}\}"[^>]*accessibilityLiveRegion="polite"/);
 });

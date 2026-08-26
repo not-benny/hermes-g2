@@ -38,6 +38,8 @@ const MAX_BRIDGE_FRAME_BYTES = 64 * 1024;
 /** Backstop on a turn the bridge never finishes (server-side cap is 2 min). */
 const TURN_TIMEOUT_MS = 3 * 60 * 1000;
 const CONVERSATE_CUES_CAPABILITY = "conversate-cues-v1";
+export const CONTEXTUAL_SUBJECT_CAPABILITY = "contextual-subject-v1";
+export const COCKPIT_FREE_TEXT_CAPABILITY = "cockpit-free-text-v1";
 
 export type AssistantBridgePhase = "idle" | "connecting" | "connected" | "failed";
 
@@ -64,7 +66,9 @@ type ActiveTurn = {
 
 export class AssistantBridgeClient {
   readonly cockpit = new AgentCockpitController((command) => {
-    this.hostMcpClient?.sendCockpitCommand(command);
+    return this.hostMcpClient?.sendCockpitCommand(command) ?? false;
+  }, {
+    requestResync: () => this.refreshCockpit(),
   });
   readonly companion = new HermesCompanionController(() => {});
   private options: AssistantBridgeOptions | null = null;
@@ -84,6 +88,7 @@ export class AssistantBridgeClient {
   private hostMcpClient: HostSessionMcpClient | null = null;
   private hostMcpSupported = false;
   private conversateCuesSupported = false;
+  private contextualSubjectSupported = false;
   private authenticatedProfileId: string | null = null;
   private unsubscribeToolsChanged: (() => void) | null = null;
   private readonly connectionGuard = new BridgeConnectionGuard();
@@ -100,6 +105,18 @@ export class AssistantBridgeClient {
 
   isConnected(): boolean {
     return this.phase === "connected";
+  }
+
+  supportsContextualSubjects(): boolean {
+    return this.contextualSubjectSupported;
+  }
+
+  /** Ask the initialized Host MCP session for fresh, generation-bound Cockpit authority. */
+  refreshCockpit(): boolean {
+    if (this.phase !== "connected" || !this.hostMcpClient) return false;
+    const status = this.hostMcpClient.requestStatus();
+    const snapshot = this.hostMcpClient.requestCockpitState();
+    return status || snapshot;
   }
 
   /**
@@ -122,6 +139,7 @@ export class AssistantBridgeClient {
     this.stopped = true;
     this.hostMcpSupported = false;
     this.conversateCuesSupported = false;
+    this.contextualSubjectSupported = false;
     this.authenticatedProfileId = null;
     this.connectionGuard.invalidateCurrent();
     this.clearReconnectTimer();
@@ -224,7 +242,8 @@ export class AssistantBridgeClient {
         this.startAuthTimer(generation, socket);
         this.send({ chan: "ctl", type: "hello", version: PROTOCOL_VERSION, token: this.options!.token,
           deviceName: this.options!.deviceName,
-          capabilities: ["mcp", "host-mcp-v1", CONVERSATE_CUES_CAPABILITY] });
+          capabilities: ["mcp", "host-mcp-v1", CONVERSATE_CUES_CAPABILITY, CONTEXTUAL_SUBJECT_CAPABILITY,
+            COCKPIT_FREE_TEXT_CAPABILITY] });
       },
       onTextMessage: (message: string) => {
         if (!this.isCurrentSocket(generation, socket)) return;
@@ -329,6 +348,10 @@ export class AssistantBridgeClient {
         frame.capabilities.includes("host-mcp-v1");
       this.conversateCuesSupported = this.hostMcpSupported &&
         frame.capabilities.includes(CONVERSATE_CUES_CAPABILITY);
+      this.contextualSubjectSupported = this.hostMcpSupported &&
+        frame.capabilities.includes(CONTEXTUAL_SUBJECT_CAPABILITY);
+      const cockpitFreeTextSupported = this.hostMcpSupported &&
+        frame.capabilities.includes(COCKPIT_FREE_TEXT_CAPABILITY);
       this.hostMcpClient?.close("Host MCP session replaced");
       this.hostMcpClient = null;
       const socket = this.ws;
@@ -343,15 +366,32 @@ export class AssistantBridgeClient {
         isConnectionGenerationActive: () =>
           this.isCurrentSocket(generation, socket) && this.connectionGuard.canHandlePrivileged(generation),
         send: (msg) => this.sendHostMcpForSocket(generation, socket, msg),
+        onReady: () => {
+          if (!this.isCurrentSocket(generation, socket) || !this.connectionGuard.canHandlePrivileged(generation)) return;
+          this.setState("connected", `Connected to ${String(frame.serverName ?? "bridge")}`);
+        },
+        onInitializationError: (error) => {
+          if (!this.isCurrentSocket(generation, socket)) return;
+          this.handleConnectionLost(`Host MCP initialization failed: ${error.message}`, generation);
+          try { socket.close(1002, "host MCP initialization failed"); } catch { /* already torn down */ }
+        },
         onStatus: (status) => this.cockpit.handleMcpStatus(status),
-        onCockpitFrame: (frame) => this.cockpit.handleFrame(frame),
+        onCockpitFrame: (frame, snapshotReadEpoch) => {
+          this.cockpit.handleFrame(frame, snapshotReadEpoch);
+        },
+        onCockpitCommandOutcome: (outcome, minimumSnapshotReadEpoch) => {
+          this.cockpit.handleCommandOutcome(outcome, minimumSnapshotReadEpoch);
+        },
+        onCockpitUnavailable: () => this.cockpit.unavailable(),
         conversateCuesSupported: this.conversateCuesSupported,
+        contextualSubjectSupported: this.contextualSubjectSupported,
+        cockpitFreeTextSupported,
       });
       this.clearAuthTimer();
       this.reconnectDelayMs = RECONNECT_MIN_MS;
       this.lastTrafficMs = Date.now();
       this.startKeepalive();
-      this.setState("connected", `Connected to ${String(frame.serverName ?? "bridge")}`);
+      this.setState("connecting", "Starting secure Host MCP...");
       return;
     }
     if (frame.type === "ping") {
@@ -371,6 +411,7 @@ export class AssistantBridgeClient {
     if (!this.connectionGuard.invalidate(generation)) return;
     this.hostMcpSupported = false;
     this.conversateCuesSupported = false;
+    this.contextualSubjectSupported = false;
     this.authenticatedProfileId = null;
     this.hostMcpClient?.close("Bridge connection lost");
     this.hostMcpClient = null;
@@ -436,7 +477,7 @@ export class AssistantBridgeClient {
   }
 
   private checkLiveness(): void {
-    if (this.phase !== "connected" || !this.ws) return;
+    if ((this.phase !== "connected" && this.phase !== "connecting") || !this.ws) return;
     if (Date.now() - this.lastTrafficMs > LIVENESS_TIMEOUT_MS) {
       const ws = this.ws;
       this.ws = null;
@@ -477,10 +518,10 @@ export class AssistantBridgeClient {
     catch { /* socket callback handles failure */ }
   }
 
-  private sendHostMcpForSocket(generation: number, socket: any, msg: object): void {
-    if (!this.isCurrentSocket(generation, socket) || !this.connectionGuard.canHandlePrivileged(generation)) return;
-    try { socket.sendText(JSON.stringify({ v: PROTOCOL_VERSION, chan: "host-mcp", msg })); }
-    catch { /* socket callback handles failure */ }
+  private sendHostMcpForSocket(generation: number, socket: any, msg: object): boolean {
+    if (!this.isCurrentSocket(generation, socket) || !this.connectionGuard.canHandlePrivileged(generation)) return false;
+    try { return socket.sendText(JSON.stringify({ v: PROTOCOL_VERSION, chan: "host-mcp", msg })) !== false; }
+    catch { return false; }
   }
 
   private isCurrentSocket(generation: number, socket: any): boolean {

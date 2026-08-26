@@ -80,6 +80,36 @@ test("clarify requests use opaque handles and stale answer races cannot reach He
   assert.equal(adapter.handleCommand({ ...command, command_id: "command_late_12345" }, (rpc) => rpc), null);
 });
 
+test("reviewed choice and negotiated free-text answers dispatch unchanged authority", () => {
+  const adapter = new HermesCockpitAdapter({ now: () => 1000, cockpitFreeTextEnabled: true });
+  adapter.connect("connection_A_12345");
+  adapter.share({ publicSessionId: "session_public_1234", hermesSessionId: "hermes-private-session",
+    generation: 3, title: "Disposable task" });
+  assert.equal(adapter.ingest({ type: "clarify.request", session_id: "hermes-private-session", data: {
+    request_id: "provider-space-choice", question: "Which target?", options: [" Staging"],
+  } }, 3), null, "a choice that would be trimmed for review is not projected");
+
+  const opened = adapter.ingest({ type: "clarify.request", session_id: "hermes-private-session", data: {
+    request_id: "provider-text-question", question: "Name the release?", max_length: 500,
+  } }, 3);
+  assert.equal(opened.request.kind, "text_question");
+  assert.equal(opened.request.max_length, 64);
+  const command = {
+    v: 1, chan: "cockpit", type: "answer_text", command_id: "command_text_12345",
+    connection_generation: "connection_A_12345", session_id: "session_public_1234", generation: 3,
+    request_id: opened.request.request_id, nonce: opened.request.nonce, text: "Hermes One",
+  };
+  assert.deepEqual(adapter.handleCommand(command, (rpc) => rpc), {
+    jsonrpc: "2.0", id: "command_text_12345", method: "clarify.respond",
+    params: { session_id: "hermes-private-session", request_id: "provider-text-question", answer: "Hermes One" },
+  });
+
+  const disabled = setup();
+  assert.equal(disabled.ingest({ type: "clarify.request", session_id: "hermes-private-session", data: {
+    request_id: "provider-disabled-text", question: "Name it?",
+  } }, 3), null, "free text is inert without explicit capability negotiation");
+});
+
 test("permissions are typed exact-scope or deny-only when scope cannot be represented", () => {
   const adapter = setup();
   const supported = adapter.ingest({ type: "approval.request", session_id: "hermes-private-session", data: {
@@ -104,6 +134,36 @@ test("permissions are typed exact-scope or deny-only when scope cannot be repres
   } }, 3);
   assert.deepEqual(unsupported.request.choices, ["deny"]);
   assert.equal(JSON.stringify(unsupported).includes("sentinel"), false);
+
+  const oversized = adapter.ingest({ type: "approval.request", session_id: "hermes-private-session", data: {
+    request_id: "provider-approval-oversized", cockpit_scope: {
+      action: "read_file", target: "W".repeat(65), effect: "Read one exact file",
+    },
+  } }, 3);
+  assert.deepEqual(oversized.request.choices, ["deny"],
+    "a suffix that cannot fit the lens can never retain allow-once authority");
+  assert.equal(oversized.request.target, "Scope unavailable");
+});
+
+test("snapshots stay within the nested MCP transport budget and at most eight sessions", () => {
+  const adapter = new HermesCockpitAdapter({ now: () => 1000 });
+  adapter.connect("connection_A_12345");
+  for (let session = 0; session < 8; session++) {
+    const publicSessionId = `session_public_${String(session).padStart(4, "0")}`;
+    const privateSessionId = `private-session-${session}`;
+    adapter.share({ publicSessionId, hermesSessionId: privateSessionId, generation: 1, title: "W".repeat(160) });
+    for (let row = 0; row < 40; row++) {
+      adapter.ingest({ type: "message.complete", session_id: privateSessionId, data: {
+        redacted: true, cockpit_text: '\\"'.repeat(120),
+      } }, 1);
+    }
+  }
+  assert.throws(() => adapter.share({ publicSessionId: "session_public_9999", hermesSessionId: "private-nine",
+    generation: 1, title: "Ninth" }), /session limit/i);
+  const snapshot = adapter.snapshot();
+  assert.ok(new TextEncoder().encode(JSON.stringify(snapshot)).length <= 24 * 1024);
+  assert.equal(snapshot.sessions.length, 8);
+  assert.ok(snapshot.sessions.some((session) => session.timeline.length < 40));
 });
 
 test("steer and interrupt revalidate current shared generation immediately before exact RPC", () => {

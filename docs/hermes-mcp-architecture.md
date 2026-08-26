@@ -115,6 +115,7 @@ The package receives only its reviewed profile-scoped relay endpoint through
 | `g2_clock_set_timer` | Set a durable Clock countdown |
 | `g2_clock_set_alarm` | Set a durable local or repeating Clock alarm |
 | `g2_reminder_create` | Create one deterministic one-shot reminder outbox record |
+| `g2_reminders_manage` | List, cancel, or snooze one-shot reminder records |
 | `g2_weather_present` | Read typed Open-Meteo UKMO data and atomically present a fixed attributed deck |
 | `g2_train_departures_present` | Read typed National Rail departures and atomically present a fixed deck |
 | `g2_apps_manage` | Launch apps and inspect or manage windows and launcher folders |

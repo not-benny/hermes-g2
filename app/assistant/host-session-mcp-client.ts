@@ -1,4 +1,5 @@
 import type { AssistantContext } from "./types";
+import { validateCockpitFrame, type CockpitCommandOutcome } from "../agent-cockpit/protocol";
 
 /**
  * MCP client for the authenticated Hermes host session. The websocket bridge
@@ -14,6 +15,9 @@ const HOST_STATUS_RESOURCE_URI = "hermes://session/status";
 const COCKPIT_STATE_RESOURCE_URI = "hermes://cockpit/state";
 const DEFAULT_INITIALIZE_TIMEOUT_MS = 15_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 3 * 60 * 1000;
+const DEFAULT_COCKPIT_READ_TIMEOUT_MS = 10_000;
+const DEFAULT_COCKPIT_REFRESH_INTERVAL_MS = 30_000;
+const DEFAULT_COCKPIT_COMMAND_TIMEOUT_MS = 15_000;
 const CONVERSATE_CUE_DEADLINE_MS = 2_500;
 const MAX_OUTBOUND_MCP_BYTES = 60 * 1024;
 const MAX_TURN_ID_CHARS = 128;
@@ -70,18 +74,35 @@ export type HostConversateCuesCall = {
 export type HostSessionStatus = {
   connectionGeneration: string;
   voiceTurnState: "idle" | "running" | "cancelling";
+  commandsAvailable: boolean;
 };
 
 export type HostSessionMcpClientOptions = {
-  send: (msg: object) => void;
+  /** Return false only when the frame was definitely not accepted for transport. */
+  send: (msg: object) => boolean | void;
   connectionGeneration: string | number;
   isConnectionGenerationActive: () => boolean;
   initializeTimeoutMs?: number;
   requestTimeoutMs?: number;
+  cockpitReadTimeoutMs?: number;
+  cockpitRefreshIntervalMs?: number;
+  cockpitCommandTimeoutMs?: number;
   conversateCueTimeoutMs?: number;
   conversateCuesSupported?: boolean;
+  /** Accept text_question projection only after authenticated ctl negotiation. */
+  cockpitFreeTextSupported?: boolean;
+  /** Strip optional selected-subject grounding for older Host MCP peers. */
+  contextualSubjectSupported?: boolean;
+  onReady?: () => void;
+  onInitializationError?: (error: Error) => void;
   onStatus?: (status: HostSessionStatus) => void;
-  onCockpitFrame?: (frame: unknown) => void;
+  /** Snapshot read epoch is out-of-band authority metadata, never protocol JSON. */
+  onCockpitFrame?: (frame: unknown, snapshotReadEpoch?: number) => void;
+  onCockpitCommandOutcome?: (
+    outcome: CockpitCommandOutcome,
+    minimumSnapshotReadEpoch: number | null,
+  ) => void;
+  onCockpitUnavailable?: (reason: string) => void;
 };
 
 type VoiceRequest = {
@@ -102,6 +123,14 @@ type ConversateCueRequest = {
   timer: ReturnType<typeof setTimeout> | null;
   resolve: (result: HostConversateCuesResult) => void;
   reject: (error: Error) => void;
+};
+
+type CockpitCommandRequest = {
+  requestId: string;
+  commandId: string;
+  sessionId: string;
+  generation: number;
+  timer: ReturnType<typeof setTimeout> | null;
 };
 
 export class HostSessionMcpError extends Error {
@@ -130,10 +159,18 @@ export class HostSessionMcpClient {
   private activeVoiceRequest: VoiceRequest | null = null;
   private activeConversateCueRequest: ConversateCueRequest | null = null;
   private statusRequestId: string | null = null;
+  private statusReadTimer: ReturnType<typeof setTimeout> | null = null;
+  private statusRefreshPending = false;
   private cockpitRequestId: string | null = null;
+  private cockpitReadEpoch = 0;
+  private cockpitRequestReadEpoch: number | null = null;
   private cockpitRefreshPending = false;
+  private cockpitSubscriptionSupported = false;
+  private cockpitSubscriptionActive = false;
   private cockpitSubscriptionRequestId: string | null = null;
-  private readonly cockpitCommandRequests = new Map<string, string>();
+  private cockpitReadTimer: ReturnType<typeof setTimeout> | null = null;
+  private cockpitRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly cockpitCommandRequests = new Map<string, CockpitCommandRequest>();
 
   constructor(private readonly options: HostSessionMcpClientOptions) {
     this.initializeRequestId = this.nextRequestId("initialize");
@@ -181,6 +218,9 @@ export class HostSessionMcpClient {
           this.settleVoiceError(voiceRequest, new HostSessionMcpError("Hermes host MCP connection is no longer active"));
           return;
         }
+        const context = this.options.contextualSubjectSupported === false
+          ? (({ selectedSubject: _selectedSubject, ...legacyContext }) => legacyContext)(request.context)
+          : request.context;
         const message = {
           jsonrpc: "2.0",
           id: requestId,
@@ -190,7 +230,7 @@ export class HostSessionMcpClient {
             arguments: {
               turnId: request.turnId,
               text: request.text,
-              context: request.context,
+              context,
             },
           },
         };
@@ -198,15 +238,14 @@ export class HostSessionMcpClient {
           this.settleVoiceError(voiceRequest, new HostSessionMcpError("Hermes voice request exceeded the bounded message limit"));
           return;
         }
+        if (!this.sendIfActive(message)) {
+          this.settleVoiceError(voiceRequest, new HostSessionMcpError("Hermes voice request was not accepted for transport"));
+          return;
+        }
         voiceRequest.sent = true;
         voiceRequest.timer = setTimeout(() => {
           this.cancelVoiceRequest(voiceRequest, "Hermes voice turn timed out", true);
         }, this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
-        try {
-          this.options.send(message);
-        } catch (error) {
-          this.settleVoiceError(voiceRequest, asMcpError(error, "Unable to send Hermes voice turn"));
-        }
       }).catch((error) => {
         this.settleVoiceError(voiceRequest, asMcpError(error, "Hermes host MCP initialization failed"));
       });
@@ -279,15 +318,14 @@ export class HostSessionMcpClient {
           );
           return;
         }
-        cueRequest.sent = true;
-        try {
-          this.options.send(message);
-        } catch (error) {
+        if (!this.sendIfActive(message)) {
           this.settleConversateCueError(
             cueRequest,
-            asMcpError(error, "Unable to send Hermes Conversate cue request"),
+            new HostSessionMcpError("Hermes Conversate cue request was not accepted for transport"),
           );
+          return;
         }
+        cueRequest.sent = true;
       }).catch((error) => {
         this.settleConversateCueError(cueRequest, asMcpError(error, "Hermes host MCP initialization failed"));
       });
@@ -303,7 +341,8 @@ export class HostSessionMcpClient {
 
   /** Send one store-issued exact Cockpit command through the authenticated Host MCP. */
   sendCockpitCommand(command: object): boolean {
-    if (this.lifecycle !== "initialized" || !isRecord(command) || typeof command.command_id !== "string") return false;
+    if (this.lifecycle !== "initialized" || !isRecord(command) || typeof command.command_id !== "string" ||
+        typeof command.session_id !== "string" || !Number.isSafeInteger(command.generation) || Number(command.generation) < 0) return false;
     const requestId = this.nextRequestId("cockpit-command");
     const message = {
       jsonrpc: "2.0",
@@ -311,8 +350,21 @@ export class HostSessionMcpClient {
       method: "tools/call",
       params: { name: HOST_COCKPIT_COMMAND_TOOL, arguments: command },
     };
-    if (!this.sendIfActive(message)) return false;
-    this.cockpitCommandRequests.set(requestId, command.command_id);
+    const request: CockpitCommandRequest = {
+      requestId,
+      commandId: command.command_id,
+      sessionId: command.session_id,
+      generation: Number(command.generation),
+      timer: null,
+    };
+    request.timer = setTimeout(() => {
+      this.settleCockpitCommandUnknown(request, "receipt_timeout");
+    }, this.options.cockpitCommandTimeoutMs ?? DEFAULT_COCKPIT_COMMAND_TIMEOUT_MS);
+    this.cockpitCommandRequests.set(requestId, request);
+    if (!this.sendIfActive(message)) {
+      this.retireCockpitCommand(request);
+      return false;
+    }
     return true;
   }
 
@@ -353,13 +405,12 @@ export class HostSessionMcpClient {
     }
 
     if (this.cockpitSubscriptionRequestId !== null && msg.id === this.cockpitSubscriptionRequestId) {
-      this.cockpitSubscriptionRequestId = null;
+      this.handleCockpitSubscriptionResponse(msg);
       return;
     }
 
     if (typeof msg.id === "string" && this.cockpitCommandRequests.has(msg.id)) {
       this.handleCockpitCommandResponse(msg, this.cockpitCommandRequests.get(msg.id)!);
-      this.cockpitCommandRequests.delete(msg.id);
       return;
     }
 
@@ -368,7 +419,12 @@ export class HostSessionMcpClient {
     // CallToolResult through the bridge callbacks.
     if (msg.jsonrpc === "2.0" && msg.method === "notifications/resources/updated" && msg.id === undefined) {
       const params = msg.params;
-      if (isRecord(params) && params.uri === COCKPIT_STATE_RESOURCE_URI) this.requestCockpitState();
+      if (isRecord(params) && params.uri === COCKPIT_STATE_RESOURCE_URI) {
+        // The same projection mutation can change commandsAvailable in the
+        // separate status resource. Refresh both authorities from one hint.
+        this.requestStatus();
+        this.requestCockpitState();
+      }
       return;
     }
     if (msg.jsonrpc === "2.0" && typeof msg.method === "string" && msg.id === undefined) return;
@@ -395,7 +451,10 @@ export class HostSessionMcpClient {
     if (voiceRequest) this.settleVoiceError(voiceRequest, error);
     const cueRequest = this.activeConversateCueRequest;
     if (cueRequest) this.settleConversateCueError(cueRequest, error);
-    this.cockpitCommandRequests.clear();
+    for (const request of [...this.cockpitCommandRequests.values()]) {
+      this.settleCockpitCommandUnknown(request, "connection_closed");
+    }
+    this.clearCockpitTimers();
   }
 
   private startInitialization(): void {
@@ -417,7 +476,9 @@ export class HostSessionMcpClient {
       this.failInitialization(new HostSessionMcpError("Hermes host MCP initialization timed out"));
     }, this.options.initializeTimeoutMs ?? DEFAULT_INITIALIZE_TIMEOUT_MS);
     try {
-      this.options.send(message);
+      if (this.options.send(message) === false) {
+        this.failInitialization(new HostSessionMcpError("Hermes host MCP initialize frame was not accepted for transport"));
+      }
     } catch (error) {
       this.failInitialization(asMcpError(error, "Unable to initialize Hermes host MCP"));
     }
@@ -435,11 +496,16 @@ export class HostSessionMcpClient {
     }
     const result = msg.result;
     if (!isRecord(result) || result.protocolVersion !== MCP_PROTOCOL_VERSION ||
-        !isRecord(result.capabilities) || !isRecord(result.serverInfo) ||
+        !isRecord(result.capabilities) || !isRecord(result.capabilities.tools) ||
+        !isRecord(result.capabilities.resources) ||
+        (result.capabilities.resources.subscribe !== undefined &&
+          typeof result.capabilities.resources.subscribe !== "boolean") ||
+        !isRecord(result.serverInfo) ||
         typeof result.serverInfo.name !== "string" || typeof result.serverInfo.version !== "string") {
       this.failInitialization(new HostSessionMcpError("Hermes host MCP negotiated an invalid initialize result"));
       return;
     }
+    this.cockpitSubscriptionSupported = result.capabilities.resources.subscribe === true;
     this.clearInitializeTimer();
     if (!this.sendIfActive({ jsonrpc: "2.0", method: "notifications/initialized" })) {
       this.failInitialization(new HostSessionMcpError("Hermes host MCP connection is no longer active"));
@@ -447,13 +513,16 @@ export class HostSessionMcpClient {
     }
     this.lifecycle = "initialized";
     this.resolveInitialized();
+    this.options.onReady?.();
     this.requestStatus();
     this.subscribeCockpitState();
     this.requestCockpitState();
+    this.startCockpitRefresh();
   }
 
   private subscribeCockpitState(): void {
-    if (this.lifecycle !== "initialized" || this.cockpitSubscriptionRequestId !== null) return;
+    if (this.lifecycle !== "initialized" || !this.cockpitSubscriptionSupported ||
+        this.cockpitSubscriptionRequestId !== null || this.cockpitSubscriptionActive) return;
     const requestId = this.nextRequestId("cockpit-subscribe");
     if (!this.sendIfActive({
       jsonrpc: "2.0", id: requestId, method: "resources/subscribe",
@@ -462,48 +531,183 @@ export class HostSessionMcpClient {
     this.cockpitSubscriptionRequestId = requestId;
   }
 
-  requestCockpitState(): void {
-    if (this.lifecycle !== "initialized") return;
+  private handleCockpitSubscriptionResponse(msg: Record<string, unknown>): void {
+    this.cockpitSubscriptionRequestId = null;
+    const valid = isJsonRpcResponse(msg) && !jsonRpcError(msg) && isRecord(msg.result) &&
+      Object.keys(msg.result).length === 0;
+    this.cockpitSubscriptionActive = valid;
+    // Subscription is an optional latency optimization. A rejected or invalid
+    // acknowledgement disables notifications for this session, while the
+    // bounded periodic status/snapshot reads continue unchanged.
+    if (!valid) this.cockpitSubscriptionSupported = false;
+  }
+
+  requestCockpitState(): boolean {
+    return this.requestCockpitStateEpoch() !== null;
+  }
+
+  /**
+   * Return the epoch of the read this call owns. When one is already in flight,
+   * the returned epoch belongs to the coalesced read that will actually be
+   * issued after the current response/timeout, never to the stale current read.
+   */
+  private requestCockpitStateEpoch(): number | null {
+    if (this.lifecycle !== "initialized") return null;
     if (this.cockpitRequestId !== null) {
       this.cockpitRefreshPending = true;
-      return;
+      return this.cockpitReadEpoch + 1;
     }
     const requestId = this.nextRequestId("cockpit-state");
+    const readEpoch = this.cockpitReadEpoch + 1;
     if (!this.sendIfActive({
       jsonrpc: "2.0", id: requestId, method: "resources/read",
       params: { uri: COCKPIT_STATE_RESOURCE_URI },
-    })) return;
+    })) return null;
+    this.cockpitReadEpoch = readEpoch;
     this.cockpitRequestId = requestId;
+    this.cockpitRequestReadEpoch = readEpoch;
+    this.clearCockpitReadTimer();
+    this.cockpitReadTimer = setTimeout(() => {
+      this.cockpitReadTimer = null;
+      if (this.cockpitRequestId !== requestId) return;
+      this.cockpitRequestId = null;
+      this.cockpitRequestReadEpoch = null;
+      const retryRequested = this.cockpitRefreshPending;
+      this.cockpitRefreshPending = false;
+      this.options.onCockpitUnavailable?.("Cockpit snapshot timed out");
+      if (retryRequested) this.requestCockpitState();
+    }, this.options.cockpitReadTimeoutMs ?? DEFAULT_COCKPIT_READ_TIMEOUT_MS);
+    return readEpoch;
   }
 
   private handleCockpitResponse(msg: Record<string, unknown>): void {
+    const readEpoch = this.cockpitRequestReadEpoch;
     this.cockpitRequestId = null;
+    this.cockpitRequestReadEpoch = null;
+    this.clearCockpitReadTimer();
+    let applied = false;
     if (isJsonRpcResponse(msg) && !jsonRpcError(msg)) {
-      const frame = parseCockpitResource(msg.result);
-      if (frame !== null) this.options.onCockpitFrame?.(frame);
+      const rawFrame = parseCockpitResource(msg.result);
+      const frame = rawFrame === null ? null : this.options.cockpitFreeTextSupported === true
+        ? rawFrame
+        : dropUnnegotiatedCockpitFreeText(rawFrame);
+      if (frame !== null) {
+        this.options.onCockpitFrame?.(frame, readEpoch ?? undefined);
+        applied = true;
+      }
     }
+    if (!applied) this.options.onCockpitUnavailable?.("Cockpit snapshot was unavailable or invalid");
     if (this.cockpitRefreshPending) {
       this.cockpitRefreshPending = false;
       this.requestCockpitState();
     }
   }
 
-  private handleCockpitCommandResponse(msg: Record<string, unknown>, commandId: string): void {
-    if (!isJsonRpcResponse(msg) || jsonRpcError(msg)) return;
+  private startCockpitRefresh(): void {
+    if (this.cockpitRefreshTimer || this.lifecycle !== "initialized") return;
+    const interval = Math.max(1_000,
+      this.options.cockpitRefreshIntervalMs ?? DEFAULT_COCKPIT_REFRESH_INTERVAL_MS);
+    this.cockpitRefreshTimer = setInterval(() => {
+      this.requestStatus();
+      this.requestCockpitState();
+    }, interval);
+  }
+
+  private clearCockpitReadTimer(): void {
+    if (!this.cockpitReadTimer) return;
+    clearTimeout(this.cockpitReadTimer);
+    this.cockpitReadTimer = null;
+  }
+
+  private clearCockpitTimers(): void {
+    this.clearStatusReadTimer();
+    this.clearCockpitReadTimer();
+    if (this.cockpitRefreshTimer) clearInterval(this.cockpitRefreshTimer);
+    this.cockpitRefreshTimer = null;
+    this.statusRequestId = null;
+    this.statusRefreshPending = false;
+    this.cockpitRequestId = null;
+    this.cockpitRequestReadEpoch = null;
+    this.cockpitRefreshPending = false;
+    this.cockpitSubscriptionRequestId = null;
+    this.cockpitSubscriptionActive = false;
+    for (const request of this.cockpitCommandRequests.values()) {
+      if (request.timer) clearTimeout(request.timer);
+      request.timer = null;
+    }
+    this.cockpitCommandRequests.clear();
+  }
+
+  private handleCockpitCommandResponse(msg: Record<string, unknown>, request: CockpitCommandRequest): void {
+    if (!isJsonRpcResponse(msg) || jsonRpcError(msg)) {
+      this.settleCockpitCommandUnknown(request, "command_response_error");
+      return;
+    }
     const result = msg.result;
-    if (!isRecord(result) || !Array.isArray(result.content) || result.content.length !== 1) return;
+    if (!isRecord(result) || result.isError === true || !Array.isArray(result.content) || result.content.length !== 1) {
+      this.settleCockpitCommandUnknown(request, "command_response_invalid");
+      return;
+    }
     const block = result.content[0];
     if (!isRecord(block) || block.type !== "text" || typeof block.text !== "string" ||
-        utf8ByteLength(block.text) > MAX_ERROR_TEXT_CHARS) return;
+        utf8ByteLength(block.text) > MAX_ERROR_TEXT_CHARS) {
+      this.settleCockpitCommandUnknown(request, "command_response_invalid");
+      return;
+    }
     let receipt: unknown;
-    try { receipt = JSON.parse(block.text); } catch { return; }
-    if (!isRecord(receipt) || receipt.command_id !== commandId || receipt.type !== "command_receipt") return;
+    try { receipt = JSON.parse(block.text); } catch {
+      this.settleCockpitCommandUnknown(request, "command_receipt_invalid");
+      return;
+    }
+    if (!isRecord(receipt) || validateCockpitFrame(receipt) !== null || receipt.command_id !== request.commandId ||
+        receipt.session_id !== request.sessionId || receipt.generation !== request.generation ||
+        receipt.type !== "command_receipt") {
+      this.settleCockpitCommandUnknown(request, "command_receipt_mismatch");
+      return;
+    }
+    if (!this.retireCockpitCommand(request)) return;
     this.options.onCockpitFrame?.(receipt);
   }
 
+  private retireCockpitCommand(request: CockpitCommandRequest): boolean {
+    if (this.cockpitCommandRequests.get(request.requestId) !== request) return false;
+    this.cockpitCommandRequests.delete(request.requestId);
+    if (request.timer) clearTimeout(request.timer);
+    request.timer = null;
+    return true;
+  }
+
+  private settleCockpitCommandUnknown(request: CockpitCommandRequest, code: string): void {
+    if (!this.retireCockpitCommand(request)) return;
+    // Establish the proof barrier before publishing the terminal outcome. If a
+    // snapshot read is already in flight, this returns the epoch of the queued
+    // follow-up rather than allowing that older response to unlock mutation.
+    const requestedEpoch = this.requestCockpitStateEpoch();
+    // A transport race can reject the immediate read before it is issued. In
+    // that case reserve the next epoch: the controller's successful recovery
+    // read will receive exactly this epoch and can release the guard, while no
+    // pre-outcome response can satisfy it.
+    const minimumSnapshotReadEpoch = requestedEpoch ??
+      (this.lifecycle === "initialized" ? this.cockpitReadEpoch + 1 : null);
+    this.options.onCockpitCommandOutcome?.({
+      commandId: request.commandId,
+      sessionId: request.sessionId,
+      generation: request.generation,
+      outcome: "outcome_unknown",
+      code,
+    }, minimumSnapshotReadEpoch);
+    // A response timeout or malformed response is ambiguous: never repeat the
+    // mutation. Only safe, authoritative reads are issued to repair state.
+    this.requestStatus();
+  }
+
   /** Refresh bounded Host MCP health; Cockpit state is a separate resource. */
-  requestStatus(): void {
-    if (this.lifecycle !== "initialized" || this.statusRequestId !== null) return;
+  requestStatus(): boolean {
+    if (this.lifecycle !== "initialized") return false;
+    if (this.statusRequestId !== null) {
+      this.statusRefreshPending = true;
+      return true;
+    }
     const requestId = this.nextRequestId("status");
     const message = {
       jsonrpc: "2.0",
@@ -511,15 +715,46 @@ export class HostSessionMcpClient {
       method: "resources/read",
       params: { uri: HOST_STATUS_RESOURCE_URI },
     };
-    if (!this.sendIfActive(message)) return;
+    if (!this.sendIfActive(message)) return false;
     this.statusRequestId = requestId;
+    this.clearStatusReadTimer();
+    this.statusReadTimer = setTimeout(() => {
+      this.statusReadTimer = null;
+      if (this.statusRequestId !== requestId) return;
+      this.statusRequestId = null;
+      const retryRequested = this.statusRefreshPending;
+      this.statusRefreshPending = false;
+      this.options.onCockpitUnavailable?.("Host MCP status timed out");
+      if (retryRequested) this.requestStatus();
+    }, this.options.cockpitReadTimeoutMs ?? DEFAULT_COCKPIT_READ_TIMEOUT_MS);
+    return true;
   }
 
   private handleStatusResponse(msg: Record<string, unknown>): void {
     this.statusRequestId = null;
-    if (!isJsonRpcResponse(msg) || jsonRpcError(msg)) return;
-    const parsed = parseHostStatusResource(msg.result);
-    if (parsed) this.options.onStatus?.(parsed);
+    this.clearStatusReadTimer();
+    const superseded = this.statusRefreshPending;
+    // A coalesced refresh is a post-failure authority barrier. The outstanding
+    // response may have been issued before the frame failure that requested
+    // it, so suppress it regardless of validity and publish only the follow-up
+    // read that is actually begun afterward.
+    if (!superseded) {
+      const parsed = isJsonRpcResponse(msg) && !jsonRpcError(msg)
+        ? parseHostStatusResource(msg.result)
+        : null;
+      if (parsed) this.options.onStatus?.(parsed);
+      else this.options.onCockpitUnavailable?.("Host MCP status was unavailable or invalid");
+    }
+    if (superseded) {
+      this.statusRefreshPending = false;
+      this.requestStatus();
+    }
+  }
+
+  private clearStatusReadTimer(): void {
+    if (!this.statusReadTimer) return;
+    clearTimeout(this.statusReadTimer);
+    this.statusReadTimer = null;
   }
 
   private handleVoiceResponse(msg: Record<string, unknown>, voiceRequest: VoiceRequest): void {
@@ -640,6 +875,11 @@ export class HostSessionMcpClient {
     this.initializationFailure = error;
     this.clearInitializeTimer();
     this.rejectInitialized(error);
+    // `send` is allowed to reject the initialize frame synchronously. Do not
+    // re-enter the bridge owner from this client's constructor: it has not yet
+    // assigned the new client and would otherwise tear down the connection,
+    // then overwrite that teardown with this already-failed instance.
+    void Promise.resolve().then(() => this.options.onInitializationError?.(error));
   }
 
   private clearInitializeTimer(): void {
@@ -663,8 +903,7 @@ export class HostSessionMcpClient {
   private sendIfActive(msg: object): boolean {
     if (this.lifecycle === "closed" || !this.options.isConnectionGenerationActive() || !this.isBoundedMessage(msg)) return false;
     try {
-      this.options.send(msg);
-      return true;
+      return this.options.send(msg) !== false;
     } catch {
       return false;
     }
@@ -784,6 +1023,7 @@ function parseHostStatusResource(value: unknown): HostSessionStatus | null {
   return {
     connectionGeneration: document.connectionGeneration,
     voiceTurnState: sessionMcp.voiceTurnState as HostSessionStatus["voiceTurnState"],
+    commandsAvailable: cockpit.commandsAvailable,
   };
 }
 
@@ -800,6 +1040,26 @@ function parseCockpitResource(value: unknown): unknown | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Preserve the listed-answer projection while removing authority that was not
+ * negotiated by this authenticated connection. The controller still validates
+ * the complete filtered snapshot before it can become live.
+ */
+function dropUnnegotiatedCockpitFreeText(frame: unknown): unknown {
+  if (!isRecord(frame) || frame.type !== "snapshot" || !Array.isArray(frame.sessions)) return frame;
+  let changed = false;
+  const sessions = frame.sessions.map((session) => {
+    if (!isRecord(session) || !Array.isArray(session.pending)) return session;
+    const pending = session.pending.filter((request) => {
+      const freeText = isRecord(request) && request.kind === "text_question";
+      if (freeText) changed = true;
+      return !freeText;
+    });
+    return pending.length === session.pending.length ? session : { ...session, pending };
+  });
+  return changed ? { ...frame, sessions } : frame;
 }
 
 function jsonRpcError(msg: Record<string, unknown>): Error | null {
