@@ -194,6 +194,11 @@ TabView {
   color: #4C9DF5;
 }
 
+.status-success,
+.status-success Label {
+  color: #57D8A6;
+}
+
 .status-warning,
 .status-warning Label {
   color: #F5C542;
@@ -202,6 +207,17 @@ TabView {
 .status-danger,
 .status-danger Label {
   color: #E5484D;
+}
+
+.status-title {
+  font-size: 16;
+  font-weight: bold;
+}
+
+/* Preserve the semantic tone on a banner's title while keeping explanatory
+   copy quieter and readable as a second level of information. */
+.status-banner .supporting-text {
+  color: #9BB0A5;
 }
 
 .list-row {
@@ -368,6 +384,41 @@ SegmentedBar {
   min-height: 48;
 }
 
+/* Grouped phone settings. Rows use separators inside one card instead of
+   nesting a second bordered card for every control. This leaves more usable
+   width on a Fold cover display and at large Android font scales. */
+.settings-control,
+.settings-control-last {
+  min-height: 56;
+  padding: 12 0;
+}
+
+.settings-control {
+  border-bottom-color: #24312A;
+  border-bottom-width: 1;
+}
+
+.setting-action {
+  width: 100%;
+  text-align: left;
+  background-color: #1E2A22;
+}
+
+.compact-action {
+  min-width: 120;
+}
+
+.diagnostic-text {
+  color: #9BB0A5;
+  font-size: 12;
+}
+
+.settings-content,
+.controls-content,
+.main-controls-content {
+  padding-bottom: 24;
+}
+
 /* Bound phone forms on unfolded/desktop windows while retaining full-width
    cover-screen layouts. NativeScript reports these values in DIPs, so font
    and display density scaling remain platform-controlled. */
@@ -387,6 +438,13 @@ SegmentedBar {
   min-height: 48;
   padding: 4 0;
 }
+.hermes-summary-grid {
+  padding: 8;
+}
+.hermes-metric-cell {
+  min-height: 64;
+  padding: 8;
+}
 .hermes-session-row,
 .hermes-activity-row {
   min-height: 48;
@@ -394,15 +452,19 @@ SegmentedBar {
   border-bottom-color: #24312A;
   border-bottom-width: 1;
 }
-.hermes-session-row Button {
-  min-width: 48;
-  margin: 3;
+.hermes-state-chip {
+  color: #9BB0A5;
+  background-color: #1E2A22;
+  border-radius: 10;
+  padding: 4 8;
+  font-size: 12;
 }
-.hermes-summary-wide StackLayout {
-  padding: 4 12;
+.hermes-state-positive {
+  color: #57D8A6;
 }
-.hermes-half-card {
-  margin: 0 4;
+.hermes-state-attention,
+.hermes-attention-label {
+  color: #F5C542;
 }
 
 /* --- Even Health: metric tiles (direct-BLE ring dashboard) --------------- */

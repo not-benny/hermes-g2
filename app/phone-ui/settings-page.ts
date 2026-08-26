@@ -9,6 +9,10 @@ export function navigatingTo(args: EventData): void {
   }
 }
 
+export function loaded(args: EventData): void {
+  (args.object as Page).bindingContext?.refresh?.();
+}
+
 // Settings tab root: keep the VM alive across tab-unload (navigatingTo does not
 // re-fire on tab return).
 export function unloaded(_args: EventData): void {}

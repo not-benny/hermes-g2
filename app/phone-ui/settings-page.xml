@@ -1,17 +1,32 @@
-<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" unloaded="unloaded">
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" loaded="loaded" unloaded="unloaded">
     <ActionBar title="Settings" />
     <ScrollView>
-        <StackLayout class="screen-content phone-content">
+        <StackLayout class="screen-content phone-content settings-content">
             <StackLayout visibility="{{ previewModeVisibility }}" class="status-banner status-info">
-                <Label text="Preview mode" class="section-label" />
+                <Label text="Preview mode" class="status-title" />
                 <Label text="You are exploring Hermes with anonymous demo data and no glasses connected. Exit preview to set up your real glasses; all demo data is deleted."
                        class="supporting-text m-t-4" textWrap="true" />
                 <Button text="Exit preview mode" tap="{{ onExitPreviewTap }}" class="-secondary m-t-8" />
             </StackLayout>
 
+            <Label text="Display &amp; interaction" class="section-label m-t-20" />
+            <StackLayout class="surface-card m-t-8">
+                <Label text="On-glasses display" class="section-heading" />
+                <Label text="{{ displaySummary }}" class="supporting-text m-t-4" textWrap="true" />
+                <Button text="Open display controls" tap="{{ onControlsTap }}" class="-secondary m-t-12"
+                        accessibilityHint="Switches to the Controls tab." />
+                <StackLayout class="settings-control-last m-t-8">
+                    <Label text="Glasses font" class="control-row-label m-b-4" />
+                    <Label text="{{ fontSummary }}" class="supporting-text m-b-8" textWrap="true" />
+                    <SegmentedBar items="{{ uiFontItems }}" selectedIndex="{{ uiFontIndex }}"
+                                  accessibilityLabel="Glasses font" />
+                </StackLayout>
+            </StackLayout>
+
             <Label text="Devices" class="section-label m-t-20" />
             <StackLayout class="surface-card m-t-8">
                 <Label text="Glasses and ring" class="section-heading" />
+                <Label text="{{ deviceSummary }}" class="body-text m-t-4" textWrap="true" />
                 <Label text="Review saved device addresses and discover nearby hardware without changing ownership."
                        class="supporting-text m-t-4" textWrap="true" />
                 <Button text="Configure devices" tap="{{ onDevicesTap }}" class="-secondary m-t-12" />
@@ -25,16 +40,6 @@
                 <Button text="Open health profile" tap="{{ onHealthProfileTap }}" class="-secondary m-t-12" />
             </StackLayout>
 
-            <Label text="Credentials" class="section-label m-t-20" />
-            <StackLayout class="surface-card m-t-8">
-                <Label text="Hermes and providers" class="section-heading" />
-                <Label text="Secrets stay masked and can only be replaced or explicitly cleared."
-                       class="supporting-text m-t-4" textWrap="true" />
-                <Button text="API keys &amp; bridge" tap="{{ onApiKeysTap }}" class="-secondary m-t-12" />
-                <Label text="WhatsApp pairing is disabled: the embedded runtime is not validated for 16 KiB Android devices."
-                       textWrap="true" class="supporting-text m-t-8" />
-            </StackLayout>
-
             <Label text="Accessibility" class="section-label m-t-20" />
             <StackLayout class="surface-card m-t-8">
                 <Label text="Live captions and translation" class="section-heading" />
@@ -43,12 +48,17 @@
                 <Button text="Conversate &amp; captions" tap="{{ onCaptionSettingsTap }}" class="-secondary m-t-12" />
             </StackLayout>
 
-            <Label text="Appearance" class="section-label m-t-20" />
-            <StackLayout class="control-row">
-                <Label text="Glasses font" class="control-row-label m-b-4" />
-                <Label text="Choose the typeface used on the G2 display."
-                       class="control-row-sublabel m-b-8" textWrap="true" />
-                <SegmentedBar items="{{ uiFontItems }}" selectedIndex="{{ uiFontIndex }}" accessibilityLabel="Glasses font" />
+            <Label text="Credentials &amp; services" class="section-label m-t-20" />
+            <StackLayout class="surface-card m-t-8 m-b-24">
+                <Label text="Hermes and providers" class="section-heading" />
+                <Label text="Secrets stay masked and can only be replaced or explicitly cleared."
+                       class="supporting-text m-t-4" textWrap="true" />
+                <Button text="API keys &amp; bridge" tap="{{ onApiKeysTap }}" class="-secondary m-t-12" />
+                <StackLayout class="status-banner status-warning m-t-12">
+                    <Label text="WhatsApp pairing is disabled" class="status-title" />
+                    <Label text="The embedded pairing runtime is disabled because it has not been validated on Android devices with 16 KiB memory pages."
+                           textWrap="true" class="supporting-text m-t-4" />
+                </StackLayout>
             </StackLayout>
         </StackLayout>
     </ScrollView>

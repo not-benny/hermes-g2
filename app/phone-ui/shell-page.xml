@@ -1,18 +1,18 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd" class="shell-page" actionBarHidden="true" loaded="loaded">
     <TabView id="shellTabs" androidTabsPosition="bottom" selectedIndex="0">
-        <TabViewItem title="Glasses">
+        <TabViewItem title="Glasses" accessibilityLabel="Glasses tab">
             <Frame defaultPage="phone-ui/main-page" />
         </TabViewItem>
-        <TabViewItem title="Health">
+        <TabViewItem title="Health" accessibilityLabel="Health tab">
             <Frame defaultPage="phone-ui/even-health-page" />
         </TabViewItem>
-        <TabViewItem title="Controls">
+        <TabViewItem title="Controls" accessibilityLabel="Controls tab">
             <Frame defaultPage="phone-ui/glasses-controls-page" />
         </TabViewItem>
-        <TabViewItem title="Hermes">
+        <TabViewItem title="Hermes" accessibilityLabel="Hermes tab">
             <Frame defaultPage="phone-ui/hermes-page" />
         </TabViewItem>
-        <TabViewItem title="Settings">
+        <TabViewItem title="Settings" accessibilityLabel="Settings tab">
             <Frame defaultPage="phone-ui/settings-page" />
         </TabViewItem>
     </TabView>

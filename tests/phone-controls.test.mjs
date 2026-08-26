@@ -9,6 +9,7 @@ test("phone UI exposes safe live glasses controls", () => {
   const mainModel = read("app/phone-ui/main-view-model.ts");
   const controlsPage = read("app/phone-ui/glasses-controls-page.xml");
   const controlsModel = read("app/phone-ui/glasses-controls-view-model.ts");
+  const controlsPresentation = read("app/phone-ui/controls-presentation.ts");
   const controller = read("app/g2/dashboard-controller.ts");
   const communicator = read("app/native/faceclaw-communicator.ts");
 
@@ -16,8 +17,10 @@ test("phone UI exposes safe live glasses controls", () => {
   const shell = read("app/phone-ui/shell-page.xml");
   assert.match(shell, /title="Controls"/);
   assert.match(shell, /phone-ui\/glasses-controls-page/);
-  assert.match(controlsPage, /Wake screen/);
-  assert.match(controlsPage, /Blank screen/);
+  assert.match(controlsPage, /text="\{\{ screenActionLabel \}\}" tap="\{\{ onScreenActionTap \}\}"/);
+  assert.match(controlsModel, /onScreenActionTap/);
+  assert.match(controlsPresentation, /actionLabel: "Wake screen"/);
+  assert.match(controlsPresentation, /actionLabel: "Blank screen"/);
   assert.match(controlsPage, /Refresh wear status/);
   assert.match(controlsPage, /Test voice input/);
   assert.match(controlsPage, /checked="\{\{ assistantSkipConfirmationChecked \}\}"/);

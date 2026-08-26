@@ -7,7 +7,7 @@ const SETTINGS_BACKGROUND_COLOR = new Color('#1E2A22')
 
 export function navigatingTo(args: EventData) {
   const page = <Page>args.object
-  page.bindingContext = new MainViewModel()
+  if (!page.bindingContext) page.bindingContext = new MainViewModel()
 }
 
 type MainPageState = {
@@ -32,6 +32,7 @@ function setPageState(page: Page, state?: MainPageState): void {
 function cleanupPage(page: Page): void {
   const state = getPageState(page)
   if (!state) {
+    ;(page.bindingContext as MainViewModel | undefined)?.deactivate?.()
     setPageState(page, undefined)
     return
   }
@@ -44,7 +45,7 @@ function cleanupPage(page: Page): void {
     state.layoutTimer = null
   }
   state.model.off(Observable.propertyChangeEvent, state.propertyChangeHandler)
-  state.model.dispose()
+  state.model.deactivate()
   page.off(Page.layoutChangedEvent, state.layoutHandler)
   setPageState(page, undefined)
 }
@@ -99,6 +100,7 @@ export function loaded(args: EventData) {
   dashboardController.refreshEvenAppStatus()
 
   const model = page.bindingContext as MainViewModel | null
+  model?.activate()
   // Restore saved app windows only after auto-connect has either prepared the
   // compositor or determined there is no configured device. Launching a worker
   // while the G2 surface is still unconfigured loses its first render.
@@ -139,7 +141,7 @@ export function loaded(args: EventData) {
         if (state.disposed) return
         const size = page.getActualSize()
         model.refreshLayoutMetrics(size.width, size.height)
-        if (state.isPinnedToBottom) {
+        if (state.isPinnedToBottom && model.showLog) {
           scrollLogsToBottom(scrollViews)
         }
       }, 0)
@@ -161,7 +163,7 @@ export function loaded(args: EventData) {
       if (propertyArgs.propertyName !== 'log') {
         return
       }
-      if (state.isPinnedToBottom) {
+      if (state.isPinnedToBottom && model.showLog) {
         scrollLogsToBottom(scrollViews)
       }
     },
@@ -173,7 +175,7 @@ export function loaded(args: EventData) {
   model.on(Observable.propertyChangeEvent, state.propertyChangeHandler)
   page.on(Page.layoutChangedEvent, state.layoutHandler)
   setPageState(page, state)
-  scrollLogsToBottom(scrollViews)
+  if (model.showLog) scrollLogsToBottom(scrollViews)
   if (model.isTextSettingEditorActive) {
     focusSystemNameField(page)
   }
