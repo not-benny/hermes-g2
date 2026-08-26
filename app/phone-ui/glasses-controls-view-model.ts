@@ -24,6 +24,10 @@ import {
 } from "../ui/dashboard-settings";
 import { type RingConnectionState } from "../native/faceclaw-communicator";
 import { ringHealthStore } from "../health/ring-health-store";
+import {
+  controlsConnectionPresentation,
+  screenActionPresentation,
+} from "./controls-presentation";
 
 type ControlsPhase = DashboardSnapshot["phase"];
 
@@ -77,12 +81,36 @@ export class GlassesControlsViewModel extends Observable {
     return this._status;
   }
 
+  get connectionTitle(): string {
+    return controlsConnectionPresentation(this._phase, this._status).title;
+  }
+
+  get connectionDetail(): string {
+    return controlsConnectionPresentation(this._phase, this._status).detail;
+  }
+
+  get connectionBannerClass(): string {
+    return controlsConnectionPresentation(this._phase, this._status).bannerClass;
+  }
+
   get canControl(): boolean {
-    return this._phase === "connected";
+    return controlsConnectionPresentation(this._phase, this._status).controlsEnabled;
+  }
+
+  get canReconnectGlasses(): boolean {
+    return controlsConnectionPresentation(this._phase, this._status).reconnectEnabled;
   }
 
   get screenActionLabel(): string {
-    return this._screenOn ? "Blank screen" : "Wake screen";
+    return screenActionPresentation(this._screenOn, this.canControl).actionLabel;
+  }
+
+  get screenActionHint(): string {
+    return screenActionPresentation(this._screenOn, this.canControl).actionHint;
+  }
+
+  get screenStateLabel(): string {
+    return screenActionPresentation(this._screenOn, this.canControl).stateLabel;
   }
 
   get brightnessSliderValue(): number { return this.enumIndex(brightnessSetting); }
@@ -231,32 +259,60 @@ export class GlassesControlsViewModel extends Observable {
   set dashboardSizeIndex(index: number) { this.setEnumIndex(dashboardSizeSetting, index, "dashboardSizeIndex"); }
 
   async onWakeScreenTap(): Promise<void> {
-    const woke = await dashboardController.wakeGlassesScreen();
-    this.setStatus(woke ? "Screen awake." : "Could not wake the glasses session.");
+    await this.runBooleanAction(
+      () => dashboardController.wakeGlassesScreen(),
+      "Screen awake.",
+      "Could not wake the glasses session.",
+      "Wake failed",
+    );
   }
 
   onBlankScreenTap(): void {
     this.setStatus(dashboardController.sleepGlassesScreen() ? "Screen blanked." : "Connect to the glasses first.");
   }
 
+  async onScreenActionTap(): Promise<void> {
+    if (this._screenOn) {
+      this.onBlankScreenTap();
+      return;
+    }
+    await this.onWakeScreenTap();
+  }
+
   async onOpenCompassTap(): Promise<void> {
-    const opened = await dashboardController.openCompass();
-    this.setStatus(opened ? "Compass opened on the glasses." : "Connect to the glasses first.");
+    await this.runBooleanAction(
+      () => dashboardController.openCompass(),
+      "Compass opened on the glasses.",
+      "Connect to the glasses first.",
+      "Could not open Compass",
+    );
   }
 
   async onRefreshWearTap(): Promise<void> {
-    const requested = await dashboardController.refreshWearState();
-    this.setStatus(requested ? "Refreshing wear state…" : "Wear status is unavailable until the CFW session is ready.");
+    await this.runBooleanAction(
+      () => dashboardController.refreshWearState(),
+      "Refreshing wear state…",
+      "Wear status is unavailable until the CFW session is ready.",
+      "Wear refresh failed",
+    );
   }
 
   async onReconnectGlassesTap(): Promise<void> {
-    const reconnected = await dashboardController.reconnectGlasses();
-    this.setStatus(reconnected ? "Reconnecting to glasses…" : "A connection transition is already in progress.");
+    await this.runBooleanAction(
+      () => dashboardController.reconnectGlasses(),
+      "Reconnecting to glasses…",
+      "A connection transition is already in progress.",
+      "Reconnect failed",
+    );
   }
 
   async onReconnectRingTap(): Promise<void> {
-    const queued = await dashboardController.reconnectRing();
-    this.setStatus(queued ? "R1 reconnect requested." : "R1 needs a configured address and an active glasses session.");
+    await this.runBooleanAction(
+      () => dashboardController.reconnectRing(),
+      "R1 reconnect requested.",
+      "R1 needs a configured address and an active glasses session.",
+      "R1 reconnect failed",
+    );
   }
 
   onOpenEvenAppSettingsTap(): void {
@@ -264,8 +320,12 @@ export class GlassesControlsViewModel extends Observable {
   }
 
   async onRetryRingTap(): Promise<void> {
-    const queued = await dashboardController.retryRingAfterEvenAppStop();
-    this.setStatus(queued ? "R1 reconnect requested." : "Force stop Even first, then retry R1.");
+    await this.runBooleanAction(
+      () => dashboardController.retryRingAfterEvenAppStop(),
+      "R1 reconnect requested.",
+      "Force stop Even first, then retry R1.",
+      "R1 retry failed",
+    );
   }
 
   onVoiceProviderTap(): void {
@@ -274,12 +334,20 @@ export class GlassesControlsViewModel extends Observable {
   }
 
   async onTestVoiceInputTap(): Promise<void> {
-    const started = await dashboardController.triggerVoiceTest();
-    this.setStatus(started ? "Voice test opened on the glasses." : "Connect to the glasses first.");
+    await this.runBooleanAction(
+      () => dashboardController.triggerVoiceTest(),
+      "Voice test opened on the glasses.",
+      "Connect to the glasses first.",
+      "Voice test failed",
+    );
   }
 
   onOpenNotificationAppsTap(args?: EventData): void {
     this.navigateFromTap(args, "phone-ui/notification-apps-page");
+  }
+
+  onOpenNotificationRulesTap(args?: EventData): void {
+    this.navigateFromTap(args, "phone-ui/notification-rules-page");
   }
 
   onOpenMediaAppsTap(args?: EventData): void {
@@ -305,7 +373,9 @@ export class GlassesControlsViewModel extends Observable {
     this._connectionHealth = snapshot.connectionHealth;
     this._evenAppConflictMessage = snapshot.evenAppConflictMessage;
     for (const property of [
-      "status", "canControl", "screenActionLabel", "wearStatus", "ringStatus",
+      "status", "connectionTitle", "connectionDetail", "connectionBannerClass",
+      "canControl", "canReconnectGlasses", "screenActionLabel", "screenActionHint",
+      "screenStateLabel", "wearStatus", "ringStatus",
       "g2HealthStatus", "r1HealthStatus", "connectionDiagnostics",
       "evenAppConflictMessage", "evenAppConflictWarningVisibility",
     ]) {
@@ -340,6 +410,26 @@ export class GlassesControlsViewModel extends Observable {
   private setStatus(value: string): void {
     this._status = value;
     this.notifyPropertyChange("status", value);
+    this.notifyPropertyChange("connectionDetail", this.connectionDetail);
+    this.notifyPropertyChange("connectionBannerClass", this.connectionBannerClass);
+  }
+
+  /** Convert rejected native/controller promises into a visible bounded state. */
+  private async runBooleanAction(
+    action: () => Promise<boolean>,
+    successMessage: string,
+    unavailableMessage: string,
+    errorPrefix: string,
+  ): Promise<void> {
+    try {
+      const completed = await action();
+      this.setStatus(completed ? successMessage : unavailableMessage);
+    } catch (error) {
+      const raw = (error as Error)?.message ?? String(error);
+      const clean = raw.replace(/[\x00-\x1f]+/g, " ").replace(/\s+/g, " ").trim();
+      const bounded = clean.length <= 200 ? clean : `${clean.slice(0, 197)}...`;
+      this.setStatus(`${errorPrefix}: ${bounded || "unknown error"}`);
+    }
   }
 
   // --- SegmentedBar enum helpers -------------------------------------------

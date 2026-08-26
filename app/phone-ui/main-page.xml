@@ -9,120 +9,129 @@
     </ActionBar>
 
     <GridLayout>
+        <!-- Stacked layout covers portrait plus compact landscape/split windows. -->
         <GridLayout rows="auto,*" visibility="{{ portraitLayoutVisibility }}">
-            <StackLayout row="0" visibility="{{ displayPreviewVisibility }}">
-                <Image src="{{ displayPreview }}" stretch="fill" height="{{ displayPreviewHeight }}" />
-            </StackLayout>
-            <GridLayout
-                row="0"
-                class="display-preview-message"
-                height="{{ displayPreviewHeight }}"
-                visibility="{{ displayPreviewMessageVisibility }}">
-                <Label text="{{ displayPreviewMessage }}" textWrap="true" horizontalAlignment="center" verticalAlignment="center" />
+            <GridLayout row="0" width="{{ displayPreviewWidth }}" height="{{ displayPreviewHeight }}"
+                        horizontalAlignment="center" visibility="{{ displayPreviewContainerVisibility }}">
+                <Image src="{{ displayPreview }}" stretch="fill" visibility="{{ displayPreviewVisibility }}" />
+                <GridLayout class="display-preview-message" visibility="{{ displayPreviewMessageVisibility }}">
+                    <Label text="{{ displayPreviewMessage }}" textWrap="true"
+                           horizontalAlignment="center" verticalAlignment="center" />
+                </GridLayout>
             </GridLayout>
-            <GridLayout row="1" rows="auto,auto,auto,*" class="p-20">
-                <StackLayout row="0" class="m-b-8">
-                    <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="status-banner status-warning">
+            <ScrollView id="logScrollView" row="1">
+                <StackLayout class="screen-content phone-content main-controls-content">
+                    <StackLayout class="{{ connectionBannerClass }}" accessibilityLiveRegion="polite">
+                        <Label text="{{ connectionTitle }}" class="status-title" textWrap="true" />
+                        <Label text="{{ connectionDetail }}" class="supporting-text m-t-4" textWrap="true" />
+                        <Button text="{{ buttonLabel }}" tap="{{ onTap }}" isEnabled="{{ canRun }}"
+                                class="-primary m-t-8" />
+                    </StackLayout>
+                    <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="status-banner status-warning m-t-8"
+                                 accessibilityRole="alert" accessibilityLiveRegion="assertive">
                         <Label text="{{ evenAppConflictMessage }}" textWrap="true" />
-                        <Button text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" class="-primary" />
-                        <Button text="Retry R1" tap="{{ onRetryRingTap }}" class="-secondary" />
+                        <Button text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" class="-primary m-t-8" />
+                        <Button text="Retry R1" tap="{{ onRetryRingTap }}" class="-secondary m-t-8" />
                     </StackLayout>
                     <StackLayout visibility="{{ firmwareWarningVisibility }}" class="status-banner status-warning m-t-8">
                         <Label text="{{ firmwareWarningMessage }}" textWrap="true" />
-                        <Button text="Install custom firmware" tap="{{ onInstallFirmwareTap }}" class="-primary" />
+                        <Button text="Install custom firmware" tap="{{ onInstallFirmwareTap }}" class="-primary m-t-8" />
                     </StackLayout>
                     <StackLayout visibility="{{ batteryOptimizationWarningVisibility }}" class="status-banner status-warning m-t-8">
-                        <Label text="Android will slow Hermes G2 to a crawl when the phone screen is off unless it is exempt from battery optimization." textWrap="true" />
-                        <Button text="Allow unrestricted background usage" tap="{{ onAllowBackgroundUsageTap }}" class="-primary" />
+                        <Label text="Android may pause Hermes G2 while the phone screen is off unless background usage is unrestricted."
+                               textWrap="true" />
+                        <Button text="Allow unrestricted background usage" tap="{{ onAllowBackgroundUsageTap }}" class="-primary m-t-8" />
                     </StackLayout>
+
+                    <Label text="Ring input simulator" class="section-label m-t-20" />
+                    <StackLayout class="surface-card m-t-8">
+                        <Label text="Test the current glasses screen from the phone. Actions require a live session."
+                               class="supporting-text" textWrap="true" />
+                        <GridLayout rows="auto,auto,auto" columns="*,*,*" class="m-t-8 gesture-grid">
+                            <Button row="0" col="1" text="Swipe up" tap="{{ onSyntheticUpTap }}" />
+                            <Button row="1" col="0" text="Double-click" tap="{{ onSyntheticLeftTap }}" />
+                            <Button row="1" col="1" text="Long press" tap="{{ onSyntheticLongPressTap }}" />
+                            <Button row="1" col="2" text="Click" tap="{{ onSyntheticRightTap }}" />
+                            <Button row="0" col="2" text="Microphone" tap="{{ onSyntheticMicTap }}" />
+                            <Button row="2" col="1" text="Swipe down" tap="{{ onSyntheticDownTap }}" />
+                        </GridLayout>
+                        <Button text="Open local document" tap="{{ onOpenLocalReaderTap }}"
+                                accessibilityLabel="Open local text or Markdown document in reader" class="m-t-8" />
+                        <Button text="Stop recording" tap="{{ onStopRecordingTap }}"
+                                visibility="{{ stopRecordingButtonVisibility }}" class="m-t-8" />
+                    </StackLayout>
+                    <Label text="{{ log }}" textWrap="true" verticalAlignment="top" class="diagnostic-text m-t-16 m-b-24"
+                           visibility="{{ showLogVisibility }}" />
                 </StackLayout>
-                <StackLayout row="1">
-                    <GridLayout rows="auto,auto,auto" columns="*,*,*" class="m-t-8 gesture-grid">
-                        <Button row="0" col="1" text="Swipe up" tap="{{ onSyntheticUpTap }}" />
-                        <Button row="1" col="0" text="Double-click" tap="{{ onSyntheticLeftTap }}" />
-                        <Button row="1" col="1" text="Long press" tap="{{ onSyntheticLongPressTap }}" />
-                        <Button row="1" col="2" text="Click" tap="{{ onSyntheticRightTap }}" />
-                        <Button row="0" col="2" text="Microphone" tap="{{ onSyntheticMicTap }}" />
-                        <Button row="2" col="1" text="Swipe down" tap="{{ onSyntheticDownTap }}" />
-                    </GridLayout>
-                    <Button text="Open local document" tap="{{ onOpenLocalReaderTap }}" accessibilityLabel="Open local text or Markdown document in reader" />
-                    <Button text="Stop recording" tap="{{ onStopRecordingTap }}" visibility="{{ stopRecordingButtonVisibility }}" />
-                </StackLayout>
-                <Label row="2" text="{{ status }}" class="m-t-16" textWrap="true" />
-                <ScrollView id="logScrollView" row="3" class="m-t-16" visibility="{{ showLogVisibility }}">
-                    <Label text="{{ log }}" textWrap="true" verticalAlignment="top" />
-                </ScrollView>
-            </GridLayout>
+            </ScrollView>
         </GridLayout>
 
-        <GridLayout rows="auto,*" class="p-20" visibility="{{ landscapeLayoutVisibility }}">
-            <StackLayout row="0" class="m-b-8">
-                <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="status-banner status-warning">
+        <!-- Wide layout is only selected when the live window is at least 600 DIP. -->
+        <ScrollView id="logScrollViewLandscape" visibility="{{ landscapeLayoutVisibility }}">
+            <StackLayout class="screen-content phone-content main-controls-content">
+                <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="status-banner status-warning"
+                             accessibilityRole="alert" accessibilityLiveRegion="assertive">
                     <Label text="{{ evenAppConflictMessage }}" textWrap="true" />
-                    <Button text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" class="-primary" />
-                    <Button text="Retry R1" tap="{{ onRetryRingTap }}" class="-secondary" />
+                    <Button text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" class="-primary m-t-8" />
+                    <Button text="Retry R1" tap="{{ onRetryRingTap }}" class="-secondary m-t-8" />
                 </StackLayout>
                 <StackLayout visibility="{{ firmwareWarningVisibility }}" class="status-banner status-warning m-t-8">
                     <Label text="{{ firmwareWarningMessage }}" textWrap="true" />
-                    <Button text="Install custom firmware" tap="{{ onInstallFirmwareTap }}" class="-primary" />
+                    <Button text="Install custom firmware" tap="{{ onInstallFirmwareTap }}" class="-primary m-t-8" />
                 </StackLayout>
                 <StackLayout visibility="{{ batteryOptimizationWarningVisibility }}" class="status-banner status-warning m-t-8">
-                    <Label text="Android will slow Hermes G2 to a crawl when the phone screen is off unless it is exempt from battery optimization." textWrap="true" />
-                    <Button text="Allow unrestricted background usage" tap="{{ onAllowBackgroundUsageTap }}" class="-primary" />
+                    <Label text="Android may pause Hermes G2 while the phone screen is off unless background usage is unrestricted."
+                           textWrap="true" />
+                    <Button text="Allow unrestricted background usage" tap="{{ onAllowBackgroundUsageTap }}" class="-primary m-t-8" />
                 </StackLayout>
-            </StackLayout>
-            <GridLayout row="1" rows="auto,auto,*" columns="*,320">
-                <StackLayout row="0" col="0" visibility="{{ displayPreviewVisibility }}" horizontalAlignment="left">
-                    <Image
-                        src="{{ displayPreview }}"
-                        stretch="fill"
-                        width="{{ landscapeDisplayPreviewWidth }}"
-                        height="{{ landscapeDisplayPreviewHeight }}" />
-                </StackLayout>
-                <GridLayout
-                    row="0"
-                    col="0"
-                    class="display-preview-message"
-                    horizontalAlignment="left"
-                    width="{{ landscapeDisplayPreviewWidth }}"
-                    height="{{ landscapeDisplayPreviewHeight }}"
-                    visibility="{{ displayPreviewMessageVisibility }}">
-                    <Label text="{{ displayPreviewMessage }}" textWrap="true" horizontalAlignment="center" verticalAlignment="center" />
+                <GridLayout columns="*,320" class="m-t-8">
+                        <GridLayout col="0" horizontalAlignment="left"
+                                    width="{{ landscapeDisplayPreviewWidth }}" height="{{ landscapeDisplayPreviewHeight }}"
+                                    visibility="{{ displayPreviewContainerVisibility }}">
+                            <Image src="{{ displayPreview }}" stretch="fill" visibility="{{ displayPreviewVisibility }}" />
+                            <GridLayout class="display-preview-message" visibility="{{ displayPreviewMessageVisibility }}">
+                                <Label text="{{ displayPreviewMessage }}" textWrap="true"
+                                       horizontalAlignment="center" verticalAlignment="center" />
+                            </GridLayout>
+                        </GridLayout>
+                        <StackLayout col="1" class="surface-card m-l-16">
+                            <Label text="Ring input simulator" class="section-label" />
+                            <GridLayout rows="auto,auto,auto" columns="*,*,*" class="m-t-8 gesture-grid">
+                                <Button row="0" col="1" text="Swipe up" tap="{{ onSyntheticUpTap }}" />
+                                <Button row="1" col="0" text="Double-click" tap="{{ onSyntheticLeftTap }}" />
+                                <Button row="1" col="1" text="Long press" tap="{{ onSyntheticLongPressTap }}" />
+                                <Button row="1" col="2" text="Click" tap="{{ onSyntheticRightTap }}" />
+                                <Button row="0" col="2" text="Microphone" tap="{{ onSyntheticMicTap }}" />
+                                <Button row="2" col="1" text="Swipe down" tap="{{ onSyntheticDownTap }}" />
+                            </GridLayout>
+                            <Button text="Open local document" tap="{{ onOpenLocalReaderTap }}"
+                                    accessibilityLabel="Open local text or Markdown document in reader" class="m-t-8" />
+                            <Button text="Stop recording" tap="{{ onStopRecordingTap }}"
+                                    visibility="{{ stopRecordingButtonVisibility }}" class="m-t-8" />
+                        </StackLayout>
                 </GridLayout>
-                <StackLayout row="0" col="1" class="m-l-16">
-                    <GridLayout rows="auto,auto,auto" columns="*,*,*" class="gesture-grid">
-                        <Button row="0" col="1" text="Swipe up" tap="{{ onSyntheticUpTap }}" />
-                        <Button row="1" col="0" text="Double-click" tap="{{ onSyntheticLeftTap }}" />
-                        <Button row="1" col="1" text="Long press" tap="{{ onSyntheticLongPressTap }}" />
-                        <Button row="1" col="2" text="Click" tap="{{ onSyntheticRightTap }}" />
-                        <Button row="0" col="2" text="Microphone" tap="{{ onSyntheticMicTap }}" />
-                        <Button row="2" col="1" text="Swipe down" tap="{{ onSyntheticDownTap }}" />
-                    </GridLayout>
-                    <Button text="Open local document" tap="{{ onOpenLocalReaderTap }}" accessibilityLabel="Open local text or Markdown document in reader" />
-                    <Button text="Stop recording" tap="{{ onStopRecordingTap }}" visibility="{{ stopRecordingButtonVisibility }}" />
-                </StackLayout>
-                <Label row="1" col="0" colSpan="2" text="{{ status }}" class="m-t-16" textWrap="true" />
-                <ScrollView id="logScrollViewLandscape" row="2" col="0" colSpan="2" class="m-t-16" visibility="{{ showLogVisibility }}">
-                    <Label text="{{ log }}" textWrap="true" verticalAlignment="top" />
-                </ScrollView>
-            </GridLayout>
-        </GridLayout>
-        <StackLayout
-            class="system-name-modal"
-            visibility="{{ textSettingEditorVisibility }}"
-            horizontalAlignment="stretch"
-            verticalAlignment="top">
+                    <StackLayout class="{{ connectionBannerClass }} m-t-12" accessibilityLiveRegion="polite">
+                        <GridLayout columns="*,auto">
+                            <StackLayout col="0" verticalAlignment="center">
+                                <Label text="{{ connectionTitle }}" class="status-title" textWrap="true" />
+                                <Label text="{{ connectionDetail }}" class="supporting-text m-t-4" textWrap="true" />
+                            </StackLayout>
+                            <Button col="1" text="{{ buttonLabel }}" tap="{{ onTap }}" isEnabled="{{ canRun }}"
+                                    class="-primary compact-action m-l-12" />
+                        </GridLayout>
+                    </StackLayout>
+                    <Label text="{{ log }}" textWrap="true" verticalAlignment="top" class="diagnostic-text m-t-16 m-b-24"
+                           visibility="{{ showLogVisibility }}" />
+            </StackLayout>
+        </ScrollView>
+
+        <StackLayout class="system-name-modal" visibility="{{ textSettingEditorVisibility }}"
+                     horizontalAlignment="stretch" verticalAlignment="top">
             <Label text="{{ activeTextSettingTitle }}" />
-            <TextField
-                id="settingsTextField"
-                text="{{ activeTextSettingValue }}"
-                textChange="{{ onTextSettingTextChange }}"
-                returnPress="{{ onTextSettingReturnPress }}"
-                autocorrect="false"
-                autocapitalizationType="none"
-                secure="{{ activeTextSettingSecure }}"
-                accessibilityLabel="{{ activeTextSettingTitle }}"
-                returnKeyType="done" />
+            <TextField id="settingsTextField" text="{{ activeTextSettingValue }}"
+                       textChange="{{ onTextSettingTextChange }}" returnPress="{{ onTextSettingReturnPress }}"
+                       autocorrect="false" autocapitalizationType="none" secure="{{ activeTextSettingSecure }}"
+                       accessibilityLabel="{{ activeTextSettingTitle }}" returnKeyType="done" />
         </StackLayout>
     </GridLayout>
 </Page>

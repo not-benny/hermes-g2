@@ -61,12 +61,16 @@ test("live resize work is coalesced, cancelled on unload, and ignores unchanged 
   assert.match(model, /if \(this\._windowWidth === layout\.width && this\._windowHeight === layout\.height\) return/);
 });
 
-test("main page releases its dashboard subscription when its view model unloads", () => {
+test("main page reactivates its retained dashboard model after a TabView unload/reload", () => {
   const page = read("app/phone-ui/main-page.ts");
   const model = read("app/phone-ui/main-view-model.ts");
   assert.match(model, /this\._unsubscribeDashboard = dashboardController\.subscribe/);
+  assert.match(model, /activate\(\): void/);
+  assert.match(model, /deactivate\(\): void/);
   assert.match(model, /dispose\(\): void/);
-  assert.match(page, /state\.model\.dispose\(\)/);
+  assert.match(page, /state\.model\.deactivate\(\)/);
+  assert.match(page, /model\?\.activate\(\)/);
+  assert.match(page, /if \(!page\.bindingContext\) page\.bindingContext = new MainViewModel\(\)/);
 });
 
 test("phone UI has bounded readable content and accessible touch targets", () => {

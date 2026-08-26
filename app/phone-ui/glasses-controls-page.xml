@@ -1,104 +1,184 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="navigatingTo" unloaded="unloaded">
-    <ActionBar title="Glasses Controls" />
+    <ActionBar title="Glasses controls" />
     <ScrollView>
-        <StackLayout class="p-20 phone-content">
-            <Label text="{{ status }}" textWrap="true" class="m-b-16" />
-
-            <Label text="Display" class="h2" />
-            <GridLayout columns="*,*" class="m-t-8">
-                <Button col="0" text="Wake screen" tap="{{ onWakeScreenTap }}" isEnabled="{{ canControl }}" />
-                <Button col="1" text="Blank screen" tap="{{ onBlankScreenTap }}" isEnabled="{{ canControl }}" />
-            </GridLayout>
-            <StackLayout class="control-row">
-                <GridLayout columns="*,auto">
-                    <Label col="0" text="Brightness" class="control-row-label" />
-                    <Label col="1" text="{{ brightnessValueLabel }}" class="control-row-value" />
-                </GridLayout>
-                <Slider minValue="0" maxValue="{{ brightnessSliderMax }}" value="{{ brightnessSliderValue }}" class="m-t-4" accessibilityLabel="Display brightness" />
-            </StackLayout>
-            <Button text="{{ timeoutLabel }}" tap="{{ onTimeoutTap }}" class="m-t-8" />
-            <GridLayout columns="*,auto" class="control-row">
-                <Label col="0" text="Lock screen" class="control-row-label" />
-                <Switch col="1" checked="{{ lockScreenChecked }}" accessibilityLabel="Lock screen" />
-            </GridLayout>
-            <Button text="{{ verticalPositionLabel }}" tap="{{ onVerticalPositionTap }}" class="m-t-8" />
-            <StackLayout class="control-row">
-                <Label text="Clock" class="control-row-label m-b-4" />
-                <SegmentedBar items="{{ timeFormatItems }}" selectedIndex="{{ timeFormatIndex }}" accessibilityLabel="Clock format" />
-            </StackLayout>
-            <StackLayout class="control-row">
-                <Label text="Battery display" class="control-row-label m-b-4" />
-                <SegmentedBar items="{{ batteryDisplayItems }}" selectedIndex="{{ batteryDisplayIndex }}" accessibilityLabel="Battery display" />
-            </StackLayout>
-            <StackLayout class="control-row">
-                <Label text="Dashboard size" class="control-row-label m-b-4" />
-                <SegmentedBar items="{{ dashboardSizeItems }}" selectedIndex="{{ dashboardSizeIndex }}" accessibilityLabel="Dashboard size" />
-            </StackLayout>
-            <StackLayout class="control-row">
-                <Label text="Font" class="control-row-label m-b-4" />
-                <SegmentedBar items="{{ uiFontItems }}" selectedIndex="{{ uiFontIndex }}" accessibilityLabel="Glasses font" />
+        <StackLayout class="screen-content phone-content controls-content">
+            <StackLayout class="{{ connectionBannerClass }}" accessibilityLiveRegion="polite">
+                <Label text="{{ connectionTitle }}" class="status-title" textWrap="true" />
+                <Label text="{{ connectionDetail }}" class="supporting-text m-t-4" textWrap="true" />
             </StackLayout>
 
-            <Label text="Sensors &amp; connection" class="h2 m-t-20" />
-            <Label text="{{ wearStatus }}" textWrap="true" class="m-t-8" />
-            <GridLayout columns="*,*" class="m-t-8">
-                <Button col="0" text="Refresh wear status" tap="{{ onRefreshWearTap }}" isEnabled="{{ canControl }}" />
-                <Button col="1" text="Open compass" tap="{{ onOpenCompassTap }}" isEnabled="{{ canControl }}" />
-            </GridLayout>
-            <Label text="{{ ringStatus }}" textWrap="true" class="m-t-12" />
-            <Label text="{{ g2HealthStatus }}" textWrap="true" class="m-t-4" />
-            <Label text="{{ r1HealthStatus }}" textWrap="true" class="m-t-4" />
-            <Label text="{{ connectionDiagnostics }}" textWrap="true" class="muted m-t-4" fontSize="11" />
-            <Label text="{{ ringFirmwareVersion }}" textWrap="true" class="m-t-4" />
-            <StackLayout visibility="{{ evenAppConflictWarningVisibility }}" class="m-t-8">
-                <Label text="{{ evenAppConflictMessage }}" textWrap="true" />
-                <GridLayout columns="*,*" class="m-t-4">
-                    <Button col="0" text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" />
-                    <Button col="1" text="Retry R1" tap="{{ onRetryRingTap }}" />
-                </GridLayout>
-            </StackLayout>
-            <StackLayout class="control-row">
-                <GridLayout columns="*,auto">
-                    <Label col="0" text="Ring sensitivity" class="control-row-label" />
-                    <Label col="1" text="{{ ringSensitivityValueLabel }}" class="control-row-value" />
-                </GridLayout>
-                <Slider minValue="0" maxValue="{{ ringSensitivitySliderMax }}" value="{{ ringSensitivitySliderValue }}" class="m-t-4" accessibilityLabel="Ring sensitivity" />
-            </StackLayout>
-            <Button text="Reconnect R1" tap="{{ onReconnectRingTap }}" isEnabled="{{ canControl }}" class="m-t-8" />
-            <Button text="Reconnect glasses" tap="{{ onReconnectGlassesTap }}" class="m-t-8" />
-
-            <Label text="Voice diagnostics" class="h2 m-t-20" />
-            <GridLayout columns="*,auto" class="control-row">
-                <Label col="0" text="Voice control" class="control-row-label" />
-                <Switch col="1" checked="{{ voiceControlChecked }}" accessibilityLabel="Voice control" />
-            </GridLayout>
-            <GridLayout columns="*,auto" class="control-row">
-                <StackLayout col="0">
-                    <Label text="Send to assistant without confirming" class="control-row-label" textWrap="true" />
-                    <Label text="When enabled, a finished assistant transcript sends automatically. App dictation still requires review."
-                           class="supporting-text m-t-4" textWrap="true" />
+            <Label text="Display" class="section-label m-t-20" />
+            <StackLayout class="surface-card m-t-8">
+                <StackLayout class="settings-control">
+                    <Label text="Screen" class="control-row-label" />
+                    <Label text="{{ screenStateLabel }}" class="supporting-text m-t-4" textWrap="true" />
+                    <Button text="{{ screenActionLabel }}" tap="{{ onScreenActionTap }}"
+                            isEnabled="{{ canControl }}" class="-primary m-t-8"
+                            accessibilityHint="{{ screenActionHint }}" />
                 </StackLayout>
-                <Switch col="1" checked="{{ assistantSkipConfirmationChecked }}"
-                        accessibilityLabel="Send to assistant without confirming" />
-            </GridLayout>
-            <Button text="{{ voiceProviderLabel }}" tap="{{ onVoiceProviderTap }}" class="m-t-8" />
-            <Button text="{{ wakeWordActionLabel }}" tap="{{ onWakeWordActionTap }}" class="m-t-8" />
-            <GridLayout columns="*,auto" class="control-row">
-                <Label col="0" text="Save voice recordings" class="control-row-label" />
-                <Switch col="1" checked="{{ saveVoiceRecordingsChecked }}" accessibilityLabel="Save voice recordings" />
-            </GridLayout>
-            <Button text="Test voice input" tap="{{ onTestVoiceInputTap }}" isEnabled="{{ canControl }}" class="m-t-8" />
-
-            <Label text="Notification filtering" class="h2 m-t-20" />
-            <Button text="{{ notificationFilterLabel }}" tap="{{ onNotificationFilterModeTap }}" class="m-t-8" />
-            <Label text="{{ selectedAppsLabel }}" textWrap="true" class="m-t-8" />
-            <StackLayout class="control-row">
-                <Label text="Notification text size" class="control-row-label m-b-4" />
-                <SegmentedBar items="{{ notificationFontSizeItems }}" selectedIndex="{{ notificationFontSizeIndex }}" accessibilityLabel="Notification text size" />
+                <StackLayout class="settings-control">
+                    <GridLayout columns="*,auto">
+                        <Label col="0" text="Brightness" class="control-row-label" />
+                        <Label col="1" text="{{ brightnessValueLabel }}" class="control-row-value" />
+                    </GridLayout>
+                    <Label text="Auto follows the ambient-light sensor; numbered levels stay fixed."
+                           class="supporting-text m-t-4" textWrap="true" />
+                    <Slider minValue="0" maxValue="{{ brightnessSliderMax }}" value="{{ brightnessSliderValue }}"
+                            class="m-t-4" accessibilityLabel="Display brightness"
+                            accessibilityValue="{{ brightnessValueLabel }}" />
+                </StackLayout>
+                <StackLayout class="settings-control">
+                    <Label text="Screen timeout" class="control-row-label" />
+                    <Label text="How long the display stays awake after the last input."
+                           class="supporting-text m-t-4" textWrap="true" />
+                    <Button text="{{ timeoutLabel }}" tap="{{ onTimeoutTap }}" class="setting-action m-t-8"
+                            accessibilityHint="Selects the next screen-timeout option." />
+                </StackLayout>
+                <GridLayout columns="*,auto" class="settings-control">
+                    <StackLayout col="0" verticalAlignment="center">
+                        <Label text="Lock when removed" class="control-row-label" textWrap="true" />
+                        <Label text="Locks the glasses when they are off-head and the phone is locked."
+                               class="supporting-text m-t-4" textWrap="true" />
+                    </StackLayout>
+                    <Switch col="1" checked="{{ lockScreenChecked }}" accessibilityLabel="Lock glasses when removed" />
+                </GridLayout>
+                <StackLayout class="settings-control">
+                    <Label text="Window position" class="control-row-label" />
+                    <Label text="Moves standard-height windows within your field of view."
+                           class="supporting-text m-t-4" textWrap="true" />
+                    <Button text="{{ verticalPositionLabel }}" tap="{{ onVerticalPositionTap }}" class="setting-action m-t-8"
+                            accessibilityHint="Selects the next vertical-position option." />
+                </StackLayout>
+                <StackLayout class="settings-control">
+                    <Label text="Dashboard size" class="control-row-label m-b-4" />
+                    <SegmentedBar items="{{ dashboardSizeItems }}" selectedIndex="{{ dashboardSizeIndex }}"
+                                  accessibilityLabel="Dashboard size" />
+                </StackLayout>
+                <StackLayout class="settings-control">
+                    <Label text="Clock format" class="control-row-label m-b-4" />
+                    <SegmentedBar items="{{ timeFormatItems }}" selectedIndex="{{ timeFormatIndex }}"
+                                  accessibilityLabel="Clock format" />
+                </StackLayout>
+                <StackLayout class="settings-control">
+                    <Label text="Battery display" class="control-row-label m-b-4" />
+                    <SegmentedBar items="{{ batteryDisplayItems }}" selectedIndex="{{ batteryDisplayIndex }}"
+                                  accessibilityLabel="Battery display" />
+                </StackLayout>
+                <StackLayout class="settings-control-last">
+                    <Label text="Glasses font" class="control-row-label m-b-4" />
+                    <SegmentedBar items="{{ uiFontItems }}" selectedIndex="{{ uiFontIndex }}"
+                                  accessibilityLabel="Glasses font" />
+                </StackLayout>
             </StackLayout>
-            <Button text="Manage notification apps" tap="{{ onOpenNotificationAppsTap }}" class="m-t-8" />
-            <Button text="Manage media sources" tap="{{ onOpenMediaAppsTap }}" class="m-t-8" />
 
+            <Label text="Connection &amp; wear" class="section-label m-t-20" />
+            <StackLayout class="surface-card m-t-8">
+                <StackLayout class="settings-control">
+                    <Label text="{{ wearStatus }}" class="control-row-label" textWrap="true" />
+                    <Label text="Wear state is session-specific and returns to unknown after a disconnect."
+                           class="supporting-text m-t-4" textWrap="true" />
+                    <Button text="Refresh wear status" tap="{{ onRefreshWearTap }}" isEnabled="{{ canControl }}"
+                            class="setting-action m-t-8" />
+                    <Button text="Open compass" tap="{{ onOpenCompassTap }}" isEnabled="{{ canControl }}"
+                            class="setting-action m-t-8" />
+                </StackLayout>
+                <StackLayout class="settings-control">
+                    <Label text="Device links" class="control-row-label" />
+                    <Label text="{{ g2HealthStatus }}" class="body-text m-t-8" textWrap="true" />
+                    <Label text="{{ ringStatus }}" class="body-text m-t-4" textWrap="true" />
+                    <Label text="{{ r1HealthStatus }}" class="supporting-text m-t-4" textWrap="true" />
+                    <Label text="{{ ringFirmwareVersion }}" class="supporting-text m-t-4" textWrap="true" />
+                </StackLayout>
+                <StackLayout visibility="{{ evenAppConflictWarningVisibility }}"
+                             class="status-banner status-warning m-t-12"
+                             accessibilityRole="alert" accessibilityLiveRegion="assertive">
+                    <Label text="Even app is using the ring" class="status-title" textWrap="true" />
+                    <Label text="{{ evenAppConflictMessage }}" class="supporting-text m-t-4" textWrap="true" />
+                    <Button text="Open Even app settings" tap="{{ onOpenEvenAppSettingsTap }}" class="-primary m-t-8" />
+                    <Button text="Retry R1" tap="{{ onRetryRingTap }}" class="-secondary m-t-8" />
+                </StackLayout>
+                <StackLayout class="settings-control">
+                    <GridLayout columns="*,auto">
+                        <Label col="0" text="Ring sensitivity" class="control-row-label" />
+                        <Label col="1" text="{{ ringSensitivityValueLabel }}" class="control-row-value" />
+                    </GridLayout>
+                    <Label text="Lower levels reduce rapid repeated scroll input."
+                           class="supporting-text m-t-4" textWrap="true" />
+                    <Slider minValue="0" maxValue="{{ ringSensitivitySliderMax }}" value="{{ ringSensitivitySliderValue }}"
+                            class="m-t-4" accessibilityLabel="Ring sensitivity"
+                            accessibilityValue="{{ ringSensitivityValueLabel }}" />
+                </StackLayout>
+                <StackLayout class="settings-control">
+                    <Button text="Reconnect R1" tap="{{ onReconnectRingTap }}" isEnabled="{{ canControl }}"
+                            class="setting-action" />
+                    <Button text="Reconnect glasses" tap="{{ onReconnectGlassesTap }}"
+                            isEnabled="{{ canReconnectGlasses }}" class="setting-action m-t-8" />
+                </StackLayout>
+                <StackLayout class="settings-control-last">
+                    <Label text="Connection diagnostics" class="control-row-label" />
+                    <Label text="{{ connectionDiagnostics }}" textWrap="true" class="diagnostic-text m-t-4" />
+                </StackLayout>
+            </StackLayout>
+
+            <Label text="Voice" class="section-label m-t-20" />
+            <StackLayout class="surface-card m-t-8">
+                <GridLayout columns="*,auto" class="settings-control">
+                    <StackLayout col="0" verticalAlignment="center">
+                        <Label text="Voice control" class="control-row-label" />
+                        <Label text="Enables wakeword and push-to-talk features."
+                               class="supporting-text m-t-4" textWrap="true" />
+                    </StackLayout>
+                    <Switch col="1" checked="{{ voiceControlChecked }}" accessibilityLabel="Voice control" />
+                </GridLayout>
+                <GridLayout columns="*,auto" class="settings-control">
+                    <StackLayout col="0" verticalAlignment="center">
+                        <Label text="Send to assistant without confirming" class="control-row-label" textWrap="true" />
+                        <Label text="Finished assistant transcripts send automatically. App dictation still requires review."
+                               class="supporting-text m-t-4" textWrap="true" />
+                    </StackLayout>
+                    <Switch col="1" checked="{{ assistantSkipConfirmationChecked }}"
+                            accessibilityLabel="Send assistant transcripts without confirming" />
+                </GridLayout>
+                <StackLayout class="settings-control">
+                    <Button text="{{ voiceProviderLabel }}" tap="{{ onVoiceProviderTap }}" class="setting-action"
+                            accessibilityHint="Selects the next configured speech-to-text provider." />
+                    <Button text="{{ wakeWordActionLabel }}" tap="{{ onWakeWordActionTap }}" class="setting-action m-t-8"
+                            accessibilityHint="Selects the next wakeword action." />
+                </StackLayout>
+                <GridLayout columns="*,auto" class="settings-control">
+                    <StackLayout col="0" verticalAlignment="center">
+                        <Label text="Save voice recordings" class="control-row-label" textWrap="true" />
+                        <Label text="Keep diagnostic audio on this phone until it is cleared."
+                               class="supporting-text m-t-4" textWrap="true" />
+                    </StackLayout>
+                    <Switch col="1" checked="{{ saveVoiceRecordingsChecked }}"
+                            accessibilityLabel="Save voice recordings" />
+                </GridLayout>
+                <StackLayout class="settings-control-last">
+                    <Button text="Test voice input" tap="{{ onTestVoiceInputTap }}" isEnabled="{{ canControl }}"
+                            class="setting-action" />
+                </StackLayout>
+            </StackLayout>
+
+            <Label text="Notifications" class="section-label m-t-20" />
+            <StackLayout class="surface-card m-t-8 m-b-24">
+                <StackLayout class="settings-control">
+                    <Label text="Filtering" class="control-row-label" />
+                    <Button text="{{ notificationFilterLabel }}" tap="{{ onNotificationFilterModeTap }}"
+                            class="setting-action m-t-8" accessibilityHint="Selects the next notification filter." />
+                    <Label text="{{ selectedAppsLabel }}" textWrap="true" class="supporting-text m-t-8" />
+                </StackLayout>
+                <StackLayout class="settings-control">
+                    <Label text="Notification text size" class="control-row-label m-b-4" />
+                    <SegmentedBar items="{{ notificationFontSizeItems }}" selectedIndex="{{ notificationFontSizeIndex }}"
+                                  accessibilityLabel="Notification text size" />
+                </StackLayout>
+                <StackLayout class="settings-control-last">
+                    <Button text="Manage notification apps" tap="{{ onOpenNotificationAppsTap }}" class="setting-action" />
+                    <Button text="Edit notification rules" tap="{{ onOpenNotificationRulesTap }}" class="setting-action m-t-8" />
+                    <Button text="Manage media sources" tap="{{ onOpenMediaAppsTap }}" class="setting-action m-t-8" />
+                </StackLayout>
+            </StackLayout>
         </StackLayout>
     </ScrollView>
 </Page>

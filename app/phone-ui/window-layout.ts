@@ -39,3 +39,31 @@ export function tryClassifyPhoneWindow(width: number, height: number): PhoneWind
   }
   return classifyPhoneWindow(width, height);
 }
+
+/**
+ * The Glasses tab's side-by-side preview needs room for its fixed 320-DIP
+ * controls column. Compact landscape/split windows stay stacked and scroll;
+ * orientation alone is not enough to choose the wide layout.
+ */
+export function usesWideGlassesLayout(layout: PhoneWindowLayout): boolean {
+  return layout.orientation === "landscape" && layout.widthClass !== "compact";
+}
+
+/**
+ * Height for the stacked lens preview. In compact landscape, deriving height
+ * from width alone can consume the whole short window and strand the controls
+ * below the fold. Portrait keeps the exact lens aspect; compact landscape
+ * gives the preview at most 36% of the live content height.
+ */
+export function stackedGlassesPreviewHeight(
+  width: number,
+  height: number,
+  aspectRatio: number,
+): number {
+  if (![width, height, aspectRatio].every(Number.isFinite) || width <= 0 || height <= 0 || aspectRatio <= 0) {
+    throw new Error("preview bounds and aspect ratio must be positive finite values");
+  }
+  const aspectHeight = width / aspectRatio;
+  if (width <= height) return aspectHeight;
+  return Math.min(aspectHeight, Math.max(96, Math.floor(height * 0.36)));
+}

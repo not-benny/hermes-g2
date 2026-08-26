@@ -3,9 +3,15 @@ import { dashboardController } from "../g2/dashboard-controller";
 import { isValidMacAddress, loadDeviceAddresses } from "../g2/device-addresses";
 import { G2_LENS_HEIGHT, G2_LENS_WIDTH } from "../graphics/image";
 import { openLocalReaderDocument } from "../native/reader-import";
-import { tryClassifyPhoneWindow, WindowOrientation } from "./window-layout";
+import {
+  stackedGlassesPreviewHeight,
+  tryClassifyPhoneWindow,
+  usesWideGlassesLayout,
+} from "./window-layout";
+import { controlsConnectionPresentation } from "./controls-presentation";
 
 const LENS_ASPECT_RATIO = G2_LENS_WIDTH / G2_LENS_HEIGHT;
+const PHONE_CONTENT_MAX_WIDTH = 840;
 
 export class MainViewModel extends Observable {
   private _status = "Disconnected.";
@@ -14,7 +20,7 @@ export class MainViewModel extends Observable {
   private _displayPreviewMessage = "";
   private _windowWidth = 360;
   private _windowHeight = 640;
-  private _layoutOrientation: WindowOrientation = "portrait";
+  private _useWideLayout = false;
   private _activeTextSettingId: string | null = null;
   private _activeTextSettingTitle = "";
   private _activeTextSettingValue = "";
@@ -30,6 +36,12 @@ export class MainViewModel extends Observable {
 
   constructor() {
     super();
+    this.activate();
+  }
+
+  /** Reattach the retained tab model after NativeScript reloads its Frame. */
+  activate(): void {
+    if (this._unsubscribeDashboard) return;
     this._unsubscribeDashboard = dashboardController.subscribe((snapshot) => {
       this.status = snapshot.status;
       this.log = snapshot.log;
@@ -48,9 +60,13 @@ export class MainViewModel extends Observable {
     });
   }
 
-  dispose(): void {
+  deactivate(): void {
     this._unsubscribeDashboard?.();
     this._unsubscribeDashboard = null;
+  }
+
+  dispose(): void {
+    this.deactivate();
   }
 
   get status(): string {
@@ -61,7 +77,21 @@ export class MainViewModel extends Observable {
     if (this._status !== value) {
       this._status = value;
       this.notifyPropertyChange("status", value);
+      this.notifyPropertyChange("connectionDetail", this.connectionDetail);
+      this.notifyPropertyChange("connectionBannerClass", this.connectionBannerClass);
     }
+  }
+
+  get connectionTitle(): string {
+    return controlsConnectionPresentation(this._phase, this._status).title;
+  }
+
+  get connectionDetail(): string {
+    return controlsConnectionPresentation(this._phase, this._status).detail;
+  }
+
+  get connectionBannerClass(): string {
+    return controlsConnectionPresentation(this._phase, this._status).bannerClass;
   }
 
   get log(): string {
@@ -85,6 +115,7 @@ export class MainViewModel extends Observable {
       this.notifyPropertyChange("displayPreview", value);
       this.notifyPropertyChange("hasDisplayPreview", this.hasDisplayPreview);
       this.notifyPropertyChange("displayPreviewVisibility", this.displayPreviewVisibility);
+      this.notifyPropertyChange("displayPreviewContainerVisibility", this.displayPreviewContainerVisibility);
     }
   }
 
@@ -98,6 +129,7 @@ export class MainViewModel extends Observable {
       this.notifyPropertyChange("displayPreviewMessage", value);
       this.notifyPropertyChange("displayPreviewMessageVisibility", this.displayPreviewMessageVisibility);
       this.notifyPropertyChange("displayPreviewVisibility", this.displayPreviewVisibility);
+      this.notifyPropertyChange("displayPreviewContainerVisibility", this.displayPreviewContainerVisibility);
     }
   }
 
@@ -117,8 +149,24 @@ export class MainViewModel extends Observable {
     return this._displayPreviewMessage ? "visible" : "collapse";
   }
 
+  get displayPreviewContainerVisibility(): "visible" | "collapse" {
+    return this.hasDisplayPreview || this._displayPreviewMessage ? "visible" : "collapse";
+  }
+
+  get displayPreviewWidth(): number {
+    const availableWidth = Math.min(this._windowWidth, PHONE_CONTENT_MAX_WIDTH);
+    // Compact landscape caps the preview by height. Derive its width from the
+    // same 4:3 lens aspect instead of stretching a full-width image into the
+    // short box.
+    return Math.min(availableWidth, Math.floor(this.displayPreviewHeight * LENS_ASPECT_RATIO));
+  }
+
   get displayPreviewHeight(): number {
-    return this._windowWidth / LENS_ASPECT_RATIO;
+    return stackedGlassesPreviewHeight(
+      Math.min(this._windowWidth, PHONE_CONTENT_MAX_WIDTH),
+      this._windowHeight,
+      LENS_ASPECT_RATIO,
+    );
   }
 
   get landscapeDisplayPreviewWidth(): number {
@@ -130,16 +178,17 @@ export class MainViewModel extends Observable {
     // aspect; the width is derived from it, so a wider lens aspect can't
     // grow the preview past the side panel.
     const sidePanelWidth = 320;
-    const availableWidth = Math.max(240, Math.floor(this._windowWidth - sidePanelWidth - 56));
+    const boundedContentWidth = Math.min(this._windowWidth, PHONE_CONTENT_MAX_WIDTH);
+    const availableWidth = Math.max(240, Math.floor(boundedContentWidth - sidePanelWidth - 56));
     return Math.floor(availableWidth / 2);
   }
 
   get portraitLayoutVisibility(): "visible" | "collapse" {
-    return this._layoutOrientation === "portrait" ? "visible" : "collapse";
+    return this._useWideLayout ? "collapse" : "visible";
   }
 
   get landscapeLayoutVisibility(): "visible" | "collapse" {
-    return this._layoutOrientation === "landscape" ? "visible" : "collapse";
+    return this._useWideLayout ? "visible" : "collapse";
   }
 
   refreshLayoutMetrics(width: number, height: number): void {
@@ -148,12 +197,13 @@ export class MainViewModel extends Observable {
     if (this._windowWidth === layout.width && this._windowHeight === layout.height) return;
     this._windowWidth = layout.width;
     this._windowHeight = layout.height;
-    const nextOrientation: WindowOrientation = this._windowWidth > this._windowHeight ? "landscape" : "portrait";
-    if (this._layoutOrientation !== nextOrientation) {
-      this._layoutOrientation = nextOrientation;
+    const nextUseWideLayout = usesWideGlassesLayout(layout);
+    if (this._useWideLayout !== nextUseWideLayout) {
+      this._useWideLayout = nextUseWideLayout;
       this.notifyPropertyChange("portraitLayoutVisibility", this.portraitLayoutVisibility);
       this.notifyPropertyChange("landscapeLayoutVisibility", this.landscapeLayoutVisibility);
     }
+    this.notifyPropertyChange("displayPreviewWidth", this.displayPreviewWidth);
     this.notifyPropertyChange("displayPreviewHeight", this.displayPreviewHeight);
     this.notifyPropertyChange("landscapeDisplayPreviewWidth", this.landscapeDisplayPreviewWidth);
     this.notifyPropertyChange("landscapeDisplayPreviewHeight", this.landscapeDisplayPreviewHeight);
@@ -360,6 +410,9 @@ export class MainViewModel extends Observable {
       this.notifyPropertyChange("phase", value);
       this.notifyPropertyChange("buttonLabel", this.buttonLabel);
       this.notifyPropertyChange("canRun", this.canRun);
+      this.notifyPropertyChange("connectionTitle", this.connectionTitle);
+      this.notifyPropertyChange("connectionDetail", this.connectionDetail);
+      this.notifyPropertyChange("connectionBannerClass", this.connectionBannerClass);
     }
   }
 
