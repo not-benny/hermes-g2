@@ -100,6 +100,7 @@ verification commands are in [`docs/debug-control.md`](docs/debug-control.md).
 - `App_Resources/Android/` - Android manifest, Java BLE implementation, and assets
 - `tests/` - host-side regression tests
 - `docs/` - maintained component contracts and integration documentation
+- `docs/research/` - public research index and reproducibility guidance
 - `gateway/even-g2/` - public-safe SOUL and MCP cutover configuration templates
 - `notes/` - research, threat models, and dated evidence; never current status
 - `firmware-research/` - source-only G2 firmware port research; no proprietary binaries
