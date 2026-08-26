@@ -46,6 +46,34 @@ source installer does not change those boundaries, and production signing is
 not yet accepted. See
 `STATUS.md` for the complete current boundary.
 
+## Research
+
+Hermes G2 is built from documented protocol, hardware, UX, security, and
+feasibility research rather than assumptions. The main conclusions are:
+
+- The R1 health path is a bounded BLE protocol with explicit session opening,
+  packet acknowledgements, CRC/shape validation, generation ownership, and
+  freshness checks. Incomplete or relative-only records remain rejected.
+- The G2 bridge is an authenticated, certificate-validated WSS transport. Host
+  Session MCP, private Device MCP, and the separate workflow MCP have distinct
+  authority boundaries; there is no generic phone-tool or terminal proxy.
+- The glasses are a constrained visual-first surface. Results use bounded cards,
+  progressive disclosure, strict frame acknowledgements, and generation-safe
+  wake/input ownership. Running work stays phone-only.
+- Fold7 compatibility, notification triage, Conversate, contextual dashboards,
+  local reading, media, Clock, and Cockpit are evaluated as separate contracts,
+  with host tests, build evidence, and physical acceptance kept distinct.
+- Firmware, recovery, pairing, provisioning, destructive R1 operations, and
+  public-release claims remain independently gated. A passing test or static
+  review is not hardware or safety acceptance.
+
+Read the full [`research index`](docs/research/) for the reproducibility method,
+open questions, evidence levels, and links to every research record. Primary
+starting points are [`Hermes MCP architecture`](docs/hermes-mcp-architecture.md),
+[`R1 health over BLE`](docs/ring-health/README.md),
+[`release security`](docs/release-security.md), and the
+[`Fold7 compatibility matrix`](notes/fold7-compatibility-matrix-2026-08-22.md).
+
 ## Before you start
 
 Hermes works alongside the official Even app rather than replacing it.
