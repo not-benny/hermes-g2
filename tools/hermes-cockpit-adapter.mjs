@@ -2,13 +2,22 @@ import { createHash, randomBytes } from "node:crypto";
 
 const STATES = new Set(["queued", "running", "waiting_human", "interrupting", "completed", "failed", "interrupted"]);
 const ACTIONS = new Set(["read_file", "write_file", "network_request", "other_bounded"]);
-const CONTROL = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069<>`]/u;
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069<>`]/u;
+const REVIEW_TEXT_MAX_SCALARS = 64;
+const MAX_SESSIONS = 8;
+const MAX_SNAPSHOT_BYTES = 24 * 1024;
 
 function boundedText(value, max) {
   if (typeof value !== "string") return null;
-  const normalized = value.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069<>`]/gu, " ").trim();
+  const normalized = value.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069<>`]/gu, " ").trim();
   if (!normalized) return null;
   return Array.from(normalized).slice(0, max).join("");
+}
+
+function reviewText(value) {
+  if (typeof value !== "string") return null;
+  return value && value === value.trim() && Array.from(value).length <= REVIEW_TEXT_MAX_SCALARS &&
+    /^[\u0020-\u007e]+$/u.test(value) && !CONTROL.test(value) ? value : null;
 }
 
 function opaque(prefix, source = randomBytes(16).toString("hex")) {
@@ -17,6 +26,10 @@ function opaque(prefix, source = randomBytes(16).toString("hex")) {
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function encodedBytes(value) {
+  return new TextEncoder().encode(JSON.stringify(value)).length;
 }
 
 function monotonicNow() {
@@ -43,6 +56,7 @@ export class HermesCockpitAdapter {
     this.monotonicNow = options.monotonicNow ?? monotonicNow;
     this.createOpaque = options.createOpaque ?? opaque;
     this.reserveCommand = options.reserveCommand ?? (() => true);
+    this.freeTextEnabled = options.cockpitFreeTextEnabled === true;
     for (const record of options.journal ?? []) this.#journal.set(record.commandId, clone(record));
   }
 
@@ -56,6 +70,7 @@ export class HermesCockpitAdapter {
     if (typeof publicSessionId !== "string" || typeof hermesSessionId !== "string" ||
         !Number.isSafeInteger(generation) || generation < 0) throw new Error("invalid explicit share");
     const old = this.#byPublic.get(publicSessionId);
+    if (!old && this.#byPublic.size >= MAX_SESSIONS) throw new Error("Cockpit session limit reached");
     const existingPublic = this.#publicByHermes.get(hermesSessionId);
     if (existingPublic && existingPublic !== publicSessionId) throw new Error("Hermes session is already explicitly shared");
     if (old && generation !== old.generation && generation <= old.generation) throw new Error("replacement generation must increase");
@@ -108,7 +123,7 @@ export class HermesCockpitAdapter {
 
   snapshot() {
     if (!this.#connectionGeneration) return null;
-    return {
+    const snapshot = {
       v: 1,
       chan: "cockpit",
       type: "snapshot",
@@ -116,6 +131,7 @@ export class HermesCockpitAdapter {
       sequence: ++this.#sequence,
       sessions: [...this.#byPublic.values()].map((session) => this.#projectSession(session)),
     };
+    return this.#boundSnapshot(snapshot);
   }
 
   ingest(event, sourceGeneration) {
@@ -130,7 +146,10 @@ export class HermesCockpitAdapter {
       if (!text) return null;
       return this.#appendTimeline(session, "assistant", text, "done", event.type);
     }
-    if (event.type === "clarify.request") return this.#openQuestion(session, data);
+    if (event.type === "clarify.request") {
+      if (Array.isArray(data.options)) return this.#openQuestion(session, data);
+      return this.freeTextEnabled && data.options == null ? this.#openTextQuestion(session, data) : null;
+    }
     if (event.type === "approval.request") return this.#openPermission(session, data);
     if (["clarify.expire", "approval.expire"].includes(event.type)) return this.#closeProviderRequest(session, data.request_id, "expired");
     if (event.type === "session.completed") return this.observeSession(event.session_id, { state: "completed", summary: data.summary });
@@ -149,7 +168,7 @@ export class HermesCockpitAdapter {
     let rpc = null;
     let pendingRequestId = null;
     let interruptAfterReservation = false;
-    if (command.type === "answer" || command.type === "permission_decide") {
+    if (["answer", "answer_text", "permission_decide"].includes(command.type)) {
       const pending = this.#pending.get(command.request_id);
       if (!pending || pending.publicSessionId !== session.publicSessionId || pending.generation !== session.generation ||
           pending.nonce !== command.nonce || this.monotonicNow() >= pending.expiresAtMonotonic) return null;
@@ -157,6 +176,13 @@ export class HermesCockpitAdapter {
         if (pending.kind !== "question") return null;
         const answer = pending.choices.get(command.choice_id);
         if (!answer) return null;
+        rpc = this.#rpc(command.command_id, "clarify.respond", {
+          session_id: session.hermesSessionId, request_id: pending.providerRequestId, answer,
+        });
+      } else if (command.type === "answer_text") {
+        const answer = reviewText(command.text);
+        if (pending.kind !== "text_question" || !answer ||
+            Array.from(answer).length > pending.maxLength) return null;
         rpc = this.#rpc(command.command_id, "clarify.respond", {
           session_id: session.hermesSessionId, request_id: pending.providerRequestId, answer,
         });
@@ -170,7 +196,7 @@ export class HermesCockpitAdapter {
       }
       pendingRequestId = command.request_id;
     } else if (command.type === "steer") {
-      const text = boundedText(command.text, 500);
+      const text = reviewText(command.text);
       if (!text || session.state !== "running") return null;
       rpc = this.#rpc(command.command_id, "session.steer", { session_id: session.hermesSessionId, text });
     } else if (command.type === "interrupt") {
@@ -230,6 +256,33 @@ export class HermesCockpitAdapter {
     return { jsonrpc: "2.0", id, method, params };
   }
 
+  #boundSnapshot(snapshot) {
+    if (encodedBytes(snapshot) <= MAX_SNAPSHOT_BYTES) return snapshot;
+    const terminal = new Set(["completed", "failed", "interrupted"]);
+    while (encodedBytes(snapshot) > MAX_SNAPSHOT_BYTES) {
+      const candidates = snapshot.sessions.filter((session) => session.timeline.length);
+      if (!candidates.length) break;
+      candidates.sort((left, right) =>
+        Number(terminal.has(right.state)) - Number(terminal.has(left.state)) ||
+        left.updated_at_ms - right.updated_at_ms || left.session_id.localeCompare(right.session_id));
+      candidates[0].timeline.shift();
+    }
+    while (encodedBytes(snapshot) > MAX_SNAPSHOT_BYTES) {
+      const candidates = snapshot.sessions.filter((session) => session.pending.length)
+        .sort((left, right) => right.pending.length - left.pending.length ||
+          left.updated_at_ms - right.updated_at_ms || left.session_id.localeCompare(right.session_id));
+      if (!candidates.length) break;
+      candidates[0].pending.pop();
+    }
+    while (encodedBytes(snapshot) > MAX_SNAPSHOT_BYTES && snapshot.sessions.length) {
+      snapshot.sessions.sort((left, right) =>
+        Number(terminal.has(right.state)) - Number(terminal.has(left.state)) ||
+        left.updated_at_ms - right.updated_at_ms || left.session_id.localeCompare(right.session_id));
+      snapshot.sessions.shift();
+    }
+    return snapshot;
+  }
+
   #sharedByHermes(hermesSessionId) {
     const publicId = this.#publicByHermes.get(hermesSessionId);
     return publicId ? this.#byPublic.get(publicId) ?? null : null;
@@ -273,11 +326,11 @@ export class HermesCockpitAdapter {
   }
 
   #openQuestion(session, data) {
-    const title = boundedText(data.question, 160);
+    const title = reviewText(data.question);
     if (!title || typeof data.request_id !== "string" || !data.request_id ||
         this.#hasProviderRequest(session, data.request_id) || !Array.isArray(data.options) ||
         data.options.length < 1 || data.options.length > 8) return null;
-    const labels = data.options.map((item) => boundedText(item, 120));
+    const labels = data.options.map((item) => reviewText(item));
     if (labels.some((item) => !item)) return null;
     const publicRequestId = this.createOpaque("request", `${session.publicSessionId}:${session.generation}:${data.request_id}`);
     const nonce = this.createOpaque("nonce", `${publicRequestId}:${session.revision}`);
@@ -296,17 +349,36 @@ export class HermesCockpitAdapter {
     return this.#interactionFrame(session, projected);
   }
 
+  #openTextQuestion(session, data) {
+    const title = reviewText(data.question);
+    if (!title || typeof data.request_id !== "string" || !data.request_id ||
+        this.#hasProviderRequest(session, data.request_id)) return null;
+    const requestedMax = Number.isSafeInteger(data.max_length) && data.max_length > 0
+      ? data.max_length : REVIEW_TEXT_MAX_SCALARS;
+    const maxLength = Math.min(requestedMax, REVIEW_TEXT_MAX_SCALARS);
+    const publicRequestId = this.createOpaque("request", `${session.publicSessionId}:${session.generation}:${data.request_id}`);
+    const nonce = this.createOpaque("nonce", `${publicRequestId}:${session.revision}`);
+    const projected = { request_id: publicRequestId, nonce, kind: "text_question", title,
+      expires_at_ms: this.now() + 120_000, max_length: maxLength };
+    this.#pending.set(publicRequestId, { publicSessionId: session.publicSessionId, generation: session.generation,
+      providerRequestId: String(data.request_id), nonce, kind: "text_question", maxLength,
+      expiresAtMs: projected.expires_at_ms, expiresAtMonotonic: this.monotonicNow() + 120_000, projected });
+    session.state = "waiting_human";
+    return this.#interactionFrame(session, projected);
+  }
+
   #openPermission(session, data) {
     if (typeof data.request_id !== "string" || !data.request_id || this.#hasProviderRequest(session, data.request_id)) return null;
     const scope = data.cockpit_scope && typeof data.cockpit_scope === "object" ? data.cockpit_scope : null;
-    const supported = scope && ACTIONS.has(scope.action) && scope.action !== "other_bounded" &&
-      boundedText(scope.target, 240) && boundedText(scope.effect, 240);
+    const target = scope ? reviewText(scope.target) : null;
+    const effect = scope ? reviewText(scope.effect) : null;
+    const supported = scope && ACTIONS.has(scope.action) && scope.action !== "other_bounded" && target && effect;
     const publicRequestId = this.createOpaque("request", `${session.publicSessionId}:${session.generation}:${data.request_id}`);
     const nonce = this.createOpaque("nonce", `${publicRequestId}:${session.revision}`);
     const projected = supported ? {
       request_id: publicRequestId, nonce, kind: "permission", title: "Exact permission request",
-      expires_at_ms: this.now() + 60_000, action: scope.action, target: boundedText(scope.target, 240),
-      effect: boundedText(scope.effect, 240), choices: ["deny", "allow_once"],
+      expires_at_ms: this.now() + 60_000, action: scope.action, target,
+      effect, choices: ["deny", "allow_once"],
     } : {
       request_id: publicRequestId, nonce, kind: "permission", title: "Unsupported permission scope",
       expires_at_ms: this.now() + 60_000, action: "other_bounded", target: "Scope unavailable",

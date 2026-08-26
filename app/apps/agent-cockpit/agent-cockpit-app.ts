@@ -17,7 +17,9 @@ export const AGENT_COCKPIT_SURFACE_ID = "window:agent-cockpit";
 
 class AgentCockpitLayer implements Layer {
   private readonly model = new CockpitViewModel({
+    refresh: () => assistantBridge.refreshCockpit(),
     answer: (...args) => assistantBridge.cockpit.answer(...args),
+    answerText: (...args) => assistantBridge.cockpit.answerText(...args),
     decidePermission: (...args) => assistantBridge.cockpit.decidePermission(...args),
     steer: (...args) => assistantBridge.cockpit.steer(...args),
     interrupt: (...args) => assistantBridge.cockpit.interrupt(...args),
@@ -42,6 +44,10 @@ class AgentCockpitLayer implements Layer {
   }
 
   receiveText(text: string): void {
+    if (this.model.beginTextAnswer()) {
+      if (this.model.reviewTextAnswer(text)) this.requestRender();
+      return;
+    }
     if (!this.model.beginSteer()) return;
     // The shell voice layer already reviewed transcription once. The cockpit
     // deliberately adds a second exact-run review before sending it.
@@ -88,10 +94,14 @@ class AgentCockpitLayer implements Layer {
     else if (event.type === "scroll-down") this.model.scroll(1);
     else if (event.type === "click") this.model.click();
     else if (event.type === "double-click") {
-      if (this.model.screen().mode !== "active") {
-        this.model.back();
-      } else {
+      const mode = this.model.screen().mode;
+      // Offline is a root screen just like the active session list. Calling
+      // model.back() there is deliberately inert, so it must yield to the
+      // sidebar or a failed sync traps the wearer inside Cockpit.
+      if (mode === "active" || mode === "offline") {
         shell.yieldFocusToSidebar();
+      } else {
+        this.model.back();
       }
     }
   }

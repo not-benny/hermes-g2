@@ -1,4 +1,10 @@
-import type { CockpitInteraction, CockpitSession, CockpitSnapshot } from "./protocol";
+import {
+  COCKPIT_REVIEW_TEXT_MAX_SCALARS,
+  cockpitInteractionFingerprint,
+  type CockpitInteraction,
+  type CockpitSession,
+  type CockpitSnapshot,
+} from "./protocol";
 
 export type CockpitScreenMode =
   | "offline"
@@ -7,6 +13,8 @@ export type CockpitScreenMode =
   | "detail"
   | "question"
   | "answer_review"
+  | "text_question"
+  | "text_answer_review"
   | "permission_review"
   | "permission_decision"
   | "interrupt_review"
@@ -26,25 +34,38 @@ export type CockpitScreen = {
 };
 
 export type CockpitActions = {
-  answer: (sessionId: string, generation: number, requestId: string, choiceId: string) => string | null;
-  decidePermission: (sessionId: string, generation: number, requestId: string, decision: "deny" | "allow_once") => string | null;
+  refresh: () => boolean;
+  answer: (sessionId: string, generation: number, requestId: string, choiceId: string,
+    reviewedNonce: string, reviewedFingerprint: string) => string | null;
+  answerText: (sessionId: string, generation: number, requestId: string, value: string,
+    reviewedNonce: string, reviewedFingerprint: string) => string | null;
+  decidePermission: (sessionId: string, generation: number, requestId: string,
+    decision: "deny" | "allow_once", reviewedNonce: string, reviewedFingerprint: string) => string | null;
   steer: (sessionId: string, generation: number, text: string) => string | null;
   interrupt: (sessionId: string, generation: number) => string | null;
 };
 
 type SelectedRun = { sessionId: string; generation: number };
-type SelectedRequest = SelectedRun & { requestId: string };
+type SelectedRequest = SelectedRun & { requestId: string; reviewNonce: string; reviewFingerprint: string };
 
 const TERMINAL = new Set(["completed", "failed", "interrupted"]);
 
 /** Pure navigation and review state for the native cockpit. Remote data never defines controls. */
 export class CockpitViewModel {
-  private state: CockpitSnapshot = { synchronized: false, connectionGeneration: null, sequence: 0, sessions: [], lastReceipt: null };
+  private state: CockpitSnapshot = {
+    synchronized: false,
+    commandsAvailable: false,
+    connectionGeneration: null,
+    sequence: 0,
+    sessions: [],
+    lastReceipt: null,
+  };
   private mode: CockpitScreenMode = "offline";
   private selected = 0;
   private run: SelectedRun | null = null;
   private request: SelectedRequest | null = null;
   private selectedChoiceId: string | null = null;
+  private answerTextValue = "";
   private requestOrigin: "inbox" | "detail" = "inbox";
   private steerText = "";
   private pendingCommandId: string | null = null;
@@ -53,42 +74,54 @@ export class CockpitViewModel {
   constructor(private readonly actions: CockpitActions) {}
 
   update(state: CockpitSnapshot): void {
-    const priorSequence = this.state.sequence;
     this.state = state;
+    let settledSubmission = false;
+    if (this.mode === "submitting" && state.lastReceipt?.commandId === this.pendingCommandId &&
+        state.lastReceipt.sessionId === this.run?.sessionId && state.lastReceipt.generation === this.run?.generation) {
+      // The exact Host MCP response is correlated independently from resource
+      // snapshot ordering. It can legitimately arrive after a newer snapshot,
+      // or carry outcome_unknown without a server projection sequence.
+      if (["accepted", "duplicate"].includes(state.lastReceipt.outcome)) this.mode = this.currentRun() ? "detail" : "active";
+      else {
+        this.submissionError = state.lastReceipt.outcome === "outcome_unknown"
+          ? "Action outcome is unknown. Do not retry until Cockpit resynchronizes."
+          : `Action rejected${state.lastReceipt.code ? `: ${state.lastReceipt.code}` : "."}`;
+        this.mode = "submission_error";
+      }
+      this.pendingCommandId = null;
+      this.selected = 0;
+      settledSubmission = true;
+    }
     if (!state.synchronized) {
-      this.mode = "offline";
+      if (!settledSubmission) this.mode = "offline";
       this.selected = 0;
       return;
     }
     if (this.mode === "offline") {
       this.mode = "active";
       this.selected = 0;
-    } else if (this.mode === "submitting" && state.sequence > priorSequence && state.lastReceipt?.commandId === this.pendingCommandId &&
-        state.lastReceipt.sessionId === this.run?.sessionId && state.lastReceipt.generation === this.run?.generation) {
-      // A socket write is not success. Leave the input-locked submitting view
-      // only after an authoritative sequenced receipt has been applied.
-      if (["accepted", "duplicate"].includes(state.lastReceipt.outcome)) this.mode = this.currentRun() ? "detail" : "active";
-      else {
-        this.submissionError = state.lastReceipt.outcome === "outcome_unknown"
-          ? "Action outcome is unknown. Do not retry from the glasses."
-          : `Action rejected${state.lastReceipt.code ? `: ${state.lastReceipt.code}` : "."}`;
-        this.mode = "submission_error";
-      }
-      this.pendingCommandId = null;
-      this.selected = 0;
     }
   }
 
   screen(): CockpitScreen {
+    if (this.mode === "submission_error") return { mode: this.mode, title: "ACTION NOT CONFIRMED", body: [this.submissionError],
+      rows: [], selected: 0, footer: "double-click back" };
     if (!this.state.synchronized || this.mode === "offline") {
       return { mode: "offline", title: "HERMES", body: ["Cockpit offline", "Actions are disabled until resynchronized."],
-        rows: [], selected: 0, footer: "double-click back" };
+        rows: [{ label: "Retry secure sync" }], selected: 0, footer: "click retry · double-click back" };
     }
+    const screen = this.synchronizedScreen();
+    return this.state.commandsAvailable ? screen : this.asReadOnly(screen);
+  }
+
+  private synchronizedScreen(): CockpitScreen {
     if (this.mode === "active") return this.activeScreen();
     if (this.mode === "inbox") return this.inboxScreen();
     if (this.mode === "detail") return this.detailScreen();
     if (this.mode === "question") return this.questionScreen();
     if (this.mode === "answer_review") return this.answerReviewScreen();
+    if (this.mode === "text_question") return this.textQuestionScreen();
+    if (this.mode === "text_answer_review") return this.textAnswerReviewScreen();
     if (this.mode === "permission_review") return this.permissionReviewScreen();
     if (this.mode === "permission_decision") return this.permissionDecisionScreen();
     if (this.mode === "interrupt_review") {
@@ -101,8 +134,6 @@ export class CockpitViewModel {
         rows: [{ label: "Send steering" }, { label: "Discard", tone: "muted" }], selected: this.selected,
         footer: "click confirm · double-click discard" };
     }
-    if (this.mode === "submission_error") return { mode: this.mode, title: "ACTION NOT CONFIRMED", body: [this.submissionError],
-      rows: [], selected: 0, footer: "double-click back" };
     return { mode: "submitting", title: "SENDING", body: ["Waiting for authoritative receipt…"],
       rows: [], selected: 0, footer: "No repeated input" };
   }
@@ -114,10 +145,15 @@ export class CockpitViewModel {
   }
 
   click(): void {
+    if (this.mode === "offline") {
+      this.actions.refresh();
+      return;
+    }
     if (!this.state.synchronized || this.mode === "submitting") return;
     if (this.mode === "active") return this.clickActive();
     if (this.mode === "inbox") return this.clickInbox();
     if (this.mode === "detail") return this.clickDetail();
+    if (!this.state.commandsAvailable) return;
     if (this.mode === "question") {
       const interaction = this.currentInteraction();
       if (interaction?.kind !== "question") return;
@@ -128,8 +164,11 @@ export class CockpitViewModel {
       return;
     }
     if (this.mode === "answer_review") return this.submitAnswer();
+    if (this.mode === "text_question") return;
+    if (this.mode === "text_answer_review") return this.submitTextAnswer();
     if (this.mode === "permission_review") {
       if (this.currentInteraction()?.kind !== "permission") return;
+      if (this.selected === 0) return this.submitPermission("deny");
       this.mode = "permission_decision";
       this.selected = 0;
       return;
@@ -162,10 +201,11 @@ export class CockpitViewModel {
 
   back(): void {
     if (this.mode === "active" || this.mode === "offline") return;
-    if (["question", "permission_review"].includes(this.mode)) {
+    if (["question", "text_question", "permission_review"].includes(this.mode)) {
       this.mode = this.requestOrigin;
-    } else if (["answer_review", "permission_decision"].includes(this.mode)) {
-      this.mode = this.currentInteraction()?.kind === "question" ? "question" : "permission_review";
+    } else if (["answer_review", "text_answer_review", "permission_decision"].includes(this.mode)) {
+      const kind = this.currentInteraction()?.kind;
+      this.mode = kind === "question" ? "question" : kind === "text_question" ? "text_question" : "permission_review";
     } else if (this.mode === "inbox") {
       this.mode = "active";
     } else if (this.mode === "detail") {
@@ -177,6 +217,7 @@ export class CockpitViewModel {
   }
 
   beginSteer(): boolean {
+    if (!this.state.commandsAvailable) return false;
     const session = this.currentRun();
     if (!session || session.state !== "running") return false;
     this.steerText = "";
@@ -184,15 +225,39 @@ export class CockpitViewModel {
   }
 
   reviewSteer(text: string): boolean {
+    if (!this.state.commandsAvailable) return false;
     const session = this.currentRun();
-    if (!session || session.state !== "running" || !text.trim()) return false;
-    this.steerText = text.trim().slice(0, 500);
+    const reviewed = text.trim();
+    if (!session || session.state !== "running" || !reviewed ||
+        Array.from(reviewed).length > COCKPIT_REVIEW_TEXT_MAX_SCALARS ||
+        !/^[\u0020-\u007e]+$/u.test(reviewed)) return false;
+    this.steerText = reviewed;
     this.mode = "steer_review";
     this.selected = 0;
     return true;
   }
 
+  beginTextAnswer(): boolean {
+    if (!this.state.commandsAvailable) return false;
+    const request = this.currentInteraction();
+    if (request?.kind !== "text_question") return false;
+    this.answerTextValue = "";
+    return true;
+  }
+
+  reviewTextAnswer(value: string): boolean {
+    if (!this.state.commandsAvailable) return false;
+    const request = this.currentInteraction();
+    const answer = value.trim();
+    if (request?.kind !== "text_question" || !safeAnswerText(answer, request.max_length)) return false;
+    this.answerTextValue = answer;
+    this.mode = "text_answer_review";
+    this.selected = 0;
+    return true;
+  }
+
   interruptCurrent(): boolean {
+    if (!this.state.commandsAvailable) return false;
     const session = this.currentRun();
     if (!session || !["running", "waiting_human"].includes(session.state)) return false;
     const commandId = this.actions.interrupt(session.session_id, this.run!.generation);
@@ -236,7 +301,9 @@ export class CockpitViewModel {
     const rows: CockpitScreen["rows"] = session.pending.map((item) => ({
       label: `${item.kind === "permission" ? "!" : "?"} ${item.title}`, tone: "attention",
     }));
-    if (!TERMINAL.has(session.state)) rows.push({ label: "Interrupt run", tone: "attention" });
+    if (!TERMINAL.has(session.state) && this.state.commandsAvailable) {
+      rows.push({ label: "Interrupt run", tone: "attention" });
+    }
     this.selected = Math.min(this.selected, Math.max(0, rows.length - 1));
     return { mode: "detail", title: `${session.title} · ${session.state.toUpperCase()}`, body, rows,
       selected: this.selected, ...this.viewport(rows.length, 3),
@@ -261,12 +328,32 @@ export class CockpitViewModel {
       rows: [{ label: "Send answer" }], selected: 0, footer: "click send · double-click change" };
   }
 
+  private textQuestionScreen(): CockpitScreen {
+    const request = this.currentInteraction();
+    if (request?.kind !== "text_question") return this.retiredRequestScreen("text_question");
+    const visibleLimit = Math.min(request.max_length, COCKPIT_REVIEW_TEXT_MAX_SCALARS);
+    return { mode: "text_question", title: "QUESTION", body: [request.title,
+      `Speak up to ${visibleLimit} printable characters`],
+      rows: [{ label: "Awaiting voice answer" }], selected: 0, footer: "voice answer · double-click back" };
+  }
+
+  private textAnswerReviewScreen(): CockpitScreen {
+    const request = this.currentInteraction();
+    if (request?.kind !== "text_question" || !this.answerTextValue) {
+      return this.retiredRequestScreen("text_answer_review");
+    }
+    return { mode: "text_answer_review", title: "REVIEW ANSWER", body: [request.title, this.answerTextValue],
+      rows: [{ label: "Send answer" }, { label: "Discard", tone: "muted" }], selected: this.selected,
+      footer: "click send · scroll discard" };
+  }
+
   private permissionReviewScreen(): CockpitScreen {
     const request = this.currentInteraction();
     if (request?.kind !== "permission") return this.retiredRequestScreen("permission_review");
     return { mode: "permission_review", title: "APPROVAL REVIEW", body: [
       `Action: ${request.action}`, `Target: ${request.target}`, `Effect: ${request.effect}`,
-    ], rows: [{ label: "Continue to decision" }], selected: 0, footer: "click continue · double-click back" };
+    ], rows: [{ label: "Deny", tone: "attention" }, { label: "Continue to approval" }],
+    selected: this.selected, footer: "deny selected · scroll for approval" };
   }
 
   private permissionDecisionScreen(): CockpitScreen {
@@ -275,7 +362,10 @@ export class CockpitViewModel {
     const rows: CockpitScreen["rows"] = [{ label: "Deny", tone: "attention" }];
     if (request.choices.includes("allow_once")) rows.push({ label: "Approve once" });
     this.selected = Math.min(this.selected, rows.length - 1);
-    return { mode: "permission_decision", title: "EXACT REQUEST", body: ["Approve this request once only?"],
+    return { mode: "permission_decision", title: "EXACT REQUEST", body: [
+      `Action: ${request.action}`, `Target: ${request.target}`, `Effect: ${request.effect}`,
+      "Approve this request once only?",
+    ],
       rows, selected: this.selected,
       footer: "deny selected by default · click confirm" };
   }
@@ -304,9 +394,12 @@ export class CockpitViewModel {
     const item = this.pendingItems()[this.selected];
     if (!item) return;
     this.run = { sessionId: item.session.session_id, generation: item.session.generation };
-    this.request = { ...this.run, requestId: item.request.request_id };
+    this.request = { ...this.run, requestId: item.request.request_id,
+      reviewNonce: item.request.nonce,
+      reviewFingerprint: cockpitInteractionFingerprint(item.request) };
     this.requestOrigin = "inbox";
-    this.mode = item.request.kind === "question" ? "question" : "permission_review";
+    this.mode = item.request.kind === "question" ? "question"
+      : item.request.kind === "text_question" ? "text_question" : "permission_review";
     this.selected = 0;
   }
 
@@ -315,22 +408,27 @@ export class CockpitViewModel {
     if (!session) return;
     const request = session.pending[this.selected];
     if (request) {
-      this.request = { ...this.run!, requestId: request.request_id };
+      this.request = { ...this.run!, requestId: request.request_id,
+        reviewNonce: request.nonce,
+        reviewFingerprint: cockpitInteractionFingerprint(request) };
       this.requestOrigin = "detail";
-      this.mode = request.kind === "question" ? "question" : "permission_review";
+      this.mode = request.kind === "question" ? "question"
+        : request.kind === "text_question" ? "text_question" : "permission_review";
       this.selected = 0;
       return;
     }
-    if (!TERMINAL.has(session.state) && this.selected === session.pending.length) {
+    if (this.state.commandsAvailable && !TERMINAL.has(session.state) && this.selected === session.pending.length) {
       this.mode = "interrupt_review";
       this.selected = 0;
     }
   }
 
   private submitAnswer(): void {
+    if (!this.state.commandsAvailable) return;
     const request = this.currentInteraction();
     if (request?.kind !== "question" || !this.selectedChoiceId || !this.request) return;
-    const commandId = this.actions.answer(this.request.sessionId, this.request.generation, request.request_id, this.selectedChoiceId);
+    const commandId = this.actions.answer(this.request.sessionId, this.request.generation, request.request_id,
+      this.selectedChoiceId, this.request.reviewNonce, this.request.reviewFingerprint);
     if (commandId) {
       this.pendingCommandId = commandId;
       this.mode = "submitting";
@@ -338,11 +436,33 @@ export class CockpitViewModel {
     }
   }
 
-  private submitPermission(): void {
+  private submitTextAnswer(): void {
+    if (!this.state.commandsAvailable) return;
+    const request = this.currentInteraction();
+    if (request?.kind !== "text_question" || !this.request || !this.answerTextValue) return;
+    if (this.selected === 1) {
+      this.answerTextValue = "";
+      this.mode = "text_question";
+      this.selected = 0;
+      return;
+    }
+    const commandId = this.actions.answerText(this.request.sessionId, this.request.generation,
+      request.request_id, this.answerTextValue, this.request.reviewNonce, this.request.reviewFingerprint);
+    if (commandId) {
+      this.pendingCommandId = commandId;
+      this.mode = "submitting";
+      this.selected = 0;
+    }
+  }
+
+  private submitPermission(explicitDecision?: "deny" | "allow_once"): void {
+    if (!this.state.commandsAvailable) return;
     const request = this.currentInteraction();
     if (request?.kind !== "permission" || !this.request) return;
-    const decision = this.selected === 0 ? "deny" : "allow_once";
-    const commandId = this.actions.decidePermission(this.request.sessionId, this.request.generation, request.request_id, decision);
+    const decision = explicitDecision ?? (this.selected === 0 ? "deny" : "allow_once");
+    if (!request.choices.includes(decision)) return;
+    const commandId = this.actions.decidePermission(this.request.sessionId, this.request.generation, request.request_id,
+      decision, this.request.reviewNonce, this.request.reviewFingerprint);
     if (commandId) {
       this.pendingCommandId = commandId;
       this.mode = "submitting";
@@ -352,6 +472,18 @@ export class CockpitViewModel {
 
   private submitInterrupt(): void {
     this.interruptCurrent();
+  }
+
+  private asReadOnly(screen: CockpitScreen): CockpitScreen {
+    const browsable = ["active", "inbox", "detail"].includes(screen.mode);
+    return {
+      ...screen,
+      body: ["READ ONLY · Hermes is not accepting commands.", ...screen.body],
+      rows: browsable ? screen.rows : screen.rows.map((row) => ({ ...row, tone: "muted" as const })),
+      footer: browsable
+        ? "read only · browse · double-click back"
+        : "read only · actions disabled · double-click back",
+    };
   }
 
   private viewport(rowCount: number, visibleRows = 7): { scrollOffset: number; visibleRows: number } {
@@ -378,6 +510,14 @@ export class CockpitViewModel {
   private currentInteraction(): CockpitInteraction | null {
     const session = this.currentRun();
     if (!session || !this.request || this.request.generation !== session.generation) return null;
-    return session.pending.find((item) => item.request_id === this.request!.requestId) ?? null;
+    const current = session.pending.find((item) => item.request_id === this.request!.requestId) ?? null;
+    return current && current.nonce === this.request.reviewNonce &&
+      cockpitInteractionFingerprint(current) === this.request.reviewFingerprint ? current : null;
   }
+}
+
+function safeAnswerText(value: string, maxLength: number): boolean {
+  return value.length > 0 &&
+    Array.from(value).length <= Math.min(maxLength, COCKPIT_REVIEW_TEXT_MAX_SCALARS) &&
+    /^[\u0020-\u007e]+$/u.test(value) && !/[<>`]/u.test(value);
 }
