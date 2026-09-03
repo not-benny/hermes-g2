@@ -7,7 +7,7 @@
   "main": "main.js",
   "dependencies": {
     "@whiskeysockets/baileys": "7.0.0-rc13",
-    "express": "^4.21.0",
+    "express": "^5.2.1",
     "pino": "^9.0.0"
   }
 }
