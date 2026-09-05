@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@nativescript/core": "~9.0.20",
+    "@nativescript/core": "~9.1.1",
     "@nativescript/theme": "^3.1.0",
     "@xterm/headless": "^6.0.0",
     "hermes-private-ws": "npm:ws@8.21.3",
